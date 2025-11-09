@@ -6,7 +6,7 @@ mod transaction;
 
 use anyhow::Result;
 use clap::Parser;
-use cli::{Cli, Commands, SimulateArgs};
+use cli::{Cli, Commands, ParseArgs, SimulateArgs, TransactionInputArgs};
 
 fn main() {
     if let Err(err) = run() {
@@ -20,18 +20,22 @@ fn run() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
         Commands::Simulate(args) => handle_simulate(args)?,
+        Commands::Parse(args) => handle_parse(args)?,
     }
     Ok(())
 }
 
 fn handle_simulate(args: SimulateArgs) -> Result<()> {
     let SimulateArgs {
-        tx,
-        tx_file,
+        transaction,
         rpc_url,
         replacements: replacement_args,
-        output,
     } = args;
+    let TransactionInputArgs {
+        tx,
+        tx_file,
+        output,
+    } = transaction;
 
     let replacements = replacement_args
         .into_iter()
@@ -55,5 +59,26 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
         executor.replacements(),
         output,
     )?;
+    Ok(())
+}
+
+fn handle_parse(args: ParseArgs) -> Result<()> {
+    let ParseArgs {
+        transaction,
+        rpc_url,
+    } = args;
+    let TransactionInputArgs {
+        tx,
+        tx_file,
+        output,
+    } = transaction;
+
+    let raw_input = transaction::read_raw_transaction(tx, tx_file.as_deref())?;
+    let parsed_tx = transaction::parse_raw_transaction(&raw_input)?;
+
+    let account_loader = account_loader::AccountLoader::new(rpc_url)?;
+    let resolved_accounts = account_loader.load_for_transaction(&parsed_tx.transaction, &[])?;
+
+    output::render_transaction_only(&parsed_tx, &resolved_accounts, output)?;
     Ok(())
 }

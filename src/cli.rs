@@ -14,16 +14,14 @@ pub struct Cli {
 pub enum Commands {
     /// 模拟指定原始交易
     Simulate(SimulateArgs),
+    /// 解析原始交易并打印交易详情
+    Parse(ParseArgs),
 }
 
 #[derive(Args, Debug)]
 pub struct SimulateArgs {
-    /// 原始交易字符串（Base58/Base64），与 --tx-file 互斥
-    #[arg(short = 't', long, conflicts_with = "tx_file", value_name = "STRING")]
-    pub tx: Option<String>,
-    /// 包含原始交易的文件路径，与 --tx 互斥
-    #[arg(long = "tx-file", value_name = "PATH", conflicts_with = "tx")]
-    pub tx_file: Option<PathBuf>,
+    #[command(flatten)]
+    pub transaction: TransactionInputArgs,
     /// Solana RPC 节点地址
     #[arg(
         long = "rpc-url",
@@ -37,9 +35,31 @@ pub struct SimulateArgs {
         value_parser = clap::builder::NonEmptyStringValueParser::new()
     )]
     pub replacements: Vec<String>,
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct TransactionInputArgs {
+    /// 原始交易字符串（Base58/Base64），与 --tx-file 互斥
+    #[arg(short = 't', long, conflicts_with = "tx_file", value_name = "STRING")]
+    pub tx: Option<String>,
+    /// 包含原始交易的文件路径，与 --tx 互斥
+    #[arg(long = "tx-file", value_name = "PATH", conflicts_with = "tx")]
+    pub tx_file: Option<PathBuf>,
     /// 输出格式
     #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
     pub output: OutputFormat,
+}
+
+#[derive(Args, Debug)]
+pub struct ParseArgs {
+    #[command(flatten)]
+    pub transaction: TransactionInputArgs,
+    /// Solana RPC 节点地址
+    #[arg(
+        long = "rpc-url",
+        default_value = "https://api.mainnet-beta.solana.com"
+    )]
+    pub rpc_url: String,
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum, Default)]

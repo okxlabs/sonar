@@ -27,3 +27,25 @@ fn simulate_real_transaction_via_cli() -> Result<(), Box<dyn std::error::Error>>
     }
     Ok(())
 }
+
+#[test]
+#[ignore]
+fn parse_real_transaction_via_cli() -> Result<(), Box<dyn std::error::Error>> {
+    let mut cmd = Command::cargo_bin("solsim")?;
+    cmd.arg("parse")
+        .arg("--tx")
+        .arg(V0_RAW_TX)
+        .arg("--rpc-url")
+        .arg("https://api.mainnet-beta.solana.com")
+        .arg("--output")
+        .arg("text");
+
+    let assert = cmd.assert().success();
+    let output = assert.get_output();
+
+    println!("STDOUT:\n{}", String::from_utf8_lossy(&output.stdout));
+    if !output.stderr.is_empty() {
+        println!("STDERR:\n{}", String::from_utf8_lossy(&output.stderr));
+    }
+    Ok(())
+}

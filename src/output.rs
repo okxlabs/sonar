@@ -28,27 +28,54 @@ pub fn render(
     }
 }
 
+pub fn render_transaction_only(
+    parsed: &ParsedTransaction,
+    resolved: &ResolvedAccounts,
+    format: OutputFormat,
+) -> Result<()> {
+    let resolver = LookupResolver::new(resolved.lookup_details());
+    let transaction = TransactionSection::from_sources(parsed, resolved, &resolver);
+    match format {
+        OutputFormat::Text => {
+            render_transaction_section_text(&transaction);
+            Ok(())
+        }
+        OutputFormat::Json => {
+            let json = serde_json::to_string_pretty(&transaction)?;
+            println!("{json}");
+            Ok(())
+        }
+    }
+}
+
 fn render_text(report: &Report) -> Result<()> {
+    render_transaction_section_text(&report.transaction);
+    render_replacements_text(&report.replacements);
+    render_simulation_text(&report.simulation);
+    Ok(())
+}
+
+fn render_transaction_section_text(transaction: &TransactionSection) {
     println!("=== 交易概要 ===");
-    println!("编码: {}", report.transaction.encoding);
-    println!("版本: {}", report.transaction.version);
-    println!("Recent Blockhash: {}", report.transaction.recent_blockhash);
+    println!("编码: {}", transaction.encoding);
+    println!("版本: {}", transaction.version);
+    println!("Recent Blockhash: {}", transaction.recent_blockhash);
     println!("签名:");
-    for sig in &report.transaction.signatures {
+    for sig in &transaction.signatures {
         println!("  - {}", sig);
     }
 
     println!("\n账户列表:");
-    for account in &report.transaction.static_accounts {
+    for account in &transaction.static_accounts {
         println!(
             "  [{}] {} (signer: {}, writable: {})",
             account.index, account.pubkey, account.signer, account.writable
         );
     }
 
-    if !report.transaction.lookups.is_empty() {
+    if !transaction.lookups.is_empty() {
         println!("\n地址查找表:");
-        for lookup in &report.transaction.lookups {
+        for lookup in &transaction.lookups {
             println!("  表: {}", lookup.account_key);
             if !lookup.writable.is_empty() {
                 println!("    可写账户:");
@@ -66,7 +93,7 @@ fn render_text(report: &Report) -> Result<()> {
     }
 
     println!("\n指令详情:");
-    for ix in &report.transaction.instructions {
+    for ix in &transaction.instructions {
         println!("  #{} 程序: {}", ix.index, ix.program.pubkey);
         for account in &ix.accounts {
             println!(
@@ -82,16 +109,22 @@ fn render_text(report: &Report) -> Result<()> {
         }
         println!("    数据长度: {} bytes", ix.data_length);
     }
+}
 
-    if !report.replacements.is_empty() {
-        println!("\n替换程序:");
-        for replacement in &report.replacements {
-            println!("  - {} <= {}", replacement.program_id, replacement.path);
-        }
+fn render_replacements_text(replacements: &[ReplacementSection]) {
+    if replacements.is_empty() {
+        return;
     }
 
+    println!("\n替换程序:");
+    for replacement in replacements {
+        println!("  - {} <= {}", replacement.program_id, replacement.path);
+    }
+}
+
+fn render_simulation_text(simulation: &SimulationSection) {
     println!("\n=== 模拟结果 ===");
-    match &report.simulation.status {
+    match &simulation.status {
         SimulationStatusReport::Succeeded => {
             println!("状态: 成功");
         }
@@ -99,16 +132,16 @@ fn render_text(report: &Report) -> Result<()> {
             println!("状态: 失败 ({error})");
         }
     }
-    println!("消耗计算单元: {}", report.simulation.compute_units_consumed);
-    println!("日志条数: {}", report.simulation.logs.len());
-    if !report.simulation.logs.is_empty() {
+    println!("消耗计算单元: {}", simulation.compute_units_consumed);
+    println!("日志条数: {}", simulation.logs.len());
+    if !simulation.logs.is_empty() {
         println!("日志内容:");
-        for line in &report.simulation.logs {
+        for line in &simulation.logs {
             println!("  {}", line);
         }
     }
 
-    if let Some(return_data) = &report.simulation.return_data {
+    if let Some(return_data) = &simulation.return_data {
         println!(
             "返回数据: 程序 {} ({} bytes, base64: {})",
             return_data.program_id,
@@ -117,9 +150,7 @@ fn render_text(report: &Report) -> Result<()> {
         );
     }
 
-    println!("返回账户数量: {}", report.simulation.post_account_count);
-
-    Ok(())
+    println!("返回账户数量: {}", simulation.post_account_count);
 }
 
 fn render_json(report: &Report) -> Result<()> {
@@ -288,11 +319,14 @@ impl InstructionSection {
         summary: &crate::transaction::InstructionSummary,
         resolver: &LookupResolver,
     ) -> Self {
-        let program = InstructionAccountEntry::from_reference(&summary.program, resolver);
+        let program =
+            InstructionAccountEntry::from_reference_with_resolver(&summary.program, Some(resolver));
         let accounts = summary
             .accounts
             .iter()
-            .map(|account| InstructionAccountEntry::from_reference(account, resolver))
+            .map(|account| {
+                InstructionAccountEntry::from_reference_with_resolver(account, Some(resolver))
+            })
             .collect();
         Self {
             index: summary.index,
@@ -315,7 +349,10 @@ struct InstructionAccountEntry {
 }
 
 impl InstructionAccountEntry {
-    fn from_reference(reference: &AccountReferenceSummary, resolver: &LookupResolver) -> Self {
+    fn from_reference_with_resolver(
+        reference: &AccountReferenceSummary,
+        resolver: Option<&LookupResolver>,
+    ) -> Self {
         let (pubkey, source, lookup_table) = match &reference.source {
             AccountSourceSummary::Static => (
                 reference
@@ -330,8 +367,11 @@ impl InstructionAccountEntry {
                 lookup_index,
                 writable,
             } => {
-                let key = resolver.resolve(table_account, *writable, *lookup_index);
-                let pubkey = key.unwrap_or_else(|| "<lookup-not-resolved>".into());
+                let resolved =
+                    resolver.and_then(|res| res.resolve(table_account, *writable, *lookup_index));
+                let pubkey = resolved
+                    .or_else(|| reference.pubkey.clone())
+                    .unwrap_or_else(|| "<lookup-not-resolved>".into());
                 let lookup_ref = LookupReference {
                     account_key: table_account.clone(),
                     index: *lookup_index,
