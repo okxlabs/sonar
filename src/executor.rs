@@ -7,10 +7,9 @@ use log::info;
 use solana_account::{Account, AccountSharedData};
 use solana_clock::Clock;
 use solana_pubkey::Pubkey as LitePubkey;
-use solana_sdk::{
-    bpf_loader_upgradeable::{self, UpgradeableLoaderState},
-    transaction::VersionedTransaction,
-};
+use solana_sdk::transaction::VersionedTransaction;
+use solana_loader_v3_interface::state::UpgradeableLoaderState;
+use solana_sdk_ids::bpf_loader_upgradeable;
 use solana_transaction::versioned::VersionedTransaction as LiteVersionedTransaction;
 
 use crate::{
@@ -139,7 +138,8 @@ fn convert_versioned_transaction(tx: &VersionedTransaction) -> Result<LiteVersio
 }
 
 fn account_priority(account: &Account) -> u8 {
-    if sdk_pubkey_from_lite(&account.owner) == bpf_loader_upgradeable::id() {
+    let bpf_loader_id = solana_sdk::pubkey::Pubkey::new_from_array(bpf_loader_upgradeable::id().to_bytes());
+    if sdk_pubkey_from_lite(&account.owner) == bpf_loader_id {
         if let Ok(state) = bincode::deserialize::<UpgradeableLoaderState>(account.data.as_slice()) {
             return match state {
                 UpgradeableLoaderState::ProgramData { .. } => 0,

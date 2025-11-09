@@ -147,7 +147,7 @@ cargo run -- simulate \
 
 ## Known Issues and Technical Debt
 
-1. **Deprecated API Usage**: Currently uses deprecated `solana_sdk::bpf_loader_upgradeable` (should migrate to `solana-loader-v3-interface`)
+1. **~~Deprecated API Usage~~**: ✅ Fixed - Migrated from deprecated `solana_sdk::bpf_loader_upgradeable` to `solana-loader-v3-interface` and `solana-sdk-ids`
 2. **Unused Field**: `deactivation_slot` in `ResolvedLookup` struct is never read
 3. **Chinese Comments**: All user-facing messages and comments are in Chinese - maintain this convention
 

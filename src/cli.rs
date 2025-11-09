@@ -1,7 +1,7 @@
 use std::{path::PathBuf, str::FromStr};
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
-use solana_sdk::pubkey::Pubkey;
+use solana_pubkey::Pubkey;
 
 #[derive(Parser, Debug)]
 #[command(name = "solsim", version, about = "Solana Transaction Simulator based on LiteSVM")]

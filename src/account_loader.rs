@@ -12,13 +12,14 @@ use solana_clock::Slot;
 use solana_pubkey::Pubkey as LitePubkey;
 use solana_sdk::{
     account::Account as LegacyAccount,
-    bpf_loader_upgradeable::{self, UpgradeableLoaderState},
     clock::Clock,
     pubkey::Pubkey,
     slot_hashes::SlotHashes,
     sysvar::SysvarId,
     transaction::VersionedTransaction,
 };
+use solana_loader_v3_interface::state::UpgradeableLoaderState;
+use solana_sdk_ids::bpf_loader_upgradeable;
 use std::sync::Mutex;
 
 use crate::{
@@ -109,7 +110,8 @@ impl AccountLoader {
         loop {
             let mut missing = Vec::new();
             for account in accounts.values() {
-                if sdk_pubkey_from_lite(&account.owner) != bpf_loader_upgradeable::id() {
+                let bpf_loader_id = Pubkey::new_from_array(bpf_loader_upgradeable::id().to_bytes());
+                if sdk_pubkey_from_lite(&account.owner) != bpf_loader_id {
                     continue;
                 }
                 if let Ok(state) =
@@ -119,8 +121,9 @@ impl AccountLoader {
                         programdata_address,
                     } = state
                     {
-                        if !accounts.contains_key(&programdata_address) {
-                            missing.push(programdata_address);
+                        let programdata_key = Pubkey::new_from_array(programdata_address.to_bytes());
+                        if !accounts.contains_key(&programdata_key) {
+                            missing.push(programdata_key);
                         }
                     }
                 }
