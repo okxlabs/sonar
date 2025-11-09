@@ -10,7 +10,7 @@ use cli::{Cli, Commands, ParseArgs, SimulateArgs, TransactionInputArgs};
 
 fn main() {
     if let Err(err) = run() {
-        eprintln!("执行失败: {err:?}");
+        eprintln!("Execution failed: {err:?}");
         std::process::exit(1);
     }
 }

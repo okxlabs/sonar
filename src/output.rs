@@ -56,16 +56,16 @@ fn render_text(report: &Report) -> Result<()> {
 }
 
 fn render_transaction_section_text(transaction: &TransactionSection) {
-    println!("=== 交易概要 ===");
-    println!("编码: {}", transaction.encoding);
-    println!("版本: {}", transaction.version);
+    println!("=== Transaction Overview ===");
+    println!("Encoding: {}", transaction.encoding);
+    println!("Version: {}", transaction.version);
     println!("Recent Blockhash: {}", transaction.recent_blockhash);
-    println!("签名:");
+    println!("Signatures:");
     for sig in &transaction.signatures {
         println!("  - {}", sig);
     }
 
-    println!("\n账户列表:");
+    println!("\nAccount List:");
     for account in &transaction.static_accounts {
         println!(
             "  [{}] {} (signer: {}, writable: {})",
@@ -74,17 +74,17 @@ fn render_transaction_section_text(transaction: &TransactionSection) {
     }
 
     if !transaction.lookups.is_empty() {
-        println!("\n地址查找表:");
+        println!("\nAddress Lookup Tables:");
         for lookup in &transaction.lookups {
-            println!("  表: {}", lookup.account_key);
+            println!("  Table: {}", lookup.account_key);
             if !lookup.writable.is_empty() {
-                println!("    可写账户:");
+                println!("    Writable Accounts:");
                 for entry in &lookup.writable {
                     println!("      - [{}] {}", entry.index, entry.pubkey);
                 }
             }
             if !lookup.readonly.is_empty() {
-                println!("    只读账户:");
+                println!("    Read-only Accounts:");
                 for entry in &lookup.readonly {
                     println!("      - [{}] {}", entry.index, entry.pubkey);
                 }
@@ -92,9 +92,9 @@ fn render_transaction_section_text(transaction: &TransactionSection) {
         }
     }
 
-    println!("\n指令详情:");
+    println!("\nInstruction Details:");
     for ix in &transaction.instructions {
-        println!("  #{} 程序: {}", ix.index, ix.program.pubkey);
+        println!("  #{} Program: {}", ix.index, ix.program.pubkey);
         for account in &ix.accounts {
             println!(
                 "    - [{}] {} (signer: {}, writable: {}, source: {})",
@@ -107,7 +107,7 @@ fn render_transaction_section_text(transaction: &TransactionSection) {
             //     );
             // }
         }
-        println!("    数据长度: {} bytes", ix.data_length);
+        println!("    Data Length: {} bytes", ix.data_length);
     }
 }
 
@@ -116,26 +116,26 @@ fn render_replacements_text(replacements: &[ReplacementSection]) {
         return;
     }
 
-    println!("\n替换程序:");
+    println!("\nProgram Replacements:");
     for replacement in replacements {
         println!("  - {} <= {}", replacement.program_id, replacement.path);
     }
 }
 
 fn render_simulation_text(simulation: &SimulationSection) {
-    println!("\n=== 模拟结果 ===");
+    println!("\n=== Simulation Result ===");
     match &simulation.status {
         SimulationStatusReport::Succeeded => {
-            println!("状态: 成功");
+            println!("Status: Success");
         }
         SimulationStatusReport::Failed { error } => {
-            println!("状态: 失败 ({error})");
+            println!("Status: Failed ({error})");
         }
     }
-    println!("消耗计算单元: {}", simulation.compute_units_consumed);
-    println!("日志条数: {}", simulation.logs.len());
+    println!("Compute Units Consumed: {}", simulation.compute_units_consumed);
+    println!("Log Entries: {}", simulation.logs.len());
     if !simulation.logs.is_empty() {
-        println!("日志内容:");
+        println!("Log Content:");
         for line in &simulation.logs {
             println!("  {}", line);
         }
@@ -143,14 +143,14 @@ fn render_simulation_text(simulation: &SimulationSection) {
 
     if let Some(return_data) = &simulation.return_data {
         println!(
-            "返回数据: 程序 {} ({} bytes, base64: {})",
+            "Return Data: Program {} ({} bytes, base64: {})",
             return_data.program_id,
             return_data.size,
             truncate_display(&return_data.data_base64, 120)
         );
     }
 
-    println!("返回账户数量: {}", simulation.post_account_count);
+    println!("Returned Account Count: {}", simulation.post_account_count);
 }
 
 fn render_json(report: &Report) -> Result<()> {

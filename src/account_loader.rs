@@ -36,7 +36,7 @@ pub struct AccountLoader {
 impl AccountLoader {
     pub fn new(rpc_url: String) -> Result<Self> {
         if rpc_url.is_empty() {
-            return Err(anyhow!("RPC URL 不能为空"));
+            return Err(anyhow!("RPC URL cannot be empty"));
         }
         Ok(Self {
             client: Arc::new(RpcClient::new(rpc_url)),
@@ -52,22 +52,22 @@ impl AccountLoader {
         let plan = collect_account_plan(tx);
         let mut accounts = HashMap::new();
 
-        // 预先加载静态账户
+        // Pre-load static accounts
         self.fetch_accounts(&plan.static_accounts, &mut accounts)
-            .context("拉取静态账户信息失败")?;
+            .context("Failed to fetch static account info")?;
 
         self.fetch_accounts(&[Clock::id(), SlotHashes::id()], &mut accounts)
-            .context("拉取系统变量账户失败")?;
+            .context("Failed to fetch sysvar accounts")?;
 
         self.ensure_upgradeable_dependencies(&mut accounts)
-            .context("加载可升级程序元数据失败")?;
+            .context("Failed to load upgradeable program metadata")?;
 
         let mut lookups = Vec::new();
         let mut writable_lookup_accounts = Vec::new();
         let mut readonly_lookup_accounts = Vec::new();
 
-        // 处理地址查找表
-        // 与 `build_lookup_locations` 保持一致的顺序：先聚合所有可写索引，再聚合所有只读索引
+        // Process address lookup tables
+        // Maintain consistent order with `build_lookup_locations`: aggregate all writable indexes first, then all readonly indexes
         for lookup_plan in &plan.address_lookups {
             let resolved = self.load_lookup_table(lookup_plan, &mut accounts)?;
             writable_lookup_accounts.extend(resolved.writable_addresses.iter().copied());
@@ -79,24 +79,24 @@ impl AccountLoader {
             self.fetch_accounts(&writable_lookup_accounts, &mut accounts)
                 .with_context(|| {
                     format!(
-                        "加载地址查找表可写账户失败: [{}]",
+                        "Failed to load writable accounts from address lookup table: [{}]",
                         format_pubkeys(&writable_lookup_accounts)
                     )
                 })?;
             self.ensure_upgradeable_dependencies(&mut accounts)
-                .context("处理地址查找表可写账户时加载可升级程序依赖失败")?;
+                .context("Failed to load upgradeable program dependencies when processing writable accounts from address lookup table")?;
         }
 
         if !readonly_lookup_accounts.is_empty() {
             self.fetch_accounts(&readonly_lookup_accounts, &mut accounts)
                 .with_context(|| {
                     format!(
-                        "加载地址查找表只读账户失败: [{}]",
+                        "Failed to load readonly accounts from address lookup table: [{}]",
                         format_pubkeys(&readonly_lookup_accounts)
                     )
                 })?;
             self.ensure_upgradeable_dependencies(&mut accounts)
-                .context("处理地址查找表只读账户时加载可升级程序依赖失败")?;
+                .context("Failed to load upgradeable program dependencies when processing readonly accounts from address lookup table")?;
         }
 
         Ok(ResolvedAccounts { accounts, lookups })
@@ -131,7 +131,7 @@ impl AccountLoader {
             }
 
             self.fetch_accounts(&missing, accounts).with_context(|| {
-                format!("拉取 ProgramData 账户失败: [{}]", format_pubkeys(&missing))
+                format!("Failed to fetch ProgramData accounts: [{}]", format_pubkeys(&missing))
             })?;
         }
 
@@ -143,23 +143,23 @@ impl AccountLoader {
         plan: &AddressLookupPlan,
         accounts: &mut HashMap<Pubkey, Account>,
     ) -> Result<ResolvedLookup> {
-        // 获取查找表账户
+        // Fetch lookup table account
         self.fetch_accounts(&[plan.account_key], accounts)
-            .with_context(|| format!("获取地址查找表账户 `{}` 失败", plan.account_key))?;
+            .with_context(|| format!("Failed to fetch address lookup table account `{}`", plan.account_key))?;
 
         let table_account = accounts
             .get(&plan.account_key)
-            .ok_or_else(|| anyhow!("缓存中缺少地址查找表账户 `{}`", plan.account_key))?;
+            .ok_or_else(|| anyhow!("Address lookup table account `{}` missing from cache", plan.account_key))?;
 
         let lookup_table = AddressLookupTable::deserialize(table_account.data())
-            .map_err(|err| anyhow!("解析地址查找表 `{}` 失败: {err}", plan.account_key))?;
+            .map_err(|err| anyhow!("Failed to parse address lookup table `{}`: {err}", plan.account_key))?;
         let meta = lookup_table.meta.clone();
         let all_addresses = lookup_table.addresses.to_vec();
 
         let writable_addresses = resolve_lookup_indexes(&all_addresses, &plan.writable_indexes)
-            .with_context(|| format!("解析地址查找表 `{}` 的可写索引失败", plan.account_key))?;
+            .with_context(|| format!("Failed to parse writable indexes for address lookup table `{}`", plan.account_key))?;
         let readonly_addresses = resolve_lookup_indexes(&all_addresses, &plan.readonly_indexes)
-            .with_context(|| format!("解析地址查找表 `{}` 的只读索引失败", plan.account_key))?;
+            .with_context(|| format!("Failed to parse readonly indexes for address lookup table `{}`", plan.account_key))?;
 
         Ok(ResolvedLookup {
             account_key: plan.account_key,
@@ -193,7 +193,7 @@ impl AccountLoader {
         }
 
         trace!(
-            "准备拉取 {} 个账户: [{}]",
+            "Preparing to fetch {} accounts: [{}]",
             unique.len(),
             format_pubkeys(&unique)
         );
@@ -217,14 +217,14 @@ impl AccountLoader {
         for chunk in to_fetch.chunks(MAX_ACCOUNTS_PER_REQUEST) {
             let response = self.client.get_multiple_accounts(chunk).with_context(|| {
                 format!(
-                    "调用 getMultipleAccounts 失败，账户列表: [{}]",
+                    "getMultipleAccounts call failed, account list: [{}]",
                     format_pubkeys(chunk)
                 )
             })?;
 
             if response.len() != chunk.len() {
                 return Err(anyhow!(
-                    "RPC 返回数量与请求不匹配 ({} != {})",
+                    "RPC returned count mismatch with request ({} != {})",
                     response.len(),
                     chunk.len()
                 ));
@@ -236,7 +236,7 @@ impl AccountLoader {
                     None => match self.client.get_account(pubkey) {
                         Ok(single) => convert_account(single),
                         Err(err) => {
-                            warn!("单账户拉取失败 `{pubkey}`: {err}; 使用占位账户");
+                            warn!("Single account fetch failed `{pubkey}`: {err}; using placeholder account");
                             synthesize_missing_account(pubkey)
                         }
                     },
@@ -249,7 +249,7 @@ impl AccountLoader {
             }
         }
 
-        debug!("成功拉取账户: [{}]", format_pubkeys(pubkeys));
+        debug!("Successfully fetched accounts: [{}]", format_pubkeys(pubkeys));
         Ok(())
     }
 }
@@ -278,7 +278,7 @@ fn resolve_lookup_indexes(addresses: &[Pubkey], indexes: &[u8]) -> Result<Vec<Pu
             addresses
                 .get(*idx as usize)
                 .copied()
-                .ok_or_else(|| anyhow!("索引 {idx} 超出地址查找表范围"))
+                .ok_or_else(|| anyhow!("Index {idx} out of address lookup table range"))
         })
         .collect()
 }
@@ -297,7 +297,7 @@ fn format_pubkeys(pubkeys: &[Pubkey]) -> String {
         .take(MAX_DISPLAY)
         .map(ToString::to_string)
         .collect::<Vec<_>>();
-    rendered.push(format!("... 共 {} 个", pubkeys.len()));
+    rendered.push(format!("... total {}", pubkeys.len()));
     rendered.join(", ")
 }
 
@@ -316,7 +316,7 @@ fn sdk_pubkey_from_lite(pubkey: &LitePubkey) -> Pubkey {
 }
 
 fn synthesize_missing_account(pubkey: &Pubkey) -> Account {
-    warn!("链上未找到账户 `{pubkey}`，使用空白占位账户继续模拟");
+    warn!("Account `{pubkey}` not found on-chain, using blank placeholder account to continue simulation");
     Account {
         lamports: 0,
         data: Vec::new(),

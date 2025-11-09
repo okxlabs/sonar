@@ -43,7 +43,7 @@ impl TransactionExecutor {
 
         for replacement in &replacements {
             info!(
-                "加载自定义程序 {} => {}",
+                "Loading custom program {} => {}",
                 replacement.program_id,
                 replacement.so_path.display()
             );
@@ -51,7 +51,7 @@ impl TransactionExecutor {
             svm.add_program_from_file(program_pubkey, &replacement.so_path)
                 .with_context(|| {
                     format!(
-                        "加载替换程序 `{}` 失败，路径: {}",
+                        "Failed to load replacement program `{}`, path: {}",
                         replacement.program_id,
                         replacement.so_path.display()
                     )
@@ -111,7 +111,7 @@ impl TransactionExecutor {
 
 fn set_account(svm: &mut LiteSVM, pubkey: LitePubkey, account: Account) -> Result<()> {
     svm.set_account(pubkey, account)
-        .map_err(|err| anyhow!("写入账户 `{pubkey}` 到 LiteSVM 失败: {err}"))
+        .map_err(|err| anyhow!("Failed to write account `{pubkey}` to LiteSVM: {err}"))
 }
 
 #[derive(Debug)]
@@ -134,8 +134,8 @@ impl ResolvedAccounts {
 }
 
 fn convert_versioned_transaction(tx: &VersionedTransaction) -> Result<LiteVersionedTransaction> {
-    let bytes = bincode::serialize(tx).map_err(|err| anyhow!("序列化交易失败: {err}"))?;
-    bincode::deserialize(&bytes).map_err(|err| anyhow!("转换交易格式失败: {err}"))
+    let bytes = bincode::serialize(tx).map_err(|err| anyhow!("Failed to serialize transaction: {err}"))?;
+    bincode::deserialize(&bytes).map_err(|err| anyhow!("Failed to convert transaction format: {err}"))
 }
 
 fn account_priority(account: &Account) -> u8 {

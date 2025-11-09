@@ -115,33 +115,33 @@ pub fn read_raw_transaction(inline: Option<String>, tx_file: Option<&Path>) -> R
         (Some(tx), None) => {
             let trimmed = tx.trim();
             if trimmed.is_empty() {
-                Err(anyhow!("原始交易字符串不能为空"))
+                Err(anyhow!("Raw transaction string cannot be empty"))
             } else {
                 Ok(trimmed.to_owned())
             }
         }
         (None, Some(path)) => {
             let content = std::fs::read_to_string(path)
-                .with_context(|| format!("读取交易文件失败: {}", path.display()))?;
+                .with_context(|| format!("Failed to read transaction file: {}", path.display()))?;
             let trimmed = content.trim();
             if trimmed.is_empty() {
                 Err(anyhow!(
-                    "文件 `{}` 不包含有效的原始交易内容",
+                    "File `{}` does not contain valid raw transaction content",
                     path.display()
                 ))
             } else {
                 Ok(trimmed.to_owned())
             }
         }
-        (Some(_), Some(_)) => Err(anyhow!("请仅指定 --tx 或 --tx-file 中的一个参数")),
-        (None, None) => Err(anyhow!("未提供原始交易，请使用 --tx 或 --tx-file")),
+        (Some(_), Some(_)) => Err(anyhow!("Please specify only one of --tx or --tx-file")),
+        (None, None) => Err(anyhow!("No raw transaction provided, please use --tx or --tx-file")),
     }
 }
 
 pub fn parse_raw_transaction(raw: &str) -> Result<ParsedTransaction> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
-        return Err(anyhow!("原始交易字符串为空"));
+        return Err(anyhow!("Raw transaction string is empty"));
     }
 
     let mut errors = Vec::new();
@@ -164,7 +164,7 @@ pub fn parse_raw_transaction(raw: &str) -> Result<ParsedTransaction> {
                     });
                 }
                 Err(err) => errors.push(anyhow!(
-                    "{} 反序列化失败: {err}",
+                    "{} deserialization failed: {err}",
                     match encoding {
                         RawTransactionEncoding::Base58 => "Base58",
                         RawTransactionEncoding::Base64 => "Base64",
@@ -180,7 +180,7 @@ pub fn parse_raw_transaction(raw: &str) -> Result<ParsedTransaction> {
         .map(|err| err.to_string())
         .collect::<Vec<_>>()
         .join("； ");
-    Err(anyhow!("无法解析原始交易: {merged}"))
+    Err(anyhow!("Failed to parse raw transaction: {merged}"))
 }
 
 pub fn collect_account_plan(tx: &VersionedTransaction) -> MessageAccountPlan {
@@ -194,20 +194,20 @@ fn decode_bytes(input: &str, encoding: RawTransactionEncoding) -> Result<Vec<u8>
             .map_err(|err| map_base58_error(input, err)),
         RawTransactionEncoding::Base64 => BASE64_STANDARD
             .decode(input.as_bytes())
-            .map_err(|err| anyhow!("Base64 解码失败: {err}")),
+            .map_err(|err| anyhow!("Base64 decode failed: {err}")),
     }
 }
 
 fn map_base58_error(input: &str, err: Base58Error) -> anyhow::Error {
     let base_message = match err {
         Base58Error::InvalidCharacter { character, index } => {
-            format!("Base58 解码失败: 第 {index} 位包含非法字符 `{character}`")
+            format!("Base58 decode failed: position {index} contains invalid character `{character}`")
         }
-        other => format!("Base58 解码失败: {other}"),
+        other => format!("Base58 decode failed: {other}"),
     };
 
     if input.contains(['+', '/', '=']) {
-        anyhow!("{base_message}。检测到 Base64 特征字符，可能需要尝试 Base64 编码")
+        anyhow!("{base_message}. Base64 characteristic characters detected, you may need to try Base64 encoding")
     } else {
         anyhow!(base_message)
     }
@@ -277,29 +277,29 @@ impl TransactionSummary {
     }
 }
 
-/// 将账户索引分类为静态账户或 lookup table 账户
+/// Classifies account index as static account or lookup table account
 ///
-/// Solana V0 交易中的账户索引规则：
-/// - 指令（Instruction）中的账户索引是**全局索引**，范围是 [0, total_accounts)
+/// Account index rules in Solana V0 transactions:
+/// - Account indexes in Instructions are **global indexes**, ranging [0, total_accounts)
 /// - total_accounts = static_accounts.len() + lookup_accounts.len()
 ///
-/// 全局索引到账户的映射规则：
-/// 1. 索引 [0, static_accounts.len()) 对应静态账户
-/// 2. 索引 [static_accounts.len(), total_accounts) 对应 lookup table 账户
+/// Global index to account mapping rules:
+/// 1. Indexes [0, static_accounts.len()) map to static accounts
+/// 2. Indexes [static_accounts.len(), total_accounts) map to lookup table accounts
 ///
-/// Lookup table 账户的顺序：
-/// - 对于每个 address_table_lookup（按交易中的顺序）：
-///   a. 首先是该 table 的所有 writable_indexes 对应的账户
-///   b. 然后是该 table 的所有 readonly_indexes 对应的账户
+/// Lookup table account order:
+/// - For each address_table_lookup (in transaction order):
+///   a. First all accounts corresponding to writable_indexes of that table
+///   b. Then all accounts corresponding to readonly_indexes of that table
 ///
-/// # 参数
-/// * `message` - 交易消息，用于查询账户属性
-/// * `index` - 指令中引用的全局账户索引
-/// * `plan` - 账户计划，包含静态账户和 lookup table 信息
-/// * `lookup_locations` - lookup table 账户的位置映射表
+/// # Parameters
+/// * `message` - Transaction message for querying account attributes
+/// * `index` - Global account index referenced in instruction
+/// * `plan` - Account plan containing static accounts and lookup table info
+/// * `lookup_locations` - Position mapping table for lookup table accounts
 ///
-/// # 返回值
-/// 返回账户引用摘要，包含账户的来源、公钥、签名者和可写属性
+/// # Returns
+/// Returns account reference summary containing account source, pubkey, signer, and writable attributes
 fn classify_account_reference(
     message: &VersionedMessage,
     index: usize,
@@ -355,44 +355,44 @@ fn build_address_lookup_plan(message: &VersionedMessage) -> Vec<AddressLookupPla
         .unwrap_or_default()
 }
 
-/// 构建 lookup table 账户位置映射表
+/// Builds lookup table account position mapping table
 ///
-/// 此函数按照 Solana V0 交易规范构建账户索引映射。在 V0 交易中，账户的全局顺序为：
-/// 1. 静态账户 (static_account_keys)
-/// 2. 来自地址查找表的账户，按以下顺序：
-///    - 对于每个 lookup table（按在 address_table_lookups 中的顺序）：
-///      a. 该 table 的所有 writable_indexes 对应的账户
-///      b. 该 table 的所有 readonly_indexes 对应的账户
+/// This function builds account index mapping according to Solana V0 transaction spec. In V0 transactions, global account order is:
+/// 1. Static accounts (static_account_keys)
+/// 2. Accounts from address lookup tables, in the following order:
+///    - For each lookup table (in address_table_lookups order):
+///      a. All accounts corresponding to writable_indexes of that table
+///      b. All accounts corresponding to readonly_indexes of that table
 ///
-/// 返回的 Vec<LookupLocation> 的索引对应于 (全局账户索引 - 静态账户数量)
+/// The index of returned Vec<LookupLocation> corresponds to (global account index - static account count)
 ///
-/// # 参数
-/// * `plan` - 地址查找表计划列表，顺序必须与交易中的 address_table_lookups 一致
+/// # Parameters
+/// * `plan` - Address lookup table plan list, order must match address_table_lookups in transaction
 ///
-/// # 返回值
-/// 返回一个按全局账户索引排序的 lookup location 列表
+/// # Returns
+/// Returns a lookup location list sorted by global account index
 fn build_lookup_locations(plan: &[AddressLookupPlan]) -> Vec<LookupLocation> {
     let mut locations = Vec::new();
 
-    // 遍历每个 lookup table（保持交易中的顺序）
+    // Iterate through each lookup table (maintaining transaction order)
     for entry in plan {
-        // 先添加所有可写账户（Solana 规范要求的顺序）
+        // Add all writable accounts first (order required by Solana spec)
         for &idx in &entry.writable_indexes {
             locations.push(LookupLocation {
                 table_account: entry.account_key,
-                table_index: idx, // lookup table 内部的索引
+                table_index: idx, // Index within lookup table
                 writable: true,
             });
         }
     }
 
-    // 遍历每个 lookup table（保持交易中的顺序）
+    // Iterate through each lookup table (maintaining transaction order)
     for entry in plan {
-        // 再添加所有只读账户
+        // Then add all readonly accounts
         for &idx in &entry.readonly_indexes {
             locations.push(LookupLocation {
                 table_account: entry.account_key,
-                table_index: idx, // lookup table 内部的索引
+                table_index: idx, // Index within lookup table
                 writable: false,
             });
         }
@@ -453,38 +453,38 @@ mod tests {
 
     #[test]
     fn test_build_lookup_locations_ordering() {
-        // 创建两个 lookup table，每个都有可写和只读索引
+        // Create two lookup tables, each with writable and readonly indexes
         let table1 = Pubkey::new_unique();
         let table2 = Pubkey::new_unique();
 
         let plan = vec![
             AddressLookupPlan {
                 account_key: table1,
-                writable_indexes: vec![0, 1], // table1 的可写索引: 0, 1
-                readonly_indexes: vec![2, 3], // table1 的只读索引: 2, 3
+                writable_indexes: vec![0, 1], // table1 writable indexes: 0, 1
+                readonly_indexes: vec![2, 3], // table1 readonly indexes: 2, 3
             },
             AddressLookupPlan {
                 account_key: table2,
-                writable_indexes: vec![5, 6], // table2 的可写索引: 5, 6
-                readonly_indexes: vec![7],    // table2 的只读索引: 7
+                writable_indexes: vec![5, 6], // table2 writable indexes: 5, 6
+                readonly_indexes: vec![7],    // table2 readonly indexes: 7
             },
         ];
 
         let locations = build_lookup_locations(&plan);
 
-        // 验证顺序符合 Solana 规范（按新的实现）：
-        // 先所有表的 writable 索引，再所有表的 readonly 索引
-        // 全局索引 0: table1[0] writable
-        // 全局索引 1: table1[1] writable
-        // 全局索引 2: table2[5] writable
-        // 全局索引 3: table2[6] writable
-        // 全局索引 4: table1[2] readonly
-        // 全局索引 5: table1[3] readonly
-        // 全局索引 6: table2[7] readonly
+        // Verify order complies with Solana spec (per new implementation):
+        // First all tables' writable indexes, then all tables' readonly indexes
+        // Global index 0: table1[0] writable
+        // Global index 1: table1[1] writable
+        // Global index 2: table2[5] writable
+        // Global index 3: table2[6] writable
+        // Global index 4: table1[2] readonly
+        // Global index 5: table1[3] readonly
+        // Global index 6: table2[7] readonly
 
-        assert_eq!(locations.len(), 7, "应该有 7 个 lookup 账户");
+        assert_eq!(locations.len(), 7, "Should have 7 lookup accounts");
 
-        // 验证 table1 的可写账户
+        // Verify table1 writable accounts
         assert_eq!(locations[0].table_account, table1);
         assert_eq!(locations[0].table_index, 0);
         assert_eq!(locations[0].writable, true);
@@ -493,7 +493,7 @@ mod tests {
         assert_eq!(locations[1].table_index, 1);
         assert_eq!(locations[1].writable, true);
 
-        // 验证 table2 的可写账户
+        // Verify table2 writable accounts
         assert_eq!(locations[2].table_account, table2);
         assert_eq!(locations[2].table_index, 5);
         assert_eq!(locations[2].writable, true);
@@ -502,7 +502,7 @@ mod tests {
         assert_eq!(locations[3].table_index, 6);
         assert_eq!(locations[3].writable, true);
 
-        // 验证 table1 的只读账户
+        // Verify table1 readonly accounts
         assert_eq!(locations[4].table_account, table1);
         assert_eq!(locations[4].table_index, 2);
         assert_eq!(locations[4].writable, false);
@@ -511,7 +511,7 @@ mod tests {
         assert_eq!(locations[5].table_index, 3);
         assert_eq!(locations[5].writable, false);
 
-        // 验证 table2 的只读账户
+        // Verify table2 readonly accounts
         assert_eq!(locations[6].table_account, table2);
         assert_eq!(locations[6].table_index, 7);
         assert_eq!(locations[6].writable, false);
@@ -523,7 +523,7 @@ mod tests {
         assert_eq!(
             locations.len(),
             0,
-            "空的 lookup plan 应该返回空的 locations"
+            "Empty lookup plan should return empty locations"
         );
     }
 
@@ -540,11 +540,11 @@ mod tests {
 
         assert_eq!(locations.len(), 3);
 
-        // 可写账户应该在前
+        // Writable accounts should be first
         assert_eq!(locations[0].table_index, 10);
         assert_eq!(locations[0].writable, true);
 
-        // 只读账户在后
+        // Readonly accounts after
         assert_eq!(locations[1].table_index, 20);
         assert_eq!(locations[1].writable, false);
 
@@ -558,26 +558,26 @@ mod tests {
         use solana_sdk::hash::Hash;
         use solana_sdk::message::{v0::MessageAddressTableLookup, MessageHeader};
 
-        // 创建 3 个静态账户
+        // Create 3 static accounts
         let static_key1 = Pubkey::new_unique();
         let static_key2 = Pubkey::new_unique();
         let static_key3 = Pubkey::new_unique();
         let static_accounts = vec![static_key1, static_key2, static_key3];
 
-        // 创建 2 个 lookup table
+        // Create 2 lookup tables
         let lookup_table1 = Pubkey::new_unique();
         let lookup_table2 = Pubkey::new_unique();
 
         let address_table_lookups = vec![
             MessageAddressTableLookup {
                 account_key: lookup_table1,
-                writable_indexes: vec![0, 1], // 2 个可写
-                readonly_indexes: vec![2],    // 1 个只读
+                writable_indexes: vec![0, 1], // 2 writable
+                readonly_indexes: vec![2],    // 1 readonly
             },
             MessageAddressTableLookup {
                 account_key: lookup_table2,
-                writable_indexes: vec![3],    // 1 个可写
-                readonly_indexes: vec![4, 5], // 2 个只读
+                writable_indexes: vec![3],    // 1 writable
+                readonly_indexes: vec![4, 5], // 2 readonly
             },
         ];
 
@@ -600,8 +600,8 @@ mod tests {
 
         let lookup_locations = build_lookup_locations(&plan.address_lookups);
 
-        // 验证账户索引映射（按新的顺序：先所有 writable，再所有 readonly）
-        // 索引 0-2: 静态账户
+        // Verify account index mapping (per new order: first all writable, then all readonly)
+        // Indexes 0-2: static accounts
         let ref0 = classify_account_reference(&message, 0, &plan, &lookup_locations);
         assert_eq!(ref0.pubkey, Some(static_key1.to_string()));
         assert!(matches!(ref0.source, AccountSourceSummary::Static));
@@ -610,7 +610,7 @@ mod tests {
         assert_eq!(ref2.pubkey, Some(static_key3.to_string()));
         assert!(matches!(ref2.source, AccountSourceSummary::Static));
 
-        // 索引 3: lookup_table1[0] writable
+        // Index 3: lookup_table1[0] writable
         let ref3 = classify_account_reference(&message, 3, &plan, &lookup_locations);
         assert_eq!(ref3.index, 3);
         match &ref3.source {
@@ -623,10 +623,10 @@ mod tests {
                 assert_eq!(*lookup_index, 0);
                 assert_eq!(*writable, true);
             }
-            _ => panic!("期望是 Lookup 源"),
+            _ => panic!("Expected to be Lookup source"),
         }
 
-        // 索引 4: lookup_table1[1] writable
+        // Index 4: lookup_table1[1] writable
         let ref4 = classify_account_reference(&message, 4, &plan, &lookup_locations);
         match &ref4.source {
             AccountSourceSummary::Lookup {
@@ -638,10 +638,10 @@ mod tests {
                 assert_eq!(*lookup_index, 1);
                 assert_eq!(*writable, true);
             }
-            _ => panic!("期望是 Lookup 源"),
+            _ => panic!("Expected to be Lookup source"),
         }
 
-        // 索引 5: lookup_table2[3] writable (新顺序：table2 的 writable 在 table1 writable 之后)
+        // Index 5: lookup_table2[3] writable (new order: table2 writable after table1 writable)
         let ref5 = classify_account_reference(&message, 5, &plan, &lookup_locations);
         match &ref5.source {
             AccountSourceSummary::Lookup {
@@ -653,10 +653,10 @@ mod tests {
                 assert_eq!(*lookup_index, 3);
                 assert_eq!(*writable, true);
             }
-            _ => panic!("期望是 Lookup 源"),
+            _ => panic!("Expected to be Lookup source"),
         }
 
-        // 索引 6: lookup_table1[2] readonly (所有 writable 完成后开始 readonly)
+        // Index 6: lookup_table1[2] readonly (readonly starts after all writable complete)
         let ref6 = classify_account_reference(&message, 6, &plan, &lookup_locations);
         match &ref6.source {
             AccountSourceSummary::Lookup {
@@ -668,10 +668,10 @@ mod tests {
                 assert_eq!(*lookup_index, 2);
                 assert_eq!(*writable, false);
             }
-            _ => panic!("期望是 Lookup 源"),
+            _ => panic!("Expected to be Lookup source"),
         }
 
-        // 索引 7: lookup_table2[4] readonly
+        // Index 7: lookup_table2[4] readonly
         let ref7 = classify_account_reference(&message, 7, &plan, &lookup_locations);
         match &ref7.source {
             AccountSourceSummary::Lookup {
@@ -683,10 +683,10 @@ mod tests {
                 assert_eq!(*lookup_index, 4);
                 assert_eq!(*writable, false);
             }
-            _ => panic!("期望是 Lookup 源"),
+            _ => panic!("Expected to be Lookup source"),
         }
 
-        // 索引 8: lookup_table2[5] readonly
+        // Index 8: lookup_table2[5] readonly
         let ref8 = classify_account_reference(&message, 8, &plan, &lookup_locations);
         match &ref8.source {
             AccountSourceSummary::Lookup {
@@ -698,10 +698,10 @@ mod tests {
                 assert_eq!(*lookup_index, 5);
                 assert_eq!(*writable, false);
             }
-            _ => panic!("期望是 Lookup 源"),
+            _ => panic!("Expected to be Lookup source"),
         }
 
-        // 验证总账户数量：3 个静态 + 6 个 lookup
+        // Verify total account count: 3 static + 6 lookup
         assert_eq!(lookup_locations.len(), 6);
     }
 
@@ -711,14 +711,14 @@ mod tests {
         use solana_sdk::hash::Hash;
         use solana_sdk::message::{v0::MessageAddressTableLookup, MessageHeader};
 
-        // 测试只有 readonly 索引的情况
+        // Test case with only readonly indexes
         let static_key = Pubkey::new_unique();
         let lookup_table = Pubkey::new_unique();
 
         let address_table_lookups = vec![MessageAddressTableLookup {
             account_key: lookup_table,
-            writable_indexes: vec![],        // 没有可写账户
-            readonly_indexes: vec![0, 1, 2], // 只有只读账户
+            writable_indexes: vec![],        // No writable accounts
+            readonly_indexes: vec![0, 1, 2], // Only readonly accounts
         }];
 
         let message = VersionedMessage::V0(v0::Message {
@@ -740,10 +740,10 @@ mod tests {
 
         let lookup_locations = build_lookup_locations(&plan.address_lookups);
 
-        // 验证只有 readonly 索引时的顺序
+        // Verify order when only readonly indexes present
         assert_eq!(lookup_locations.len(), 3);
 
-        // 索引 1 应该是 lookup_table[0] readonly
+        // Index 1 should be lookup_table[0] readonly
         let ref1 = classify_account_reference(&message, 1, &plan, &lookup_locations);
         match &ref1.source {
             AccountSourceSummary::Lookup {
@@ -754,10 +754,10 @@ mod tests {
                 assert_eq!(*lookup_index, 0);
                 assert_eq!(*writable, false);
             }
-            _ => panic!("期望是 Lookup 源"),
+            _ => panic!("Expected to be Lookup source"),
         }
 
-        // 索引 2 应该是 lookup_table[1] readonly
+        // Index 2 should be lookup_table[1] readonly
         let ref2 = classify_account_reference(&message, 2, &plan, &lookup_locations);
         match &ref2.source {
             AccountSourceSummary::Lookup {
@@ -768,10 +768,10 @@ mod tests {
                 assert_eq!(*lookup_index, 1);
                 assert_eq!(*writable, false);
             }
-            _ => panic!("期望是 Lookup 源"),
+            _ => panic!("Expected to be Lookup source"),
         }
 
-        // 索引 3 应该是 lookup_table[2] readonly
+        // Index 3 should be lookup_table[2] readonly
         let ref3 = classify_account_reference(&message, 3, &plan, &lookup_locations);
         match &ref3.source {
             AccountSourceSummary::Lookup {
@@ -782,7 +782,7 @@ mod tests {
                 assert_eq!(*lookup_index, 2);
                 assert_eq!(*writable, false);
             }
-            _ => panic!("期望是 Lookup 源"),
+            _ => panic!("Expected to be Lookup source"),
         }
     }
 
@@ -792,20 +792,20 @@ mod tests {
         use solana_sdk::hash::Hash;
         use solana_sdk::message::{v0::MessageAddressTableLookup, MessageHeader};
 
-        // 测试场景：2 个可写签名者 + lookup table
-        // num_readonly_signed_accounts = 0 意味着所有签名者都是可写的
+        // Test scenario: 2 writable signers + lookup table
+        // num_readonly_signed_accounts = 0 means all signers are writable
         let signer1 = Pubkey::new_unique();
         let signer2 = Pubkey::new_unique();
         let lookup_table = Pubkey::new_unique();
 
         let message = VersionedMessage::V0(v0::Message {
             header: MessageHeader {
-                num_required_signatures: 2,        // 2 个签名者
-                num_readonly_signed_accounts: 0,   // 0 个只读签名者（都是可写的）
-                num_readonly_unsigned_accounts: 0, // 0 个只读非签名者
+                num_required_signatures: 2,        // 2 signers
+                num_readonly_signed_accounts: 0,   // 0 readonly signers (all are writable)
+                num_readonly_unsigned_accounts: 0, // 0 readonly non-signers
             },
             recent_blockhash: Hash::default(),
-            account_keys: vec![signer1, signer2], // 只有 2 个可写签名者
+            account_keys: vec![signer1, signer2], // Only 2 writable signers
             address_table_lookups: vec![MessageAddressTableLookup {
                 account_key: lookup_table,
                 writable_indexes: vec![0, 1],
@@ -821,20 +821,20 @@ mod tests {
 
         let lookup_locations = build_lookup_locations(&plan.address_lookups);
 
-        // 验证静态账户
+        // Verify static accounts
         let ref0 = classify_account_reference(&message, 0, &plan, &lookup_locations);
         assert_eq!(ref0.pubkey, Some(signer1.to_string()));
-        assert_eq!(ref0.signer, true, "索引 0 应该是签名者");
-        assert_eq!(ref0.writable, true, "索引 0 应该可写");
+        assert_eq!(ref0.signer, true, "Index 0 should be signer");
+        assert_eq!(ref0.writable, true, "Index 0 should be writable");
         assert!(matches!(ref0.source, AccountSourceSummary::Static));
 
         let ref1 = classify_account_reference(&message, 1, &plan, &lookup_locations);
         assert_eq!(ref1.pubkey, Some(signer2.to_string()));
-        assert_eq!(ref1.signer, true, "索引 1 应该是签名者");
-        assert_eq!(ref1.writable, true, "索引 1 应该可写");
+        assert_eq!(ref1.signer, true, "Index 1 should be signer");
+        assert_eq!(ref1.writable, true, "Index 1 should be writable");
         assert!(matches!(ref1.source, AccountSourceSummary::Static));
 
-        // 验证 lookup table 账户从索引 2 开始
+        // Verify lookup table accounts start from index 2
         let ref2 = classify_account_reference(&message, 2, &plan, &lookup_locations);
         match &ref2.source {
             AccountSourceSummary::Lookup {
@@ -843,10 +843,10 @@ mod tests {
                 writable,
             } => {
                 assert_eq!(*table_account, lookup_table.to_string());
-                assert_eq!(*lookup_index, 0, "应该映射到 lookup table 的索引 0");
-                assert_eq!(*writable, true, "应该是可写的");
+                assert_eq!(*lookup_index, 0, "Should map to lookup table index 0");
+                assert_eq!(*writable, true, "Should be writable");
             }
-            _ => panic!("期望索引 2 是 Lookup 源"),
+            _ => panic!("Expected index 2 to be Lookup source"),
         }
 
         let ref3 = classify_account_reference(&message, 3, &plan, &lookup_locations);
@@ -856,10 +856,10 @@ mod tests {
                 writable,
                 ..
             } => {
-                assert_eq!(*lookup_index, 1, "应该映射到 lookup table 的索引 1");
-                assert_eq!(*writable, true, "应该是可写的");
+                assert_eq!(*lookup_index, 1, "Should map to lookup table index 1");
+                assert_eq!(*writable, true, "Should be writable");
             }
-            _ => panic!("期望索引 3 是 Lookup 源"),
+            _ => panic!("Expected index 3 to be Lookup source"),
         }
 
         let ref4 = classify_account_reference(&message, 4, &plan, &lookup_locations);
@@ -869,13 +869,13 @@ mod tests {
                 writable,
                 ..
             } => {
-                assert_eq!(*lookup_index, 2, "应该映射到 lookup table 的索引 2");
-                assert_eq!(*writable, false, "应该是只读的");
+                assert_eq!(*lookup_index, 2, "Should map to lookup table index 2");
+                assert_eq!(*writable, false, "Should be readonly");
             }
-            _ => panic!("期望索引 4 是 Lookup 源"),
+            _ => panic!("Expected index 4 to be Lookup source"),
         }
 
-        // 验证总账户数量：2 个静态 + 3 个 lookup
+        // Verify total account count: 2 static + 3 lookup
         assert_eq!(lookup_locations.len(), 3);
     }
 
@@ -885,7 +885,7 @@ mod tests {
         use solana_sdk::hash::Hash;
         use solana_sdk::message::{v0::MessageAddressTableLookup, MessageHeader};
 
-        // 测试场景：混合签名者（1 可写 + 1 只读）+ 非签名者 + lookup table
+        // Test scenario: Mixed signers (1 writable + 1 readonly) + non-signers + lookup table
         let writable_signer = Pubkey::new_unique();
         let readonly_signer = Pubkey::new_unique();
         let writable_non_signer = Pubkey::new_unique();
@@ -894,17 +894,17 @@ mod tests {
 
         let message = VersionedMessage::V0(v0::Message {
             header: MessageHeader {
-                num_required_signatures: 2,        // 2 个签名者
-                num_readonly_signed_accounts: 1,   // 1 个只读签名者
-                num_readonly_unsigned_accounts: 1, // 1 个只读非签名者
+                num_required_signatures: 2,        // 2 signers
+                num_readonly_signed_accounts: 1,   // 1 readonly signer
+                num_readonly_unsigned_accounts: 1, // 1 readonly non-signer
             },
             recent_blockhash: Hash::default(),
-            // 按照 Solana 规范排序：可写签名者 -> 只读签名者 -> 可写非签名者 -> 只读非签名者
+            // Sorted per Solana spec: writable signers -> readonly signers -> writable non-signers -> readonly non-signers
             account_keys: vec![
-                writable_signer,     // 索引 0
-                readonly_signer,     // 索引 1
-                writable_non_signer, // 索引 2
-                readonly_non_signer, // 索引 3
+                writable_signer,     // Index 0
+                readonly_signer,     // Index 1
+                writable_non_signer, // Index 2
+                readonly_non_signer, // Index 3
             ],
             address_table_lookups: vec![MessageAddressTableLookup {
                 account_key: lookup_table,
@@ -926,7 +926,7 @@ mod tests {
 
         let lookup_locations = build_lookup_locations(&plan.address_lookups);
 
-        // 验证静态账户
+        // Verify static accounts
         let ref0 = classify_account_reference(&message, 0, &plan, &lookup_locations);
         assert_eq!(ref0.pubkey, Some(writable_signer.to_string()));
         assert_eq!(ref0.signer, true);
@@ -947,7 +947,7 @@ mod tests {
         assert_eq!(ref3.signer, false);
         assert_eq!(ref3.writable, false);
 
-        // 验证 lookup table 账户从索引 4 开始
+        // Verify lookup table accounts start from index 4
         let ref4 = classify_account_reference(&message, 4, &plan, &lookup_locations);
         match &ref4.source {
             AccountSourceSummary::Lookup {
@@ -958,7 +958,7 @@ mod tests {
                 assert_eq!(*lookup_index, 0);
                 assert_eq!(*writable, true);
             }
-            _ => panic!("期望索引 4 是 Lookup 源"),
+            _ => panic!("Expected index 4 to be Lookup source"),
         }
 
         let ref5 = classify_account_reference(&message, 5, &plan, &lookup_locations);
@@ -971,7 +971,7 @@ mod tests {
                 assert_eq!(*lookup_index, 1);
                 assert_eq!(*writable, false);
             }
-            _ => panic!("期望索引 5 是 Lookup 源"),
+            _ => panic!("Expected index 5 to be Lookup source"),
         }
     }
 
@@ -981,7 +981,7 @@ mod tests {
         use solana_sdk::hash::Hash;
         use solana_sdk::message::MessageHeader;
 
-        // 测试场景：只有签名者，没有 lookup table
+        // Test scenario: Only signers, no lookup table
         let signer1 = Pubkey::new_unique();
         let signer2 = Pubkey::new_unique();
 
@@ -993,7 +993,7 @@ mod tests {
             },
             recent_blockhash: Hash::default(),
             account_keys: vec![signer1, signer2],
-            address_table_lookups: vec![], // 没有 lookup table
+            address_table_lookups: vec![], // No lookup table
             instructions: vec![],
         });
 
@@ -1004,10 +1004,10 @@ mod tests {
 
         let lookup_locations = build_lookup_locations(&plan.address_lookups);
 
-        // 验证没有 lookup 账户
+        // Verify no lookup accounts
         assert_eq!(lookup_locations.len(), 0);
 
-        // 验证静态账户
+        // Verify static accounts
         let ref0 = classify_account_reference(&message, 0, &plan, &lookup_locations);
         assert_eq!(ref0.pubkey, Some(signer1.to_string()));
         assert_eq!(ref0.signer, true);
@@ -1018,7 +1018,7 @@ mod tests {
         assert_eq!(ref1.signer, true);
         assert_eq!(ref1.writable, true);
 
-        // 验证超出范围的索引返回 Unknown
+        // Verify out-of-range index returns Unknown
         let ref2 = classify_account_reference(&message, 2, &plan, &lookup_locations);
         assert!(matches!(ref2.source, AccountSourceSummary::Unknown));
     }

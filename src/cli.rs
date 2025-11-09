@@ -4,7 +4,7 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 use solana_sdk::pubkey::Pubkey;
 
 #[derive(Parser, Debug)]
-#[command(name = "solsim", version, about = "基于 LiteSVM 的 Solana 交易模拟器")]
+#[command(name = "solsim", version, about = "Solana Transaction Simulator based on LiteSVM")]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,
@@ -12,9 +12,9 @@ pub struct Cli {
 
 #[derive(Subcommand, Debug)]
 pub enum Commands {
-    /// 模拟指定原始交易
+    /// Simulate a specified raw transaction
     Simulate(SimulateArgs),
-    /// 解析原始交易并打印交易详情
+    /// Parse raw transaction and print transaction details
     Parse(ParseArgs),
 }
 
@@ -22,13 +22,13 @@ pub enum Commands {
 pub struct SimulateArgs {
     #[command(flatten)]
     pub transaction: TransactionInputArgs,
-    /// Solana RPC 节点地址
+    /// Solana RPC node URL
     #[arg(
         long = "rpc-url",
         default_value = "https://api.mainnet-beta.solana.com"
     )]
     pub rpc_url: String,
-    /// 自定义替换程序，格式：<PROGRAM_ID>=<PATH_TO_ELF_OR_SO>
+    /// Custom program replacement, format: <PROGRAM_ID>=<PATH_TO_ELF_OR_SO>
     #[arg(
         long = "replace",
         value_name = "MAPPING",
@@ -39,13 +39,13 @@ pub struct SimulateArgs {
 
 #[derive(Args, Debug, Clone)]
 pub struct TransactionInputArgs {
-    /// 原始交易字符串（Base58/Base64），与 --tx-file 互斥
+    /// Raw transaction string (Base58/Base64), mutually exclusive with --tx-file
     #[arg(short = 't', long, conflicts_with = "tx_file", value_name = "STRING")]
     pub tx: Option<String>,
-    /// 包含原始交易的文件路径，与 --tx 互斥
+    /// File path containing raw transaction, mutually exclusive with --tx
     #[arg(long = "tx-file", value_name = "PATH", conflicts_with = "tx")]
     pub tx_file: Option<PathBuf>,
-    /// 输出格式
+    /// Output format
     #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
     pub output: OutputFormat,
 }
@@ -54,7 +54,7 @@ pub struct TransactionInputArgs {
 pub struct ParseArgs {
     #[command(flatten)]
     pub transaction: TransactionInputArgs,
-    /// Solana RPC 节点地址
+    /// Solana RPC node URL
     #[arg(
         long = "rpc-url",
         default_value = "https://api.mainnet-beta.solana.com"
@@ -78,12 +78,12 @@ pub struct ProgramReplacement {
 pub fn parse_program_replacement(raw: &str) -> Result<ProgramReplacement, String> {
     let (program_str, path_str) = raw
         .split_once('=')
-        .ok_or_else(|| "替换项必须采用 <PROGRAM_ID>=<PATH> 格式".to_string())?;
+        .ok_or_else(|| "Replacement must be in <PROGRAM_ID>=<PATH> format".to_string())?;
     let program_id = Pubkey::from_str(program_str)
-        .map_err(|err| format!("无法解析程序地址 `{program_str}`: {err}"))?;
+        .map_err(|err| format!("Failed to parse program address `{program_str}`: {err}"))?;
     let so_path = PathBuf::from(path_str.trim());
     if !so_path.exists() {
-        return Err(format!("指定的程序文件 `{}` 不存在", so_path.display()));
+        return Err(format!("Specified program file `{}` does not exist", so_path.display()));
     }
     Ok(ProgramReplacement {
         program_id,

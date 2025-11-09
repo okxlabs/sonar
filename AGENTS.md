@@ -89,12 +89,12 @@ cargo run -- simulate \
 - **Variables/Functions**: snake_case (Rust standard)
 - **Types/Structs**: PascalCase
 - **Constants**: UPPER_SNAKE_CASE
-- **Error messages**: Written in Chinese (项目中错误信息使用中文)
+- **Error messages**: Written in English
 
 ### Error Handling
 - Use `anyhow::Result<T>` for error propagation
 - Provide context with `.context()` for better error traces
-- Error messages should be descriptive and in Chinese
+- Error messages should be descriptive and in English
 
 ### Module Organization
 - Each module has a clear single responsibility
@@ -178,4 +178,4 @@ solsim simulate --tx-file ./transaction.txt --rpc-url <RPC_URL>
 3. Run `cargo test` for unit tests
 4. For integration tests, ensure RPC access or use mocks
 5. Test CLI manually with sample transactions
-6. Follow existing code style and Chinese error message convention
+6. Follow existing code style and English error message convention
