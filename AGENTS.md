@@ -1,0 +1,181 @@
+# Solsim - Solana Transaction Simulator
+
+## Project Overview
+
+`solsim` is a command-line tool for simulating Solana transactions locally using LiteSVM. It allows developers to test and debug Solana transactions without deploying to a live network by providing raw transaction data (Base58 or Base64 encoded) and optionally replacing on-chain programs with local .so files for testing.
+
+**Key Features:**
+- Parse and analyze Solana transactions from raw encoding
+- Simulate transactions in a local SVM environment
+- Support for address lookup tables (ALT)
+- Program replacement for testing custom program behavior
+- Multiple output formats (text and JSON)
+- Account loading from Solana RPC nodes
+
+## Technology Stack
+
+- **Language**: Rust (Edition 2021)
+- **Core Dependencies**:
+  - `litesvm` - Local Solana Virtual Machine for transaction simulation
+  - `solana-sdk` / `solana-client` - Solana blockchain interaction
+  - `clap` - Command-line interface parsing
+  - `serde` / `serde_json` - Serialization support
+  - `anyhow` - Error handling
+  - `base64` / `bs58` - Transaction encoding/decoding
+
+## Project Structure
+
+```
+src/
+├── main.rs           # Entry point and command routing
+├── cli.rs            # CLI argument parsing and validation
+├── transaction.rs    # Transaction parsing and analysis (1,025 lines)
+├── account_loader.rs # RPC account fetching and caching (327 lines)
+├── executor.rs       # Transaction simulation execution (156 lines)
+└── output.rs         # Result formatting and rendering (519 lines)
+
+tests/
+├── e2e_simulation.rs # Integration tests using assert_cmd
+└── fixtures/         # Compiled Solana programs (.so files)
+    ├── dex_solana_v3.so
+    └── spl_token.so
+```
+
+## Build and Development Commands
+
+### Building
+```bash
+# Build the project
+cargo build
+
+# Build release version
+cargo build --release
+
+# Check for compilation errors
+cargo check
+```
+
+### Testing
+```bash
+# Run unit tests
+cargo test
+
+# Run integration tests (requires mainnet RPC access)
+cargo test --test e2e_simulation -- --ignored --nocapture
+
+# Run specific test
+cargo test <test_name>
+```
+
+### Running
+```bash
+# Simulate a transaction
+cargo run -- simulate --tx <BASE58_OR_BASE64_STRING> --rpc-url <RPC_URL>
+
+# Parse transaction only
+cargo run -- parse --tx <BASE58_OR_BASE64_STRING> --rpc-url <RPC_URL>
+
+# With program replacement
+cargo run -- simulate \
+  --tx <TRANSACTION> \
+  --rpc-url <RPC_URL> \
+  --replace <PROGRAM_ID>=<PATH_TO_SO_FILE> \
+  --output json
+```
+
+## Code Style Guidelines
+
+### Naming Conventions
+- **Variables/Functions**: snake_case (Rust standard)
+- **Types/Structs**: PascalCase
+- **Constants**: UPPER_SNAKE_CASE
+- **Error messages**: Written in Chinese (项目中错误信息使用中文)
+
+### Error Handling
+- Use `anyhow::Result<T>` for error propagation
+- Provide context with `.context()` for better error traces
+- Error messages should be descriptive and in Chinese
+
+### Module Organization
+- Each module has a clear single responsibility
+- Keep module sizes manageable (largest is transaction.rs at ~1k lines)
+- Use `pub(crate)` for internal visibility when appropriate
+
+### Key Patterns
+1. **Transaction Flow**: Raw input → Parse → Load accounts → Simulate → Render output
+2. **Account Loading**: RPC fetching with caching, handles upgradeable programs
+3. **Program Replacement**: Replace on-chain programs with local .so files for testing
+
+## Testing Strategy
+
+### Unit Tests
+- Embedded within source files where appropriate
+- Focus on individual function behavior
+
+### Integration Tests
+- Located in `tests/e2e_simulation.rs`
+- Use `assert_cmd` for CLI testing
+- Test both `simulate` and `parse` commands
+- Include tests for program replacement functionality
+- **Important**: Some tests require mainnet RPC access and are marked with `#[ignore]`
+
+### Test Fixtures
+- Pre-compiled Solana programs in `tests/fixtures/`
+- Used for testing program replacement feature
+- Currently includes SPL Token and a DEX program
+
+## Security Considerations
+
+1. **RPC URL Handling**: Default uses mainnet-beta, but can be configured
+2. **Program Replacement**: Allows loading arbitrary .so files - use with caution
+3. **Account Caching**: Thread-safe caching with Mutex for concurrent access
+4. **Input Validation**: Comprehensive validation for transaction encoding and CLI arguments
+
+## Performance Notes
+
+- Account loading is batched (MAX_ACCOUNTS_PER_REQUEST = 100)
+- Uses caching to avoid redundant RPC calls
+- LiteSVM provides efficient local simulation
+- Handles address lookup tables efficiently
+
+## Dependencies and Versions
+
+- Rust 1.91.0 or later
+- Solana SDK 2.2.x series
+- LiteSVM 0.8.1
+- All dependencies managed through Cargo
+
+## Known Issues and Technical Debt
+
+1. **Deprecated API Usage**: Currently uses deprecated `solana_sdk::bpf_loader_upgradeable` (should migrate to `solana-loader-v3-interface`)
+2. **Unused Field**: `deactivation_slot` in `ResolvedLookup` struct is never read
+3. **Chinese Comments**: All user-facing messages and comments are in Chinese - maintain this convention
+
+## CLI Usage Examples
+
+```bash
+# Basic simulation
+solsim simulate --tx <BASE58_STRING> --rpc-url https://api.mainnet-beta.solana.com
+
+# With program replacement
+solsim simulate \
+  --tx <BASE58_STRING> \
+  --rpc-url https://api.mainnet-beta.solana.com \
+  --replace TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA=./custom_token.so \
+  --output json
+
+# Parse transaction only
+solsim parse --tx <BASE64_STRING> --rpc-url https://api.mainnet-beta.solana.com
+
+# Read transaction from file
+solsim simulate --tx-file ./transaction.txt --rpc-url <RPC_URL>
+```
+
+## Development Workflow
+
+1. Make changes to relevant module(s)
+2. Run `cargo check` to ensure compilation
+3. Run `cargo test` for unit tests
+4. For integration tests, ensure RPC access or use mocks
+5. Test CLI manually with sample transactions
+6. Follow existing code style and Chinese error message convention
