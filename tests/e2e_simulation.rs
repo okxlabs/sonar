@@ -15,6 +15,8 @@ fn simulate_real_transaction_via_cli() -> Result<(), Box<dyn std::error::Error>>
         .arg(V0_RAW_TX)
         .arg("--rpc-url")
         .arg("https://api.mainnet-beta.solana.com")
+        .arg("--replace")
+        .arg("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA=tests/fixtures/spl_token.so")
         .arg("--output")
         .arg("text");
 
@@ -37,6 +39,75 @@ fn parse_real_transaction_via_cli() -> Result<(), Box<dyn std::error::Error>> {
         .arg(V0_RAW_TX)
         .arg("--rpc-url")
         .arg("https://api.mainnet-beta.solana.com")
+        .arg("--output")
+        .arg("text");
+
+    let assert = cmd.assert().success();
+    let output = assert.get_output();
+
+    println!("STDOUT:\n{}", String::from_utf8_lossy(&output.stdout));
+    if !output.stderr.is_empty() {
+        println!("STDERR:\n{}", String::from_utf8_lossy(&output.stderr));
+    }
+    Ok(())
+}
+
+#[test]
+#[ignore]
+fn simulate_real_transaction_replace_finalized_program() -> Result<(), Box<dyn std::error::Error>> {
+    let mut cmd = Command::cargo_bin("solsim")?;
+    cmd.arg("simulate")
+        .arg("--tx")
+        .arg(V0_RAW_TX)
+        .arg("--replace")
+        .arg("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA=tests/fixtures/spl_token.so")
+        .arg("--output")
+        .arg("text");
+
+    let assert = cmd.assert().success();
+    let output = assert.get_output();
+
+    println!("STDOUT:\n{}", String::from_utf8_lossy(&output.stdout));
+    if !output.stderr.is_empty() {
+        println!("STDERR:\n{}", String::from_utf8_lossy(&output.stderr));
+    }
+    Ok(())
+}
+
+#[test]
+#[ignore]
+fn simulate_real_transaction_replace_upgradable_program() -> Result<(), Box<dyn std::error::Error>>
+{
+    let mut cmd = Command::cargo_bin("solsim")?;
+    cmd.arg("simulate")
+        .arg("--tx")
+        .arg(V0_RAW_TX)
+        .arg("--replace")
+        .arg("proVF4pMXVaYqmy4NjniPh4pqKNfMmsihgd4wdkCX3u=tests/fixtures/dex_solana_v3.so")
+        .arg("--output")
+        .arg("text");
+
+    let assert = cmd.assert().success();
+    let output = assert.get_output();
+
+    println!("STDOUT:\n{}", String::from_utf8_lossy(&output.stdout));
+    if !output.stderr.is_empty() {
+        println!("STDERR:\n{}", String::from_utf8_lossy(&output.stderr));
+    }
+    Ok(())
+}
+
+#[test]
+#[ignore]
+fn simulate_real_transaction_replace_multiple_program() -> Result<(), Box<dyn std::error::Error>> {
+    let mut cmd = Command::cargo_bin("solsim")?;
+    cmd.arg("simulate")
+        .arg("--tx")
+        .arg(V0_RAW_TX)
+        .arg("--replace")
+        .arg("proVF4pMXVaYqmy4NjniPh4pqKNfMmsihgd4wdkCX3u=tests/fixtures/dex_solana_v3.so")
+        .arg("--replace")
+        .arg("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA=tests/fixtures/spl_token.so")
         .arg("--output")
         .arg("text");
 
