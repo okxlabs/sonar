@@ -58,6 +58,13 @@ fn render_text(report: &Report, resolved: &ResolvedAccounts) -> Result<()> {
 }
 
 fn render_transaction_section_text(transaction: &TransactionSection, resolved: &ResolvedAccounts) {
+    render_transaction_overview_text(transaction);
+    render_lookup_tables_text(transaction);
+    render_account_list_text(transaction, resolved);
+    render_instruction_details_text(transaction, resolved);
+}
+
+fn render_transaction_overview_text(transaction: &TransactionSection) {
     println!("=== Transaction Overview ===");
     println!("Encoding: {}", transaction.encoding);
     println!("Version: {}", transaction.version);
@@ -66,74 +73,89 @@ fn render_transaction_section_text(transaction: &TransactionSection, resolved: &
     for sig in &transaction.signatures {
         println!("  - {}", sig);
     }
+}
 
-    if !transaction.lookups.is_empty() {
-        println!("Address Lookup Tables");
-        for (idx, lookup) in transaction.lookups.iter().enumerate() {
-            let solscan_linked_key = format_solscan_link(&lookup.account_key);
-            println!("  - [{}] {}", idx, solscan_linked_key);
-        }
+fn render_lookup_tables_text(transaction: &TransactionSection) {
+    if transaction.lookups.is_empty() {
+        return;
     }
 
-    let mut account_index = 0;
+    println!("Address Lookup Tables");
+    for (idx, lookup) in transaction.lookups.iter().enumerate() {
+        let solscan_linked_key = format_solscan_link(&lookup.account_key);
+        println!("  - [{}] {}", idx, solscan_linked_key);
+    }
+}
+
+fn render_account_list_text(transaction: &TransactionSection, resolved: &ResolvedAccounts) {
     println!("\nAccount List:");
+    let mut account_index = 0;
+
+    // Render static accounts
     for account in &transaction.static_accounts {
-        let pubkey = solana_sdk::pubkey::Pubkey::from_str(&account.pubkey).unwrap();
-        let colored_pubkey = if account.writable {
-            pubkey.to_string().custom_color((255, 255, 255))
-        } else {
-            pubkey.to_string().custom_color((156, 158, 158))
-        };
-        let executable = resolved
-            .accounts
-            .get(&pubkey)
-            .map(|acc| acc.executable)
-            .unwrap_or(false);
-        println!(
-            "  [{}] {} {}",
+        account_index = render_account_entry_text(
             account_index,
-            colored_pubkey,
-            account_privilege_emoji(account.signer, account.writable, executable)
+            &account.pubkey,
+            account.signer,
+            account.writable,
+            resolved,
         );
-        account_index += 1;
     }
 
+    // Render lookup table accounts (writable first, then readonly)
     for lookup in &transaction.lookups {
         for entry in &lookup.writable {
-            let pubkey = solana_sdk::pubkey::Pubkey::from_str(&entry.pubkey).unwrap();
-            let executable = resolved
-                .accounts
-                .get(&pubkey)
-                .map(|acc| acc.executable)
-                .unwrap_or(false);
-            println!(
-                "  [{}] {} {}",
+            account_index = render_account_entry_text(
                 account_index,
-                entry.pubkey.to_string().custom_color((255, 255, 255)),
-                account_privilege_emoji(false, true, executable)
+                &entry.pubkey,
+                false,
+                true,
+                resolved,
             );
-            account_index += 1;
         }
     }
 
     for lookup in &transaction.lookups {
         for entry in &lookup.readonly {
-            let pubkey = solana_sdk::pubkey::Pubkey::from_str(&entry.pubkey).unwrap();
-            let executable = resolved
-                .accounts
-                .get(&pubkey)
-                .map(|acc| acc.executable)
-                .unwrap_or(false);
-            println!(
-                "  [{}] {} {}",
+            account_index = render_account_entry_text(
                 account_index,
-                entry.pubkey.to_string().custom_color((156, 158, 158)),
-                account_privilege_emoji(false, false, executable)
+                &entry.pubkey,
+                false,
+                false,
+                resolved,
             );
-            account_index += 1;
         }
     }
+}
 
+fn render_account_entry_text(
+    index: usize,
+    pubkey_str: &str,
+    signer: bool,
+    writable: bool,
+    resolved: &ResolvedAccounts,
+) -> usize {
+    let pubkey = solana_sdk::pubkey::Pubkey::from_str(pubkey_str).unwrap();
+    let colored_pubkey = if writable {
+        pubkey.to_string().custom_color((255, 255, 255))
+    } else {
+        pubkey.to_string().custom_color((156, 158, 158))
+    };
+    let executable = resolved
+        .accounts
+        .get(&pubkey)
+        .map(|acc| acc.executable)
+        .unwrap_or(false);
+    println!(
+        "  [{}] {} {}",
+        index,
+        colored_pubkey,
+        account_privilege_emoji(signer, writable, executable)
+    );
+    index + 1
+}
+
+fn render_instruction_details_text(transaction: &TransactionSection, resolved: &ResolvedAccounts) {
     println!("\nInstruction Details:");
     for ix in &transaction.instructions {
         let program_pubkey_with_link = format_solscan_link(&ix.program.pubkey);
@@ -142,29 +164,34 @@ fn render_transaction_section_text(transaction: &TransactionSection, resolved: &
             ix.index.to_string().custom_color((255, 165, 0)),
             program_pubkey_with_link.custom_color((62, 132, 230))
         );
+
         for account in &ix.accounts {
-            let solscan_linked_pubkey = format_solscan_link(&account.pubkey);
-            let colored_pubkey = if account.writable {
-                solscan_linked_pubkey.custom_color((255, 255, 255))
-            } else {
-                solscan_linked_pubkey.custom_color((156, 158, 158))
-            };
-            let pubkey = solana_sdk::pubkey::Pubkey::from_str(&account.pubkey).unwrap();
-            let executable = resolved
-                .accounts
-                .get(&pubkey)
-                .map(|acc| acc.executable)
-                .unwrap_or(false);
-            println!(
-                "    - {} [{}] {} {}",
-                account.source,
-                account.index,
-                colored_pubkey,
-                account_privilege_emoji(account.signer, account.writable, executable)
-            );
+            render_instruction_account_text(account, resolved);
         }
         println!("    - 🔢 0x{} [{}]", hex::encode(&ix.data), ix.data.len());
     }
+}
+
+fn render_instruction_account_text(account: &InstructionAccountEntry, resolved: &ResolvedAccounts) {
+    let solscan_linked_pubkey = format_solscan_link(&account.pubkey);
+    let colored_pubkey = if account.writable {
+        solscan_linked_pubkey.custom_color((255, 255, 255))
+    } else {
+        solscan_linked_pubkey.custom_color((156, 158, 158))
+    };
+    let pubkey = solana_sdk::pubkey::Pubkey::from_str(&account.pubkey).unwrap();
+    let executable = resolved
+        .accounts
+        .get(&pubkey)
+        .map(|acc| acc.executable)
+        .unwrap_or(false);
+    println!(
+        "    - {} [{}] {} {}",
+        account.source,
+        account.index,
+        colored_pubkey,
+        account_privilege_emoji(account.signer, account.writable, executable)
+    );
 }
 
 fn render_replacements_text(replacements: &[ReplacementSection]) {
