@@ -65,30 +65,44 @@ fn render_transaction_section_text(transaction: &TransactionSection) {
         println!("  - {}", sig);
     }
 
+    println!("Address Lookup Tables");
+    for (idx, lookup) in transaction.lookups.iter().enumerate() {
+        println!("  - [{}] {}", idx, lookup.account_key);
+    }
+
+    let mut account_index = 0;
     println!("\nAccount List:");
     for account in &transaction.static_accounts {
         println!(
-            "  [{}] {} (signer: {}, writable: {})",
-            account.index, account.pubkey, account.signer, account.writable
+            "  [{}] {} {}",
+            account_index,
+            account.pubkey,
+            account_privilege_emoji(account.signer, account.writable)
         );
+        account_index += 1;
     }
 
-    if !transaction.lookups.is_empty() {
-        println!("\nAddress Lookup Tables:");
-        for lookup in &transaction.lookups {
-            println!("  Table: {}", lookup.account_key);
-            if !lookup.writable.is_empty() {
-                println!("    Writable Accounts:");
-                for entry in &lookup.writable {
-                    println!("      - [{}] {}", entry.index, entry.pubkey);
-                }
-            }
-            if !lookup.readonly.is_empty() {
-                println!("    Read-only Accounts:");
-                for entry in &lookup.readonly {
-                    println!("      - [{}] {}", entry.index, entry.pubkey);
-                }
-            }
+    for lookup in &transaction.lookups {
+        for entry in &lookup.writable {
+            println!(
+                "  [{}] {} {}",
+                account_index,
+                entry.pubkey,
+                account_privilege_emoji(false, true)
+            );
+            account_index += 1;
+        }
+    }
+
+    for lookup in &transaction.lookups {
+        for entry in &lookup.readonly {
+            println!(
+                "  [{}] {} {}",
+                account_index,
+                entry.pubkey,
+                account_privilege_emoji(false, false)
+            );
+            account_index += 1;
         }
     }
 
@@ -97,17 +111,14 @@ fn render_transaction_section_text(transaction: &TransactionSection) {
         println!("  #{} Program: {}", ix.index, ix.program.pubkey);
         for account in &ix.accounts {
             println!(
-                "    - [{}] {} (signer: {}, writable: {}, source: {})",
-                account.index, account.pubkey, account.signer, account.writable, account.source
+                "    - [{}] {} ({}) {}",
+                account.index,
+                account.pubkey,
+                account.source,
+                account_privilege_emoji(account.signer, account.writable)
             );
-            // if let Some(lookup) = &account.lookup_table {
-            //     println!(
-            //         "      lookup: {} [{}] (writable: {})",
-            //         lookup.account_key, lookup.index, lookup.writable
-            //     );
-            // }
         }
-        println!("    Data Length: {} bytes", ix.data_length);
+        println!("    Data: {} [{}]", hex::encode(&ix.data), ix.data.len());
     }
 }
 
@@ -126,13 +137,16 @@ fn render_simulation_text(simulation: &SimulationSection) {
     println!("\n=== Simulation Result ===");
     match &simulation.status {
         SimulationStatusReport::Succeeded => {
-            println!("Status: Success");
+            println!("🟢");
         }
         SimulationStatusReport::Failed { error } => {
-            println!("Status: Failed ({error})");
+            println!("🔴 ({error})");
         }
     }
-    println!("Compute Units Consumed: {}", simulation.compute_units_consumed);
+    println!(
+        "Compute Units Consumed: {}",
+        simulation.compute_units_consumed
+    );
     println!("Log Entries: {}", simulation.logs.len());
     if !simulation.logs.is_empty() {
         println!("Log Content:");
@@ -311,7 +325,7 @@ struct InstructionSection {
     index: usize,
     program: InstructionAccountEntry,
     accounts: Vec<InstructionAccountEntry>,
-    data_length: usize,
+    data: Box<[u8]>,
 }
 
 impl InstructionSection {
@@ -332,7 +346,7 @@ impl InstructionSection {
             index: summary.index,
             program,
             accounts,
-            data_length: summary.data_length,
+            data: summary.data.clone(),
         }
     }
 }
@@ -515,5 +529,14 @@ fn truncate_display(value: &str, limit: usize) -> String {
         value.to_string()
     } else {
         format!("{}…", &value[..limit])
+    }
+}
+
+fn account_privilege_emoji(signer: bool, writable: bool) -> &'static str {
+    match (signer, writable) {
+        (true, true) => "📜 🔑",
+        (true, false) => "🔒 🔑",
+        (false, true) => "📜",
+        (false, false) => "🔒",
     }
 }

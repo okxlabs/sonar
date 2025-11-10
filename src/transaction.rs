@@ -72,7 +72,7 @@ pub struct InstructionSummary {
     pub index: usize,
     pub program: AccountReferenceSummary,
     pub accounts: Vec<AccountReferenceSummary>,
-    pub data_length: usize,
+    pub data: Box<[u8]>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -134,7 +134,9 @@ pub fn read_raw_transaction(inline: Option<String>, tx_file: Option<&Path>) -> R
             }
         }
         (Some(_), Some(_)) => Err(anyhow!("Please specify only one of --tx or --tx-file")),
-        (None, None) => Err(anyhow!("No raw transaction provided, please use --tx or --tx-file")),
+        (None, None) => Err(anyhow!(
+            "No raw transaction provided, please use --tx or --tx-file"
+        )),
     }
 }
 
@@ -201,7 +203,9 @@ fn decode_bytes(input: &str, encoding: RawTransactionEncoding) -> Result<Vec<u8>
 fn map_base58_error(input: &str, err: Base58Error) -> anyhow::Error {
     let base_message = match err {
         Base58Error::InvalidCharacter { character, index } => {
-            format!("Base58 decode failed: position {index} contains invalid character `{character}`")
+            format!(
+                "Base58 decode failed: position {index} contains invalid character `{character}`"
+            )
         }
         other => format!("Base58 decode failed: {other}"),
     };
@@ -253,7 +257,7 @@ impl TransactionSummary {
                         )
                     })
                     .collect(),
-                data_length: ix.data.len(),
+                data: ix.data.clone().into_boxed_slice(),
             })
             .collect();
 
