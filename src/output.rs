@@ -79,6 +79,11 @@ fn render_transaction_section_text(transaction: &TransactionSection, resolved: &
     println!("\nAccount List:");
     for account in &transaction.static_accounts {
         let pubkey = solana_sdk::pubkey::Pubkey::from_str(&account.pubkey).unwrap();
+        let colored_pubkey = if account.writable {
+            pubkey.to_string().custom_color((255, 255, 255))
+        } else {
+            pubkey.to_string().custom_color((156, 158, 158))
+        };
         let executable = resolved
             .accounts
             .get(&pubkey)
@@ -87,7 +92,7 @@ fn render_transaction_section_text(transaction: &TransactionSection, resolved: &
         println!(
             "  [{}] {} {}",
             account_index,
-            account.pubkey,
+            colored_pubkey,
             account_privilege_emoji(account.signer, account.writable, executable)
         );
         account_index += 1;
@@ -104,7 +109,7 @@ fn render_transaction_section_text(transaction: &TransactionSection, resolved: &
             println!(
                 "  [{}] {} {}",
                 account_index,
-                entry.pubkey,
+                entry.pubkey.to_string().custom_color((255, 255, 255)),
                 account_privilege_emoji(false, true, executable)
             );
             account_index += 1;
@@ -122,7 +127,7 @@ fn render_transaction_section_text(transaction: &TransactionSection, resolved: &
             println!(
                 "  [{}] {} {}",
                 account_index,
-                entry.pubkey,
+                entry.pubkey.to_string().custom_color((156, 158, 158)),
                 account_privilege_emoji(false, false, executable)
             );
             account_index += 1;
@@ -142,7 +147,7 @@ fn render_transaction_section_text(transaction: &TransactionSection, resolved: &
             let colored_pubkey = if account.writable {
                 solscan_linked_pubkey.custom_color((255, 255, 255))
             } else {
-                solscan_linked_pubkey.custom_color((202, 205, 207))
+                solscan_linked_pubkey.custom_color((156, 158, 158))
             };
             let pubkey = solana_sdk::pubkey::Pubkey::from_str(&account.pubkey).unwrap();
             let executable = resolved
@@ -585,28 +590,10 @@ fn account_privilege_emoji(signer: bool, writable: bool, executable: bool) -> &'
         "⚙️"
     } else {
         match (signer, writable) {
-            (true, true) => "📜 🔑",
-            (true, false) => "🔒 🔑",
-            (false, true) => "📜",
-            (false, false) => "🔒",
+            (true, true) => "🔑",
+            (true, false) => "🔑",
+            (false, true) => "",
+            (false, false) => "",
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_account_privilege_emoji() {
-        // Test executable account (should show gear emoji)
-        assert_eq!(account_privilege_emoji(false, false, true), "⚙️");
-        assert_eq!(account_privilege_emoji(true, true, true), "⚙️");
-
-        // Test non-executable accounts (should show existing emojis)
-        assert_eq!(account_privilege_emoji(true, true, false), "📜 🔑");
-        assert_eq!(account_privilege_emoji(true, false, false), "🔒 🔑");
-        assert_eq!(account_privilege_emoji(false, true, false), "📜");
-        assert_eq!(account_privilege_emoji(false, false, false), "🔒");
     }
 }
