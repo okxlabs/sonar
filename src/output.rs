@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use anyhow::Result;
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use base64::Engine;
+use colored::Colorize;
 use serde::Serialize;
 use solana_sdk::transaction::TransactionVersion;
 
@@ -65,9 +66,11 @@ fn render_transaction_section_text(transaction: &TransactionSection) {
         println!("  - {}", sig);
     }
 
-    println!("Address Lookup Tables");
-    for (idx, lookup) in transaction.lookups.iter().enumerate() {
-        println!("  - [{}] {}", idx, lookup.account_key);
+    if !transaction.lookups.is_empty() {
+        println!("Address Lookup Tables");
+        for (idx, lookup) in transaction.lookups.iter().enumerate() {
+            println!("  - [{}] {}", idx, lookup.account_key);
+        }
     }
 
     let mut account_index = 0;
@@ -108,17 +111,21 @@ fn render_transaction_section_text(transaction: &TransactionSection) {
 
     println!("\nInstruction Details:");
     for ix in &transaction.instructions {
-        println!("  #{} Program: {}", ix.index, ix.program.pubkey);
+        println!(
+            "  #{} {}",
+            ix.index.to_string().custom_color((255, 165, 0)),
+            ix.program.pubkey.to_string().custom_color((62, 132, 230))
+        );
         for account in &ix.accounts {
             println!(
-                "    - [{}] {} ({}) {}",
+                "    - {} [{}] {} {}",
+                account.source,
                 account.index,
                 account.pubkey,
-                account.source,
                 account_privilege_emoji(account.signer, account.writable)
             );
         }
-        println!("    Data: {} [{}]", hex::encode(&ix.data), ix.data.len());
+        println!("    - 🔢 0x{} [{}]", hex::encode(&ix.data), ix.data.len());
     }
 }
 
@@ -373,7 +380,7 @@ impl InstructionAccountEntry {
                     .pubkey
                     .clone()
                     .unwrap_or_else(|| "<missing>".into()),
-                "static",
+                "⚓",
                 None,
             ),
             AccountSourceSummary::Lookup {
@@ -391,7 +398,7 @@ impl InstructionAccountEntry {
                     index: *lookup_index,
                     writable: *writable,
                 };
-                (pubkey, "lookup", Some(lookup_ref))
+                (pubkey, "🔍", Some(lookup_ref))
             }
             AccountSourceSummary::Unknown => (
                 reference
