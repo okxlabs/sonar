@@ -156,12 +156,6 @@ cargo run -- simulate \
 - `clap`: 4.5.x with derive feature
 - `serde` / `serde_json`: 1.0.x
 
-## Known Issues and Technical Debt
-
-1. **~~Deprecated API Usage~~**: ✅ Fixed - Migrated from deprecated `solana_sdk::bpf_loader_upgradeable` to `solana-loader-v3-interface` and `solana-sdk-ids`
-2. **~~Transaction Signature Support~~**: ✅ Implemented - `--tx` option now accepts transaction signatures (88-character base58 format) and automatically fetches transaction data from RPC
-3. **Unused Field**: `deactivation_slot` in `ResolvedLookup` struct is never read
-
 ## CLI Usage Examples
 
 ```bash

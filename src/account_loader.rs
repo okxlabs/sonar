@@ -8,7 +8,7 @@ use log::{debug, trace, warn};
 use solana_account::{Account, ReadableAccount};
 use solana_address_lookup_table_interface::state::AddressLookupTable;
 use solana_client::rpc_client::RpcClient;
-use solana_clock::Slot;
+
 use solana_pubkey::Pubkey as LitePubkey;
 use solana_sdk::{
     account::Account as LegacyAccount,
@@ -156,7 +156,6 @@ impl AccountLoader {
 
         let lookup_table = AddressLookupTable::deserialize(table_account.data())
             .map_err(|err| anyhow!("Failed to parse address lookup table `{}`: {err}", plan.account_key))?;
-        let meta = lookup_table.meta.clone();
         let all_addresses = lookup_table.addresses.to_vec();
 
         let writable_addresses = resolve_lookup_indexes(&all_addresses, &plan.writable_indexes)
@@ -170,8 +169,6 @@ impl AccountLoader {
             readonly_indexes: plan.readonly_indexes.clone(),
             writable_addresses,
             readonly_addresses,
-            last_extended_slot: meta.last_extended_slot,
-            deactivation_slot: meta.deactivation_slot,
         })
     }
 
@@ -298,8 +295,6 @@ pub struct ResolvedLookup {
     pub readonly_indexes: Vec<u8>,
     pub writable_addresses: Vec<Pubkey>,
     pub readonly_addresses: Vec<Pubkey>,
-    pub last_extended_slot: Slot,
-    pub deactivation_slot: Slot,
 }
 
 fn resolve_lookup_indexes(addresses: &[Pubkey], indexes: &[u8]) -> Result<Vec<Pubkey>> {

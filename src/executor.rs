@@ -5,7 +5,7 @@ use bincode;
 use litesvm::{types::TransactionMetadata, LiteSVM};
 use log::info;
 use solana_account::{Account, AccountSharedData};
-use solana_clock::Clock;
+
 use solana_pubkey::Pubkey as LitePubkey;
 use solana_sdk::transaction::VersionedTransaction;
 use solana_loader_v3_interface::state::UpgradeableLoaderState;
@@ -57,19 +57,7 @@ impl TransactionExecutor {
                 })?;
         }
 
-        if !resolved.lookups.is_empty() {
-            let max_last_extended_slot = resolved
-                .lookups
-                .iter()
-                .map(|lookup| lookup.last_extended_slot)
-                .max()
-                .unwrap_or(0);
-            let current_clock = svm.get_sysvar::<Clock>();
-            if current_clock.slot <= max_last_extended_slot {
-                let desired_slot = max_last_extended_slot.saturating_add(1);
-                svm.warp_to_slot(desired_slot);
-            }
-        }
+
 
         Ok(Self {
             svm,
