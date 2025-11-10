@@ -6,9 +6,9 @@ use litesvm::{types::TransactionMetadata, LiteSVM};
 use log::info;
 use solana_account::{Account, AccountSharedData};
 
+use solana_loader_v3_interface::state::UpgradeableLoaderState;
 use solana_pubkey::Pubkey as LitePubkey;
 use solana_sdk::transaction::VersionedTransaction;
-use solana_loader_v3_interface::state::UpgradeableLoaderState;
 use solana_sdk_ids::bpf_loader_upgradeable;
 use solana_transaction::versioned::VersionedTransaction as LiteVersionedTransaction;
 
@@ -29,6 +29,7 @@ impl TransactionExecutor {
         replacements: Vec<ProgramReplacement>,
     ) -> Result<Self> {
         let mut svm = LiteSVM::new()
+            .with_log_bytes_limit(Some(1024 * 1024 * 10)) // 10M
             .with_blockhash_check(false)
             .with_sigverify(false);
 
@@ -56,8 +57,6 @@ impl TransactionExecutor {
                     )
                 })?;
         }
-
-
 
         Ok(Self {
             svm,
@@ -121,12 +120,15 @@ impl ResolvedAccounts {
 }
 
 fn convert_versioned_transaction(tx: &VersionedTransaction) -> Result<LiteVersionedTransaction> {
-    let bytes = bincode::serialize(tx).map_err(|err| anyhow!("Failed to serialize transaction: {err}"))?;
-    bincode::deserialize(&bytes).map_err(|err| anyhow!("Failed to convert transaction format: {err}"))
+    let bytes =
+        bincode::serialize(tx).map_err(|err| anyhow!("Failed to serialize transaction: {err}"))?;
+    bincode::deserialize(&bytes)
+        .map_err(|err| anyhow!("Failed to convert transaction format: {err}"))
 }
 
 fn account_priority(account: &Account) -> u8 {
-    let bpf_loader_id = solana_sdk::pubkey::Pubkey::new_from_array(bpf_loader_upgradeable::id().to_bytes());
+    let bpf_loader_id =
+        solana_sdk::pubkey::Pubkey::new_from_array(bpf_loader_upgradeable::id().to_bytes());
     if sdk_pubkey_from_lite(&account.owner) == bpf_loader_id {
         if let Ok(state) = bincode::deserialize::<UpgradeableLoaderState>(account.data.as_slice()) {
             return match state {
