@@ -117,11 +117,16 @@ fn render_transaction_section_text(transaction: &TransactionSection) {
             ix.program.pubkey.to_string().custom_color((62, 132, 230))
         );
         for account in &ix.accounts {
+            let colored_pubkey = if account.writable {
+                account.pubkey.to_string().custom_color((255, 255, 255))
+            } else {
+                account.pubkey.to_string().custom_color((202, 205, 207))
+            };
             println!(
                 "    - {} [{}] {} {}",
                 account.source,
                 account.index,
-                account.pubkey,
+                colored_pubkey,
                 account_privilege_emoji(account.signer, account.writable)
             );
         }
