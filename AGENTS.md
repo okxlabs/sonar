@@ -12,6 +12,7 @@
 - Program replacement for testing custom program behavior
 - Multiple output formats (text and JSON)
 - Account loading from Solana RPC nodes
+- Parse-only mode for transaction analysis without simulation
 
 ## Technology Stack
 
@@ -74,8 +75,8 @@ cargo test <test_name>
 # Simulate a transaction
 cargo run -- simulate --tx <BASE58_OR_BASE64_STRING> --rpc-url <RPC_URL>
 
-# Parse transaction only
-cargo run -- parse --tx <BASE58_OR_BASE64_STRING> --rpc-url <RPC_URL>
+# Parse transaction only (skip simulation)
+cargo run -- simulate --tx <BASE58_OR_BASE64_STRING> --rpc-url <RPC_URL> --parse-only
 
 # With program replacement
 cargo run -- simulate \
@@ -118,7 +119,7 @@ cargo run -- simulate \
 ### Integration Tests
 - Located in `tests/e2e_simulation.rs`
 - Use `assert_cmd` for CLI testing
-- Test both `simulate` and `parse` commands
+- Test `simulate` command with and without `--parse-only` flag
 - Include tests for program replacement functionality
 - **Important**: Some tests require mainnet RPC access and are marked with `#[ignore]`
 
@@ -173,9 +174,10 @@ solsim simulate \
   --replace TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA=./custom_token.so \
   --output json
 
-# Parse transaction only (from signature)
-solsim parse --tx 2gTzNX3zLNhhmJaY44LycEgF8UMadrKeDLHz8rgcQVbXWVU4bs8fLBzWKhvAqKBeo2ttqyXsCeqUW47dfW6775Wu \
-  --rpc-url https://api.mainnet-beta.solana.com
+# Parse transaction only (from signature) - skip simulation
+solsim simulate --tx 2gTzNX3zLNhhmJaY44LycEgF8UMadrKeDLHz8rgcQVbXWVU4bs8fLBzWKhvAqKBeo2ttqyXsCeqUW47dfW6775Wu \
+  --rpc-url https://api.mainnet-beta.solana.com \
+  --parse-only
 
 # Read transaction from file
 solsim simulate --tx-file ./transaction.txt --rpc-url <RPC_URL>

@@ -14,8 +14,6 @@ pub struct Cli {
 pub enum Commands {
     /// Simulate a specified raw transaction
     Simulate(SimulateArgs),
-    /// Parse raw transaction and print transaction details
-    Parse(ParseArgs),
 }
 
 #[derive(Args, Debug)]
@@ -35,6 +33,9 @@ pub struct SimulateArgs {
         value_parser = clap::builder::NonEmptyStringValueParser::new()
     )]
     pub replacements: Vec<String>,
+    /// Parse transaction only, skip simulation
+    #[arg(long = "parse-only")]
+    pub parse_only: bool,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -50,17 +51,7 @@ pub struct TransactionInputArgs {
     pub output: OutputFormat,
 }
 
-#[derive(Args, Debug)]
-pub struct ParseArgs {
-    #[command(flatten)]
-    pub transaction: TransactionInputArgs,
-    /// Solana RPC node URL
-    #[arg(
-        long = "rpc-url",
-        default_value = "https://api.mainnet-beta.solana.com"
-    )]
-    pub rpc_url: String,
-}
+
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum, Default)]
 pub enum OutputFormat {
