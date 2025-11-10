@@ -70,7 +70,8 @@ fn render_transaction_section_text(transaction: &TransactionSection, resolved: &
     if !transaction.lookups.is_empty() {
         println!("Address Lookup Tables");
         for (idx, lookup) in transaction.lookups.iter().enumerate() {
-            println!("  - [{}] {}", idx, lookup.account_key);
+            let solscan_linked_key = format_solscan_link(&lookup.account_key);
+            println!("  - [{}] {}", idx, solscan_linked_key);
         }
     }
 
@@ -78,7 +79,11 @@ fn render_transaction_section_text(transaction: &TransactionSection, resolved: &
     println!("\nAccount List:");
     for account in &transaction.static_accounts {
         let pubkey = solana_sdk::pubkey::Pubkey::from_str(&account.pubkey).unwrap();
-        let executable = resolved.accounts.get(&pubkey).map(|acc| acc.executable).unwrap_or(false);
+        let executable = resolved
+            .accounts
+            .get(&pubkey)
+            .map(|acc| acc.executable)
+            .unwrap_or(false);
         println!(
             "  [{}] {} {}",
             account_index,
@@ -91,7 +96,11 @@ fn render_transaction_section_text(transaction: &TransactionSection, resolved: &
     for lookup in &transaction.lookups {
         for entry in &lookup.writable {
             let pubkey = solana_sdk::pubkey::Pubkey::from_str(&entry.pubkey).unwrap();
-            let executable = resolved.accounts.get(&pubkey).map(|acc| acc.executable).unwrap_or(false);
+            let executable = resolved
+                .accounts
+                .get(&pubkey)
+                .map(|acc| acc.executable)
+                .unwrap_or(false);
             println!(
                 "  [{}] {} {}",
                 account_index,
@@ -105,7 +114,11 @@ fn render_transaction_section_text(transaction: &TransactionSection, resolved: &
     for lookup in &transaction.lookups {
         for entry in &lookup.readonly {
             let pubkey = solana_sdk::pubkey::Pubkey::from_str(&entry.pubkey).unwrap();
-            let executable = resolved.accounts.get(&pubkey).map(|acc| acc.executable).unwrap_or(false);
+            let executable = resolved
+                .accounts
+                .get(&pubkey)
+                .map(|acc| acc.executable)
+                .unwrap_or(false);
             println!(
                 "  [{}] {} {}",
                 account_index,
@@ -118,19 +131,25 @@ fn render_transaction_section_text(transaction: &TransactionSection, resolved: &
 
     println!("\nInstruction Details:");
     for ix in &transaction.instructions {
+        let program_pubkey_with_link = format_solscan_link(&ix.program.pubkey);
         println!(
             "  #{} {}",
             ix.index.to_string().custom_color((255, 165, 0)),
-            ix.program.pubkey.to_string().custom_color((62, 132, 230))
+            program_pubkey_with_link.custom_color((62, 132, 230))
         );
         for account in &ix.accounts {
+            let solscan_linked_pubkey = format_solscan_link(&account.pubkey);
             let colored_pubkey = if account.writable {
-                account.pubkey.to_string().custom_color((255, 255, 255))
+                solscan_linked_pubkey.custom_color((255, 255, 255))
             } else {
-                account.pubkey.to_string().custom_color((202, 205, 207))
+                solscan_linked_pubkey.custom_color((202, 205, 207))
             };
             let pubkey = solana_sdk::pubkey::Pubkey::from_str(&account.pubkey).unwrap();
-            let executable = resolved.accounts.get(&pubkey).map(|acc| acc.executable).unwrap_or(false);
+            let executable = resolved
+                .accounts
+                .get(&pubkey)
+                .map(|acc| acc.executable)
+                .unwrap_or(false);
             println!(
                 "    - {} [{}] {} {}",
                 account.source,
@@ -553,6 +572,14 @@ fn truncate_display(value: &str, limit: usize) -> String {
     }
 }
 
+fn format_solscan_link(account_pubkey: &str) -> String {
+    let solscan_url = format!("https://solscan.io/account/{}", account_pubkey);
+    format!(
+        "\x1b]8;;{}\x1b\\{}\x1b]8;;\x1b\\",
+        solscan_url, account_pubkey
+    )
+}
+
 fn account_privilege_emoji(signer: bool, writable: bool, executable: bool) -> &'static str {
     if executable {
         "⚙️"
@@ -575,7 +602,7 @@ mod tests {
         // Test executable account (should show gear emoji)
         assert_eq!(account_privilege_emoji(false, false, true), "⚙️");
         assert_eq!(account_privilege_emoji(true, true, true), "⚙️");
-        
+
         // Test non-executable accounts (should show existing emojis)
         assert_eq!(account_privilege_emoji(true, true, false), "📜 🔑");
         assert_eq!(account_privilege_emoji(true, false, false), "🔒 🔑");
