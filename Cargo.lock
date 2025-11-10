@@ -7234,10 +7234,12 @@ dependencies = [
  "solana-loader-v3-interface 6.1.0",
  "solana-message 2.4.0",
  "solana-pubkey 4.0.0",
+ "solana-rpc-client-types",
  "solana-sdk",
  "solana-sdk-ids 3.0.0",
  "solana-slot-hashes 3.0.0",
  "solana-transaction 3.0.2",
+ "solana-transaction-status-client-types",
  "thiserror 1.0.69",
 ]
 

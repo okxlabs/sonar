@@ -140,6 +140,27 @@ pub fn read_raw_transaction(inline: Option<String>, tx_file: Option<&Path>) -> R
     }
 }
 
+pub fn is_transaction_signature(s: &str) -> bool {
+    let trimmed = s.trim();
+    if trimmed.len() != 88 {
+        return false;
+    }
+    
+    trimmed.chars().all(|c| c.is_ascii_alphanumeric())
+}
+
+pub fn fetch_transaction_from_rpc(rpc_url: &str, signature: &str) -> Result<String> {
+    use crate::account_loader::AccountLoader;
+    
+    let loader = AccountLoader::new(rpc_url.to_string())?;
+    let tx = loader.fetch_transaction_by_signature(signature)?;
+    
+    let serialized = bincode::serialize(&tx)
+        .context("Failed to serialize transaction")?;
+    
+    Ok(BASE64_STANDARD.encode(serialized))
+}
+
 pub fn parse_raw_transaction(raw: &str) -> Result<ParsedTransaction> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {

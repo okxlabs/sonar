@@ -255,6 +255,34 @@ impl AccountLoader {
         debug!("Successfully fetched accounts: [{}]", format_pubkeys(pubkeys));
         Ok(())
     }
+
+    pub fn fetch_transaction_by_signature(&self, signature: &str) -> Result<VersionedTransaction> {
+        use solana_rpc_client_types::config::RpcTransactionConfig;
+        use solana_transaction_status_client_types::UiTransactionEncoding;
+        
+        let signature = signature.parse()
+            .with_context(|| format!("Invalid signature format: {}", signature))?;
+
+        let config = RpcTransactionConfig {
+            encoding: Some(UiTransactionEncoding::Base64),
+            commitment: Some(solana_sdk::commitment_config::CommitmentConfig::confirmed()),
+            max_supported_transaction_version: Some(0),
+            ..Default::default()
+        };
+
+        let response = self.client.get_transaction_with_config(&signature, config)
+            .map_err(|e| {
+                log::error!("RPC get_transaction error: {:?}", e);
+                anyhow!("Failed to fetch transaction for signature: {}. Error: {}", signature, e)
+            })?;
+
+        let transaction = response.transaction;
+        
+        match transaction.transaction.decode() {
+            Some(tx) => Ok(tx),
+            None => Err(anyhow!("Failed to decode transaction from RPC response")),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

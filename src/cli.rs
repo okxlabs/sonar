@@ -39,7 +39,7 @@ pub struct SimulateArgs {
 
 #[derive(Args, Debug, Clone)]
 pub struct TransactionInputArgs {
-    /// Raw transaction string (Base58/Base64), mutually exclusive with --tx-file
+    /// Raw transaction string (Base58/Base64) or transaction signature, mutually exclusive with --tx-file
     #[arg(short = 't', long, conflicts_with = "tx_file", value_name = "STRING")]
     pub tx: Option<String>,
     /// File path containing raw transaction, mutually exclusive with --tx

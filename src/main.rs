@@ -42,8 +42,32 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
         .map(|raw| cli::parse_program_replacement(&raw).map_err(anyhow::Error::msg))
         .collect::<Result<Vec<_>>>()?;
 
-    let raw_input = transaction::read_raw_transaction(tx, tx_file.as_deref())?;
-    let parsed_tx = transaction::parse_raw_transaction(&raw_input)?;
+    let raw_input = transaction::read_raw_transaction(tx.clone(), tx_file.as_deref())?;
+    
+    let parsed_tx = match transaction::parse_raw_transaction(&raw_input) {
+        Ok(tx) => tx,
+        Err(parse_err) => {
+            if let Some(ref tx_str) = tx {
+                if transaction::is_transaction_signature(tx_str) {
+                    log::info!("Input appears to be a transaction signature, attempting to fetch from RPC...");
+                    match transaction::fetch_transaction_from_rpc(&rpc_url, tx_str) {
+                        Ok(fetched_tx) => transaction::parse_raw_transaction(&fetched_tx)?,
+                        Err(fetch_err) => {
+                            return Err(anyhow::anyhow!(
+                                "Failed to parse as raw transaction: {}\nAlso failed to fetch as signature: {}",
+                                parse_err,
+                                fetch_err
+                            ));
+                        }
+                    }
+                } else {
+                    return Err(parse_err);
+                }
+            } else {
+                return Err(parse_err);
+            }
+        }
+    };
 
     let account_loader = account_loader::AccountLoader::new(rpc_url)?;
     let prepared_accounts =
@@ -73,8 +97,32 @@ fn handle_parse(args: ParseArgs) -> Result<()> {
         output,
     } = transaction;
 
-    let raw_input = transaction::read_raw_transaction(tx, tx_file.as_deref())?;
-    let parsed_tx = transaction::parse_raw_transaction(&raw_input)?;
+    let raw_input = transaction::read_raw_transaction(tx.clone(), tx_file.as_deref())?;
+    
+    let parsed_tx = match transaction::parse_raw_transaction(&raw_input) {
+        Ok(tx) => tx,
+        Err(parse_err) => {
+            if let Some(ref tx_str) = tx {
+                if transaction::is_transaction_signature(tx_str) {
+                    log::info!("Input appears to be a transaction signature, attempting to fetch from RPC...");
+                    match transaction::fetch_transaction_from_rpc(&rpc_url, tx_str) {
+                        Ok(fetched_tx) => transaction::parse_raw_transaction(&fetched_tx)?,
+                        Err(fetch_err) => {
+                            return Err(anyhow::anyhow!(
+                                "Failed to parse as raw transaction: {}\nAlso failed to fetch as signature: {}",
+                                parse_err,
+                                fetch_err
+                            ));
+                        }
+                    }
+                } else {
+                    return Err(parse_err);
+                }
+            } else {
+                return Err(parse_err);
+            }
+        }
+    };
 
     let account_loader = account_loader::AccountLoader::new(rpc_url)?;
     let resolved_accounts = account_loader.load_for_transaction(&parsed_tx.transaction, &[])?;

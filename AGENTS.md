@@ -5,7 +5,8 @@
 `solsim` is a command-line tool for simulating Solana transactions locally using LiteSVM. It allows developers to test and debug Solana transactions without deploying to a live network by providing raw transaction data (Base58 or Base64 encoded) and optionally replacing on-chain programs with local .so files for testing.
 
 **Key Features:**
-- Parse and analyze Solana transactions from raw encoding
+- Parse and analyze Solana transactions from raw encoding (Base58/Base64)
+- **Fetch and parse transactions directly from Solana RPC using transaction signatures**
 - Simulate transactions in a local SVM environment
 - Support for address lookup tables (ALT)
 - Program replacement for testing custom program behavior
@@ -18,6 +19,7 @@
 - **Core Dependencies**:
   - `litesvm` - Local Solana Virtual Machine for transaction simulation
   - `solana-sdk` / `solana-client` - Solana blockchain interaction
+  - `solana-rpc-client-types` / `solana-transaction-status-client-types` - RPC configuration and transaction encoding types
   - `clap` - Command-line interface parsing
   - `serde` / `serde_json` - Serialization support
   - `anyhow` - Error handling
@@ -27,12 +29,12 @@
 
 ```
 src/
-├── main.rs           # Entry point and command routing
-├── cli.rs            # CLI argument parsing and validation
-├── transaction.rs    # Transaction parsing and analysis (1,025 lines)
-├── account_loader.rs # RPC account fetching and caching (327 lines)
+├── main.rs           # Entry point and command routing (132 lines)
+├── cli.rs            # CLI argument parsing and validation (92 lines)
+├── transaction.rs    # Transaction parsing, analysis, and signature detection (1,050 lines)
+├── account_loader.rs # RPC account fetching, caching, and transaction fetching (358 lines)
 ├── executor.rs       # Transaction simulation execution (156 lines)
-└── output.rs         # Result formatting and rendering (519 lines)
+└── output.rs         # Result formatting and rendering (626 lines)
 
 tests/
 ├── e2e_simulation.rs # Integration tests using assert_cmd
@@ -103,8 +105,9 @@ cargo run -- simulate \
 
 ### Key Patterns
 1. **Transaction Flow**: Raw input → Parse → Load accounts → Simulate → Render output
-2. **Account Loading**: RPC fetching with caching, handles upgradeable programs
-3. **Program Replacement**: Replace on-chain programs with local .so files for testing
+2. **Signature Detection**: Auto-detects 88-character base58 signatures and fetches from RPC
+3. **Account Loading**: RPC fetching with caching, handles upgradeable programs
+4. **Program Replacement**: Replace on-chain programs with local .so files for testing
 
 ## Testing Strategy
 
@@ -141,21 +144,33 @@ cargo run -- simulate \
 ## Dependencies and Versions
 
 - Rust 1.91.0 or later
-- Solana SDK 2.2.x series
+- Solana SDK 2.2.x / 3.0.x series (mixed versions for different components)
 - LiteSVM 0.8.1
 - All dependencies managed through Cargo
+
+**Key Dependency Versions:**
+- `solana-sdk` / `solana-client` / `solana-message` / `solana-address-lookup-table-interface`: 2.2.x series
+- `solana-transaction` / `solana-account` / `solana-pubkey`: 3.0.x / 4.0.x series
+- `solana-rpc-client-types` / `solana-transaction-status-client-types`: 2.2.1 (for RPC configuration)
+- `litesvm`: 0.8.1
+- `clap`: 4.5.x with derive feature
+- `serde` / `serde_json`: 1.0.x
 
 ## Known Issues and Technical Debt
 
 1. **~~Deprecated API Usage~~**: ✅ Fixed - Migrated from deprecated `solana_sdk::bpf_loader_upgradeable` to `solana-loader-v3-interface` and `solana-sdk-ids`
-2. **Unused Field**: `deactivation_slot` in `ResolvedLookup` struct is never read
-3. **Chinese Comments**: All user-facing messages and comments are in Chinese - maintain this convention
+2. **~~Transaction Signature Support~~**: ✅ Implemented - `--tx` option now accepts transaction signatures (88-character base58 format) and automatically fetches transaction data from RPC
+3. **Unused Field**: `deactivation_slot` in `ResolvedLookup` struct is never read
 
 ## CLI Usage Examples
 
 ```bash
-# Basic simulation
+# Basic simulation with raw transaction
 solsim simulate --tx <BASE58_STRING> --rpc-url https://api.mainnet-beta.solana.com
+
+# Simulation using transaction signature (auto-detected)
+solsim simulate --tx 2gTzNX3zLNhhmJaY44LycEgF8UMadrKeDLHz8rgcQVbXWVU4bs8fLBzWKhvAqKBeo2ttqyXsCeqUW47dfW6775Wu \
+  --rpc-url https://api.mainnet-beta.solana.com
 
 # With program replacement
 solsim simulate \
@@ -164,8 +179,9 @@ solsim simulate \
   --replace TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA=./custom_token.so \
   --output json
 
-# Parse transaction only
-solsim parse --tx <BASE64_STRING> --rpc-url https://api.mainnet-beta.solana.com
+# Parse transaction only (from signature)
+solsim parse --tx 2gTzNX3zLNhhmJaY44LycEgF8UMadrKeDLHz8rgcQVbXWVU4bs8fLBzWKhvAqKBeo2ttqyXsCeqUW47dfW6775Wu \
+  --rpc-url https://api.mainnet-beta.solana.com
 
 # Read transaction from file
 solsim simulate --tx-file ./transaction.txt --rpc-url <RPC_URL>
