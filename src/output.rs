@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::str::FromStr;
 
 use anyhow::Result;
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
@@ -24,7 +25,7 @@ pub fn render(
 ) -> Result<()> {
     let report = Report::from_sources(parsed, resolved, simulation, replacements);
     match format {
-        OutputFormat::Text => render_text(&report),
+        OutputFormat::Text => render_text(&report, resolved),
         OutputFormat::Json => render_json(&report),
     }
 }
@@ -38,7 +39,7 @@ pub fn render_transaction_only(
     let transaction = TransactionSection::from_sources(parsed, resolved, &resolver);
     match format {
         OutputFormat::Text => {
-            render_transaction_section_text(&transaction);
+            render_transaction_section_text(&transaction, resolved);
             Ok(())
         }
         OutputFormat::Json => {
@@ -49,14 +50,14 @@ pub fn render_transaction_only(
     }
 }
 
-fn render_text(report: &Report) -> Result<()> {
-    render_transaction_section_text(&report.transaction);
+fn render_text(report: &Report, resolved: &ResolvedAccounts) -> Result<()> {
+    render_transaction_section_text(&report.transaction, resolved);
     render_replacements_text(&report.replacements);
     render_simulation_text(&report.simulation);
     Ok(())
 }
 
-fn render_transaction_section_text(transaction: &TransactionSection) {
+fn render_transaction_section_text(transaction: &TransactionSection, resolved: &ResolvedAccounts) {
     println!("=== Transaction Overview ===");
     println!("Encoding: {}", transaction.encoding);
     println!("Version: {}", transaction.version);
@@ -76,22 +77,26 @@ fn render_transaction_section_text(transaction: &TransactionSection) {
     let mut account_index = 0;
     println!("\nAccount List:");
     for account in &transaction.static_accounts {
+        let pubkey = solana_sdk::pubkey::Pubkey::from_str(&account.pubkey).unwrap();
+        let executable = resolved.accounts.get(&pubkey).map(|acc| acc.executable).unwrap_or(false);
         println!(
             "  [{}] {} {}",
             account_index,
             account.pubkey,
-            account_privilege_emoji(account.signer, account.writable)
+            account_privilege_emoji(account.signer, account.writable, executable)
         );
         account_index += 1;
     }
 
     for lookup in &transaction.lookups {
         for entry in &lookup.writable {
+            let pubkey = solana_sdk::pubkey::Pubkey::from_str(&entry.pubkey).unwrap();
+            let executable = resolved.accounts.get(&pubkey).map(|acc| acc.executable).unwrap_or(false);
             println!(
                 "  [{}] {} {}",
                 account_index,
                 entry.pubkey,
-                account_privilege_emoji(false, true)
+                account_privilege_emoji(false, true, executable)
             );
             account_index += 1;
         }
@@ -99,11 +104,13 @@ fn render_transaction_section_text(transaction: &TransactionSection) {
 
     for lookup in &transaction.lookups {
         for entry in &lookup.readonly {
+            let pubkey = solana_sdk::pubkey::Pubkey::from_str(&entry.pubkey).unwrap();
+            let executable = resolved.accounts.get(&pubkey).map(|acc| acc.executable).unwrap_or(false);
             println!(
                 "  [{}] {} {}",
                 account_index,
                 entry.pubkey,
-                account_privilege_emoji(false, false)
+                account_privilege_emoji(false, false, executable)
             );
             account_index += 1;
         }
@@ -122,12 +129,14 @@ fn render_transaction_section_text(transaction: &TransactionSection) {
             } else {
                 account.pubkey.to_string().custom_color((202, 205, 207))
             };
+            let pubkey = solana_sdk::pubkey::Pubkey::from_str(&account.pubkey).unwrap();
+            let executable = resolved.accounts.get(&pubkey).map(|acc| acc.executable).unwrap_or(false);
             println!(
                 "    - {} [{}] {} {}",
                 account.source,
                 account.index,
                 colored_pubkey,
-                account_privilege_emoji(account.signer, account.writable)
+                account_privilege_emoji(account.signer, account.writable, executable)
             );
         }
         println!("    - 🔢 0x{} [{}]", hex::encode(&ix.data), ix.data.len());
@@ -544,11 +553,33 @@ fn truncate_display(value: &str, limit: usize) -> String {
     }
 }
 
-fn account_privilege_emoji(signer: bool, writable: bool) -> &'static str {
-    match (signer, writable) {
-        (true, true) => "📜 🔑",
-        (true, false) => "🔒 🔑",
-        (false, true) => "📜",
-        (false, false) => "🔒",
+fn account_privilege_emoji(signer: bool, writable: bool, executable: bool) -> &'static str {
+    if executable {
+        "⚙️"
+    } else {
+        match (signer, writable) {
+            (true, true) => "📜 🔑",
+            (true, false) => "🔒 🔑",
+            (false, true) => "📜",
+            (false, false) => "🔒",
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_account_privilege_emoji() {
+        // Test executable account (should show gear emoji)
+        assert_eq!(account_privilege_emoji(false, false, true), "⚙️");
+        assert_eq!(account_privilege_emoji(true, true, true), "⚙️");
+        
+        // Test non-executable accounts (should show existing emojis)
+        assert_eq!(account_privilege_emoji(true, true, false), "📜 🔑");
+        assert_eq!(account_privilege_emoji(true, false, false), "🔒 🔑");
+        assert_eq!(account_privilege_emoji(false, true, false), "📜");
+        assert_eq!(account_privilege_emoji(false, false, false), "🔒");
     }
 }
