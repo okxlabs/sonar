@@ -105,25 +105,15 @@ fn render_account_list_text(transaction: &TransactionSection, resolved: &Resolve
     // Render lookup table accounts (writable first, then readonly)
     for lookup in &transaction.lookups {
         for entry in &lookup.writable {
-            account_index = render_account_entry_text(
-                account_index,
-                &entry.pubkey,
-                false,
-                true,
-                resolved,
-            );
+            account_index =
+                render_account_entry_text(account_index, &entry.pubkey, false, true, resolved);
         }
     }
 
     for lookup in &transaction.lookups {
         for entry in &lookup.readonly {
-            account_index = render_account_entry_text(
-                account_index,
-                &entry.pubkey,
-                false,
-                false,
-                resolved,
-            );
+            account_index =
+                render_account_entry_text(account_index, &entry.pubkey, false, false, resolved);
         }
     }
 }
@@ -136,11 +126,7 @@ fn render_account_entry_text(
     resolved: &ResolvedAccounts,
 ) -> usize {
     let pubkey = solana_sdk::pubkey::Pubkey::from_str(pubkey_str).unwrap();
-    let colored_pubkey = if writable {
-        pubkey.to_string().custom_color((255, 255, 255))
-    } else {
-        pubkey.to_string().custom_color((156, 158, 158))
-    };
+    let solscan_linked_pubkey = format_solscan_link(pubkey_str);
     let executable = resolved
         .accounts
         .get(&pubkey)
@@ -149,7 +135,7 @@ fn render_account_entry_text(
     println!(
         "  [{}] {} {}",
         index,
-        colored_pubkey,
+        solscan_linked_pubkey,
         account_privilege_emoji(signer, writable, executable)
     );
     index + 1
@@ -173,13 +159,8 @@ fn render_instruction_details_text(transaction: &TransactionSection, resolved: &
 }
 
 fn render_instruction_account_text(account: &InstructionAccountEntry, resolved: &ResolvedAccounts) {
-    let solscan_linked_pubkey = format_solscan_link(&account.pubkey);
-    let colored_pubkey = if account.writable {
-        solscan_linked_pubkey.custom_color((255, 255, 255))
-    } else {
-        solscan_linked_pubkey.custom_color((156, 158, 158))
-    };
     let pubkey = solana_sdk::pubkey::Pubkey::from_str(&account.pubkey).unwrap();
+    let solscan_linked_pubkey = format_solscan_link(&account.pubkey);
     let executable = resolved
         .accounts
         .get(&pubkey)
@@ -189,7 +170,7 @@ fn render_instruction_account_text(account: &InstructionAccountEntry, resolved: 
         "    - {} [{}] {} {}",
         account.source,
         account.index,
-        colored_pubkey,
+        solscan_linked_pubkey,
         account_privilege_emoji(account.signer, account.writable, executable)
     );
 }
@@ -617,10 +598,10 @@ fn account_privilege_emoji(signer: bool, writable: bool, executable: bool) -> &'
         "⚙️"
     } else {
         match (signer, writable) {
-            (true, true) => "🔑",
-            (true, false) => "🔑",
-            (false, true) => "",
-            (false, false) => "",
+            (true, true) => "📜 🔑",
+            (true, false) => "🔒 🔑",
+            (false, true) => "📜",
+            (false, false) => "🔒",
         }
     }
 }
