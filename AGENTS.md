@@ -58,6 +58,14 @@ cargo build --release
 cargo check
 ```
 
+### formatting
+```bash
+# Format the codebase, run it before committing
+cargo fmt
+# Check code formatting without making changes
+cargo fmt --check
+```
+
 ### Testing
 ```bash
 # Run unit tests
