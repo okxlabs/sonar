@@ -48,30 +48,45 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
 
     let raw_input = transaction::read_raw_transaction(tx.clone(), tx_file.as_deref())?;
     
-    let parsed_tx = match transaction::parse_raw_transaction(&raw_input) {
-        Ok(tx) => tx,
-        Err(parse_err) => {
-            if let Some(ref tx_str) = tx {
-                if transaction::is_transaction_signature(tx_str) {
-                    log::info!("Input appears to be a transaction signature, attempting to fetch from RPC...");
-                    match transaction::fetch_transaction_from_rpc(&rpc_url, tx_str) {
-                        Ok(fetched_tx) => transaction::parse_raw_transaction(&fetched_tx)?,
-                        Err(fetch_err) => {
-                            return Err(anyhow::anyhow!(
-                                "Failed to parse as raw transaction: {}\nAlso failed to fetch as signature: {}",
-                                parse_err,
-                                fetch_err
-                            ));
-                        }
-                    }
-                } else {
-                    return Err(parse_err);
-                }
+    // Check if input looks like a transaction signature first
+    if let Some(ref tx_str) = tx {
+        if transaction::is_transaction_signature(tx_str) {
+            log::info!("Input appears to be a transaction signature, attempting to fetch from RPC...");
+            let fetched_tx = transaction::fetch_transaction_from_rpc(&rpc_url, tx_str)?;
+            let parsed_tx = transaction::parse_raw_transaction(&fetched_tx)?;
+            
+            let account_loader = account_loader::AccountLoader::new(rpc_url)?;
+            let resolved_accounts =
+                account_loader.load_for_transaction(&parsed_tx.transaction, &replacements)?;
+
+            if parse_only {
+                output::render_transaction_only(&parsed_tx, &resolved_accounts, output)?;
             } else {
-                return Err(parse_err);
+                let mut executor = executor::TransactionExecutor::prepare(resolved_accounts, replacements)?;
+                let simulation = executor.simulate(&parsed_tx.transaction)?;
+                
+                // Update transaction summary with inner instructions from simulation
+                let mut updated_tx = parsed_tx;
+                updated_tx.summary = transaction::TransactionSummary::from_transaction(
+                    &updated_tx.transaction,
+                    &updated_tx.account_plan,
+                    simulation.meta.inner_instructions.clone(),
+                );
+
+                output::render(
+                    &updated_tx,
+                    executor.resolved_accounts(),
+                    &simulation,
+                    executor.replacements(),
+                    output,
+                )?;
             }
+            return Ok(());
         }
-    };
+    }
+    
+    // If not a signature, parse as raw transaction
+    let parsed_tx = transaction::parse_raw_transaction(&raw_input)?;
 
     let account_loader = account_loader::AccountLoader::new(rpc_url)?;
     let resolved_accounts =
@@ -82,9 +97,17 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
     } else {
         let mut executor = executor::TransactionExecutor::prepare(resolved_accounts, replacements)?;
         let simulation = executor.simulate(&parsed_tx.transaction)?;
+        
+        // Update transaction summary with inner instructions from simulation
+        let mut updated_tx = parsed_tx;
+        updated_tx.summary = transaction::TransactionSummary::from_transaction(
+            &updated_tx.transaction,
+            &updated_tx.account_plan,
+            simulation.meta.inner_instructions.clone(),
+        );
 
         output::render(
-            &parsed_tx,
+            &updated_tx,
             executor.resolved_accounts(),
             &simulation,
             executor.replacements(),

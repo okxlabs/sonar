@@ -71,7 +71,7 @@ fn render_transaction_overview_text(transaction: &TransactionSection) {
     println!("Recent Blockhash: {}", transaction.recent_blockhash);
     println!("Signatures:");
     for sig in &transaction.signatures {
-        println!("  - {}", sig);
+        println!("  {}", sig);
     }
 }
 
@@ -83,7 +83,7 @@ fn render_lookup_tables_text(transaction: &TransactionSection) {
     println!("Address Lookup Tables");
     for (idx, lookup) in transaction.lookups.iter().enumerate() {
         let solscan_linked_key = format_solscan_link(&lookup.account_key);
-        println!("  - [{}] {}", idx, solscan_linked_key);
+        println!("  [{}] {}", idx, solscan_linked_key);
     }
 }
 
@@ -145,29 +145,58 @@ fn render_instruction_details_text(transaction: &TransactionSection, resolved: &
     println!("\nInstruction Details:");
     for ix in &transaction.instructions {
         let program_pubkey_with_link = format_solscan_link(&ix.program.pubkey);
+        // Display outer instruction with 1-based indexing (#1, #2, #3, etc.)
+        let outer_number = ix.index + 1;
         println!(
             "  #{} {}",
-            ix.index.to_string().custom_color((255, 165, 0)),
+            outer_number.to_string().custom_color((255, 165, 0)),
             program_pubkey_with_link.custom_color((62, 132, 230))
         );
 
         for account in &ix.accounts {
             render_instruction_account_text(account, resolved);
         }
-        println!("    - 🔢 0x{} [{}]", hex::encode(&ix.data), ix.data.len());
+        println!(
+            "     🔢 0x{} | {} byte(s)",
+            hex::encode(&ix.data),
+            ix.data.len()
+        );
+
+        // Display inner instructions if any
+        if !ix.inner_instructions.is_empty() {
+            for inner_ix in &ix.inner_instructions {
+                println!(
+                    "    {} {}",
+                    format!("#{}", inner_ix.label).custom_color((255, 165, 0)),
+                    format_solscan_link(&inner_ix.program.pubkey).custom_color((62, 132, 230))
+                );
+
+                for account in &inner_ix.accounts {
+                    render_instruction_account_text(account, resolved);
+                }
+                println!(
+                    "     🔢 0x{} | {} byte(s)",
+                    hex::encode(&inner_ix.data),
+                    inner_ix.data.len()
+                );
+            }
+        }
     }
 }
 
 fn render_instruction_account_text(account: &InstructionAccountEntry, resolved: &ResolvedAccounts) {
-    let pubkey = solana_sdk::pubkey::Pubkey::from_str(&account.pubkey).unwrap();
     let solscan_linked_pubkey = format_solscan_link(&account.pubkey);
-    let executable = resolved
-        .accounts
-        .get(&pubkey)
-        .map(|acc| acc.executable)
-        .unwrap_or(false);
+    let executable = if let Ok(pubkey) = solana_sdk::pubkey::Pubkey::from_str(&account.pubkey) {
+        resolved
+            .accounts
+            .get(&pubkey)
+            .map(|acc| acc.executable)
+            .unwrap_or(false)
+    } else {
+        false
+    };
     println!(
-        "    - {} [{}] {} {}",
+        "     {} [{}] {} {}",
         account.source,
         account.index,
         solscan_linked_pubkey,
@@ -182,7 +211,7 @@ fn render_replacements_text(replacements: &[ReplacementSection]) {
 
     println!("\nProgram Replacements:");
     for replacement in replacements {
-        println!("  - {} <= {}", replacement.program_id, replacement.path);
+        println!("  {} <= {}", replacement.program_id, replacement.path);
     }
 }
 
@@ -193,7 +222,7 @@ fn render_simulation_text(simulation: &SimulationSection) {
             println!("🟢");
         }
         SimulationStatusReport::Failed { error } => {
-            println!("🔴 ({error})");
+            println!("🔴 ({})", error);
         }
     }
     println!(
@@ -302,7 +331,14 @@ impl TransactionSection {
             .summary
             .instructions
             .iter()
-            .map(|ix| InstructionSection::from_summary(ix, resolver))
+            .map(|ix| {
+                InstructionSection::from_summary(
+                    ix,
+                    resolver,
+                    &parsed.summary.inner_instructions,
+                    parsed,
+                )
+            })
             .collect();
 
         let lookups = resolved
@@ -379,12 +415,15 @@ struct InstructionSection {
     program: InstructionAccountEntry,
     accounts: Vec<InstructionAccountEntry>,
     data: Box<[u8]>,
+    inner_instructions: Vec<InnerInstructionSection>,
 }
 
 impl InstructionSection {
     fn from_summary(
         summary: &crate::transaction::InstructionSummary,
         resolver: &LookupResolver,
+        inner_instructions_list: &[solana_message::inner_instruction::InnerInstructions],
+        parsed: &ParsedTransaction,
     ) -> Self {
         let program =
             InstructionAccountEntry::from_reference_with_resolver(&summary.program, Some(resolver));
@@ -395,11 +434,84 @@ impl InstructionSection {
                 InstructionAccountEntry::from_reference_with_resolver(account, Some(resolver))
             })
             .collect();
+
+        let inner_instructions = if summary.index < inner_instructions_list.len() {
+            inner_instructions_list[summary.index]
+                .iter()
+                .enumerate()
+                .map(|(inner_idx, inner_ix)| {
+                    InnerInstructionSection::from_inner_instruction(
+                        inner_ix,
+                        resolver,
+                        &format!("{}.{}", summary.index + 1, inner_idx + 1),
+                        parsed,
+                    )
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+
         Self {
             index: summary.index,
             program,
             accounts,
             data: summary.data.clone(),
+            inner_instructions,
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct InnerInstructionSection {
+    label: String,
+    program: InstructionAccountEntry,
+    accounts: Vec<InstructionAccountEntry>,
+    data: Box<[u8]>,
+}
+
+impl InnerInstructionSection {
+    fn from_inner_instruction(
+        inner_ix: &solana_message::inner_instruction::InnerInstruction,
+        resolver: &LookupResolver,
+        label: &str,
+        parsed: &ParsedTransaction,
+    ) -> Self {
+        // Resolve inner instruction accounts using the same logic as outer instructions
+        let message = &parsed.transaction.message;
+        let lookup_locations =
+            crate::transaction::build_lookup_locations(&parsed.account_plan.address_lookups);
+
+        let program = {
+            let ref_summary = crate::transaction::classify_account_reference(
+                message,
+                inner_ix.instruction.program_id_index as usize,
+                &parsed.account_plan,
+                &lookup_locations,
+            );
+            InstructionAccountEntry::from_reference_with_resolver(&ref_summary, Some(resolver))
+        };
+
+        let accounts = inner_ix
+            .instruction
+            .accounts
+            .iter()
+            .map(|account_index| {
+                let ref_summary = crate::transaction::classify_account_reference(
+                    message,
+                    *account_index as usize,
+                    &parsed.account_plan,
+                    &lookup_locations,
+                );
+                InstructionAccountEntry::from_reference_with_resolver(&ref_summary, Some(resolver))
+            })
+            .collect();
+
+        Self {
+            label: label.to_string(),
+            program,
+            accounts,
+            data: inner_ix.instruction.data.clone().into_boxed_slice(),
         }
     }
 }

@@ -5,6 +5,7 @@ use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use base64::Engine;
 use bs58::decode::Error as Base58Error;
 use serde::Serialize;
+use solana_message::inner_instruction::InnerInstructionsList;
 use solana_sdk::{
     message::VersionedMessage,
     pubkey::Pubkey,
@@ -24,6 +25,7 @@ pub struct ParsedTransaction {
     pub version: TransactionVersion,
     pub transaction: VersionedTransaction,
     pub summary: TransactionSummary,
+    pub account_plan: MessageAccountPlan,
 }
 
 #[derive(Debug, Clone)]
@@ -56,6 +58,7 @@ pub struct TransactionSummary {
     pub recent_blockhash: String,
     pub static_accounts: Vec<AccountKeySummary>,
     pub instructions: Vec<InstructionSummary>,
+    pub inner_instructions: InnerInstructionsList,
     pub address_table_lookups: Vec<AddressLookupSummary>,
 }
 
@@ -104,10 +107,10 @@ pub struct AddressLookupSummary {
 }
 
 #[derive(Debug, Clone)]
-struct LookupLocation {
-    table_account: Pubkey,
-    table_index: u8,
-    writable: bool,
+pub struct LookupLocation {
+    pub table_account: Pubkey,
+    pub table_index: u8,
+    pub writable: bool,
 }
 
 pub fn read_raw_transaction(inline: Option<String>, tx_file: Option<&Path>) -> Result<String> {
@@ -142,11 +145,13 @@ pub fn read_raw_transaction(inline: Option<String>, tx_file: Option<&Path>) -> R
 
 pub fn is_transaction_signature(s: &str) -> bool {
     let trimmed = s.trim();
-    if trimmed.len() != 88 {
+    // Solana signatures are typically 87-88 characters in base58
+    if trimmed.len() < 87 || trimmed.len() > 88 {
         return false;
     }
     
-    trimmed.chars().all(|c| c.is_ascii_alphanumeric())
+    // Check if it contains only base58 characters (alphanumeric except 0OIl)
+    trimmed.chars().all(|c| c.is_ascii_alphanumeric() && !matches!(c, '0' | 'O' | 'I' | 'l'))
 }
 
 pub fn fetch_transaction_from_rpc(rpc_url: &str, signature: &str) -> Result<String> {
@@ -178,12 +183,13 @@ pub fn parse_raw_transaction(raw: &str) -> Result<ParsedTransaction> {
                 Ok(transaction) => {
                     let version = transaction.version();
                     let account_plan = MessageAccountPlan::from_transaction(&transaction);
-                    let summary = TransactionSummary::from_transaction(&transaction, &account_plan);
+                    let summary = TransactionSummary::from_transaction(&transaction, &account_plan, Vec::new());
                     return Ok(ParsedTransaction {
                         encoding,
                         version,
                         transaction,
                         summary,
+                        account_plan,
                     });
                 }
                 Err(err) => errors.push(anyhow!(
@@ -239,7 +245,11 @@ fn map_base58_error(input: &str, err: Base58Error) -> anyhow::Error {
 }
 
 impl TransactionSummary {
-    pub fn from_transaction(tx: &VersionedTransaction, plan: &MessageAccountPlan) -> Self {
+    pub fn from_transaction(
+        tx: &VersionedTransaction,
+        plan: &MessageAccountPlan,
+        inner_instructions: InnerInstructionsList,
+    ) -> Self {
         let message = &tx.message;
         let lookup_locations = build_lookup_locations(&plan.address_lookups);
         let static_accounts = plan
@@ -297,6 +307,7 @@ impl TransactionSummary {
             recent_blockhash: message.recent_blockhash().to_string(),
             static_accounts,
             instructions,
+            inner_instructions,
             address_table_lookups,
         }
     }
@@ -325,7 +336,7 @@ impl TransactionSummary {
 ///
 /// # Returns
 /// Returns account reference summary containing account source, pubkey, signer, and writable attributes
-fn classify_account_reference(
+pub fn classify_account_reference(
     message: &VersionedMessage,
     index: usize,
     plan: &MessageAccountPlan,
@@ -396,7 +407,7 @@ fn build_address_lookup_plan(message: &VersionedMessage) -> Vec<AddressLookupPla
 ///
 /// # Returns
 /// Returns a lookup location list sorted by global account index
-fn build_lookup_locations(plan: &[AddressLookupPlan]) -> Vec<LookupLocation> {
+pub fn build_lookup_locations(plan: &[AddressLookupPlan]) -> Vec<LookupLocation> {
     let mut locations = Vec::new();
 
     // Iterate through each lookup table (maintaining transaction order)

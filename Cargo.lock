@@ -7232,7 +7232,7 @@ dependencies = [
  "solana-clock 3.0.0",
  "solana-hash 3.1.0",
  "solana-loader-v3-interface 6.1.0",
- "solana-message 2.4.0",
+ "solana-message 3.0.1",
  "solana-pubkey 4.0.0",
  "solana-rpc-client-types",
  "solana-sdk",
