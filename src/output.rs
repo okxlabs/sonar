@@ -22,8 +22,15 @@ pub fn render(
     simulation: &SimulationResult,
     replacements: &[ProgramReplacement],
     format: OutputFormat,
+    verify_signatures: bool,
 ) -> Result<()> {
-    let report = Report::from_sources(parsed, resolved, simulation, replacements);
+    let report = Report::from_sources(
+        parsed,
+        resolved,
+        simulation,
+        replacements,
+        verify_signatures,
+    );
     match format {
         OutputFormat::Text => render_text(&report, resolved),
         OutputFormat::Json => render_json(&report),
@@ -36,7 +43,7 @@ pub fn render_transaction_only(
     format: OutputFormat,
 ) -> Result<()> {
     let resolver = LookupResolver::new(resolved.lookup_details());
-    let transaction = TransactionSection::from_sources(parsed, resolved, &resolver);
+    let transaction = TransactionSection::from_sources(parsed, resolved, &resolver, false);
     match format {
         OutputFormat::Text => {
             render_transaction_section_text(&transaction, resolved);
@@ -268,9 +275,11 @@ impl Report {
         resolved: &ResolvedAccounts,
         simulation: &SimulationResult,
         replacements: &[ProgramReplacement],
+        verify_signatures: bool,
     ) -> Self {
         let resolver = LookupResolver::new(resolved.lookup_details());
-        let transaction = TransactionSection::from_sources(parsed, resolved, &resolver);
+        let transaction =
+            TransactionSection::from_sources(parsed, resolved, &resolver, verify_signatures);
         let simulation = SimulationSection::from_result(simulation);
         let replacements = replacements
             .iter()
@@ -296,6 +305,8 @@ struct TransactionSection {
     static_accounts: Vec<AccountEntry>,
     lookups: Vec<LookupSection>,
     instructions: Vec<InstructionSection>,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    verify_signatures: bool,
 }
 
 impl TransactionSection {
@@ -303,6 +314,7 @@ impl TransactionSection {
         parsed: &ParsedTransaction,
         resolved: &ResolvedAccounts,
         resolver: &LookupResolver,
+        verify_signatures: bool,
     ) -> Self {
         let encoding = match parsed.encoding {
             crate::transaction::RawTransactionEncoding::Base58 => "base58",
@@ -355,6 +367,7 @@ impl TransactionSection {
             static_accounts,
             lookups,
             instructions,
+            verify_signatures,
         }
     }
 }

@@ -9,16 +9,12 @@ use solana_account::{Account, ReadableAccount};
 use solana_address_lookup_table_interface::state::AddressLookupTable;
 use solana_client::rpc_client::RpcClient;
 
+use solana_loader_v3_interface::state::UpgradeableLoaderState;
 use solana_pubkey::Pubkey as LitePubkey;
 use solana_sdk::{
-    account::Account as LegacyAccount,
-    clock::Clock,
-    pubkey::Pubkey,
-    slot_hashes::SlotHashes,
-    sysvar::SysvarId,
-    transaction::VersionedTransaction,
+    account::Account as LegacyAccount, clock::Clock, pubkey::Pubkey, slot_hashes::SlotHashes,
+    sysvar::SysvarId, transaction::VersionedTransaction,
 };
-use solana_loader_v3_interface::state::UpgradeableLoaderState;
 use solana_sdk_ids::bpf_loader_upgradeable;
 use std::sync::Mutex;
 
@@ -121,7 +117,8 @@ impl AccountLoader {
                         programdata_address,
                     } = state
                     {
-                        let programdata_key = Pubkey::new_from_array(programdata_address.to_bytes());
+                        let programdata_key =
+                            Pubkey::new_from_array(programdata_address.to_bytes());
                         if !accounts.contains_key(&programdata_key) {
                             missing.push(programdata_key);
                         }
@@ -134,7 +131,10 @@ impl AccountLoader {
             }
 
             self.fetch_accounts(&missing, accounts).with_context(|| {
-                format!("Failed to fetch ProgramData accounts: [{}]", format_pubkeys(&missing))
+                format!(
+                    "Failed to fetch ProgramData accounts: [{}]",
+                    format_pubkeys(&missing)
+                )
             })?;
         }
 
@@ -148,20 +148,43 @@ impl AccountLoader {
     ) -> Result<ResolvedLookup> {
         // Fetch lookup table account
         self.fetch_accounts(&[plan.account_key], accounts)
-            .with_context(|| format!("Failed to fetch address lookup table account `{}`", plan.account_key))?;
+            .with_context(|| {
+                format!(
+                    "Failed to fetch address lookup table account `{}`",
+                    plan.account_key
+                )
+            })?;
 
-        let table_account = accounts
-            .get(&plan.account_key)
-            .ok_or_else(|| anyhow!("Address lookup table account `{}` missing from cache", plan.account_key))?;
+        let table_account = accounts.get(&plan.account_key).ok_or_else(|| {
+            anyhow!(
+                "Address lookup table account `{}` missing from cache",
+                plan.account_key
+            )
+        })?;
 
-        let lookup_table = AddressLookupTable::deserialize(table_account.data())
-            .map_err(|err| anyhow!("Failed to parse address lookup table `{}`: {err}", plan.account_key))?;
+        let lookup_table =
+            AddressLookupTable::deserialize(table_account.data()).map_err(|err| {
+                anyhow!(
+                    "Failed to parse address lookup table `{}`: {err}",
+                    plan.account_key
+                )
+            })?;
         let all_addresses = lookup_table.addresses.to_vec();
 
         let writable_addresses = resolve_lookup_indexes(&all_addresses, &plan.writable_indexes)
-            .with_context(|| format!("Failed to parse writable indexes for address lookup table `{}`", plan.account_key))?;
+            .with_context(|| {
+                format!(
+                    "Failed to parse writable indexes for address lookup table `{}`",
+                    plan.account_key
+                )
+            })?;
         let readonly_addresses = resolve_lookup_indexes(&all_addresses, &plan.readonly_indexes)
-            .with_context(|| format!("Failed to parse readonly indexes for address lookup table `{}`", plan.account_key))?;
+            .with_context(|| {
+                format!(
+                    "Failed to parse readonly indexes for address lookup table `{}`",
+                    plan.account_key
+                )
+            })?;
 
         Ok(ResolvedLookup {
             account_key: plan.account_key,
@@ -249,15 +272,19 @@ impl AccountLoader {
             }
         }
 
-        debug!("Successfully fetched accounts: [{}]", format_pubkeys(pubkeys));
+        debug!(
+            "Successfully fetched accounts: [{}]",
+            format_pubkeys(pubkeys)
+        );
         Ok(())
     }
 
     pub fn fetch_transaction_by_signature(&self, signature: &str) -> Result<VersionedTransaction> {
         use solana_rpc_client_types::config::RpcTransactionConfig;
         use solana_transaction_status_client_types::UiTransactionEncoding;
-        
-        let signature = signature.parse()
+
+        let signature = signature
+            .parse()
             .with_context(|| format!("Invalid signature format: {}", signature))?;
 
         let config = RpcTransactionConfig {
@@ -267,14 +294,20 @@ impl AccountLoader {
             ..Default::default()
         };
 
-        let response = self.client.get_transaction_with_config(&signature, config)
+        let response = self
+            .client
+            .get_transaction_with_config(&signature, config)
             .map_err(|e| {
                 log::error!("RPC get_transaction error: {:?}", e);
-                anyhow!("Failed to fetch transaction for signature: {}. Error: {}", signature, e)
+                anyhow!(
+                    "Failed to fetch transaction for signature: {}. Error: {}",
+                    signature,
+                    e
+                )
             })?;
 
         let transaction = response.transaction;
-        
+
         match transaction.transaction.decode() {
             Some(tx) => Ok(tx),
             None => Err(anyhow!("Failed to decode transaction from RPC response")),

@@ -4,7 +4,11 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 use solana_pubkey::Pubkey;
 
 #[derive(Parser, Debug)]
-#[command(name = "solsim", version, about = "Solana Transaction Simulator based on LiteSVM")]
+#[command(
+    name = "solsim",
+    version,
+    about = "Solana Transaction Simulator based on LiteSVM"
+)]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,
@@ -36,6 +40,9 @@ pub struct SimulateArgs {
     /// Parse transaction only, skip simulation
     #[arg(long = "parse-only")]
     pub parse_only: bool,
+    /// Verify transaction signatures during simulation
+    #[arg(long = "check-sig")]
+    pub verify_signatures: bool,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -50,8 +57,6 @@ pub struct TransactionInputArgs {
     #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
     pub output: OutputFormat,
 }
-
-
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum, Default)]
 pub enum OutputFormat {
@@ -74,7 +79,10 @@ pub fn parse_program_replacement(raw: &str) -> Result<ProgramReplacement, String
         .map_err(|err| format!("Failed to parse program address `{program_str}`: {err}"))?;
     let so_path = PathBuf::from(path_str.trim());
     if !so_path.exists() {
-        return Err(format!("Specified program file `{}` does not exist", so_path.display()));
+        return Err(format!(
+            "Specified program file `{}` does not exist",
+            so_path.display()
+        ));
     }
     Ok(ProgramReplacement {
         program_id,

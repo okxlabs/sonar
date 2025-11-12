@@ -27,11 +27,12 @@ impl TransactionExecutor {
     pub fn prepare(
         resolved: ResolvedAccounts,
         replacements: Vec<ProgramReplacement>,
+        verify_signatures: bool,
     ) -> Result<Self> {
         let mut svm = LiteSVM::new()
             .with_log_bytes_limit(Some(1024 * 1024 * 10)) // 10M
             .with_blockhash_check(false)
-            .with_sigverify(false);
+            .with_sigverify(verify_signatures);
 
         let mut ordered_accounts: Vec<_> = resolved.accounts.iter().collect();
         ordered_accounts.sort_by_key(|(_, account)| account_priority(account));

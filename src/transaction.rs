@@ -149,20 +149,21 @@ pub fn is_transaction_signature(s: &str) -> bool {
     if trimmed.len() < 87 || trimmed.len() > 88 {
         return false;
     }
-    
+
     // Check if it contains only base58 characters (alphanumeric except 0OIl)
-    trimmed.chars().all(|c| c.is_ascii_alphanumeric() && !matches!(c, '0' | 'O' | 'I' | 'l'))
+    trimmed
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() && !matches!(c, '0' | 'O' | 'I' | 'l'))
 }
 
 pub fn fetch_transaction_from_rpc(rpc_url: &str, signature: &str) -> Result<String> {
     use crate::account_loader::AccountLoader;
-    
+
     let loader = AccountLoader::new(rpc_url.to_string())?;
     let tx = loader.fetch_transaction_by_signature(signature)?;
-    
-    let serialized = bincode::serialize(&tx)
-        .context("Failed to serialize transaction")?;
-    
+
+    let serialized = bincode::serialize(&tx).context("Failed to serialize transaction")?;
+
     Ok(BASE64_STANDARD.encode(serialized))
 }
 
@@ -183,7 +184,11 @@ pub fn parse_raw_transaction(raw: &str) -> Result<ParsedTransaction> {
                 Ok(transaction) => {
                     let version = transaction.version();
                     let account_plan = MessageAccountPlan::from_transaction(&transaction);
-                    let summary = TransactionSummary::from_transaction(&transaction, &account_plan, Vec::new());
+                    let summary = TransactionSummary::from_transaction(
+                        &transaction,
+                        &account_plan,
+                        Vec::new(),
+                    );
                     return Ok(ParsedTransaction {
                         encoding,
                         version,
