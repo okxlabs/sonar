@@ -29,6 +29,7 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
         transaction,
         rpc_url,
         replacements: replacement_args,
+        fundings: funding_args,
         parse_only,
         verify_signatures,
     } = args;
@@ -44,6 +45,15 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
         replacement_args
             .into_iter()
             .map(|raw| cli::parse_program_replacement(&raw).map_err(anyhow::Error::msg))
+            .collect::<Result<Vec<_>>>()?
+    };
+
+    let fundings = if parse_only {
+        vec![]
+    } else {
+        funding_args
+            .into_iter()
+            .map(|raw| cli::parse_funding(&raw).map_err(anyhow::Error::msg))
             .collect::<Result<Vec<_>>>()?
     };
 
@@ -68,6 +78,7 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
                 let mut executor = executor::TransactionExecutor::prepare(
                     resolved_accounts,
                     replacements,
+                    fundings,
                     verify_signatures,
                 )?;
                 let simulation = executor.simulate(&parsed_tx.transaction)?;
@@ -85,6 +96,7 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
                     executor.resolved_accounts(),
                     &simulation,
                     executor.replacements(),
+                    executor.fundings(),
                     output,
                     verify_signatures,
                 )?;
@@ -106,6 +118,7 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
         let mut executor = executor::TransactionExecutor::prepare(
             resolved_accounts,
             replacements,
+            fundings,
             verify_signatures,
         )?;
         let simulation = executor.simulate(&parsed_tx.transaction)?;
@@ -123,6 +136,7 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
             executor.resolved_accounts(),
             &simulation,
             executor.replacements(),
+            executor.fundings(),
             output,
             verify_signatures,
         )?;

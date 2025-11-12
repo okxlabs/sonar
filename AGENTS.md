@@ -10,6 +10,7 @@
 - Simulate transactions in a local SVM environment
 - Support for address lookup tables (ALT)
 - Program replacement for testing custom program behavior
+- **Fund system accounts with arbitrary SOL amounts for testing**
 - Multiple output formats (text and JSON)
 - Account loading from Solana RPC nodes
 - Parse-only mode for transaction analysis without simulation
@@ -30,12 +31,12 @@
 
 ```
 src/
-├── main.rs           # Entry point and command routing (132 lines)
-├── cli.rs            # CLI argument parsing and validation (92 lines)
-├── transaction.rs    # Transaction parsing, analysis, and signature detection (1,050 lines)
-├── account_loader.rs # RPC account fetching, caching, and transaction fetching (358 lines)
-├── executor.rs       # Transaction simulation execution (156 lines)
-└── output.rs         # Result formatting and rendering (626 lines)
+├── main.rs           # Entry point and command routing (145 lines)
+├── cli.rs            # CLI argument parsing and validation (125 lines)
+├── transaction.rs    # Transaction parsing, analysis, and signature detection (1,066 lines)
+├── account_loader.rs # RPC account fetching, caching, and transaction fetching (386 lines)
+├── executor.rs       # Transaction simulation execution with account funding (180 lines)
+└── output.rs         # Result formatting and rendering (762 lines)
 
 tests/
 ├── e2e_simulation.rs # Integration tests using assert_cmd
@@ -117,6 +118,7 @@ cargo run -- simulate \
 2. **Signature Detection**: Auto-detects 88-character base58 signatures and fetches from RPC
 3. **Account Loading**: RPC fetching with caching, handles upgradeable programs
 4. **Program Replacement**: Replace on-chain programs with local .so files for testing
+5. **Account Funding**: Fund system accounts with custom SOL amounts before simulation
 
 ## Testing Strategy
 
@@ -189,6 +191,28 @@ solsim simulate --tx 2gTzNX3zLNhhmJaY44LycEgF8UMadrKeDLHz8rgcQVbXWVU4bs8fLBzWKhv
 
 # Read transaction from file
 solsim simulate --tx-file ./transaction.txt --rpc-url <RPC_URL>
+
+# Fund system accounts with SOL for testing
+solsim simulate \
+  --tx <TRANSACTION_SIGNATURE> \
+  --rpc-url https://api.mainnet-beta.solana.com \
+  --fund-sol 11111111111111111111111111111111=10.5
+
+# Fund multiple accounts with different amounts
+solsim simulate \
+  --tx <TRANSACTION_SIGNATURE> \
+  --rpc-url https://api.mainnet-beta.solana.com \
+  --fund-sol DPLezAkFZ5sFaBXMWt3J2StQwYtcqecUipWSP7YfrLth=100.0 \
+  --fund-sol 7xP9jZBWvmpqE2J8V3jfgjuktJ2cFJJ3pU7Q5iQj1kJQ=2.75 \
+  --output json
+
+# Combine program replacement and account funding
+solsim simulate \
+  --tx <TRANSACTION> \
+  --rpc-url https://api.mainnet-beta.solana.com \
+  --replace TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA=./custom_token.so \
+  --fund-sol SomeAccountPubkey=50.0 \
+  --output json
 ```
 
 ## Development Workflow

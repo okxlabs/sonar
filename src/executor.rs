@@ -4,7 +4,7 @@ use anyhow::{anyhow, Context, Result};
 use bincode;
 use litesvm::{types::TransactionMetadata, LiteSVM};
 use log::info;
-use solana_account::{Account, AccountSharedData};
+use solana_account::{Account, AccountSharedData, WritableAccount};
 
 use solana_loader_v3_interface::state::UpgradeableLoaderState;
 use solana_pubkey::Pubkey as LitePubkey;
@@ -14,19 +14,21 @@ use solana_transaction::versioned::VersionedTransaction as LiteVersionedTransact
 
 use crate::{
     account_loader::{ResolvedAccounts, ResolvedLookup},
-    cli::ProgramReplacement,
+    cli::{Funding, ProgramReplacement},
 };
 
 pub struct TransactionExecutor {
     svm: LiteSVM,
     resolved: ResolvedAccounts,
     replacements: Vec<ProgramReplacement>,
+    fundings: Vec<Funding>,
 }
 
 impl TransactionExecutor {
     pub fn prepare(
         resolved: ResolvedAccounts,
         replacements: Vec<ProgramReplacement>,
+        fundings: Vec<Funding>,
         verify_signatures: bool,
     ) -> Result<Self> {
         let mut svm = LiteSVM::new()
@@ -59,10 +61,37 @@ impl TransactionExecutor {
                 })?;
         }
 
+        // Apply funding to specified accounts
+        for funding in &fundings {
+            let lamports = (funding.amount_sol * 1_000_000_000.0) as u64;
+            info!(
+                "Funding account {} with {} SOL ({} lamports)",
+                funding.pubkey, funding.amount_sol, lamports
+            );
+            
+            let pubkey = LitePubkey::from(funding.pubkey.to_bytes());
+            
+            // Check if account already exists
+            if let Some(existing_account) = svm.get_account(&pubkey) {
+                // Update existing account with new balance
+                let mut new_account = existing_account.clone();
+                new_account.set_lamports(lamports);
+                set_account(&mut svm, pubkey, new_account.into())?;
+            } else {
+                // Create new system account with the specified balance
+                let system_program_id = solana_sdk_ids::system_program::id();
+                let system_program_lite = LitePubkey::from(system_program_id.to_bytes());
+                
+                let new_account = AccountSharedData::new(lamports, 0, &system_program_lite);
+                set_account(&mut svm, pubkey, new_account.into())?;
+            }
+        }
+
         Ok(Self {
             svm,
             resolved,
             replacements,
+            fundings,
         })
     }
 
@@ -93,6 +122,10 @@ impl TransactionExecutor {
 
     pub fn replacements(&self) -> &[ProgramReplacement] {
         &self.replacements
+    }
+
+    pub fn fundings(&self) -> &[Funding] {
+        &self.fundings
     }
 }
 

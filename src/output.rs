@@ -10,7 +10,7 @@ use solana_sdk::transaction::TransactionVersion;
 
 use crate::{
     account_loader::{ResolvedAccounts, ResolvedLookup},
-    cli::{OutputFormat, ProgramReplacement},
+    cli::{Funding, OutputFormat, ProgramReplacement},
     executor::{ExecutionStatus, SimulationResult},
     transaction::{AccountReferenceSummary, AccountSourceSummary, ParsedTransaction},
 };
@@ -21,6 +21,7 @@ pub fn render(
     resolved: &ResolvedAccounts,
     simulation: &SimulationResult,
     replacements: &[ProgramReplacement],
+    fundings: &[Funding],
     format: OutputFormat,
     verify_signatures: bool,
 ) -> Result<()> {
@@ -29,6 +30,7 @@ pub fn render(
         resolved,
         simulation,
         replacements,
+        fundings,
         verify_signatures,
     );
     match format {
@@ -59,6 +61,7 @@ pub fn render_transaction_only(
 
 fn render_text(report: &Report, resolved: &ResolvedAccounts) -> Result<()> {
     render_transaction_section_text(&report.transaction, resolved);
+    render_fundings_text(&report.fundings);
     render_replacements_text(&report.replacements);
     render_simulation_text(&report.simulation);
     Ok(())
@@ -211,6 +214,17 @@ fn render_instruction_account_text(account: &InstructionAccountEntry, resolved: 
     );
 }
 
+fn render_fundings_text(fundings: &[FundingSection]) {
+    if fundings.is_empty() {
+        return;
+    }
+
+    println!("\nAccount Funding:");
+    for funding in fundings {
+        println!("  {} <= {} SOL", funding.pubkey, funding.amount_sol);
+    }
+}
+
 fn render_replacements_text(replacements: &[ReplacementSection]) {
     if replacements.is_empty() {
         return;
@@ -267,6 +281,7 @@ struct Report {
     transaction: TransactionSection,
     simulation: SimulationSection,
     replacements: Vec<ReplacementSection>,
+    fundings: Vec<FundingSection>,
 }
 
 impl Report {
@@ -275,6 +290,7 @@ impl Report {
         resolved: &ResolvedAccounts,
         simulation: &SimulationResult,
         replacements: &[ProgramReplacement],
+        fundings: &[Funding],
         verify_signatures: bool,
     ) -> Self {
         let resolver = LookupResolver::new(resolved.lookup_details());
@@ -288,10 +304,18 @@ impl Report {
                 path: entry.so_path.display().to_string(),
             })
             .collect();
+        let fundings = fundings
+            .iter()
+            .map(|entry| FundingSection {
+                pubkey: entry.pubkey.to_string(),
+                amount_sol: entry.amount_sol,
+            })
+            .collect();
         Self {
             transaction,
             simulation,
             replacements,
+            fundings,
         }
     }
 }
@@ -660,6 +684,12 @@ impl ReturnDataReport {
             })
         }
     }
+}
+
+#[derive(Serialize)]
+struct FundingSection {
+    pubkey: String,
+    amount_sol: f64,
 }
 
 #[derive(Serialize)]

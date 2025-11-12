@@ -37,6 +37,13 @@ pub struct SimulateArgs {
         value_parser = clap::builder::NonEmptyStringValueParser::new()
     )]
     pub replacements: Vec<String>,
+    /// Fund a system account with SOL, format: <PUBKEY>=<AMOUNT_IN_SOL>
+    #[arg(
+        long = "fund-sol",
+        value_name = "FUNDING",
+        value_parser = clap::builder::NonEmptyStringValueParser::new()
+    )]
+    pub fundings: Vec<String>,
     /// Parse transaction only, skip simulation
     #[arg(long = "parse-only")]
     pub parse_only: bool,
@@ -71,6 +78,12 @@ pub struct ProgramReplacement {
     pub so_path: PathBuf,
 }
 
+#[derive(Clone, Debug)]
+pub struct Funding {
+    pub pubkey: Pubkey,
+    pub amount_sol: f64,
+}
+
 pub fn parse_program_replacement(raw: &str) -> Result<ProgramReplacement, String> {
     let (program_str, path_str) = raw
         .split_once('=')
@@ -87,5 +100,26 @@ pub fn parse_program_replacement(raw: &str) -> Result<ProgramReplacement, String
     Ok(ProgramReplacement {
         program_id,
         so_path,
+    })
+}
+
+pub fn parse_funding(raw: &str) -> Result<Funding, String> {
+    let (pubkey_str, amount_str) = raw
+        .split_once('=')
+        .ok_or_else(|| "Funding must be in <PUBKEY>=<AMOUNT> format".to_string())?;
+    let pubkey = Pubkey::from_str(pubkey_str)
+        .map_err(|err| format!("Failed to parse pubkey `{pubkey_str}`: {err}"))?;
+    let amount_sol = amount_str
+        .trim()
+        .parse::<f64>()
+        .map_err(|err| format!("Failed to parse amount `{amount_str}`: {err}"))?;
+    
+    if amount_sol < 0.0 {
+        return Err("Funding amount must be non-negative".to_string());
+    }
+    
+    Ok(Funding {
+        pubkey,
+        amount_sol,
     })
 }
