@@ -4,19 +4,19 @@ use std::{
 };
 
 use anyhow::{anyhow, Context, Result};
-use log::{debug, trace, warn};
+use log::{debug, trace};
 use solana_account::{Account, ReadableAccount};
 use solana_address_lookup_table_interface::state::AddressLookupTable;
 use solana_client::rpc_client::RpcClient;
 use solana_commitment_config::CommitmentConfig;
 
+use solana_clock::Clock;
 use solana_loader_v3_interface::state::UpgradeableLoaderState;
-use solana_pubkey::Pubkey as LitePubkey;
-use solana_sdk::{
-    account::Account as LegacyAccount, clock::Clock, pubkey::Pubkey, slot_hashes::SlotHashes,
-    sysvar::SysvarId, transaction::VersionedTransaction,
-};
+use solana_pubkey::Pubkey;
 use solana_sdk_ids::bpf_loader_upgradeable;
+use solana_slot_hashes::SlotHashes;
+use solana_sysvar_id::SysvarId;
+use solana_transaction::versioned::VersionedTransaction;
 use std::sync::Mutex;
 
 use crate::{
@@ -107,8 +107,7 @@ impl AccountLoader {
         loop {
             let mut missing = Vec::new();
             for account in accounts.values() {
-                let bpf_loader_id = Pubkey::new_from_array(bpf_loader_upgradeable::id().to_bytes());
-                if sdk_pubkey_from_lite(&account.owner) != bpf_loader_id {
+                if account.owner != bpf_loader_upgradeable::id() {
                     continue;
                 }
                 if let Ok(state) =
@@ -255,21 +254,11 @@ impl AccountLoader {
             }
 
             for (pubkey, maybe_account) in chunk.iter().zip(response.into_iter()) {
-                let account = match maybe_account {
-                    Some(legacy) => convert_account(legacy),
-                    None => match self.client.get_account(pubkey) {
-                        Ok(single) => convert_account(single),
-                        Err(err) => {
-                            warn!("Single account fetch failed `{pubkey}`: {err}; using placeholder account");
-                            synthesize_missing_account(pubkey)
-                        }
-                    },
-                };
-
-                destination.insert(*pubkey, account.clone());
-
-                let mut cache = self.cache.lock().unwrap();
-                cache.insert(*pubkey, account);
+                if let Some(account) = maybe_account {
+                    destination.insert(*pubkey, account.clone());
+                    let mut cache = self.cache.lock().unwrap();
+                    cache.insert(*pubkey, account);
+                }
             }
         }
 
@@ -359,29 +348,4 @@ fn format_pubkeys(pubkeys: &[Pubkey]) -> String {
         .collect::<Vec<_>>();
     rendered.push(format!("... total {}", pubkeys.len()));
     rendered.join(", ")
-}
-
-fn convert_account(account: LegacyAccount) -> Account {
-    Account {
-        lamports: account.lamports,
-        data: account.data,
-        owner: LitePubkey::from(account.owner.to_bytes()),
-        executable: account.executable,
-        rent_epoch: account.rent_epoch,
-    }
-}
-
-fn sdk_pubkey_from_lite(pubkey: &LitePubkey) -> Pubkey {
-    Pubkey::new_from_array(pubkey.to_bytes())
-}
-
-fn synthesize_missing_account(pubkey: &Pubkey) -> Account {
-    warn!("Account `{pubkey}` not found on-chain, using blank placeholder account to continue simulation");
-    Account {
-        lamports: 0,
-        data: Vec::new(),
-        owner: LitePubkey::default(),
-        executable: false,
-        rent_epoch: 0,
-    }
 }

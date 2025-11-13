@@ -115,10 +115,11 @@ cargo run -- simulate \
 
 ### Key Patterns
 1. **Transaction Flow**: Raw input → Parse → Load accounts → Simulate → Render output
-2. **Signature Detection**: Auto-detects 88-character base58 signatures and fetches from RPC
+2. **Signature Detection**: Auto-detects tx signatures and fetches from RPC
 3. **Account Loading**: RPC fetching with caching, handles upgradeable programs
-4. **Program Replacement**: Replace on-chain programs with local .so files for testing
+4. **Program Replacement**: Replace on-chain programs with local .so files for testing and debugging
 5. **Account Funding**: Fund system accounts with custom SOL amounts before simulation
+6. **FINE-GRAINED IMPORTS**: Uses individual Solana crates (solana-pubkey, solana-transaction, etc.) instead of monolithic solana-sdk for better compile times and modularity
 
 ## Testing Strategy
 
@@ -137,35 +138,6 @@ cargo run -- simulate \
 - Pre-compiled Solana programs in `tests/fixtures/`
 - Used for testing program replacement feature
 - Currently includes SPL Token and a DEX program
-
-## Security Considerations
-
-1. **RPC URL Handling**: Default uses mainnet-beta, but can be configured
-2. **Program Replacement**: Allows loading arbitrary .so files - use with caution
-3. **Account Caching**: Thread-safe caching with Mutex for concurrent access
-4. **Input Validation**: Comprehensive validation for transaction encoding and CLI arguments
-
-## Performance Notes
-
-- Account loading is batched (MAX_ACCOUNTS_PER_REQUEST = 100)
-- Uses caching to avoid redundant RPC calls
-- LiteSVM provides efficient local simulation
-- Handles address lookup tables efficiently
-
-## Dependencies and Versions
-
-- Rust 1.91.0 or later
-- Solana SDK 2.2.x / 3.0.x series (mixed versions for different components)
-- LiteSVM 0.8.1
-- All dependencies managed through Cargo
-
-**Key Dependency Versions:**
-- `solana-sdk` / `solana-client` / `solana-message` / `solana-address-lookup-table-interface`: 2.2.x series
-- `solana-transaction` / `solana-account` / `solana-pubkey`: 3.0.x / 4.0.x series
-- `solana-rpc-client-types` / `solana-transaction-status-client-types`: 2.2.1 (for RPC configuration)
-- `litesvm`: 0.8.1
-- `clap`: 4.5.x with derive feature
-- `serde` / `serde_json`: 1.0.x
 
 ## CLI Usage Examples
 
@@ -223,3 +195,4 @@ solsim simulate \
 4. For integration tests, ensure RPC access or use mocks
 5. Test CLI manually with sample transactions
 6. Follow existing code style and English error message convention
+7. Run `cargo fmt` before committing changes

@@ -7,9 +7,9 @@ use log::info;
 use solana_account::{Account, AccountSharedData, WritableAccount};
 
 use solana_loader_v3_interface::state::UpgradeableLoaderState;
-use solana_pubkey::Pubkey as LitePubkey;
-use solana_sdk::transaction::VersionedTransaction;
+use solana_pubkey::Pubkey;
 use solana_sdk_ids::bpf_loader_upgradeable;
+use solana_transaction::versioned::VersionedTransaction;
 use solana_transaction::versioned::VersionedTransaction as LiteVersionedTransaction;
 
 use crate::{
@@ -40,8 +40,7 @@ impl TransactionExecutor {
         ordered_accounts.sort_by_key(|(_, account)| account_priority(account));
 
         for (pubkey, account) in ordered_accounts {
-            let lite_pubkey = LitePubkey::from(pubkey.to_bytes());
-            set_account(&mut svm, lite_pubkey, account.clone())?;
+            svm.set_account(*pubkey, account.clone())?;
         }
 
         for replacement in &replacements {
@@ -50,8 +49,7 @@ impl TransactionExecutor {
                 replacement.program_id,
                 replacement.so_path.display()
             );
-            let program_pubkey = LitePubkey::from(replacement.program_id.to_bytes());
-            svm.add_program_from_file(program_pubkey, &replacement.so_path)
+            svm.add_program_from_file(replacement.program_id, &replacement.so_path)
                 .with_context(|| {
                     format!(
                         "Failed to load replacement program `{}`, path: {}",
@@ -62,28 +60,24 @@ impl TransactionExecutor {
         }
 
         // Apply funding to specified accounts
-        for funding in &fundings {
-            let lamports = (funding.amount_sol * 1_000_000_000.0) as u64;
+        for Funding { pubkey, amount_sol } in &fundings {
+            let lamports = (amount_sol * 1_000_000_000.0) as u64;
             info!(
                 "Funding account {} with {} SOL ({} lamports)",
-                funding.pubkey, funding.amount_sol, lamports
+                pubkey, amount_sol, lamports
             );
-
-            let pubkey = LitePubkey::from(funding.pubkey.to_bytes());
 
             // Check if account already exists
             if let Some(existing_account) = svm.get_account(&pubkey) {
                 // Update existing account with new balance
                 let mut new_account = existing_account.clone();
                 new_account.set_lamports(lamports);
-                set_account(&mut svm, pubkey, new_account.into())?;
+                svm.set_account(*pubkey, new_account)?;
             } else {
                 // Create new system account with the specified balance
                 let system_program_id = solana_sdk_ids::system_program::id();
-                let system_program_lite = LitePubkey::from(system_program_id.to_bytes());
-
-                let new_account = AccountSharedData::new(lamports, 0, &system_program_lite);
-                set_account(&mut svm, pubkey, new_account.into())?;
+                let new_account = AccountSharedData::new(lamports, 0, &system_program_id);
+                svm.set_account(*pubkey, new_account.into())?;
             }
         }
 
@@ -129,16 +123,11 @@ impl TransactionExecutor {
     }
 }
 
-fn set_account(svm: &mut LiteSVM, pubkey: LitePubkey, account: Account) -> Result<()> {
-    svm.set_account(pubkey, account)
-        .map_err(|err| anyhow!("Failed to write account `{pubkey}` to LiteSVM: {err}"))
-}
-
 #[derive(Debug)]
 pub struct SimulationResult {
     pub status: ExecutionStatus,
     pub meta: TransactionMetadata,
-    pub post_accounts: HashMap<LitePubkey, AccountSharedData>,
+    pub post_accounts: HashMap<Pubkey, AccountSharedData>,
 }
 
 #[derive(Debug)]
@@ -161,9 +150,7 @@ fn convert_versioned_transaction(tx: &VersionedTransaction) -> Result<LiteVersio
 }
 
 fn account_priority(account: &Account) -> u8 {
-    let bpf_loader_id =
-        solana_sdk::pubkey::Pubkey::new_from_array(bpf_loader_upgradeable::id().to_bytes());
-    if sdk_pubkey_from_lite(&account.owner) == bpf_loader_id {
+    if account.owner == bpf_loader_upgradeable::id() {
         if let Ok(state) = bincode::deserialize::<UpgradeableLoaderState>(account.data.as_slice()) {
             return match state {
                 UpgradeableLoaderState::ProgramData { .. } => 0,
@@ -173,8 +160,4 @@ fn account_priority(account: &Account) -> u8 {
         }
     }
     1
-}
-
-fn sdk_pubkey_from_lite(pubkey: &LitePubkey) -> solana_sdk::pubkey::Pubkey {
-    solana_sdk::pubkey::Pubkey::new_from_array(pubkey.to_bytes())
 }

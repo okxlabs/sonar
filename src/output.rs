@@ -6,7 +6,8 @@ use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use base64::Engine;
 use colored::Colorize;
 use serde::Serialize;
-use solana_sdk::transaction::TransactionVersion;
+use solana_pubkey::Pubkey;
+use solana_transaction::versioned::TransactionVersion;
 
 use crate::{
     account_loader::{ResolvedAccounts, ResolvedLookup},
@@ -135,7 +136,7 @@ fn render_account_entry_text(
     writable: bool,
     resolved: &ResolvedAccounts,
 ) -> usize {
-    let pubkey = solana_sdk::pubkey::Pubkey::from_str(pubkey_str).unwrap();
+    let pubkey = Pubkey::from_str(pubkey_str).unwrap();
     let solscan_linked_pubkey = format_solscan_link(pubkey_str);
     let executable = resolved
         .accounts
@@ -196,7 +197,7 @@ fn render_instruction_details_text(transaction: &TransactionSection, resolved: &
 
 fn render_instruction_account_text(account: &InstructionAccountEntry, resolved: &ResolvedAccounts) {
     let solscan_linked_pubkey = format_solscan_link(&account.pubkey);
-    let executable = if let Ok(pubkey) = solana_sdk::pubkey::Pubkey::from_str(&account.pubkey) {
+    let executable = if let Ok(pubkey) = Pubkey::from_str(&account.pubkey) {
         resolved
             .accounts
             .get(&pubkey)
