@@ -216,29 +216,30 @@ fn parse_create_account_with_seed_instruction(
     data: &[u8],
     _instruction: &InstructionSummary,
 ) -> Result<Option<ParsedInstruction>> {
-    // CreateAccountWithSeed: 32 bytes base, [u8; seed len], 8 bytes lamports, 8 bytes space, 32 bytes owner
-    if data.len() < 80 {
+    // CreateAccountWithSeed: 32 bytes base, 8 bytes seed length (bincode), seed bytes (up to 32), 8 bytes lamports, 8 bytes space, 32 bytes owner
+    // bincode serializes strings with 8-byte length prefix + bytes
+    if data.len() < 89 {
+        // Minimum: 32 + 8 + 1 + 8 + 8 + 32
         return Ok(None);
     }
 
     let base_bytes: [u8; 32] = data[0..32].try_into().unwrap();
     let base = Pubkey::from(base_bytes);
 
-    // Seed follows base pubkey - find null terminator
-    let mut seed_end = 32;
-    while seed_end < data.len() && data[seed_end] != 0 {
-        seed_end += 1;
-    }
-    let seed_bytes = &data[32..seed_end];
-    let seed = String::from_utf8_lossy(seed_bytes).into_owned();
+    // Seed length is a u64 (8 bytes) per bincode spec
+    let seed_length = u64::from_le_bytes([
+        data[32], data[33], data[34], data[35], data[36], data[37], data[38], data[39],
+    ]) as usize;
 
-    // Calculate minimum expected length
-    let expected_len = seed_end + 1 + 8 + 8 + 32;
-    if data.len() < expected_len {
+    // Validate seed length (max 32 bytes, cannot exceed data length)
+    if seed_length > 32 || data.len() < 40 + seed_length + 8 + 8 + 32 {
         return Ok(None);
     }
 
-    let lamports_offset = seed_end + 1;
+    let seed_bytes = &data[40..40 + seed_length];
+    let seed = String::from_utf8_lossy(seed_bytes).into_owned();
+
+    let lamports_offset = 40 + seed_length;
     let lamports = u64::from_le_bytes([
         data[lamports_offset],
         data[lamports_offset + 1],
@@ -393,29 +394,29 @@ fn parse_allocate_with_seed_instruction(
     data: &[u8],
     _instruction: &InstructionSummary,
 ) -> Result<Option<ParsedInstruction>> {
-    // AllocateWithSeed: 32 bytes base, [u8; seed len], 8 bytes space, 32 bytes owner
-    if data.len() < 72 {
+    // AllocateWithSeed: 32 bytes base, 8 bytes seed length (bincode), seed bytes (up to 32), 8 bytes space, 32 bytes owner
+    if data.len() < 81 {
+        // Minimum: 32 + 8 + 1 + 8 + 32
         return Ok(None);
     }
 
     let base_bytes: [u8; 32] = data[0..32].try_into().unwrap();
     let base = Pubkey::from(base_bytes);
 
-    // Seed follows base pubkey - find null terminator
-    let mut seed_end = 32;
-    while seed_end < data.len() && data[seed_end] != 0 {
-        seed_end += 1;
-    }
-    let seed_bytes = &data[32..seed_end];
-    let seed = String::from_utf8_lossy(seed_bytes).into_owned();
+    // Seed length is a u64 (8 bytes) per bincode spec
+    let seed_length = u64::from_le_bytes([
+        data[32], data[33], data[34], data[35], data[36], data[37], data[38], data[39],
+    ]) as usize;
 
-    // Calculate minimum expected length
-    let expected_len = seed_end + 1 + 8 + 32;
-    if data.len() < expected_len {
+    // Validate seed length (max 32 bytes, cannot exceed data length)
+    if seed_length > 32 || data.len() < 40 + seed_length + 8 + 32 {
         return Ok(None);
     }
 
-    let space_offset = seed_end + 1;
+    let seed_bytes = &data[40..40 + seed_length];
+    let seed = String::from_utf8_lossy(seed_bytes).into_owned();
+
+    let space_offset = 40 + seed_length;
     let space = u64::from_le_bytes([
         data[space_offset],
         data[space_offset + 1],
@@ -447,29 +448,29 @@ fn parse_assign_with_seed_instruction(
     data: &[u8],
     _instruction: &InstructionSummary,
 ) -> Result<Option<ParsedInstruction>> {
-    // AssignWithSeed: 32 bytes base, [u8; seed len], 32 bytes owner
-    if data.len() < 64 {
+    // AssignWithSeed: 32 bytes base, 8 bytes seed length (bincode), seed bytes (up to 32), 32 bytes owner
+    if data.len() < 73 {
+        // Minimum: 32 + 8 + 1 + 32
         return Ok(None);
     }
 
     let base_bytes: [u8; 32] = data[0..32].try_into().unwrap();
     let base = Pubkey::from(base_bytes);
 
-    // Seed follows base pubkey - find null terminator
-    let mut seed_end = 32;
-    while seed_end < data.len() && data[seed_end] != 0 {
-        seed_end += 1;
-    }
-    let seed_bytes = &data[32..seed_end];
-    let seed = String::from_utf8_lossy(seed_bytes).into_owned();
+    // Seed length is a u64 (8 bytes) per bincode spec
+    let seed_length = u64::from_le_bytes([
+        data[32], data[33], data[34], data[35], data[36], data[37], data[38], data[39],
+    ]) as usize;
 
-    // Calculate minimum expected length
-    let expected_len = seed_end + 1 + 32;
-    if data.len() < expected_len {
+    // Validate seed length (max 32 bytes, cannot exceed data length)
+    if seed_length > 32 || data.len() < 40 + seed_length + 32 {
         return Ok(None);
     }
 
-    let owner_offset = seed_end + 1;
+    let seed_bytes = &data[40..40 + seed_length];
+    let seed = String::from_utf8_lossy(seed_bytes).into_owned();
+
+    let owner_offset = 40 + seed_length;
     let owner_bytes: [u8; 32] = data[owner_offset..owner_offset + 32].try_into().unwrap();
     let owner = Pubkey::from(owner_bytes);
 
@@ -488,8 +489,9 @@ fn parse_transfer_with_seed_instruction(
     data: &[u8],
     _instruction: &InstructionSummary,
 ) -> Result<Option<ParsedInstruction>> {
-    // TransferWithSeed: 8 bytes lamports, [u8; from_seed len], 32 bytes from_owner
-    if data.len() < 40 {
+    // TransferWithSeed: 8 bytes lamports, 8 bytes seed length (bincode), seed bytes (up to 32), 32 bytes from_owner
+    if data.len() < 49 {
+        // Minimum: 8 + 8 + 1 + 32
         return Ok(None);
     }
 
@@ -498,21 +500,20 @@ fn parse_transfer_with_seed_instruction(
     ]);
     let lamports_sol = lamports as f64 / 1_000_000_000.0;
 
-    // Seed starts after lamports (8 bytes) - find null terminator
-    let mut seed_end = 8;
-    while seed_end < data.len() && data[seed_end] != 0 {
-        seed_end += 1;
-    }
-    let seed_bytes = &data[8..seed_end];
-    let from_seed = String::from_utf8_lossy(seed_bytes).into_owned();
+    // Seed length is a u64 (8 bytes) per bincode spec
+    let seed_length = u64::from_le_bytes([
+        data[8], data[9], data[10], data[11], data[12], data[13], data[14], data[15],
+    ]) as usize;
 
-    // Calculate minimum expected length
-    let expected_len = seed_end + 1 + 32;
-    if data.len() < expected_len {
+    // Validate seed length (max 32 bytes, cannot exceed data length)
+    if seed_length > 32 || data.len() < 16 + seed_length + 32 {
         return Ok(None);
     }
 
-    let from_owner_offset = seed_end + 1;
+    let seed_bytes = &data[16..16 + seed_length];
+    let from_seed = String::from_utf8_lossy(seed_bytes).into_owned();
+
+    let from_owner_offset = 16 + seed_length;
     let from_owner_bytes: [u8; 32] =
         data[from_owner_offset..from_owner_offset + 32].try_into().unwrap();
     let from_owner = Pubkey::from(from_owner_bytes);
