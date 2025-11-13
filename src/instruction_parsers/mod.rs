@@ -56,6 +56,10 @@ impl ParserRegistry {
             .parsers
             .insert(*compute_budget_parser.program_id(), Box::new(compute_budget_parser));
 
+        // Register Token2022 parser
+        let token2022_parser = Token2022ProgramParser::new();
+        registry.parsers.insert(*token2022_parser.program_id(), Box::new(token2022_parser));
+
         registry
     }
 
@@ -93,6 +97,29 @@ impl Default for ParserRegistry {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use solana_pubkey::Pubkey;
+
+    #[test]
+    fn test_token2022_parser_registration() {
+        let registry = ParserRegistry::new();
+        let token2022_id = Pubkey::from_str_const("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb");
+
+        // The Token2022 parser should be registered
+        assert!(registry.parsers.contains_key(&token2022_id));
+    }
+
+    #[test]
+    fn test_token2022_parser_program_id() {
+        let parser = Token2022ProgramParser::new();
+        let expected_id = Pubkey::from_str_const("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb");
+
+        assert_eq!(*parser.program_id(), expected_id);
+    }
+}
+
 mod system_program;
 pub use system_program::SystemProgramParser;
 
@@ -101,3 +128,6 @@ pub use token_program::TokenProgramParser;
 
 mod compute_budget;
 pub use compute_budget::ComputeBudgetParser;
+
+mod token2022_program;
+pub use token2022_program::Token2022ProgramParser;

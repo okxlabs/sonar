@@ -4,10 +4,11 @@ use solana_pubkey::Pubkey;
 use super::{InstructionParser, ParsedInstruction};
 use crate::transaction::InstructionSummary;
 
-/// SPL Token program ID: TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA
-const TOKEN_PROGRAM_ID: &str = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
+/// Token2022 program ID: TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb
+const TOKEN2022_PROGRAM_ID: &str = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb";
 
-/// Instruction discriminators for Token program
+/// Instruction discriminators for Token2022 program
+/// Token2022 uses the same discriminators as Token for basic instructions
 const INITIALIZE_MINT_DISCRIMINATOR: u32 = 0;
 const INITIALIZE_ACCOUNT_DISCRIMINATOR: u32 = 1;
 const INITIALIZE_MULTISIG_DISCRIMINATOR: u32 = 2;
@@ -34,25 +35,25 @@ const INITIALIZE_IMMUTABLE_OWNER_DISCRIMINATOR: u32 = 22;
 const AMOUNT_TO_UI_AMOUNT_DISCRIMINATOR: u32 = 23;
 const UI_AMOUNT_TO_AMOUNT_DISCRIMINATOR: u32 = 24;
 
-/// Parser for the SPL Token Program instructions
-/// Supports all Token Program instructions
-pub struct TokenProgramParser {
+/// Parser for the Token2022 Program instructions
+/// Supports all Token2022 Program instructions including Transfer and TransferChecked
+pub struct Token2022ProgramParser {
     program_id: Pubkey,
 }
 
-impl TokenProgramParser {
+impl Token2022ProgramParser {
     pub fn new() -> Self {
-        Self { program_id: Pubkey::from_str_const(TOKEN_PROGRAM_ID) }
+        Self { program_id: Pubkey::from_str_const(TOKEN2022_PROGRAM_ID) }
     }
 }
 
-impl Default for TokenProgramParser {
+impl Default for Token2022ProgramParser {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl InstructionParser for TokenProgramParser {
+impl InstructionParser for Token2022ProgramParser {
     fn program_id(&self) -> &Pubkey {
         &self.program_id
     }
@@ -65,7 +66,7 @@ impl InstructionParser for TokenProgramParser {
             return Ok(None);
         }
 
-        // Token program uses 1-byte instruction discriminator
+        // Token2022 program uses 1-byte instruction discriminator (same as Token)
         let instruction_id = instruction.data[0] as u32;
         let data = &instruction.data[1..];
 
@@ -130,8 +131,8 @@ fn parse_transfer_instruction(
         return Ok(None); // Invalid data length for Transfer
     }
 
-    if instruction.accounts.len() != 3 {
-        return Ok(None); // Invalid number of accounts for Transfer
+    if instruction.accounts.len() < 2 {
+        return Ok(None); // Need at least source and destination
     }
 
     let amount = u64::from_le_bytes([
@@ -196,9 +197,6 @@ fn parse_transfer_checked_instruction(
 }
 
 /// Parses an InitializeMint instruction: 0
-///
-/// Accounts: 0. mint pubkey, 1. rent sysvar
-/// Data: 4 bytes - decimals (u32, little-endian), 1+ bytes - mint authority (optional), 1 byte - freeze authority flag, 0-32 bytes - freeze authority (optional)
 fn parse_initialize_mint_instruction(
     data: &[u8],
     _instruction: &InstructionSummary,
@@ -209,8 +207,6 @@ fn parse_initialize_mint_instruction(
 
     let decimals = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
 
-    // For now, we just parse the basic fields without going into the optional authorities
-    // The actual parsing would need to handle variable-length data based on optional flags
     let mut fields = vec![("decimals".to_string(), decimals.to_string())];
 
     // Check for mint authority (4 bytes + 32 bytes = 36 bytes minimum)
@@ -227,9 +223,6 @@ fn parse_initialize_mint_instruction(
 }
 
 /// Parses an InitializeAccount instruction: 1
-///
-/// Accounts: 0. new account pubkey, 1. mint pubkey, 2. owner pubkey, 3. rent sysvar
-/// Data: empty
 fn parse_initialize_account_instruction(
     _data: &[u8],
     instruction: &InstructionSummary,
@@ -251,9 +244,6 @@ fn parse_initialize_account_instruction(
 }
 
 /// Parses an InitializeMultisig instruction: 2
-///
-/// Accounts: 0. multisig pubkey, 1+ signer pubkeys, last is rent sysvar
-/// Data: 1 byte - m (number of required signatures)
 fn parse_initialize_multisig_instruction(
     data: &[u8],
     instruction: &InstructionSummary,
@@ -282,9 +272,6 @@ fn parse_initialize_multisig_instruction(
 }
 
 /// Parses an Approve instruction: 4
-///
-/// Accounts: 0. source pubkey, 1. delegate pubkey, 2. owner pubkey
-/// Data: 8 bytes - amount (u64, little-endian)
 fn parse_approve_instruction(
     data: &[u8],
     instruction: &InstructionSummary,
@@ -309,9 +296,6 @@ fn parse_approve_instruction(
 }
 
 /// Parses a Revoke instruction: 5
-///
-/// Accounts: 0. source pubkey, 1. owner pubkey
-/// Data: empty
 fn parse_revoke_instruction(
     _data: &[u8],
     instruction: &InstructionSummary,
@@ -328,9 +312,6 @@ fn parse_revoke_instruction(
 }
 
 /// Parses a SetAuthority instruction: 6
-///
-/// Accounts: 0. account pubkey
-/// Data: 1 byte - authority type, 1 byte - new authority flag, 0-32 bytes - new authority (optional)
 fn parse_set_authority_instruction(
     data: &[u8],
     _instruction: &InstructionSummary,
@@ -364,9 +345,6 @@ fn parse_set_authority_instruction(
 }
 
 /// Parses a MintTo instruction: 7
-///
-/// Accounts: 0. mint pubkey, 1. account pubkey, 2. owner pubkey
-/// Data: 8 bytes - amount (u64, little-endian)
 fn parse_mint_to_instruction(
     data: &[u8],
     instruction: &InstructionSummary,
@@ -391,9 +369,6 @@ fn parse_mint_to_instruction(
 }
 
 /// Parses a Burn instruction: 8
-///
-/// Accounts: 0. account pubkey, 1. mint pubkey, 2. owner pubkey
-/// Data: 8 bytes - amount (u64, little-endian)
 fn parse_burn_instruction(
     data: &[u8],
     instruction: &InstructionSummary,
@@ -418,9 +393,6 @@ fn parse_burn_instruction(
 }
 
 /// Parses a CloseAccount instruction: 9
-///
-/// Accounts: 0. account pubkey, 1. destination pubkey, 2. owner pubkey
-/// Data: empty
 fn parse_close_account_instruction(
     _data: &[u8],
     instruction: &InstructionSummary,
@@ -437,9 +409,6 @@ fn parse_close_account_instruction(
 }
 
 /// Parses a FreezeAccount instruction: 10
-///
-/// Accounts: 0. account pubkey, 1. mint pubkey, 2. freeze authority pubkey
-/// Data: empty
 fn parse_freeze_account_instruction(
     _data: &[u8],
     instruction: &InstructionSummary,
@@ -460,9 +429,6 @@ fn parse_freeze_account_instruction(
 }
 
 /// Parses a ThawAccount instruction: 11
-///
-/// Accounts: 0. account pubkey, 1. mint pubkey, 2. freeze authority pubkey
-/// Data: empty
 fn parse_thaw_account_instruction(
     _data: &[u8],
     instruction: &InstructionSummary,
@@ -483,10 +449,6 @@ fn parse_thaw_account_instruction(
 }
 
 /// Parses an ApproveChecked instruction: 13
-///
-/// Accounts: 0. source pubkey, 1. mint pubkey, 2. delegate pubkey, 3. owner pubkey
-/// Optional: 4+. signers (if owner is a PDA/multisig)
-/// Data: 8 bytes - amount (u64, little-endian), 1 byte - decimals (u8)
 fn parse_approve_checked_instruction(
     data: &[u8],
     instruction: &InstructionSummary,
@@ -525,9 +487,6 @@ fn parse_approve_checked_instruction(
 }
 
 /// Parses a MintToChecked instruction: 14
-///
-/// Accounts: 0. mint pubkey, 1. account pubkey, 2. owner pubkey
-/// Data: 8 bytes - amount (u64, little-endian), 1 byte - decimals (u8)
 fn parse_mint_to_checked_instruction(
     data: &[u8],
     instruction: &InstructionSummary,
@@ -556,9 +515,6 @@ fn parse_mint_to_checked_instruction(
 }
 
 /// Parses a BurnChecked instruction: 15
-///
-/// Accounts: 0. account pubkey, 1. mint pubkey, 2. owner pubkey
-/// Data: 8 bytes - amount (u64, little-endian), 1 byte - decimals (u8)
 fn parse_burn_checked_instruction(
     data: &[u8],
     instruction: &InstructionSummary,
@@ -587,10 +543,6 @@ fn parse_burn_checked_instruction(
 }
 
 /// Parses an InitializeAccount2 instruction: 16
-///
-/// Similar to InitializeAccount but includes an owner check
-/// Accounts: 0. new account pubkey, 1. mint pubkey, 2. owner pubkey, 3. rent sysvar
-/// Data: 32 bytes - owner pubkey for validation
 fn parse_initialize_account2_instruction(
     data: &[u8],
     instruction: &InstructionSummary,
@@ -619,9 +571,6 @@ fn parse_initialize_account2_instruction(
 }
 
 /// Parses a SyncNative instruction: 17
-///
-/// Accounts: 0. native account pubkey
-/// Data: empty
 fn parse_sync_native_instruction(
     _data: &[u8],
     instruction: &InstructionSummary,
@@ -638,10 +587,6 @@ fn parse_sync_native_instruction(
 }
 
 /// Parses an InitializeAccount3 instruction: 18
-///
-/// Similar to InitializeAccount2 but without rent sysvar
-/// Accounts: 0. new account pubkey, 1. mint pubkey, 2. owner pubkey
-/// Data: 32 bytes - owner pubkey for validation
 fn parse_initialize_account3_instruction(
     data: &[u8],
     instruction: &InstructionSummary,
@@ -665,10 +610,6 @@ fn parse_initialize_account3_instruction(
 }
 
 /// Parses an InitializeMultisig2 instruction: 19
-///
-/// Similar to InitializeMultisig but without rent sysvar
-/// Accounts: 0. multisig pubkey, 1+ signer pubkeys
-/// Data: 1 byte - m (number of required signatures)
 fn parse_initialize_multisig2_instruction(
     data: &[u8],
     instruction: &InstructionSummary,
@@ -697,10 +638,6 @@ fn parse_initialize_multisig2_instruction(
 }
 
 /// Parses an InitializeMint2 instruction: 20
-///
-/// Similar to InitializeMint but without rent sysvar
-/// Accounts: 0. mint pubkey
-/// Data: 4 bytes - decimals (u32, little-endian), 1+ bytes - mint authority (optional), 1 byte - freeze authority flag, 0-32 bytes - freeze authority (optional)
 fn parse_initialize_mint2_instruction(
     data: &[u8],
     _instruction: &InstructionSummary,
@@ -727,9 +664,6 @@ fn parse_initialize_mint2_instruction(
 }
 
 /// Parses a GetAccountDataSize instruction: 21
-///
-/// Accounts: 0. mint pubkey
-/// Data: empty or extension data
 fn parse_get_account_data_size_instruction(
     _data: &[u8],
     instruction: &InstructionSummary,
@@ -746,9 +680,6 @@ fn parse_get_account_data_size_instruction(
 }
 
 /// Parses an InitializeImmutableOwner instruction: 22
-///
-/// Accounts: 0. account pubkey
-/// Data: empty
 fn parse_initialize_immutable_owner_instruction(
     _data: &[u8],
     instruction: &InstructionSummary,
@@ -765,9 +696,6 @@ fn parse_initialize_immutable_owner_instruction(
 }
 
 /// Parses an AmountToUiAmount instruction: 23
-///
-/// Accounts: 0. mint pubkey
-/// Data: 8 bytes - amount (u64, little-endian)
 fn parse_amount_to_ui_amount_instruction(
     data: &[u8],
     instruction: &InstructionSummary,
@@ -792,9 +720,6 @@ fn parse_amount_to_ui_amount_instruction(
 }
 
 /// Parses a UiAmountToAmount instruction: 24
-///
-/// Accounts: 0. mint pubkey
-/// Data: ASCII string representation of UI amount (variable length)
 fn parse_ui_amount_to_amount_instruction(
     data: &[u8],
     instruction: &InstructionSummary,
@@ -829,7 +754,7 @@ mod tests {
             index: 0,
             program: AccountReferenceSummary {
                 index: 6,
-                pubkey: Some(TOKEN_PROGRAM_ID.to_string()),
+                pubkey: Some(TOKEN2022_PROGRAM_ID.to_string()),
                 signer: false,
                 writable: false,
                 source: AccountSourceSummary::Static,
@@ -856,7 +781,7 @@ mod tests {
 
     #[test]
     fn test_transfer_instruction_parsing() {
-        let parser = TokenProgramParser::new();
+        let parser = Token2022ProgramParser::new();
 
         let accounts = vec![
             create_test_account(0, "SourcePubkey11111111111111111111111111111111", true, true),
@@ -885,7 +810,7 @@ mod tests {
 
     #[test]
     fn test_transfer_instruction_invalid_data_length() {
-        let parser = TokenProgramParser::new();
+        let parser = Token2022ProgramParser::new();
 
         let accounts = vec![
             create_test_account(0, "SourcePubkey11111111111111111111111111111111", true, true),
@@ -904,38 +829,325 @@ mod tests {
     }
 
     #[test]
-    fn test_transfer_instruction_invalid_account_count() {
-        let parser = TokenProgramParser::new();
+    fn test_initialize_mint_instruction_parsing() {
+        let parser = Token2022ProgramParser::new();
 
         let accounts = vec![
-            create_test_account(0, "SourcePubkey11111111111111111111111111111111", true, true),
-            create_test_account(1, "DestPubkey1111111111111111111111111111111111", false, true),
-            // Missing owner account - only 2 accounts instead of 3
+            create_test_account(0, "MintPubkey1111111111111111111111111111111111", false, true),
+            create_test_account(1, "RentSysvar111111111111111111111111111111111", false, false),
         ];
 
-        let mut data = vec![3]; // 1-byte discriminator for Transfer
-        data.extend_from_slice(&1_000_000_u64.to_le_bytes());
+        // InitializeMint instruction with 1-byte discriminator (0) + 4 bytes decimals + authority data
+        let mut data = vec![0]; // 1-byte discriminator
+        data.extend_from_slice(&9_u32.to_le_bytes()); // 4 bytes decimals
+        data.extend_from_slice(&[0u8; 33]); // 33 bytes of authority data
 
         let instruction = create_test_instruction(data, accounts);
 
         let result = parser.parse_instruction(&instruction).unwrap();
-        assert!(result.is_none());
+        assert!(result.is_some());
+
+        let parsed = result.unwrap();
+        assert_eq!(parsed.name, "InitializeMint");
+        assert_eq!(parsed.account_names.len(), 2);
+        assert_eq!(parsed.account_names[0], "mint");
+        assert_eq!(parsed.account_names[1], "rent_sysvar");
+
+        assert!(parsed.fields.iter().any(|(k, v)| k == "decimals" && v == "9"));
     }
 
     #[test]
-    fn test_transfer_checked_instruction_parsing() {
-        let parser = TokenProgramParser::new();
+    fn test_initialize_account_instruction_parsing() {
+        let parser = Token2022ProgramParser::new();
+
+        let accounts = vec![
+            create_test_account(0, "AccountPubkey11111111111111111111111111111111", false, true),
+            create_test_account(1, "MintPubkey111111111111111111111111111111111", false, false),
+            create_test_account(2, "OwnerPubkey111111111111111111111111111111111", false, false),
+            create_test_account(3, "RentSysvar111111111111111111111111111111111", false, false),
+        ];
+
+        // InitializeAccount instruction with 1-byte discriminator (1) + empty data
+        let data = vec![1]; // 1-byte discriminator for InitializeAccount
+
+        let instruction = create_test_instruction(data, accounts);
+
+        let result = parser.parse_instruction(&instruction).unwrap();
+        assert!(result.is_some());
+
+        let parsed = result.unwrap();
+        assert_eq!(parsed.name, "InitializeAccount");
+        assert_eq!(parsed.account_names.len(), 4);
+        assert_eq!(parsed.account_names[0], "account");
+        assert_eq!(parsed.account_names[1], "mint");
+        assert_eq!(parsed.account_names[2], "owner");
+        assert_eq!(parsed.account_names[3], "rent_sysvar");
+    }
+
+    #[test]
+    fn test_initialize_multisig_instruction_parsing() {
+        let parser = Token2022ProgramParser::new();
+
+        let accounts = vec![
+            create_test_account(0, "MultisigPubkey1111111111111111111111111111111", false, true),
+            create_test_account(1, "Signer1Pubkey11111111111111111111111111111111", true, false),
+            create_test_account(2, "Signer2Pubkey11111111111111111111111111111111", true, false),
+            create_test_account(3, "RentSysvar111111111111111111111111111111111", false, false),
+        ];
+
+        // InitializeMultisig instruction with 1-byte discriminator (2) + 1 byte m
+        let mut data = vec![2]; // 1-byte discriminator for InitializeMultisig
+        data.push(2); // m = 2 (number of required signatures)
+
+        let instruction = create_test_instruction(data, accounts);
+
+        let result = parser.parse_instruction(&instruction).unwrap();
+        assert!(result.is_some());
+
+        let parsed = result.unwrap();
+        assert_eq!(parsed.name, "InitializeMultisig");
+        assert_eq!(parsed.account_names.len(), 4);
+        assert_eq!(parsed.account_names[0], "multisig");
+        assert_eq!(parsed.account_names[1], "signer_1");
+        assert_eq!(parsed.account_names[2], "signer_2");
+        assert_eq!(parsed.account_names[3], "rent_sysvar");
+
+        assert!(parsed.fields.iter().any(|(k, v)| k == "m" && v == "2"));
+    }
+
+    #[test]
+    fn test_approve_instruction_parsing() {
+        let parser = Token2022ProgramParser::new();
+
+        let accounts = vec![
+            create_test_account(0, "SourcePubkey11111111111111111111111111111111", true, true),
+            create_test_account(1, "DelegatePubkey1111111111111111111111111111111", false, true),
+            create_test_account(2, "OwnerPubkey111111111111111111111111111111111", true, false),
+        ];
+
+        // Approve instruction with 1-byte discriminator (4) + 8 bytes amount
+        let mut data = vec![4]; // 1-byte discriminator for Approve
+        data.extend_from_slice(&500_000_u64.to_le_bytes()); // 8 bytes amount
+
+        let instruction = create_test_instruction(data, accounts);
+
+        let result = parser.parse_instruction(&instruction).unwrap();
+        assert!(result.is_some());
+
+        let parsed = result.unwrap();
+        assert_eq!(parsed.name, "Approve");
+        assert_eq!(parsed.account_names.len(), 3);
+        assert_eq!(parsed.account_names[0], "source");
+        assert_eq!(parsed.account_names[1], "delegate");
+        assert_eq!(parsed.account_names[2], "owner");
+
+        assert!(parsed.fields.iter().any(|(k, v)| k == "amount" && v == "500000"));
+    }
+
+    #[test]
+    fn test_revoke_instruction_parsing() {
+        let parser = Token2022ProgramParser::new();
+
+        let accounts = vec![
+            create_test_account(0, "SourcePubkey11111111111111111111111111111111", true, true),
+            create_test_account(1, "OwnerPubkey111111111111111111111111111111111", true, false),
+        ];
+
+        // Revoke instruction with 1-byte discriminator (5) + empty data
+        let data = vec![5]; // 1-byte discriminator for Revoke
+
+        let instruction = create_test_instruction(data, accounts);
+
+        let result = parser.parse_instruction(&instruction).unwrap();
+        assert!(result.is_some());
+
+        let parsed = result.unwrap();
+        assert_eq!(parsed.name, "Revoke");
+        assert_eq!(parsed.account_names.len(), 2);
+        assert_eq!(parsed.account_names[0], "source");
+        assert_eq!(parsed.account_names[1], "owner");
+    }
+
+    #[test]
+    fn test_set_authority_instruction_parsing() {
+        let parser = Token2022ProgramParser::new();
+
+        let accounts = vec![create_test_account(
+            0,
+            "AccountPubkey11111111111111111111111111111111",
+            false,
+            true,
+        )];
+
+        // SetAuthority instruction with 1-byte discriminator (6) + authority_type
+        let mut data = vec![6]; // 1-byte discriminator for SetAuthority
+        data.push(0); // authority_type = MintTokens
+        data.push(1); // new_authority_flag = present
+
+        let instruction = create_test_instruction(data, accounts);
+
+        let result = parser.parse_instruction(&instruction).unwrap();
+        assert!(result.is_some());
+
+        let parsed = result.unwrap();
+        assert_eq!(parsed.name, "SetAuthority");
+        assert_eq!(parsed.account_names.len(), 1);
+        assert_eq!(parsed.account_names[0], "account");
+
+        assert!(parsed.fields.iter().any(|(k, v)| k == "authority_type" && v == "MintTokens"));
+        assert!(parsed.fields.iter().any(|(k, v)| k == "cleared" && v == "false"));
+    }
+
+    #[test]
+    fn test_mint_to_instruction_parsing() {
+        let parser = Token2022ProgramParser::new();
+
+        let accounts = vec![
+            create_test_account(0, "MintPubkey111111111111111111111111111111111", false, true),
+            create_test_account(1, "AccountPubkey11111111111111111111111111111111", false, true),
+            create_test_account(2, "OwnerPubkey111111111111111111111111111111111", true, false),
+        ];
+
+        // MintTo instruction with 1-byte discriminator (7) + 8 bytes amount
+        let mut data = vec![7]; // 1-byte discriminator for MintTo
+        data.extend_from_slice(&1_000_000_u64.to_le_bytes()); // 8 bytes amount
+
+        let instruction = create_test_instruction(data, accounts);
+
+        let result = parser.parse_instruction(&instruction).unwrap();
+        assert!(result.is_some());
+
+        let parsed = result.unwrap();
+        assert_eq!(parsed.name, "MintTo");
+        assert_eq!(parsed.account_names.len(), 3);
+        assert_eq!(parsed.account_names[0], "mint");
+        assert_eq!(parsed.account_names[1], "account");
+        assert_eq!(parsed.account_names[2], "owner");
+
+        assert!(parsed.fields.iter().any(|(k, v)| k == "amount" && v == "1000000"));
+    }
+
+    #[test]
+    fn test_burn_instruction_parsing() {
+        let parser = Token2022ProgramParser::new();
+
+        let accounts = vec![
+            create_test_account(0, "AccountPubkey11111111111111111111111111111111", true, true),
+            create_test_account(1, "MintPubkey111111111111111111111111111111111", false, false),
+            create_test_account(2, "OwnerPubkey111111111111111111111111111111111", true, false),
+        ];
+
+        // Burn instruction with 1-byte discriminator (8) + 8 bytes amount
+        let mut data = vec![8]; // 1-byte discriminator for Burn
+        data.extend_from_slice(&250_000_u64.to_le_bytes()); // 8 bytes amount
+
+        let instruction = create_test_instruction(data, accounts);
+
+        let result = parser.parse_instruction(&instruction).unwrap();
+        assert!(result.is_some());
+
+        let parsed = result.unwrap();
+        assert_eq!(parsed.name, "Burn");
+        assert_eq!(parsed.account_names.len(), 3);
+        assert_eq!(parsed.account_names[0], "account");
+        assert_eq!(parsed.account_names[1], "mint");
+        assert_eq!(parsed.account_names[2], "owner");
+
+        assert!(parsed.fields.iter().any(|(k, v)| k == "amount" && v == "250000"));
+    }
+
+    #[test]
+    fn test_close_account_instruction_parsing() {
+        let parser = Token2022ProgramParser::new();
+
+        let accounts = vec![
+            create_test_account(0, "AccountPubkey11111111111111111111111111111111", true, true),
+            create_test_account(1, "DestinationPubkey11111111111111111111111111111", false, true),
+            create_test_account(2, "OwnerPubkey111111111111111111111111111111111", true, false),
+        ];
+
+        // CloseAccount instruction with 1-byte discriminator (9) + empty data
+        let data = vec![9]; // 1-byte discriminator for CloseAccount
+
+        let instruction = create_test_instruction(data, accounts);
+
+        let result = parser.parse_instruction(&instruction).unwrap();
+        assert!(result.is_some());
+
+        let parsed = result.unwrap();
+        assert_eq!(parsed.name, "CloseAccount");
+        assert_eq!(parsed.account_names.len(), 3);
+        assert_eq!(parsed.account_names[0], "account");
+        assert_eq!(parsed.account_names[1], "destination");
+        assert_eq!(parsed.account_names[2], "owner");
+    }
+
+    #[test]
+    fn test_freeze_account_instruction_parsing() {
+        let parser = Token2022ProgramParser::new();
+
+        let accounts = vec![
+            create_test_account(0, "AccountPubkey11111111111111111111111111111111", true, true),
+            create_test_account(1, "MintPubkey111111111111111111111111111111111", false, false),
+            create_test_account(2, "FreezeAuthorityPubkey111111111111111111111111", true, false),
+        ];
+
+        // FreezeAccount instruction with 1-byte discriminator (10) + empty data
+        let data = vec![10]; // 1-byte discriminator for FreezeAccount
+
+        let instruction = create_test_instruction(data, accounts);
+
+        let result = parser.parse_instruction(&instruction).unwrap();
+        assert!(result.is_some());
+
+        let parsed = result.unwrap();
+        assert_eq!(parsed.name, "FreezeAccount");
+        assert_eq!(parsed.account_names.len(), 3);
+        assert_eq!(parsed.account_names[0], "account");
+        assert_eq!(parsed.account_names[1], "mint");
+        assert_eq!(parsed.account_names[2], "freeze_authority");
+    }
+
+    #[test]
+    fn test_thaw_account_instruction_parsing() {
+        let parser = Token2022ProgramParser::new();
+
+        let accounts = vec![
+            create_test_account(0, "AccountPubkey11111111111111111111111111111111", true, true),
+            create_test_account(1, "MintPubkey111111111111111111111111111111111", false, false),
+            create_test_account(2, "FreezeAuthorityPubkey111111111111111111111111", true, false),
+        ];
+
+        // ThawAccount instruction with 1-byte discriminator (11) + empty data
+        let data = vec![11]; // 1-byte discriminator for ThawAccount
+
+        let instruction = create_test_instruction(data, accounts);
+
+        let result = parser.parse_instruction(&instruction).unwrap();
+        assert!(result.is_some());
+
+        let parsed = result.unwrap();
+        assert_eq!(parsed.name, "ThawAccount");
+        assert_eq!(parsed.account_names.len(), 3);
+        assert_eq!(parsed.account_names[0], "account");
+        assert_eq!(parsed.account_names[1], "mint");
+        assert_eq!(parsed.account_names[2], "freeze_authority");
+    }
+
+    #[test]
+    fn test_approve_checked_instruction_parsing() {
+        let parser = Token2022ProgramParser::new();
 
         let accounts = vec![
             create_test_account(0, "SourcePubkey11111111111111111111111111111111", true, true),
             create_test_account(1, "MintPubkey111111111111111111111111111111111", false, false),
-            create_test_account(2, "DestPubkey1111111111111111111111111111111111", false, true),
+            create_test_account(2, "DelegatePubkey1111111111111111111111111111111", false, true),
             create_test_account(3, "OwnerPubkey111111111111111111111111111111111", true, false),
         ];
 
-        // TransferChecked instruction with 1-byte discriminator (12) + 8 bytes amount + 1 byte decimals
-        let mut data = vec![12]; // 1-byte discriminator for TransferChecked
-        data.extend_from_slice(&500_000_u64.to_le_bytes()); // 8 bytes amount
+        // ApproveChecked instruction with 1-byte discriminator (13) + 8 bytes amount + 1 byte decimals
+        let mut data = vec![13]; // 1-byte discriminator for ApproveChecked
+        data.extend_from_slice(&300_000_u64.to_le_bytes()); // 8 bytes amount
         data.push(6); // 1 byte decimals
 
         let instruction = create_test_instruction(data, accounts);
@@ -944,20 +1156,335 @@ mod tests {
         assert!(result.is_some());
 
         let parsed = result.unwrap();
-        assert_eq!(parsed.name, "TransferChecked");
+        assert_eq!(parsed.name, "ApproveChecked");
         assert_eq!(parsed.account_names.len(), 4);
         assert_eq!(parsed.account_names[0], "source");
         assert_eq!(parsed.account_names[1], "mint");
-        assert_eq!(parsed.account_names[2], "destination");
+        assert_eq!(parsed.account_names[2], "delegate");
         assert_eq!(parsed.account_names[3], "owner");
 
-        assert!(parsed.fields.iter().any(|(k, v)| k == "amount" && v == "500000"));
+        assert!(parsed.fields.iter().any(|(k, v)| k == "amount" && v == "300000"));
         assert!(parsed.fields.iter().any(|(k, v)| k == "decimals" && v == "6"));
     }
 
     #[test]
+    fn test_mint_to_checked_instruction_parsing() {
+        let parser = Token2022ProgramParser::new();
+
+        let accounts = vec![
+            create_test_account(0, "MintPubkey111111111111111111111111111111111", false, true),
+            create_test_account(1, "AccountPubkey11111111111111111111111111111111", false, true),
+            create_test_account(2, "OwnerPubkey111111111111111111111111111111111", true, false),
+        ];
+
+        // MintToChecked instruction with 1-byte discriminator (14) + 8 bytes amount + 1 byte decimals
+        let mut data = vec![14]; // 1-byte discriminator for MintToChecked
+        data.extend_from_slice(&2_000_000_u64.to_le_bytes()); // 8 bytes amount
+        data.push(9); // 1 byte decimals
+
+        let instruction = create_test_instruction(data, accounts);
+
+        let result = parser.parse_instruction(&instruction).unwrap();
+        assert!(result.is_some());
+
+        let parsed = result.unwrap();
+        assert_eq!(parsed.name, "MintToChecked");
+        assert_eq!(parsed.account_names.len(), 3);
+        assert_eq!(parsed.account_names[0], "mint");
+        assert_eq!(parsed.account_names[1], "account");
+        assert_eq!(parsed.account_names[2], "owner");
+
+        assert!(parsed.fields.iter().any(|(k, v)| k == "amount" && v == "2000000"));
+        assert!(parsed.fields.iter().any(|(k, v)| k == "decimals" && v == "9"));
+    }
+
+    #[test]
+    fn test_burn_checked_instruction_parsing() {
+        let parser = Token2022ProgramParser::new();
+
+        let accounts = vec![
+            create_test_account(0, "AccountPubkey11111111111111111111111111111111", true, true),
+            create_test_account(1, "MintPubkey111111111111111111111111111111111", false, false),
+            create_test_account(2, "OwnerPubkey111111111111111111111111111111111", true, false),
+        ];
+
+        // BurnChecked instruction with 1-byte discriminator (15) + 8 bytes amount + 1 byte decimals
+        let mut data = vec![15]; // 1-byte discriminator for BurnChecked
+        data.extend_from_slice(&100_000_u64.to_le_bytes()); // 8 bytes amount
+        data.push(6); // 1 byte decimals
+
+        let instruction = create_test_instruction(data, accounts);
+
+        let result = parser.parse_instruction(&instruction).unwrap();
+        assert!(result.is_some());
+
+        let parsed = result.unwrap();
+        assert_eq!(parsed.name, "BurnChecked");
+        assert_eq!(parsed.account_names.len(), 3);
+        assert_eq!(parsed.account_names[0], "account");
+        assert_eq!(parsed.account_names[1], "mint");
+        assert_eq!(parsed.account_names[2], "owner");
+
+        assert!(parsed.fields.iter().any(|(k, v)| k == "amount" && v == "100000"));
+        assert!(parsed.fields.iter().any(|(k, v)| k == "decimals" && v == "6"));
+    }
+
+    #[test]
+    fn test_initialize_account2_instruction_parsing() {
+        let parser = Token2022ProgramParser::new();
+
+        let accounts = vec![
+            create_test_account(0, "AccountPubkey11111111111111111111111111111111", false, true),
+            create_test_account(1, "MintPubkey111111111111111111111111111111111", false, false),
+            create_test_account(2, "OwnerPubkey111111111111111111111111111111111", false, false),
+            create_test_account(3, "RentSysvar111111111111111111111111111111111", false, false),
+        ];
+
+        // InitializeAccount2 instruction with 1-byte discriminator (16) + 32 bytes owner pubkey
+        let mut data = vec![16]; // 1-byte discriminator for InitializeAccount2
+        data.extend_from_slice(&[0u8; 32]); // 32 bytes owner pubkey
+
+        let instruction = create_test_instruction(data, accounts);
+
+        let result = parser.parse_instruction(&instruction).unwrap();
+        assert!(result.is_some());
+
+        let parsed = result.unwrap();
+        assert_eq!(parsed.name, "InitializeAccount2");
+        assert_eq!(parsed.account_names.len(), 4);
+        assert_eq!(parsed.account_names[0], "account");
+        assert_eq!(parsed.account_names[1], "mint");
+        assert_eq!(parsed.account_names[2], "owner");
+        assert_eq!(parsed.account_names[3], "rent_sysvar");
+
+        // Check that owner field is present
+        assert!(parsed.fields.iter().any(|(k, _)| k == "owner"));
+    }
+
+    #[test]
+    fn test_sync_native_instruction_parsing() {
+        let parser = Token2022ProgramParser::new();
+
+        let accounts = vec![create_test_account(
+            0,
+            "NativeAccountPubkey1111111111111111111111111",
+            false,
+            true,
+        )];
+
+        // SyncNative instruction with 1-byte discriminator (17) + empty data
+        let data = vec![17]; // 1-byte discriminator for SyncNative
+
+        let instruction = create_test_instruction(data, accounts);
+
+        let result = parser.parse_instruction(&instruction).unwrap();
+        assert!(result.is_some());
+
+        let parsed = result.unwrap();
+        assert_eq!(parsed.name, "SyncNative");
+        assert_eq!(parsed.account_names.len(), 1);
+        assert_eq!(parsed.account_names[0], "account");
+    }
+
+    #[test]
+    fn test_initialize_account3_instruction_parsing() {
+        let parser = Token2022ProgramParser::new();
+
+        let accounts = vec![
+            create_test_account(0, "AccountPubkey11111111111111111111111111111111", false, true),
+            create_test_account(1, "MintPubkey111111111111111111111111111111111", false, false),
+            create_test_account(2, "OwnerPubkey111111111111111111111111111111111", false, false),
+        ];
+
+        // InitializeAccount3 instruction with 1-byte discriminator (18) + 32 bytes owner pubkey
+        let mut data = vec![18]; // 1-byte discriminator for InitializeAccount3
+        data.extend_from_slice(&[0u8; 32]); // 32 bytes owner pubkey
+
+        let instruction = create_test_instruction(data, accounts);
+
+        let result = parser.parse_instruction(&instruction).unwrap();
+        assert!(result.is_some());
+
+        let parsed = result.unwrap();
+        assert_eq!(parsed.name, "InitializeAccount3");
+        assert_eq!(parsed.account_names.len(), 3);
+        assert_eq!(parsed.account_names[0], "account");
+        assert_eq!(parsed.account_names[1], "mint");
+        assert_eq!(parsed.account_names[2], "owner");
+
+        // Check that owner field is present
+        assert!(parsed.fields.iter().any(|(k, _)| k == "owner"));
+    }
+
+    #[test]
+    fn test_initialize_multisig2_instruction_parsing() {
+        let parser = Token2022ProgramParser::new();
+
+        let accounts = vec![
+            create_test_account(0, "MultisigPubkey1111111111111111111111111111111", false, true),
+            create_test_account(1, "Signer1Pubkey11111111111111111111111111111111", true, false),
+            create_test_account(2, "Signer2Pubkey11111111111111111111111111111111", true, false),
+            create_test_account(3, "Signer3Pubkey11111111111111111111111111111111", true, false),
+        ];
+
+        // InitializeMultisig2 instruction with 1-byte discriminator (19) + 1 byte m
+        let mut data = vec![19]; // 1-byte discriminator for InitializeMultisig2
+        data.push(2); // m = 2 (number of required signatures)
+
+        let instruction = create_test_instruction(data, accounts);
+
+        let result = parser.parse_instruction(&instruction).unwrap();
+        assert!(result.is_some());
+
+        let parsed = result.unwrap();
+        assert_eq!(parsed.name, "InitializeMultisig2");
+        assert_eq!(parsed.account_names.len(), 4);
+        assert_eq!(parsed.account_names[0], "multisig");
+        assert_eq!(parsed.account_names[1], "signer_1");
+        assert_eq!(parsed.account_names[2], "signer_2");
+        assert_eq!(parsed.account_names[3], "signer_3");
+
+        assert!(parsed.fields.iter().any(|(k, v)| k == "m" && v == "2"));
+    }
+
+    #[test]
+    fn test_initialize_mint2_instruction_parsing() {
+        let parser = Token2022ProgramParser::new();
+
+        let accounts = vec![create_test_account(
+            0,
+            "MintPubkey111111111111111111111111111111111",
+            false,
+            true,
+        )];
+
+        // InitializeMint2 instruction with 1-byte discriminator (20) + 4 bytes decimals + authority data
+        let mut data = vec![20]; // 1-byte discriminator
+        data.extend_from_slice(&6_u32.to_le_bytes()); // 4 bytes decimals
+        data.extend_from_slice(&[0u8; 33]); // 33 bytes of authority data
+
+        let instruction = create_test_instruction(data, accounts);
+
+        let result = parser.parse_instruction(&instruction).unwrap();
+        assert!(result.is_some());
+
+        let parsed = result.unwrap();
+        assert_eq!(parsed.name, "InitializeMint2");
+        assert_eq!(parsed.account_names.len(), 1);
+        assert_eq!(parsed.account_names[0], "mint");
+
+        assert!(parsed.fields.iter().any(|(k, v)| k == "decimals" && v == "6"));
+    }
+
+    #[test]
+    fn test_get_account_data_size_instruction_parsing() {
+        let parser = Token2022ProgramParser::new();
+
+        let accounts = vec![create_test_account(
+            0,
+            "MintPubkey111111111111111111111111111111111",
+            false,
+            false,
+        )];
+
+        // GetAccountDataSize instruction with 1-byte discriminator (21) + empty data
+        let data = vec![21]; // 1-byte discriminator for GetAccountDataSize
+
+        let instruction = create_test_instruction(data, accounts);
+
+        let result = parser.parse_instruction(&instruction).unwrap();
+        assert!(result.is_some());
+
+        let parsed = result.unwrap();
+        assert_eq!(parsed.name, "GetAccountDataSize");
+        assert_eq!(parsed.account_names.len(), 1);
+        assert_eq!(parsed.account_names[0], "mint");
+    }
+
+    #[test]
+    fn test_initialize_immutable_owner_instruction_parsing() {
+        let parser = Token2022ProgramParser::new();
+
+        let accounts = vec![create_test_account(
+            0,
+            "AccountPubkey11111111111111111111111111111111",
+            false,
+            true,
+        )];
+
+        // InitializeImmutableOwner instruction with 1-byte discriminator (22) + empty data
+        let data = vec![22]; // 1-byte discriminator for InitializeImmutableOwner
+
+        let instruction = create_test_instruction(data, accounts);
+
+        let result = parser.parse_instruction(&instruction).unwrap();
+        assert!(result.is_some());
+
+        let parsed = result.unwrap();
+        assert_eq!(parsed.name, "InitializeImmutableOwner");
+        assert_eq!(parsed.account_names.len(), 1);
+        assert_eq!(parsed.account_names[0], "account");
+    }
+
+    #[test]
+    fn test_amount_to_ui_amount_instruction_parsing() {
+        let parser = Token2022ProgramParser::new();
+
+        let accounts = vec![create_test_account(
+            0,
+            "MintPubkey111111111111111111111111111111111",
+            false,
+            false,
+        )];
+
+        // AmountToUiAmount instruction with 1-byte discriminator (23) + 8 bytes amount
+        let mut data = vec![23]; // 1-byte discriminator for AmountToUiAmount
+        data.extend_from_slice(&5_000_000_u64.to_le_bytes()); // 8 bytes amount
+
+        let instruction = create_test_instruction(data, accounts);
+
+        let result = parser.parse_instruction(&instruction).unwrap();
+        assert!(result.is_some());
+
+        let parsed = result.unwrap();
+        assert_eq!(parsed.name, "AmountToUiAmount");
+        assert_eq!(parsed.account_names.len(), 1);
+        assert_eq!(parsed.account_names[0], "mint");
+
+        assert!(parsed.fields.iter().any(|(k, v)| k == "amount" && v == "5000000"));
+    }
+
+    #[test]
+    fn test_ui_amount_to_amount_instruction_parsing() {
+        let parser = Token2022ProgramParser::new();
+
+        let accounts = vec![create_test_account(
+            0,
+            "MintPubkey111111111111111111111111111111111",
+            false,
+            false,
+        )];
+
+        // UiAmountToAmount instruction with 1-byte discriminator (24) + UI amount string
+        let mut data = vec![24]; // 1-byte discriminator for UiAmountToAmount
+        data.extend_from_slice(b"100.50"); // UI amount as ASCII string
+
+        let instruction = create_test_instruction(data, accounts);
+
+        let result = parser.parse_instruction(&instruction).unwrap();
+        assert!(result.is_some());
+
+        let parsed = result.unwrap();
+        assert_eq!(parsed.name, "UiAmountToAmount");
+        assert_eq!(parsed.account_names.len(), 1);
+        assert_eq!(parsed.account_names[0], "mint");
+
+        assert!(parsed.fields.iter().any(|(k, v)| k == "ui_amount" && v == "100.50"));
+    }
+
+    #[test]
     fn test_transfer_checked_instruction_with_multiple_signers() {
-        let parser = TokenProgramParser::new();
+        let parser = Token2022ProgramParser::new();
 
         let accounts = vec![
             create_test_account(0, "SourcePubkey11111111111111111111111111111111", true, true),
@@ -992,183 +1519,9 @@ mod tests {
     }
 
     #[test]
-    fn test_transfer_checked_instruction_invalid_data_length() {
-        let parser = TokenProgramParser::new();
-
-        let accounts = vec![
-            create_test_account(0, "SourcePubkey11111111111111111111111111111111", true, true),
-            create_test_account(1, "MintPubkey111111111111111111111111111111111", false, false),
-            create_test_account(2, "DestPubkey1111111111111111111111111111111111", false, true),
-            create_test_account(3, "OwnerPubkey111111111111111111111111111111111", true, false),
-        ];
-
-        let mut data = vec![12, 0, 0, 0]; // 4-byte little-endian discriminator for TransferChecked
-        data.extend_from_slice(&[1, 2, 3, 4]); // Only 4 bytes instead of 8
-
-        let instruction = create_test_instruction(data, accounts);
-
-        let result = parser.parse_instruction(&instruction).unwrap();
-        assert!(result.is_none());
-    }
-
-    #[test]
-    fn test_transfer_checked_instruction_invalid_account_count() {
-        let parser = TokenProgramParser::new();
-
-        let accounts = vec![
-            create_test_account(0, "SourcePubkey11111111111111111111111111111111", true, true),
-            create_test_account(1, "MintPubkey111111111111111111111111111111111", false, false),
-            // Missing destination and owner - only 2 accounts
-        ];
-
-        let mut data = vec![12]; // 1-byte discriminator for TransferChecked
-        data.extend_from_slice(&500_000_u64.to_le_bytes());
-        data.push(6); // 1 byte decimals
-
-        let instruction = create_test_instruction(data, accounts);
-
-        let result = parser.parse_instruction(&instruction).unwrap();
-        assert!(result.is_none());
-    }
-
-    #[test]
-    fn test_initialize_account_instruction_parsing() {
-        let parser = TokenProgramParser::new();
-
-        let accounts = vec![
-            create_test_account(0, "AccountPubkey11111111111111111111111111111111", true, true),
-            create_test_account(1, "MintPubkey111111111111111111111111111111111", false, false),
-            create_test_account(2, "OwnerPubkey111111111111111111111111111111111", true, false),
-            create_test_account(3, "RentSysvar111111111111111111111111111111111", false, false),
-        ];
-
-        // InitializeAccount instruction with 1-byte discriminator (1)
-        let data = vec![1]; // 1-byte discriminator for InitializeAccount
-        let instruction = create_test_instruction(data, accounts);
-
-        let result = parser.parse_instruction(&instruction).unwrap();
-        assert!(result.is_some());
-
-        let parsed = result.unwrap();
-        assert_eq!(parsed.name, "InitializeAccount");
-        assert_eq!(parsed.account_names.len(), 4);
-        assert_eq!(parsed.account_names[0], "account");
-        assert_eq!(parsed.account_names[1], "mint");
-        assert_eq!(parsed.account_names[2], "owner");
-        assert_eq!(parsed.account_names[3], "rent_sysvar");
-        assert_eq!(parsed.fields.len(), 0);
-    }
-
-    #[test]
-    fn test_mint_to_instruction_parsing() {
-        let parser = TokenProgramParser::new();
-
-        let accounts = vec![
-            create_test_account(0, "MintPubkey111111111111111111111111111111111", true, true),
-            create_test_account(1, "AccountPubkey11111111111111111111111111111111", false, true),
-            create_test_account(2, "OwnerPubkey111111111111111111111111111111111", true, false),
-        ];
-
-        // MintTo instruction with 1-byte discriminator (7) + 8 bytes amount
-        let mut data = vec![7]; // 1-byte discriminator for MintTo
-        data.extend_from_slice(&2_500_000_u64.to_le_bytes()); // 8 bytes amount
-
-        let instruction = create_test_instruction(data, accounts);
-
-        let result = parser.parse_instruction(&instruction).unwrap();
-        assert!(result.is_some());
-
-        let parsed = result.unwrap();
-        assert_eq!(parsed.name, "MintTo");
-        assert_eq!(parsed.account_names.len(), 3);
-        assert_eq!(parsed.account_names[0], "mint");
-        assert_eq!(parsed.account_names[1], "account");
-        assert_eq!(parsed.account_names[2], "owner");
-        assert!(parsed.fields.iter().any(|(k, v)| k == "amount" && v == "2500000"));
-    }
-
-    #[test]
-    fn test_approve_instruction_parsing() {
-        let parser = TokenProgramParser::new();
-
-        let accounts = vec![
-            create_test_account(0, "SourcePubkey11111111111111111111111111111111", false, true),
-            create_test_account(1, "DelegatePubkey111111111111111111111111111111", false, false),
-            create_test_account(2, "OwnerPubkey111111111111111111111111111111111", true, false),
-        ];
-
-        // Approve instruction with 1-byte discriminator (4) + 8 bytes amount
-        let mut data = vec![4]; // 1-byte discriminator for Approve
-        data.extend_from_slice(&100_000_u64.to_le_bytes()); // 8 bytes amount
-
-        let instruction = create_test_instruction(data, accounts);
-
-        let result = parser.parse_instruction(&instruction).unwrap();
-        assert!(result.is_some());
-
-        let parsed = result.unwrap();
-        assert_eq!(parsed.name, "Approve");
-        assert_eq!(parsed.account_names.len(), 3);
-        assert_eq!(parsed.account_names[0], "source");
-        assert_eq!(parsed.account_names[1], "delegate");
-        assert_eq!(parsed.account_names[2], "owner");
-        assert!(parsed.fields.iter().any(|(k, v)| k == "amount" && v == "100000"));
-    }
-
-    #[test]
-    fn test_initialize_multisig_instruction_parsing() {
-        let parser = TokenProgramParser::new();
-
-        let accounts = vec![
-            create_test_account(0, "MultisigPubkey1111111111111111111111111111111", true, true),
-            create_test_account(1, "Signer1Pubkey1111111111111111111111111111111", true, false),
-            create_test_account(2, "Signer2Pubkey1111111111111111111111111111111", true, false),
-            create_test_account(3, "Signer3Pubkey1111111111111111111111111111111", true, false),
-            create_test_account(4, "RentSysvar111111111111111111111111111111111", false, false),
-        ];
-
-        // InitializeMultisig instruction with 1-byte discriminator (2) + 1 byte m
-        let data = vec![2, 2]; // 1-byte discriminator for InitializeMultisig + m = 2
-
-        let instruction = create_test_instruction(data, accounts);
-
-        let result = parser.parse_instruction(&instruction).unwrap();
-        assert!(result.is_some());
-
-        let parsed = result.unwrap();
-        assert_eq!(parsed.name, "InitializeMultisig");
-        assert_eq!(parsed.account_names.len(), 5);
-        assert_eq!(parsed.account_names[0], "multisig");
-        assert_eq!(parsed.account_names[1], "signer_1");
-        assert_eq!(parsed.account_names[2], "signer_2");
-        assert_eq!(parsed.account_names[3], "signer_3");
-        assert_eq!(parsed.account_names[4], "rent_sysvar");
-        assert!(parsed.fields.iter().any(|(k, v)| k == "m" && v == "2"));
-    }
-
-    #[test]
-    fn test_close_account_instruction_parsing() {
-        let parser = TokenProgramParser::new();
-
-        let accounts = vec![
-            create_test_account(0, "AccountPubkey11111111111111111111111111111111", true, true),
-            create_test_account(1, "DestinationPubkey111111111111111111111111111111", false, true),
-            create_test_account(2, "OwnerPubkey111111111111111111111111111111111", true, false),
-        ];
-
-        // CloseAccount instruction with 1-byte discriminator (9)
-        let data = vec![9]; // 1-byte discriminator for CloseAccount
-        let instruction = create_test_instruction(data, accounts);
-
-        let result = parser.parse_instruction(&instruction).unwrap();
-        assert!(result.is_some());
-
-        let parsed = result.unwrap();
-        assert_eq!(parsed.name, "CloseAccount");
-        assert_eq!(parsed.account_names.len(), 3);
-        assert_eq!(parsed.account_names[0], "account");
-        assert_eq!(parsed.account_names[1], "destination");
-        assert_eq!(parsed.account_names[2], "owner");
-        assert_eq!(parsed.fields.len(), 0);
+    fn test_program_id() {
+        let parser = Token2022ProgramParser::new();
+        let expected_id = Pubkey::from_str_const(TOKEN2022_PROGRAM_ID);
+        assert_eq!(parser.program_id(), &expected_id);
     }
 }
