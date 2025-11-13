@@ -50,6 +50,12 @@ impl ParserRegistry {
         let token_parser = TokenProgramParser::new();
         registry.parsers.insert(*token_parser.program_id(), Box::new(token_parser));
 
+        // Register Compute Budget parser
+        let compute_budget_parser = ComputeBudgetParser::new();
+        registry
+            .parsers
+            .insert(*compute_budget_parser.program_id(), Box::new(compute_budget_parser));
+
         registry
     }
 
@@ -92,3 +98,6 @@ pub use system_program::SystemProgramParser;
 
 mod token_program;
 pub use token_program::TokenProgramParser;
+
+mod compute_budget;
+pub use compute_budget::ComputeBudgetParser;
