@@ -32,7 +32,16 @@ impl InstructionParser for AssociatedTokenProgramParser {
         &self,
         instruction: &InstructionSummary,
     ) -> Result<Option<ParsedInstruction>> {
-        // Associated Token Program uses 1-byte instruction discriminators
+        // Associated Token Program instruction discriminators:
+        // - Create: No data (empty)
+        // - CreateIdempotent: 1 byte [1]
+        // - RecoverNested: 1 byte [2]
+
+        if instruction.data.is_empty() {
+            // Empty data indicates the Create instruction
+            return parse_create(&[], instruction);
+        }
+
         if instruction.data.len() < 1 {
             return Ok(None);
         }
@@ -41,7 +50,6 @@ impl InstructionParser for AssociatedTokenProgramParser {
         let data = &instruction.data[1..];
 
         match instruction_id {
-            0 => parse_create(data, instruction),
             1 => parse_create_idempotent(data, instruction),
             2 => parse_recover_nested(data, instruction),
             _ => Ok(None),
@@ -177,8 +185,8 @@ mod tests {
             },
         ];
 
-        // Create instruction with 1-byte discriminator (0)
-        let data = vec![0]; // 1-byte discriminator
+        // Create instruction has no data (empty)
+        let data = vec![]; // Empty data for Create instruction
 
         let instruction = create_test_instruction(data, accounts);
 
@@ -303,6 +311,27 @@ mod tests {
         let instruction = create_test_instruction(data, accounts);
 
         let result = parser.parse_instruction(&instruction).unwrap();
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_create_with_old_discriminator_no_longer_works() {
+        let parser = AssociatedTokenProgramParser::new();
+
+        let accounts = vec![
+            create_test_account(0, true, true),
+            create_test_account(1, false, true),
+            create_test_account(2, false, false),
+            create_test_account(3, false, false),
+        ];
+
+        // Old incorrect format with discriminator 0 should NOT be recognized as Create
+        let data = vec![0]; // Old incorrect discriminator
+
+        let instruction = create_test_instruction(data, accounts);
+
+        let result = parser.parse_instruction(&instruction).unwrap();
+        // Discriminator 0 is not recognized for any instruction, so should return None
         assert!(result.is_none());
     }
 }
