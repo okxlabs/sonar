@@ -1,0 +1,20 @@
+# reference config [rustc](https://github.com/rust-lang/rust/blob/master/rustfmt.toml)
+
+# Use Rust 2024 edition style rules
+# This determines which version of the Rust style guide the formatter follows
+style_edition = "2024"
+
+# Use maximum heuristic formatting rules
+# "Max" = Format code into compact single-line forms as much as possible
+# Examples: short function calls, arrays, struct initializations will be compressed to one line
+use_small_heuristics = "Max"
+
+# Enable field initialization shorthand
+# Use shorthand form when field name matches variable name
+# Example: Struct { x: x, y: y } -> Struct { x, y }
+use_field_init_shorthand = true
+
+# Enable module reordering
+# Reorder module declarations (mod statements) alphabetically
+# Helps maintain consistency and readability of module declarations
+reorder_modules = true

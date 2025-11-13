@@ -2,8 +2,8 @@ use std::collections::HashMap;
 use std::str::FromStr;
 
 use anyhow::Result;
-use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use base64::Engine;
+use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use colored::Colorize;
 use serde::Serialize;
 use solana_pubkey::Pubkey;
@@ -151,11 +151,7 @@ fn render_account_entry_text(
 ) -> usize {
     let pubkey = Pubkey::from_str(pubkey_str).unwrap();
     let solscan_linked_pubkey = format_solscan_link(pubkey_str);
-    let executable = resolved
-        .accounts
-        .get(&pubkey)
-        .map(|acc| acc.executable)
-        .unwrap_or(false);
+    let executable = resolved.accounts.get(&pubkey).map(|acc| acc.executable).unwrap_or(false);
     println!(
         "  [{}] {} {}",
         index,
@@ -196,11 +192,7 @@ fn render_instruction_details_text(
             }
 
             // Display raw instruction data first
-            println!(
-                "     🔢 0x{} | {} byte(s)",
-                hex::encode(&ix.data),
-                ix.data.len()
-            );
+            println!("     🔢 0x{} | {} byte(s)", hex::encode(&ix.data), ix.data.len());
 
             // Then render parsed fields as formatted JSON, preserving original order
             if !parsed.fields.is_empty() {
@@ -209,7 +201,8 @@ fn render_instruction_details_text(
                     // Format as JSON key-value pair with proper indentation (9 spaces total: 7 + 2)
                     let is_last = idx == parsed.fields.len() - 1;
                     let comma = if is_last { "" } else { "," };
-                    let formatted_line = format!("         \"{}\": \"{}\"{}", field_name, field_value, comma);
+                    let formatted_line =
+                        format!("         \"{}\": \"{}\"{}", field_name, field_value, comma);
                     println!("{}", formatted_line.custom_color((255, 255, 224)));
                 }
                 println!("       }}");
@@ -224,11 +217,7 @@ fn render_instruction_details_text(
             for account in &ix.accounts {
                 render_instruction_account_text(account, resolved);
             }
-            println!(
-                "     🔢 0x{} | {} byte(s)",
-                hex::encode(&ix.data),
-                ix.data.len()
-            );
+            println!("     🔢 0x{} | {} byte(s)", hex::encode(&ix.data), ix.data.len());
         }
 
         // Display inner instructions if any
@@ -263,11 +252,16 @@ fn render_instruction_details_text(
                     // Then render parsed fields as formatted JSON, preserving original order
                     if !parsed_inner.fields.is_empty() {
                         println!("       {{");
-                        for (idx, (field_name, field_value)) in parsed_inner.fields.iter().enumerate() {
+                        for (idx, (field_name, field_value)) in
+                            parsed_inner.fields.iter().enumerate()
+                        {
                             // Format as JSON key-value pair with proper indentation (9 spaces total: 7 + 2)
                             let is_last = idx == parsed_inner.fields.len() - 1;
                             let comma = if is_last { "" } else { "," };
-                            let formatted_line = format!("         \"{}\": \"{}\"{}", field_name, field_value, comma);
+                            let formatted_line = format!(
+                                "         \"{}\": \"{}\"{}",
+                                field_name, field_value, comma
+                            );
                             println!("{}", formatted_line.custom_color((255, 255, 224)));
                         }
                         println!("       }}");
@@ -296,11 +290,7 @@ fn render_instruction_details_text(
 fn render_instruction_account_text(account: &InstructionAccountEntry, resolved: &ResolvedAccounts) {
     let solscan_linked_pubkey = format_solscan_link(&account.pubkey);
     let executable = if let Ok(pubkey) = Pubkey::from_str(&account.pubkey) {
-        resolved
-            .accounts
-            .get(&pubkey)
-            .map(|acc| acc.executable)
-            .unwrap_or(false)
+        resolved.accounts.get(&pubkey).map(|acc| acc.executable).unwrap_or(false)
     } else {
         false
     };
@@ -320,11 +310,7 @@ fn render_instruction_account_text_with_name(
 ) {
     let solscan_linked_pubkey = format_solscan_link(&account.pubkey);
     let executable = if let Ok(pubkey) = Pubkey::from_str(&account.pubkey) {
-        resolved
-            .accounts
-            .get(&pubkey)
-            .map(|acc| acc.executable)
-            .unwrap_or(false)
+        resolved.accounts.get(&pubkey).map(|acc| acc.executable).unwrap_or(false)
     } else {
         false
     };
@@ -370,10 +356,7 @@ fn render_simulation_text(simulation: &SimulationSection) {
             println!("🔴 ({})", error);
         }
     }
-    println!(
-        "Compute Units Consumed: {}",
-        simulation.compute_units_consumed
-    );
+    println!("Compute Units Consumed: {}", simulation.compute_units_consumed);
     println!("Log Entries: {}", simulation.logs.len());
     if !simulation.logs.is_empty() {
         println!("Log Content:");
@@ -441,12 +424,7 @@ impl Report {
                 amount_sol: entry.amount_sol,
             })
             .collect();
-        Self {
-            transaction,
-            simulation,
-            replacements,
-            fundings,
-        }
+        Self { transaction, simulation, replacements, fundings }
     }
 }
 
@@ -509,11 +487,7 @@ impl TransactionSection {
             })
             .collect();
 
-        let lookups = resolved
-            .lookups
-            .iter()
-            .map(LookupSection::from_lookup)
-            .collect();
+        let lookups = resolved.lookups.iter().map(LookupSection::from_lookup).collect();
 
         Self {
             encoding,
@@ -549,26 +523,16 @@ impl LookupSection {
             .writable_indexes
             .iter()
             .zip(&lookup.writable_addresses)
-            .map(|(idx, key)| LookupAddressEntry {
-                index: *idx,
-                pubkey: key.to_string(),
-            })
+            .map(|(idx, key)| LookupAddressEntry { index: *idx, pubkey: key.to_string() })
             .collect();
         let readonly = lookup
             .readonly_indexes
             .iter()
             .zip(&lookup.readonly_addresses)
-            .map(|(idx, key)| LookupAddressEntry {
-                index: *idx,
-                pubkey: key.to_string(),
-            })
+            .map(|(idx, key)| LookupAddressEntry { index: *idx, pubkey: key.to_string() })
             .collect();
 
-        Self {
-            account_key: lookup.account_key.to_string(),
-            writable,
-            readonly,
-        }
+        Self { account_key: lookup.account_key.to_string(), writable, readonly }
     }
 }
 
@@ -753,19 +717,10 @@ impl InstructionAccountEntry {
         resolver: Option<&LookupResolver>,
     ) -> Self {
         let (pubkey, source, lookup_table) = match &reference.source {
-            AccountSourceSummary::Static => (
-                reference
-                    .pubkey
-                    .clone()
-                    .unwrap_or_else(|| "<missing>".into()),
-                "⚓",
-                None,
-            ),
-            AccountSourceSummary::Lookup {
-                table_account,
-                lookup_index,
-                writable,
-            } => {
+            AccountSourceSummary::Static => {
+                (reference.pubkey.clone().unwrap_or_else(|| "<missing>".into()), "⚓", None)
+            }
+            AccountSourceSummary::Lookup { table_account, lookup_index, writable } => {
                 let resolved =
                     resolver.and_then(|res| res.resolve(table_account, *writable, *lookup_index));
                 let pubkey = resolved
@@ -778,14 +733,9 @@ impl InstructionAccountEntry {
                 };
                 (pubkey, "🔍", Some(lookup_ref))
             }
-            AccountSourceSummary::Unknown => (
-                reference
-                    .pubkey
-                    .clone()
-                    .unwrap_or_else(|| "<unknown>".into()),
-                "unknown",
-                None,
-            ),
+            AccountSourceSummary::Unknown => {
+                (reference.pubkey.clone().unwrap_or_else(|| "<unknown>".into()), "unknown", None)
+            }
         };
 
         Self {
@@ -819,16 +769,12 @@ struct SimulationSection {
 impl SimulationSection {
     fn from_result(result: &SimulationResult) -> Self {
         let (status, post_account_count) = match &result.status {
-            ExecutionStatus::Succeeded => (
-                SimulationStatusReport::Succeeded,
-                result.post_accounts.len(),
-            ),
-            ExecutionStatus::Failed(error) => (
-                SimulationStatusReport::Failed {
-                    error: error.clone(),
-                },
-                0,
-            ),
+            ExecutionStatus::Succeeded => {
+                (SimulationStatusReport::Succeeded, result.post_accounts.len())
+            }
+            ExecutionStatus::Failed(error) => {
+                (SimulationStatusReport::Failed { error: error.clone() }, 0)
+            }
         };
 
         Self {
@@ -890,18 +836,10 @@ impl LookupResolver {
         let mut entries = HashMap::new();
         for lookup in lookups {
             let account_key = lookup.account_key.to_string();
-            for (idx, key) in lookup
-                .writable_indexes
-                .iter()
-                .zip(&lookup.writable_addresses)
-            {
+            for (idx, key) in lookup.writable_indexes.iter().zip(&lookup.writable_addresses) {
                 entries.insert((account_key.clone(), true, *idx), key.to_string());
             }
-            for (idx, key) in lookup
-                .readonly_indexes
-                .iter()
-                .zip(&lookup.readonly_addresses)
-            {
+            for (idx, key) in lookup.readonly_indexes.iter().zip(&lookup.readonly_addresses) {
                 entries.insert((account_key.clone(), false, *idx), key.to_string());
             }
         }
@@ -909,26 +847,17 @@ impl LookupResolver {
     }
 
     fn resolve(&self, table: &str, writable: bool, index: u8) -> Option<String> {
-        self.entries
-            .get(&(table.to_string(), writable, index))
-            .cloned()
+        self.entries.get(&(table.to_string(), writable, index)).cloned()
     }
 }
 
 fn truncate_display(value: &str, limit: usize) -> String {
-    if value.len() <= limit {
-        value.to_string()
-    } else {
-        format!("{}…", &value[..limit])
-    }
+    if value.len() <= limit { value.to_string() } else { format!("{}…", &value[..limit]) }
 }
 
 fn format_solscan_link(account_pubkey: &str) -> String {
     let solscan_url = format!("https://solscan.io/account/{}", account_pubkey);
-    format!(
-        "\x1b]8;;{}\x1b\\{}\x1b]8;;\x1b\\",
-        solscan_url, account_pubkey
-    )
+    format!("\x1b]8;;{}\x1b\\{}\x1b]8;;\x1b\\", solscan_url, account_pubkey)
 }
 
 fn account_privilege_emoji(signer: bool, writable: bool, executable: bool) -> &'static str {

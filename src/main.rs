@@ -36,11 +36,7 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
         parse_only,
         verify_signatures,
     } = args;
-    let TransactionInputArgs {
-        tx,
-        tx_file,
-        output,
-    } = transaction;
+    let TransactionInputArgs { tx, tx_file, output } = transaction;
 
     let replacements = if parse_only {
         vec![]

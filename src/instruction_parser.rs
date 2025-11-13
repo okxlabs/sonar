@@ -40,9 +40,7 @@ pub struct ParserRegistry {
 impl ParserRegistry {
     /// Creates a new parser registry with default parsers
     pub fn new() -> Self {
-        let mut registry = Self {
-            parsers: HashMap::new(),
-        };
+        let mut registry = Self { parsers: HashMap::new() };
 
         // Register default parsers
         let system_parser = SystemProgramParser::new();
@@ -91,9 +89,7 @@ pub struct SystemProgramParser {
 
 impl SystemProgramParser {
     pub fn new() -> Self {
-        Self {
-            program_id: solana_sdk_ids::system_program::id(),
-        }
+        Self { program_id: solana_sdk_ids::system_program::id() }
     }
 }
 
@@ -162,10 +158,7 @@ fn parse_transfer_instruction(
     Ok(Some(ParsedInstruction {
         name: "Transfer".to_string(),
         fields: vec![("lamports".to_string(), format!("{:.9}", lamports_sol))],
-        account_names: vec![
-            "funding_account".to_string(),
-            "recipient_account".to_string(),
-        ],
+        account_names: vec!["funding_account".to_string(), "recipient_account".to_string()],
     }))
 }
 
@@ -372,10 +365,7 @@ fn parse_authorize_nonce_account_instruction(
     Ok(Some(ParsedInstruction {
         name: "AuthorizeNonceAccount".to_string(),
         fields: vec![("new_authorized".to_string(), authorized.to_string())],
-        account_names: vec![
-            "nonce_account".to_string(),
-            "nonce_authority".to_string(),
-        ],
+        account_names: vec!["nonce_account".to_string(), "nonce_authority".to_string()],
     }))
 }
 
@@ -449,10 +439,7 @@ fn parse_allocate_with_seed_instruction(
             ("space".to_string(), space.to_string()),
             ("owner".to_string(), owner.to_string()),
         ],
-        account_names: vec![
-            "allocated_account".to_string(),
-            "base_account".to_string(),
-        ],
+        account_names: vec!["allocated_account".to_string(), "base_account".to_string()],
     }))
 }
 
@@ -493,10 +480,7 @@ fn parse_assign_with_seed_instruction(
             ("seed".to_string(), seed),
             ("owner".to_string(), owner.to_string()),
         ],
-        account_names: vec![
-            "assigned_account".to_string(),
-            "base_account".to_string(),
-        ],
+        account_names: vec!["assigned_account".to_string(), "base_account".to_string()],
     }))
 }
 
@@ -529,9 +513,8 @@ fn parse_transfer_with_seed_instruction(
     }
 
     let from_owner_offset = seed_end + 1;
-    let from_owner_bytes: [u8; 32] = data[from_owner_offset..from_owner_offset + 32]
-        .try_into()
-        .unwrap();
+    let from_owner_bytes: [u8; 32] =
+        data[from_owner_offset..from_owner_offset + 32].try_into().unwrap();
     let from_owner = Pubkey::from(from_owner_bytes);
 
     Ok(Some(ParsedInstruction {
@@ -588,10 +571,7 @@ fn parse_create_account_allow_prefund_instruction(
             ("space".to_string(), space.to_string()),
             ("owner".to_string(), owner.to_string()),
         ],
-        account_names: vec![
-            "new_account".to_string(),
-            "(optional) funding_account".to_string(),
-        ],
+        account_names: vec!["new_account".to_string(), "(optional) funding_account".to_string()],
     }))
 }
 
@@ -646,10 +626,7 @@ mod tests {
         assert_eq!(parsed.account_names[0], "funding_account");
         assert_eq!(parsed.account_names[1], "recipient_account");
 
-        assert!(parsed
-            .fields
-            .iter()
-            .any(|(k, v)| k == "lamports" && v == "0.001000000"));
+        assert!(parsed.fields.iter().any(|(k, v)| k == "lamports" && v == "0.001000000"));
     }
 
     #[test]
@@ -702,18 +679,9 @@ mod tests {
         assert_eq!(parsed.account_names[0], "funding_account");
         assert_eq!(parsed.account_names[1], "new_account");
 
-        assert!(parsed
-            .fields
-            .iter()
-            .any(|(k, v)| k == "lamports" && v == "0.100000000"));
-        assert!(parsed
-            .fields
-            .iter()
-            .any(|(k, v)| k == "space" && v == "256"));
-        assert!(parsed
-            .fields
-            .iter()
-            .any(|(k, v)| k == "owner" && v == &owner.to_string()));
+        assert!(parsed.fields.iter().any(|(k, v)| k == "lamports" && v == "0.100000000"));
+        assert!(parsed.fields.iter().any(|(k, v)| k == "space" && v == "256"));
+        assert!(parsed.fields.iter().any(|(k, v)| k == "owner" && v == &owner.to_string()));
     }
 
     #[test]
@@ -754,10 +722,7 @@ mod tests {
         assert_eq!(parsed.account_names.len(), 1);
         assert_eq!(parsed.account_names[0], "assigned_account");
 
-        assert!(parsed
-            .fields
-            .iter()
-            .any(|(k, v)| k == "owner" && v == &owner.to_string()));
+        assert!(parsed.fields.iter().any(|(k, v)| k == "owner" && v == &owner.to_string()));
     }
 
     #[test]
@@ -957,10 +922,7 @@ mod tests {
         assert_eq!(parsed.account_names[3], "rent_sysvar");
         assert_eq!(parsed.account_names[4], "nonce_authority");
 
-        assert!(parsed
-            .fields
-            .iter()
-            .any(|(k, v)| k == "lamports" && v == "0.025000000"));
+        assert!(parsed.fields.iter().any(|(k, v)| k == "lamports" && v == "0.025000000"));
     }
 
     #[test]
@@ -1019,10 +981,9 @@ mod tests {
         assert_eq!(parsed.account_names[1], "recent_blockhashes_sysvar");
         assert_eq!(parsed.account_names[2], "rent_sysvar");
 
-        assert!(parsed
-            .fields
-            .iter()
-            .any(|(k, v)| k == "authorized" && v == &authorized.to_string()));
+        assert!(
+            parsed.fields.iter().any(|(k, v)| k == "authorized" && v == &authorized.to_string())
+        );
     }
 
     #[test]
@@ -1073,8 +1034,12 @@ mod tests {
         assert_eq!(parsed.account_names[0], "nonce_account");
         assert_eq!(parsed.account_names[1], "nonce_authority");
 
-        assert!(parsed.fields.iter().any(|(k, v)| k == "new_authorized"
-            && v == &new_authorized.to_string()));
+        assert!(
+            parsed
+                .fields
+                .iter()
+                .any(|(k, v)| k == "new_authorized" && v == &new_authorized.to_string())
+        );
     }
 
     #[test]
@@ -1297,7 +1262,9 @@ mod tests {
 
         assert!(parsed.fields.iter().any(|(k, v)| k == "lamports" && v == "0.075000000"));
         assert!(parsed.fields.iter().any(|(k, v)| k == "from_seed" && v == from_seed));
-        assert!(parsed.fields.iter().any(|(k, v)| k == "from_owner" && v == &from_owner.to_string()));
+        assert!(
+            parsed.fields.iter().any(|(k, v)| k == "from_owner" && v == &from_owner.to_string())
+        );
     }
 
     #[test]
@@ -1380,14 +1347,8 @@ mod tests {
         assert_eq!(parsed.account_names[0], "new_account");
         assert_eq!(parsed.account_names[1], "(optional) funding_account");
 
-        assert!(parsed
-            .fields
-            .iter()
-            .any(|(k, v)| k == "lamports" && v == "0.200000000"));
+        assert!(parsed.fields.iter().any(|(k, v)| k == "lamports" && v == "0.200000000"));
         assert!(parsed.fields.iter().any(|(k, v)| k == "space" && v == "768"));
-        assert!(parsed
-            .fields
-            .iter()
-            .any(|(k, v)| k == "owner" && v == &owner.to_string()));
+        assert!(parsed.fields.iter().any(|(k, v)| k == "owner" && v == &owner.to_string()));
     }
 }

@@ -1,12 +1,12 @@
 use std::path::Path;
 
-use anyhow::{anyhow, Context, Result};
-use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
+use anyhow::{Context, Result, anyhow};
 use base64::Engine;
+use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use bs58::decode::Error as Base58Error;
 use serde::Serialize;
-use solana_message::inner_instruction::InnerInstructionsList;
 use solana_message::VersionedMessage;
+use solana_message::inner_instruction::InnerInstructionsList;
 use solana_pubkey::Pubkey;
 use solana_transaction::versioned::{TransactionVersion, VersionedTransaction};
 
@@ -36,10 +36,7 @@ impl MessageAccountPlan {
     pub fn from_transaction(tx: &VersionedTransaction) -> Self {
         let static_accounts = tx.message.static_account_keys().to_vec();
         let address_lookups = build_address_lookup_plan(&tx.message);
-        Self {
-            static_accounts,
-            address_lookups,
-        }
+        Self { static_accounts, address_lookups }
     }
 }
 
@@ -80,11 +77,7 @@ pub struct InstructionSummary {
 #[serde(tag = "source", rename_all = "snake_case")]
 pub enum AccountSourceSummary {
     Static,
-    Lookup {
-        table_account: String,
-        lookup_index: u8,
-        writable: bool,
-    },
+    Lookup { table_account: String, lookup_index: u8, writable: bool },
     Unknown,
 }
 
@@ -135,9 +128,7 @@ pub fn read_raw_transaction(inline: Option<String>, tx_file: Option<&Path>) -> R
             }
         }
         (Some(_), Some(_)) => Err(anyhow!("Please specify only one of --tx or --tx-file")),
-        (None, None) => Err(anyhow!(
-            "No raw transaction provided, please use --tx or --tx-file"
-        )),
+        (None, None) => Err(anyhow!("No raw transaction provided, please use --tx or --tx-file")),
     }
 }
 
@@ -149,9 +140,7 @@ pub fn is_transaction_signature(s: &str) -> bool {
     }
 
     // Check if it contains only base58 characters (alphanumeric except 0OIl)
-    trimmed
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() && !matches!(c, '0' | 'O' | 'I' | 'l'))
+    trimmed.chars().all(|c| c.is_ascii_alphanumeric() && !matches!(c, '0' | 'O' | 'I' | 'l'))
 }
 
 pub fn fetch_transaction_from_rpc(rpc_url: &str, signature: &str) -> Result<String> {
@@ -173,10 +162,7 @@ pub fn parse_raw_transaction(raw: &str) -> Result<ParsedTransaction> {
 
     let mut errors = Vec::new();
 
-    for encoding in [
-        RawTransactionEncoding::Base64,
-        RawTransactionEncoding::Base58,
-    ] {
+    for encoding in [RawTransactionEncoding::Base64, RawTransactionEncoding::Base58] {
         match decode_bytes(trimmed, encoding) {
             Ok(bytes) => match bincode::deserialize::<VersionedTransaction>(&bytes) {
                 Ok(transaction) => {
@@ -207,11 +193,7 @@ pub fn parse_raw_transaction(raw: &str) -> Result<ParsedTransaction> {
         }
     }
 
-    let merged = errors
-        .into_iter()
-        .map(|err| err.to_string())
-        .collect::<Vec<_>>()
-        .join("； ");
+    let merged = errors.into_iter().map(|err| err.to_string()).collect::<Vec<_>>().join("； ");
     Err(anyhow!("Failed to parse raw transaction: {merged}"))
 }
 
@@ -221,9 +203,9 @@ pub fn collect_account_plan(tx: &VersionedTransaction) -> MessageAccountPlan {
 
 fn decode_bytes(input: &str, encoding: RawTransactionEncoding) -> Result<Vec<u8>> {
     match encoding {
-        RawTransactionEncoding::Base58 => bs58::decode(input)
-            .into_vec()
-            .map_err(|err| map_base58_error(input, err)),
+        RawTransactionEncoding::Base58 => {
+            bs58::decode(input).into_vec().map_err(|err| map_base58_error(input, err))
+        }
         RawTransactionEncoding::Base64 => BASE64_STANDARD
             .decode(input.as_bytes())
             .map_err(|err| anyhow!("Base64 decode failed: {err}")),
@@ -241,7 +223,9 @@ fn map_base58_error(input: &str, err: Base58Error) -> anyhow::Error {
     };
 
     if input.contains(['+', '/', '=']) {
-        anyhow!("{base_message}. Base64 characteristic characters detected, you may need to try Base64 encoding")
+        anyhow!(
+            "{base_message}. Base64 characteristic characters detected, you may need to try Base64 encoding"
+        )
     } else {
         anyhow!(base_message)
     }
@@ -443,8 +427,8 @@ pub fn build_lookup_locations(plan: &[AddressLookupPlan]) -> Vec<LookupLocation>
 #[cfg(test)]
 mod tests {
     use super::*;
-    use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
     use base64::Engine;
+    use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
     use solana_hash::Hash;
     use solana_keypair::Keypair;
     use solana_message::Message;
@@ -557,11 +541,7 @@ mod tests {
     #[test]
     fn test_build_lookup_locations_empty() {
         let locations = build_lookup_locations(&[]);
-        assert_eq!(
-            locations.len(),
-            0,
-            "Empty lookup plan should return empty locations"
-        );
+        assert_eq!(locations.len(), 0, "Empty lookup plan should return empty locations");
     }
 
     #[test]

@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use bincode;
-use litesvm::{types::TransactionMetadata, LiteSVM};
+use litesvm::{LiteSVM, types::TransactionMetadata};
 use log::info;
 use solana_account::{Account, AccountSharedData, WritableAccount};
 
@@ -49,23 +49,21 @@ impl TransactionExecutor {
                 replacement.program_id,
                 replacement.so_path.display()
             );
-            svm.add_program_from_file(replacement.program_id, &replacement.so_path)
-                .with_context(|| {
+            svm.add_program_from_file(replacement.program_id, &replacement.so_path).with_context(
+                || {
                     format!(
                         "Failed to load replacement program `{}`, path: {}",
                         replacement.program_id,
                         replacement.so_path.display()
                     )
-                })?;
+                },
+            )?;
         }
 
         // Apply funding to specified accounts
         for Funding { pubkey, amount_sol } in &fundings {
             let lamports = (amount_sol * 1_000_000_000.0) as u64;
-            info!(
-                "Funding account {} with {} SOL ({} lamports)",
-                pubkey, amount_sol, lamports
-            );
+            info!("Funding account {} with {} SOL ({} lamports)", pubkey, amount_sol, lamports);
 
             // Check if account already exists
             if let Some(existing_account) = svm.get_account(&pubkey) {
@@ -81,12 +79,7 @@ impl TransactionExecutor {
             }
         }
 
-        Ok(Self {
-            svm,
-            resolved,
-            replacements,
-            fundings,
-        })
+        Ok(Self { svm, resolved, replacements, fundings })
     }
 
     pub fn simulate(&mut self, tx: &VersionedTransaction) -> Result<SimulationResult> {

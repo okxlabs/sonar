@@ -3,7 +3,7 @@ use std::{
     sync::Arc,
 };
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use log::{debug, trace};
 use solana_account::{Account, ReadableAccount};
 use solana_address_lookup_table_interface::state::AddressLookupTable;
@@ -21,7 +21,7 @@ use std::sync::Mutex;
 
 use crate::{
     cli::ProgramReplacement,
-    transaction::{collect_account_plan, AddressLookupPlan},
+    transaction::{AddressLookupPlan, collect_account_plan},
 };
 
 const MAX_ACCOUNTS_PER_REQUEST: usize = 100;
@@ -36,10 +36,7 @@ impl AccountLoader {
         if rpc_url.is_empty() {
             return Err(anyhow!("RPC URL cannot be empty"));
         }
-        Ok(Self {
-            client: Arc::new(RpcClient::new(rpc_url)),
-            cache: Mutex::new(HashMap::new()),
-        })
+        Ok(Self { client: Arc::new(RpcClient::new(rpc_url)), cache: Mutex::new(HashMap::new()) })
     }
 
     pub fn load_for_transaction(
@@ -74,25 +71,23 @@ impl AccountLoader {
         }
 
         if !writable_lookup_accounts.is_empty() {
-            self.fetch_accounts(&writable_lookup_accounts, &mut accounts)
-                .with_context(|| {
-                    format!(
-                        "Failed to load writable accounts from address lookup table: [{}]",
-                        format_pubkeys(&writable_lookup_accounts)
-                    )
-                })?;
+            self.fetch_accounts(&writable_lookup_accounts, &mut accounts).with_context(|| {
+                format!(
+                    "Failed to load writable accounts from address lookup table: [{}]",
+                    format_pubkeys(&writable_lookup_accounts)
+                )
+            })?;
             self.ensure_upgradeable_dependencies(&mut accounts)
                 .context("Failed to load upgradeable program dependencies when processing writable accounts from address lookup table")?;
         }
 
         if !readonly_lookup_accounts.is_empty() {
-            self.fetch_accounts(&readonly_lookup_accounts, &mut accounts)
-                .with_context(|| {
-                    format!(
-                        "Failed to load readonly accounts from address lookup table: [{}]",
-                        format_pubkeys(&readonly_lookup_accounts)
-                    )
-                })?;
+            self.fetch_accounts(&readonly_lookup_accounts, &mut accounts).with_context(|| {
+                format!(
+                    "Failed to load readonly accounts from address lookup table: [{}]",
+                    format_pubkeys(&readonly_lookup_accounts)
+                )
+            })?;
             self.ensure_upgradeable_dependencies(&mut accounts)
                 .context("Failed to load upgradeable program dependencies when processing readonly accounts from address lookup table")?;
         }
@@ -113,10 +108,7 @@ impl AccountLoader {
                 if let Ok(state) =
                     bincode::deserialize::<UpgradeableLoaderState>(account.data.as_slice())
                 {
-                    if let UpgradeableLoaderState::Program {
-                        programdata_address,
-                    } = state
-                    {
+                    if let UpgradeableLoaderState::Program { programdata_address } = state {
                         let programdata_key =
                             Pubkey::new_from_array(programdata_address.to_bytes());
                         if !accounts.contains_key(&programdata_key) {
@@ -131,10 +123,7 @@ impl AccountLoader {
             }
 
             self.fetch_accounts(&missing, accounts).with_context(|| {
-                format!(
-                    "Failed to fetch ProgramData accounts: [{}]",
-                    format_pubkeys(&missing)
-                )
+                format!("Failed to fetch ProgramData accounts: [{}]", format_pubkeys(&missing))
             })?;
         }
 
@@ -147,27 +136,17 @@ impl AccountLoader {
         accounts: &mut HashMap<Pubkey, Account>,
     ) -> Result<ResolvedLookup> {
         // Fetch lookup table account
-        self.fetch_accounts(&[plan.account_key], accounts)
-            .with_context(|| {
-                format!(
-                    "Failed to fetch address lookup table account `{}`",
-                    plan.account_key
-                )
-            })?;
+        self.fetch_accounts(&[plan.account_key], accounts).with_context(|| {
+            format!("Failed to fetch address lookup table account `{}`", plan.account_key)
+        })?;
 
         let table_account = accounts.get(&plan.account_key).ok_or_else(|| {
-            anyhow!(
-                "Address lookup table account `{}` missing from cache",
-                plan.account_key
-            )
+            anyhow!("Address lookup table account `{}` missing from cache", plan.account_key)
         })?;
 
         let lookup_table =
             AddressLookupTable::deserialize(table_account.data()).map_err(|err| {
-                anyhow!(
-                    "Failed to parse address lookup table `{}`: {err}",
-                    plan.account_key
-                )
+                anyhow!("Failed to parse address lookup table `{}`: {err}", plan.account_key)
             })?;
         let all_addresses = lookup_table.addresses.to_vec();
 
@@ -215,11 +194,7 @@ impl AccountLoader {
             return Ok(());
         }
 
-        trace!(
-            "Preparing to fetch {} accounts: [{}]",
-            unique.len(),
-            format_pubkeys(&unique)
-        );
+        trace!("Preparing to fetch {} accounts: [{}]", unique.len(), format_pubkeys(&unique));
 
         let mut to_fetch = Vec::new();
         {
@@ -262,10 +237,7 @@ impl AccountLoader {
             }
         }
 
-        debug!(
-            "Successfully fetched accounts: [{}]",
-            format_pubkeys(pubkeys)
-        );
+        debug!("Successfully fetched accounts: [{}]", format_pubkeys(pubkeys));
         Ok(())
     }
 
@@ -284,16 +256,10 @@ impl AccountLoader {
             ..Default::default()
         };
 
-        let response = self
-            .client
-            .get_transaction_with_config(&signature, config)
-            .map_err(|e| {
+        let response =
+            self.client.get_transaction_with_config(&signature, config).map_err(|e| {
                 log::error!("RPC get_transaction error: {:?}", e);
-                anyhow!(
-                    "Failed to fetch transaction for signature: {}. Error: {}",
-                    signature,
-                    e
-                )
+                anyhow!("Failed to fetch transaction for signature: {}. Error: {}", signature, e)
             })?;
 
         let transaction = response.transaction;
@@ -335,17 +301,10 @@ fn resolve_lookup_indexes(addresses: &[Pubkey], indexes: &[u8]) -> Result<Vec<Pu
 fn format_pubkeys(pubkeys: &[Pubkey]) -> String {
     const MAX_DISPLAY: usize = 10;
     if pubkeys.len() <= MAX_DISPLAY {
-        return pubkeys
-            .iter()
-            .map(ToString::to_string)
-            .collect::<Vec<_>>()
-            .join(", ");
+        return pubkeys.iter().map(ToString::to_string).collect::<Vec<_>>().join(", ");
     }
-    let mut rendered = pubkeys
-        .iter()
-        .take(MAX_DISPLAY)
-        .map(ToString::to_string)
-        .collect::<Vec<_>>();
+    let mut rendered =
+        pubkeys.iter().take(MAX_DISPLAY).map(ToString::to_string).collect::<Vec<_>>();
     rendered.push(format!("... total {}", pubkeys.len()));
     rendered.join(", ")
 }

@@ -4,11 +4,7 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 use solana_pubkey::Pubkey;
 
 #[derive(Parser, Debug)]
-#[command(
-    name = "solsim",
-    version,
-    about = "Solana Transaction Simulator based on LiteSVM"
-)]
+#[command(name = "solsim", version, about = "Solana Transaction Simulator based on LiteSVM")]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,
@@ -25,10 +21,7 @@ pub struct SimulateArgs {
     #[command(flatten)]
     pub transaction: TransactionInputArgs,
     /// Solana RPC node URL
-    #[arg(
-        long = "rpc-url",
-        default_value = "https://api.mainnet-beta.solana.com"
-    )]
+    #[arg(long = "rpc-url", default_value = "https://api.mainnet-beta.solana.com")]
     pub rpc_url: String,
     /// Custom program replacement, format: <PROGRAM_ID>=<PATH_TO_ELF_OR_SO>
     #[arg(
@@ -92,15 +85,9 @@ pub fn parse_program_replacement(raw: &str) -> Result<ProgramReplacement, String
         .map_err(|err| format!("Failed to parse program address `{program_str}`: {err}"))?;
     let so_path = PathBuf::from(path_str.trim());
     if !so_path.exists() {
-        return Err(format!(
-            "Specified program file `{}` does not exist",
-            so_path.display()
-        ));
+        return Err(format!("Specified program file `{}` does not exist", so_path.display()));
     }
-    Ok(ProgramReplacement {
-        program_id,
-        so_path,
-    })
+    Ok(ProgramReplacement { program_id, so_path })
 }
 
 pub fn parse_funding(raw: &str) -> Result<Funding, String> {
