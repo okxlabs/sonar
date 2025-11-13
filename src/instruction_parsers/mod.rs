@@ -46,6 +46,10 @@ impl ParserRegistry {
         let system_parser = SystemProgramParser::new();
         registry.parsers.insert(*system_parser.program_id(), Box::new(system_parser));
 
+        // Register Token Program parser
+        let token_parser = TokenProgramParser::new();
+        registry.parsers.insert(*token_parser.program_id(), Box::new(token_parser));
+
         registry
     }
 
@@ -85,3 +89,6 @@ impl Default for ParserRegistry {
 
 mod system_program;
 pub use system_program::SystemProgramParser;
+
+mod token_program;
+pub use token_program::TokenProgramParser;
