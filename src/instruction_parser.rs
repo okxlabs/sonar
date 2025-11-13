@@ -153,11 +153,10 @@ fn parse_transfer_instruction(
     let lamports = u64::from_le_bytes([
         data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7],
     ]);
-    let lamports_sol = lamports as f64 / 1_000_000_000.0;
 
     Ok(Some(ParsedInstruction {
         name: "Transfer".to_string(),
-        fields: vec![("lamports".to_string(), format!("{:.9}", lamports_sol))],
+        fields: vec![("lamports".to_string(), lamports.to_string())],
         account_names: vec!["funding_account".to_string(), "recipient_account".to_string()],
     }))
 }
@@ -174,7 +173,6 @@ fn parse_create_account_instruction(
     let lamports = u64::from_le_bytes([
         data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7],
     ]);
-    let lamports_sol = lamports as f64 / 1_000_000_000.0;
     let space = u64::from_le_bytes([
         data[8], data[9], data[10], data[11], data[12], data[13], data[14], data[15],
     ]);
@@ -185,7 +183,7 @@ fn parse_create_account_instruction(
     Ok(Some(ParsedInstruction {
         name: "CreateAccount".to_string(),
         fields: vec![
-            ("lamports".to_string(), format!("{:.9}", lamports_sol)),
+            ("lamports".to_string(), lamports.to_string()),
             ("space".to_string(), space.to_string()),
             ("owner".to_string(), owner.to_string()),
         ],
@@ -250,7 +248,6 @@ fn parse_create_account_with_seed_instruction(
         data[lamports_offset + 6],
         data[lamports_offset + 7],
     ]);
-    let lamports_sol = lamports as f64 / 1_000_000_000.0;
 
     let space_offset = lamports_offset + 8;
     let space = u64::from_le_bytes([
@@ -273,7 +270,7 @@ fn parse_create_account_with_seed_instruction(
         fields: vec![
             ("base".to_string(), base.to_string()),
             ("seed".to_string(), seed),
-            ("lamports".to_string(), format!("{:.9}", lamports_sol)),
+            ("lamports".to_string(), lamports.to_string()),
             ("space".to_string(), space.to_string()),
             ("owner".to_string(), owner.to_string()),
         ],
@@ -313,11 +310,10 @@ fn parse_withdraw_nonce_account_instruction(
     let lamports = u64::from_le_bytes([
         data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7],
     ]);
-    let lamports_sol = lamports as f64 / 1_000_000_000.0;
 
     Ok(Some(ParsedInstruction {
         name: "WithdrawNonceAccount".to_string(),
-        fields: vec![("lamports".to_string(), format!("{:.9}", lamports_sol))],
+        fields: vec![("lamports".to_string(), lamports.to_string())],
         account_names: vec![
             "nonce_account".to_string(),
             "recipient_account".to_string(),
@@ -498,7 +494,6 @@ fn parse_transfer_with_seed_instruction(
     let lamports = u64::from_le_bytes([
         data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7],
     ]);
-    let lamports_sol = lamports as f64 / 1_000_000_000.0;
 
     // Seed length is a u64 (8 bytes) per bincode spec
     let seed_length = u64::from_le_bytes([
@@ -521,7 +516,7 @@ fn parse_transfer_with_seed_instruction(
     Ok(Some(ParsedInstruction {
         name: "TransferWithSeed".to_string(),
         fields: vec![
-            ("lamports".to_string(), format!("{:.9}", lamports_sol)),
+            ("lamports".to_string(), lamports.to_string()),
             ("from_seed".to_string(), from_seed),
             ("from_owner".to_string(), from_owner.to_string()),
         ],
@@ -557,7 +552,6 @@ fn parse_create_account_allow_prefund_instruction(
     let lamports = u64::from_le_bytes([
         data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7],
     ]);
-    let lamports_sol = lamports as f64 / 1_000_000_000.0;
     let space = u64::from_le_bytes([
         data[8], data[9], data[10], data[11], data[12], data[13], data[14], data[15],
     ]);
@@ -568,7 +562,7 @@ fn parse_create_account_allow_prefund_instruction(
     Ok(Some(ParsedInstruction {
         name: "CreateAccountAllowPrefund".to_string(),
         fields: vec![
-            ("lamports".to_string(), format!("{:.9}", lamports_sol)),
+            ("lamports".to_string(), lamports.to_string()),
             ("space".to_string(), space.to_string()),
             ("owner".to_string(), owner.to_string()),
         ],
@@ -627,7 +621,7 @@ mod tests {
         assert_eq!(parsed.account_names[0], "funding_account");
         assert_eq!(parsed.account_names[1], "recipient_account");
 
-        assert!(parsed.fields.iter().any(|(k, v)| k == "lamports" && v == "0.001000000"));
+        assert!(parsed.fields.iter().any(|(k, v)| k == "lamports" && v == "1000000"));
     }
 
     #[test]
@@ -680,7 +674,7 @@ mod tests {
         assert_eq!(parsed.account_names[0], "funding_account");
         assert_eq!(parsed.account_names[1], "new_account");
 
-        assert!(parsed.fields.iter().any(|(k, v)| k == "lamports" && v == "0.100000000"));
+        assert!(parsed.fields.iter().any(|(k, v)| k == "lamports" && v == "100000000"));
         assert!(parsed.fields.iter().any(|(k, v)| k == "space" && v == "256"));
         assert!(parsed.fields.iter().any(|(k, v)| k == "owner" && v == &owner.to_string()));
     }
@@ -760,8 +754,9 @@ mod tests {
         // CreateAccountWithSeed instruction with 4-byte discriminator (3 = CreateAccountWithSeed)
         let mut data = vec![3, 0, 0, 0]; // 4-byte little-endian discriminator
         data.extend_from_slice(base.as_ref()); // 32 bytes base address
+        // bincode encoding: 8 bytes length prefix + seed bytes
+        data.extend_from_slice(&(seed.len() as u64).to_le_bytes());
         data.extend_from_slice(seed.as_bytes()); // seed string
-        data.push(0); // null terminator for seed
         data.extend_from_slice(&50_000_000_u64.to_le_bytes()); // 8 bytes lamports
         data.extend_from_slice(&128_u64.to_le_bytes()); // 8 bytes space
         data.extend_from_slice(owner.as_ref()); // 32 bytes owner pubkey
@@ -791,7 +786,7 @@ mod tests {
 
         assert!(parsed.fields.iter().any(|(k, v)| k == "base" && v == &base.to_string()));
         assert!(parsed.fields.iter().any(|(k, v)| k == "seed" && v == seed));
-        assert!(parsed.fields.iter().any(|(k, v)| k == "lamports" && v == "0.050000000"));
+        assert!(parsed.fields.iter().any(|(k, v)| k == "lamports" && v == "50000000"));
         assert!(parsed.fields.iter().any(|(k, v)| k == "space" && v == "128"));
         assert!(parsed.fields.iter().any(|(k, v)| k == "owner" && v == &owner.to_string()));
     }
@@ -923,7 +918,7 @@ mod tests {
         assert_eq!(parsed.account_names[3], "rent_sysvar");
         assert_eq!(parsed.account_names[4], "nonce_authority");
 
-        assert!(parsed.fields.iter().any(|(k, v)| k == "lamports" && v == "0.025000000"));
+        assert!(parsed.fields.iter().any(|(k, v)| k == "lamports" && v == "25000000"));
     }
 
     #[test]
@@ -1110,8 +1105,9 @@ mod tests {
         // AllocateWithSeed instruction with 4-byte discriminator (9 = AllocateWithSeed)
         let mut data = vec![9, 0, 0, 0]; // 4-byte little-endian discriminator
         data.extend_from_slice(base.as_ref()); // 32 bytes base address
+        // bincode encoding: 8 bytes length prefix + seed bytes
+        data.extend_from_slice(&(seed.len() as u64).to_le_bytes());
         data.extend_from_slice(seed.as_bytes()); // seed string
-        data.push(0); // null terminator for seed
         data.extend_from_slice(&512_u64.to_le_bytes()); // 8 bytes space
         data.extend_from_slice(owner.as_ref()); // 32 bytes owner pubkey
 
@@ -1170,8 +1166,9 @@ mod tests {
         // AssignWithSeed instruction with 4-byte discriminator (10 = AssignWithSeed)
         let mut data = vec![10, 0, 0, 0]; // 4-byte little-endian discriminator
         data.extend_from_slice(base.as_ref()); // 32 bytes base address
+        // bincode encoding: 8 bytes length prefix + seed bytes
+        data.extend_from_slice(&(seed.len() as u64).to_le_bytes());
         data.extend_from_slice(seed.as_bytes()); // seed string
-        data.push(0); // null terminator for seed
         data.extend_from_slice(owner.as_ref()); // 32 bytes owner pubkey
 
         let instruction = InstructionSummary {
@@ -1234,8 +1231,9 @@ mod tests {
         // TransferWithSeed instruction with 4-byte discriminator (11 = TransferWithSeed)
         let mut data = vec![11, 0, 0, 0]; // 4-byte little-endian discriminator
         data.extend_from_slice(&75_000_000_u64.to_le_bytes()); // 8 bytes lamports
+        // bincode encoding: 8 bytes length prefix + seed bytes
+        data.extend_from_slice(&(from_seed.len() as u64).to_le_bytes());
         data.extend_from_slice(from_seed.as_bytes()); // seed string
-        data.push(0); // null terminator for seed
         data.extend_from_slice(from_owner.as_ref()); // 32 bytes from_owner pubkey
 
         let instruction = InstructionSummary {
@@ -1261,7 +1259,7 @@ mod tests {
         assert_eq!(parsed.account_names[1], "base_account");
         assert_eq!(parsed.account_names[2], "recipient_account");
 
-        assert!(parsed.fields.iter().any(|(k, v)| k == "lamports" && v == "0.075000000"));
+        assert!(parsed.fields.iter().any(|(k, v)| k == "lamports" && v == "75000000"));
         assert!(parsed.fields.iter().any(|(k, v)| k == "from_seed" && v == from_seed));
         assert!(
             parsed.fields.iter().any(|(k, v)| k == "from_owner" && v == &from_owner.to_string())
@@ -1348,7 +1346,7 @@ mod tests {
         assert_eq!(parsed.account_names[0], "new_account");
         assert_eq!(parsed.account_names[1], "(optional) funding_account");
 
-        assert!(parsed.fields.iter().any(|(k, v)| k == "lamports" && v == "0.200000000"));
+        assert!(parsed.fields.iter().any(|(k, v)| k == "lamports" && v == "200000000"));
         assert!(parsed.fields.iter().any(|(k, v)| k == "space" && v == "768"));
         assert!(parsed.fields.iter().any(|(k, v)| k == "owner" && v == &owner.to_string()));
     }
