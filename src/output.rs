@@ -862,7 +862,7 @@ fn format_solscan_link(account_pubkey: &str) -> String {
 
 fn account_privilege_emoji(signer: bool, writable: bool, executable: bool) -> &'static str {
     if executable {
-        "⚙️"
+        "⚡"
     } else {
         match (signer, writable) {
             (true, true) => "📜 🔑",
