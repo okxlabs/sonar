@@ -13,7 +13,7 @@ use crate::{
     account_loader::{ResolvedAccounts, ResolvedLookup},
     cli::{Funding, OutputFormat, ProgramReplacement},
     executor::{ExecutionStatus, SimulationResult},
-    instruction_parser::{ParsedInstruction, ParserRegistry},
+    instruction_parsers::{ParsedInstruction, ParserRegistry},
     transaction::{AccountReferenceSummary, AccountSourceSummary, ParsedTransaction},
 };
 use litesvm::types::TransactionMetadata;

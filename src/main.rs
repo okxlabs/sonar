@@ -1,14 +1,14 @@
 mod account_loader;
 mod cli;
 mod executor;
-mod instruction_parser;
+mod instruction_parsers;
 mod output;
 mod transaction;
 
 use anyhow::Result;
 use clap::Parser;
 use cli::{Cli, Commands, SimulateArgs, TransactionInputArgs};
-use instruction_parser::ParserRegistry;
+use instruction_parsers::ParserRegistry;
 
 fn main() {
     if let Err(err) = run() {
