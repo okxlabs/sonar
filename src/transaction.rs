@@ -447,8 +447,6 @@ mod tests {
     use super::*;
     use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
     use base64::Engine;
-    #[allow(deprecated)]
-    use solana_sdk::system_instruction;
     use solana_sdk::{
         hash::Hash,
         message::Message,
@@ -456,6 +454,7 @@ mod tests {
         signature::{Keypair, Signer},
         transaction::Transaction,
     };
+    use solana_system_interface::instruction as system_instruction;
 
     fn sample_transaction() -> (VersionedTransaction, Pubkey) {
         let payer = Keypair::new();

@@ -113,13 +113,10 @@ pub fn parse_funding(raw: &str) -> Result<Funding, String> {
         .trim()
         .parse::<f64>()
         .map_err(|err| format!("Failed to parse amount `{amount_str}`: {err}"))?;
-    
+
     if amount_sol < 0.0 {
         return Err("Funding amount must be non-negative".to_string());
     }
-    
-    Ok(Funding {
-        pubkey,
-        amount_sol,
-    })
+
+    Ok(Funding { pubkey, amount_sol })
 }

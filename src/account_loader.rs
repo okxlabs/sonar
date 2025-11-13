@@ -8,6 +8,7 @@ use log::{debug, trace, warn};
 use solana_account::{Account, ReadableAccount};
 use solana_address_lookup_table_interface::state::AddressLookupTable;
 use solana_client::rpc_client::RpcClient;
+use solana_commitment_config::CommitmentConfig;
 
 use solana_loader_v3_interface::state::UpgradeableLoaderState;
 use solana_pubkey::Pubkey as LitePubkey;
@@ -280,7 +281,7 @@ impl AccountLoader {
     }
 
     pub fn fetch_transaction_by_signature(&self, signature: &str) -> Result<VersionedTransaction> {
-        use solana_rpc_client_types::config::RpcTransactionConfig;
+        use solana_client::rpc_config::RpcTransactionConfig;
         use solana_transaction_status_client_types::UiTransactionEncoding;
 
         let signature = signature
@@ -289,7 +290,7 @@ impl AccountLoader {
 
         let config = RpcTransactionConfig {
             encoding: Some(UiTransactionEncoding::Base64),
-            commitment: Some(solana_sdk::commitment_config::CommitmentConfig::confirmed()),
+            commitment: Some(CommitmentConfig::confirmed()),
             max_supported_transaction_version: Some(0),
             ..Default::default()
         };

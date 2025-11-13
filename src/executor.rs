@@ -68,9 +68,9 @@ impl TransactionExecutor {
                 "Funding account {} with {} SOL ({} lamports)",
                 funding.pubkey, funding.amount_sol, lamports
             );
-            
+
             let pubkey = LitePubkey::from(funding.pubkey.to_bytes());
-            
+
             // Check if account already exists
             if let Some(existing_account) = svm.get_account(&pubkey) {
                 // Update existing account with new balance
@@ -81,7 +81,7 @@ impl TransactionExecutor {
                 // Create new system account with the specified balance
                 let system_program_id = solana_sdk_ids::system_program::id();
                 let system_program_lite = LitePubkey::from(system_program_id.to_bytes());
-                
+
                 let new_account = AccountSharedData::new(lamports, 0, &system_program_lite);
                 set_account(&mut svm, pubkey, new_account.into())?;
             }
