@@ -103,6 +103,33 @@ impl Default for ParserRegistry {
     }
 }
 
+impl ParserRegistry {
+    /// Register IDL-based parsers from the IDL registry
+    pub fn register_idl_parsers(
+        &mut self,
+        idl_registry: &crate::instruction_parsers::anchor_idl::IdlRegistry,
+    ) {
+        let parsers =
+            crate::instruction_parsers::anchor_idl::create_parsers_from_idl_registry(idl_registry);
+        for parser in parsers {
+            let program_id = *parser.program_id();
+            self.parsers.insert(program_id, parser);
+        }
+    }
+
+    /// Get the number of registered parsers
+    pub fn parser_count(&self) -> usize {
+        self.parsers.len()
+    }
+}
+
+/// Load IDL-based parsers from the default IDL directory
+pub fn load_idl_parsers() -> Result<IdlRegistry, anyhow::Error> {
+    use crate::instruction_parsers::anchor_idl;
+    let registry = anchor_idl::load_idls_from_default_dir()?;
+    Ok(registry)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -158,3 +185,8 @@ pub use token2022_program::Token2022ProgramParser;
 
 mod associated_token_program;
 pub use associated_token_program::AssociatedTokenProgramParser;
+
+mod anchor_idl;
+pub use anchor_idl::{
+    AnchorIdlParser, IdlRegistry, create_parsers_from_idl_registry, load_idls_from_default_dir,
+};

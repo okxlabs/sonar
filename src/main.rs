@@ -27,7 +27,26 @@ fn run() -> Result<()> {
 }
 
 fn handle_simulate(args: SimulateArgs) -> Result<()> {
-    let parser_registry = ParserRegistry::new();
+    // Create parser registry and load IDL-based parsers
+    let mut parser_registry = ParserRegistry::new();
+
+    // Load IDL parsers from the idl/ directory
+    let idl_registry = match instruction_parsers::load_idl_parsers() {
+        Ok(idl_registry) => {
+            log::info!(
+                "Loaded {} IDL files for instruction parsing",
+                idl_registry.program_ids().len()
+            );
+            parser_registry.register_idl_parsers(&idl_registry);
+            idl_registry
+        }
+        Err(err) => {
+            log::warn!("Failed to load IDL parsers: {:?}", err);
+            instruction_parsers::IdlRegistry::new()
+        }
+    };
+
+    log::debug!("Registered parsers for {} programs", parser_registry.parser_count());
     let SimulateArgs {
         transaction,
         rpc_url,

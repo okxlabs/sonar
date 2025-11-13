@@ -657,7 +657,6 @@ impl InnerInstructionSection {
             })
             .collect();
 
-        
         // Try to parse the inner instruction
         let parsed_instruction = if let Ok(program_id) = Pubkey::from_str(&program.pubkey) {
             // Create a summary for the inner instruction
