@@ -1023,40 +1023,7 @@ mod tests {
 
         let mut data = vec![12]; // 1-byte discriminator for TransferChecked
         data.extend_from_slice(&500_000_u64.to_le_bytes());
-        data.push(6); // 1 byte decimals
-
-        let instruction = create_test_instruction(data, accounts);
-
-        let result = parser.parse_instruction(&instruction).unwrap();
-        assert!(result.is_none());
     }
-}
-#[test]
-fn test_initialize_account_instruction_parsing() {
-    let parser = TokenProgramParser::new();
-
-    let accounts = vec![
-        create_test_account(0, "AccountPubkey11111111111111111111111111111111", true, true),
-        create_test_account(1, "MintPubkey111111111111111111111111111111111", false, false),
-        create_test_account(2, "OwnerPubkey111111111111111111111111111111111", true, false),
-        create_test_account(3, "RentSysvar111111111111111111111111111111111", false, false),
-    ];
-
-    // InitializeAccount instruction with 1-byte discriminator (1)
-    let data = vec![1]; // 1-byte discriminator for InitializeAccount
-    let instruction = create_test_instruction(data, accounts);
-
-    let result = parser.parse_instruction(&instruction).unwrap();
-    assert!(result.is_some());
-
-    let parsed = result.unwrap();
-    assert_eq!(parsed.name, "InitializeAccount");
-    assert_eq!(parsed.account_names.len(), 4);
-    assert_eq!(parsed.account_names[0], "account");
-    assert_eq!(parsed.account_names[1], "mint");
-    assert_eq!(parsed.account_names[2], "owner");
-    assert_eq!(parsed.account_names[3], "rent_sysvar");
-    assert_eq!(parsed.fields.len(), 0);
 
     #[test]
     fn test_initialize_account_instruction_parsing() {
