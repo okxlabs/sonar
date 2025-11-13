@@ -13,6 +13,7 @@ use crate::{
     account_loader::{ResolvedAccounts, ResolvedLookup},
     cli::{Funding, OutputFormat, ProgramReplacement},
     executor::{ExecutionStatus, SimulationResult},
+    instruction_parser::{ParsedInstruction, ParserRegistry},
     transaction::{AccountReferenceSummary, AccountSourceSummary, ParsedTransaction},
 };
 use litesvm::types::TransactionMetadata;
@@ -23,6 +24,7 @@ pub fn render(
     simulation: &SimulationResult,
     replacements: &[ProgramReplacement],
     fundings: &[Funding],
+    parser_registry: &ParserRegistry,
     format: OutputFormat,
     verify_signatures: bool,
 ) -> Result<()> {
@@ -32,10 +34,11 @@ pub fn render(
         simulation,
         replacements,
         fundings,
+        parser_registry,
         verify_signatures,
     );
     match format {
-        OutputFormat::Text => render_text(&report, resolved),
+        OutputFormat::Text => render_text(&report, resolved, parser_registry),
         OutputFormat::Json => render_json(&report),
     }
 }
@@ -43,13 +46,15 @@ pub fn render(
 pub fn render_transaction_only(
     parsed: &ParsedTransaction,
     resolved: &ResolvedAccounts,
+    parser_registry: &ParserRegistry,
     format: OutputFormat,
 ) -> Result<()> {
     let resolver = LookupResolver::new(resolved.lookup_details());
-    let transaction = TransactionSection::from_sources(parsed, resolved, &resolver, false);
+    let transaction =
+        TransactionSection::from_sources(parsed, resolved, &resolver, parser_registry, false);
     match format {
         OutputFormat::Text => {
-            render_transaction_section_text(&transaction, resolved);
+            render_transaction_section_text(&transaction, resolved, parser_registry);
             Ok(())
         }
         OutputFormat::Json => {
@@ -60,19 +65,27 @@ pub fn render_transaction_only(
     }
 }
 
-fn render_text(report: &Report, resolved: &ResolvedAccounts) -> Result<()> {
-    render_transaction_section_text(&report.transaction, resolved);
+fn render_text(
+    report: &Report,
+    resolved: &ResolvedAccounts,
+    parser_registry: &ParserRegistry,
+) -> Result<()> {
+    render_transaction_section_text(&report.transaction, resolved, parser_registry);
     render_fundings_text(&report.fundings);
     render_replacements_text(&report.replacements);
     render_simulation_text(&report.simulation);
     Ok(())
 }
 
-fn render_transaction_section_text(transaction: &TransactionSection, resolved: &ResolvedAccounts) {
+fn render_transaction_section_text(
+    transaction: &TransactionSection,
+    resolved: &ResolvedAccounts,
+    parser_registry: &ParserRegistry,
+) {
     render_transaction_overview_text(transaction);
     render_lookup_tables_text(transaction);
     render_account_list_text(transaction, resolved);
-    render_instruction_details_text(transaction, resolved);
+    render_instruction_details_text(transaction, resolved, parser_registry);
 }
 
 fn render_transaction_overview_text(transaction: &TransactionSection) {
@@ -152,44 +165,129 @@ fn render_account_entry_text(
     index + 1
 }
 
-fn render_instruction_details_text(transaction: &TransactionSection, resolved: &ResolvedAccounts) {
+fn render_instruction_details_text(
+    transaction: &TransactionSection,
+    resolved: &ResolvedAccounts,
+    _parser_registry: &ParserRegistry,
+) {
     println!("\nInstruction Details:");
     for ix in &transaction.instructions {
         let program_pubkey_with_link = format_solscan_link(&ix.program.pubkey);
         // Display outer instruction with 1-based indexing (#1, #2, #3, etc.)
         let outer_number = ix.index + 1;
-        println!(
-            "  #{} {}",
-            outer_number.to_string().custom_color((255, 165, 0)),
-            program_pubkey_with_link.custom_color((62, 132, 230))
-        );
 
-        for account in &ix.accounts {
-            render_instruction_account_text(account, resolved);
+        // Try to parse the instruction
+        if let Some(parsed) = &ix.parsed {
+            println!(
+                "  #{} {} [{}]",
+                outer_number.to_string().custom_color((255, 165, 0)),
+                program_pubkey_with_link.custom_color((62, 132, 230)),
+                parsed.name.custom_color((124, 252, 0))
+            );
+
+            // Render accounts with parsed names
+            for (i, account) in ix.accounts.iter().enumerate() {
+                let account_name = if i < parsed.account_names.len() {
+                    parsed.account_names[i].clone()
+                } else {
+                    format!("account_{}", i)
+                };
+                render_instruction_account_text_with_name(account, resolved, &account_name);
+            }
+
+            // Display raw instruction data first
+            println!(
+                "     🔢 0x{} | {} byte(s)",
+                hex::encode(&ix.data),
+                ix.data.len()
+            );
+
+            // Then render parsed fields as formatted JSON, preserving original order
+            if !parsed.fields.is_empty() {
+                println!("       {{");
+                for (idx, (field_name, field_value)) in parsed.fields.iter().enumerate() {
+                    // Format as JSON key-value pair with proper indentation (9 spaces total: 7 + 2)
+                    let is_last = idx == parsed.fields.len() - 1;
+                    let comma = if is_last { "" } else { "," };
+                    let formatted_line = format!("         \"{}\": \"{}\"{}", field_name, field_value, comma);
+                    println!("{}", formatted_line.custom_color((255, 255, 224)));
+                }
+                println!("       }}");
+            }
+        } else {
+            println!(
+                "  #{} {}",
+                outer_number.to_string().custom_color((255, 165, 0)),
+                program_pubkey_with_link.custom_color((62, 132, 230))
+            );
+
+            for account in &ix.accounts {
+                render_instruction_account_text(account, resolved);
+            }
+            println!(
+                "     🔢 0x{} | {} byte(s)",
+                hex::encode(&ix.data),
+                ix.data.len()
+            );
         }
-        println!(
-            "     🔢 0x{} | {} byte(s)",
-            hex::encode(&ix.data),
-            ix.data.len()
-        );
 
         // Display inner instructions if any
         if !ix.inner_instructions.is_empty() {
             for inner_ix in &ix.inner_instructions {
-                println!(
-                    "    {} {}",
-                    format!("#{}", inner_ix.label).custom_color((255, 165, 0)),
-                    format_solscan_link(&inner_ix.program.pubkey).custom_color((62, 132, 230))
-                );
+                // Try to parse inner instruction
+                if let Some(parsed_inner) = &inner_ix.parsed {
+                    println!(
+                        "    {} {} [{}]",
+                        format!("#{}", inner_ix.label).custom_color((255, 165, 0)),
+                        format_solscan_link(&inner_ix.program.pubkey).custom_color((62, 132, 230)),
+                        parsed_inner.name.custom_color((124, 252, 0))
+                    );
 
-                for account in &inner_ix.accounts {
-                    render_instruction_account_text(account, resolved);
+                    // Render accounts with parsed names
+                    for (i, account) in inner_ix.accounts.iter().enumerate() {
+                        let account_name = if i < parsed_inner.account_names.len() {
+                            parsed_inner.account_names[i].clone()
+                        } else {
+                            format!("account_{}", i)
+                        };
+                        render_instruction_account_text_with_name(account, resolved, &account_name);
+                    }
+
+                    // Display raw instruction data first
+                    println!(
+                        "     🔢 0x{} | {} byte(s)",
+                        hex::encode(&inner_ix.data),
+                        inner_ix.data.len()
+                    );
+
+                    // Then render parsed fields as formatted JSON, preserving original order
+                    if !parsed_inner.fields.is_empty() {
+                        println!("       {{");
+                        for (idx, (field_name, field_value)) in parsed_inner.fields.iter().enumerate() {
+                            // Format as JSON key-value pair with proper indentation (9 spaces total: 7 + 2)
+                            let is_last = idx == parsed_inner.fields.len() - 1;
+                            let comma = if is_last { "" } else { "," };
+                            let formatted_line = format!("         \"{}\": \"{}\"{}", field_name, field_value, comma);
+                            println!("{}", formatted_line.custom_color((255, 255, 224)));
+                        }
+                        println!("       }}");
+                    }
+                } else {
+                    println!(
+                        "    {} {}",
+                        format!("#{}", inner_ix.label).custom_color((255, 165, 0)),
+                        format_solscan_link(&inner_ix.program.pubkey).custom_color((62, 132, 230))
+                    );
+
+                    for account in &inner_ix.accounts {
+                        render_instruction_account_text(account, resolved);
+                    }
+                    println!(
+                        "     🔢 0x{} | {} byte(s)",
+                        hex::encode(&inner_ix.data),
+                        inner_ix.data.len()
+                    );
                 }
-                println!(
-                    "     🔢 0x{} | {} byte(s)",
-                    hex::encode(&inner_ix.data),
-                    inner_ix.data.len()
-                );
             }
         }
     }
@@ -212,6 +310,31 @@ fn render_instruction_account_text(account: &InstructionAccountEntry, resolved: 
         account.index,
         solscan_linked_pubkey,
         account_privilege_emoji(account.signer, account.writable, executable)
+    );
+}
+
+fn render_instruction_account_text_with_name(
+    account: &InstructionAccountEntry,
+    resolved: &ResolvedAccounts,
+    name: &str,
+) {
+    let solscan_linked_pubkey = format_solscan_link(&account.pubkey);
+    let executable = if let Ok(pubkey) = Pubkey::from_str(&account.pubkey) {
+        resolved
+            .accounts
+            .get(&pubkey)
+            .map(|acc| acc.executable)
+            .unwrap_or(false)
+    } else {
+        false
+    };
+    println!(
+        "     {} [{}] {} {} ({})",
+        account.source,
+        account.index,
+        solscan_linked_pubkey,
+        account_privilege_emoji(account.signer, account.writable, executable),
+        name.custom_color((135, 206, 235))
     );
 }
 
@@ -292,11 +415,17 @@ impl Report {
         simulation: &SimulationResult,
         replacements: &[ProgramReplacement],
         fundings: &[Funding],
+        parser_registry: &ParserRegistry,
         verify_signatures: bool,
     ) -> Self {
         let resolver = LookupResolver::new(resolved.lookup_details());
-        let transaction =
-            TransactionSection::from_sources(parsed, resolved, &resolver, verify_signatures);
+        let transaction = TransactionSection::from_sources(
+            parsed,
+            resolved,
+            &resolver,
+            parser_registry,
+            verify_signatures,
+        );
         let simulation = SimulationSection::from_result(simulation);
         let replacements = replacements
             .iter()
@@ -339,6 +468,7 @@ impl TransactionSection {
         parsed: &ParsedTransaction,
         resolved: &ResolvedAccounts,
         resolver: &LookupResolver,
+        parser_registry: &ParserRegistry,
         verify_signatures: bool,
     ) -> Self {
         let encoding = match parsed.encoding {
@@ -374,6 +504,7 @@ impl TransactionSection {
                     resolver,
                     &parsed.summary.inner_instructions,
                     parsed,
+                    parser_registry,
                 )
             })
             .collect();
@@ -453,6 +584,7 @@ struct InstructionSection {
     program: InstructionAccountEntry,
     accounts: Vec<InstructionAccountEntry>,
     data: Box<[u8]>,
+    parsed: Option<ParsedInstruction>,
     inner_instructions: Vec<InnerInstructionSection>,
 }
 
@@ -462,6 +594,7 @@ impl InstructionSection {
         resolver: &LookupResolver,
         inner_instructions_list: &[solana_message::inner_instruction::InnerInstructions],
         parsed: &ParsedTransaction,
+        parser_registry: &ParserRegistry,
     ) -> Self {
         let program =
             InstructionAccountEntry::from_reference_with_resolver(&summary.program, Some(resolver));
@@ -473,6 +606,17 @@ impl InstructionSection {
             })
             .collect();
 
+        // Try to parse the instruction
+        let parsed_instruction = if let Some(program_pubkey) = &summary.program.pubkey {
+            if let Ok(program_id) = Pubkey::from_str(program_pubkey) {
+                parser_registry.parse_instruction(summary, &program_id)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
         let inner_instructions = if summary.index < inner_instructions_list.len() {
             inner_instructions_list[summary.index]
                 .iter()
@@ -483,6 +627,7 @@ impl InstructionSection {
                         resolver,
                         &format!("{}.{}", summary.index + 1, inner_idx + 1),
                         parsed,
+                        parser_registry,
                     )
                 })
                 .collect()
@@ -495,6 +640,7 @@ impl InstructionSection {
             program,
             accounts,
             data: summary.data.clone(),
+            parsed: parsed_instruction,
             inner_instructions,
         }
     }
@@ -506,6 +652,7 @@ struct InnerInstructionSection {
     program: InstructionAccountEntry,
     accounts: Vec<InstructionAccountEntry>,
     data: Box<[u8]>,
+    parsed: Option<ParsedInstruction>,
 }
 
 impl InnerInstructionSection {
@@ -514,6 +661,7 @@ impl InnerInstructionSection {
         resolver: &LookupResolver,
         label: &str,
         parsed: &ParsedTransaction,
+        parser_registry: &ParserRegistry,
     ) -> Self {
         // Resolve inner instruction accounts using the same logic as outer instructions
         let message = &parsed.transaction.message;
@@ -545,11 +693,45 @@ impl InnerInstructionSection {
             })
             .collect();
 
+        // Try to parse the inner instruction
+        let parsed_instruction = if let Ok(program_id) = Pubkey::from_str(&program.pubkey) {
+            // Create a summary for the inner instruction
+            let inner_summary = crate::transaction::InstructionSummary {
+                index: 0, // Inner instruction index doesn't matter for parsing
+                program: crate::transaction::AccountReferenceSummary {
+                    index: inner_ix.instruction.program_id_index as usize,
+                    pubkey: Some(program_id.to_string()),
+                    signer: false,
+                    writable: false,
+                    source: crate::transaction::AccountSourceSummary::Static,
+                },
+                accounts: inner_ix
+                    .instruction
+                    .accounts
+                    .iter()
+                    .map(|account_index| {
+                        let ref_summary = crate::transaction::classify_account_reference(
+                            message,
+                            *account_index as usize,
+                            &parsed.account_plan,
+                            &lookup_locations,
+                        );
+                        ref_summary
+                    })
+                    .collect(),
+                data: inner_ix.instruction.data.clone().into_boxed_slice(),
+            };
+            parser_registry.parse_instruction(&inner_summary, &program_id)
+        } else {
+            None
+        };
+
         Self {
             label: label.to_string(),
             program,
             accounts,
             data: inner_ix.instruction.data.clone().into_boxed_slice(),
+            parsed: parsed_instruction,
         }
     }
 }

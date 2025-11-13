@@ -1,12 +1,14 @@
 mod account_loader;
 mod cli;
 mod executor;
+mod instruction_parser;
 mod output;
 mod transaction;
 
 use anyhow::Result;
 use clap::Parser;
 use cli::{Cli, Commands, SimulateArgs, TransactionInputArgs};
+use instruction_parser::ParserRegistry;
 
 fn main() {
     if let Err(err) = run() {
@@ -25,6 +27,7 @@ fn run() -> Result<()> {
 }
 
 fn handle_simulate(args: SimulateArgs) -> Result<()> {
+    let parser_registry = ParserRegistry::new();
     let SimulateArgs {
         transaction,
         rpc_url,
@@ -73,7 +76,12 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
                 account_loader.load_for_transaction(&parsed_tx.transaction, &replacements)?;
 
             if parse_only {
-                output::render_transaction_only(&parsed_tx, &resolved_accounts, output)?;
+                output::render_transaction_only(
+                    &parsed_tx,
+                    &resolved_accounts,
+                    &parser_registry,
+                    output,
+                )?;
             } else {
                 let mut executor = executor::TransactionExecutor::prepare(
                     resolved_accounts,
@@ -97,6 +105,7 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
                     &simulation,
                     executor.replacements(),
                     executor.fundings(),
+                    &parser_registry,
                     output,
                     verify_signatures,
                 )?;
@@ -113,7 +122,7 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
         account_loader.load_for_transaction(&parsed_tx.transaction, &replacements)?;
 
     if parse_only {
-        output::render_transaction_only(&parsed_tx, &resolved_accounts, output)?;
+        output::render_transaction_only(&parsed_tx, &resolved_accounts, &parser_registry, output)?;
     } else {
         let mut executor = executor::TransactionExecutor::prepare(
             resolved_accounts,
@@ -137,6 +146,7 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
             &simulation,
             executor.replacements(),
             executor.fundings(),
+            &parser_registry,
             output,
             verify_signatures,
         )?;
