@@ -642,7 +642,7 @@ impl InnerInstructionSection {
             InstructionAccountEntry::from_reference_with_resolver(&ref_summary, Some(resolver))
         };
 
-        let accounts = inner_ix
+        let accounts: Vec<InstructionAccountEntry> = inner_ix
             .instruction
             .accounts
             .iter()
@@ -657,9 +657,25 @@ impl InnerInstructionSection {
             })
             .collect();
 
+        
         // Try to parse the inner instruction
         let parsed_instruction = if let Ok(program_id) = Pubkey::from_str(&program.pubkey) {
             // Create a summary for the inner instruction
+            let inner_accounts: Vec<crate::transaction::AccountReferenceSummary> = inner_ix
+                .instruction
+                .accounts
+                .iter()
+                .map(|account_index| {
+                    let ref_summary = crate::transaction::classify_account_reference(
+                        message,
+                        *account_index as usize,
+                        &parsed.account_plan,
+                        &lookup_locations,
+                    );
+                    ref_summary
+                })
+                .collect();
+
             let inner_summary = crate::transaction::InstructionSummary {
                 index: 0, // Inner instruction index doesn't matter for parsing
                 program: crate::transaction::AccountReferenceSummary {
@@ -669,20 +685,7 @@ impl InnerInstructionSection {
                     writable: false,
                     source: crate::transaction::AccountSourceSummary::Static,
                 },
-                accounts: inner_ix
-                    .instruction
-                    .accounts
-                    .iter()
-                    .map(|account_index| {
-                        let ref_summary = crate::transaction::classify_account_reference(
-                            message,
-                            *account_index as usize,
-                            &parsed.account_plan,
-                            &lookup_locations,
-                        );
-                        ref_summary
-                    })
-                    .collect(),
+                accounts: inner_accounts,
                 data: inner_ix.instruction.data.clone().into_boxed_slice(),
             };
             parser_registry.parse_instruction(&inner_summary, &program_id)

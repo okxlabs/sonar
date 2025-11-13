@@ -640,7 +640,7 @@ fn parse_sync_native_instruction(
 /// Parses an InitializeAccount3 instruction: 18
 ///
 /// Similar to InitializeAccount2 but without rent sysvar
-/// Accounts: 0. new account pubkey, 1. mint pubkey, 2. owner pubkey
+/// Accounts: 0. new account pubkey, 1. mint pubkey
 /// Data: 32 bytes - owner pubkey for validation
 fn parse_initialize_account3_instruction(
     data: &[u8],
@@ -650,7 +650,8 @@ fn parse_initialize_account3_instruction(
         return Ok(None); // Invalid data length for InitializeAccount3
     }
 
-    if instruction.accounts.len() != 3 {
+    // InitializeAccount3 has exactly 2 accounts according to SPL Token spec
+    if instruction.accounts.len() != 2 {
         return Ok(None); // Invalid number of accounts for InitializeAccount3
     }
 
@@ -660,7 +661,7 @@ fn parse_initialize_account3_instruction(
     Ok(Some(ParsedInstruction {
         name: "InitializeAccount3".to_string(),
         fields: vec![("owner".to_string(), owner_pubkey)],
-        account_names: vec!["account".to_string(), "mint".to_string(), "owner".to_string()],
+        account_names: vec!["account".to_string(), "mint".to_string()],
     }))
 }
 
@@ -1170,5 +1171,84 @@ mod tests {
         assert_eq!(parsed.account_names[1], "destination");
         assert_eq!(parsed.account_names[2], "owner");
         assert_eq!(parsed.fields.len(), 0);
+    }
+
+    #[test]
+    fn test_initialize_account3_instruction_parsing() {
+        let parser = TokenProgramParser::new();
+
+        // InitializeAccount3 has exactly 2 accounts according to SPL Token spec
+        let accounts = vec![
+            create_test_account(2, "fi7Cf1LvD71ZCnfPXMsRCHaUdBm4GFPk535cumoQmLH", false, true),   // account to initialize
+            create_test_account(52, "JhWbUQTjwZ46UehbEGiX93VAjmHwWWRtNNgPJBPpump", false, false), // mint
+        ];
+
+        // InitializeAccount3 instruction from the failing transaction
+        // Data: 0x1284764b973f3599fa1c294f6698f1faa8558df14ba058961cdb82527e147dade2
+        // First byte: 0x12 = 18 = INITIALIZE_ACCOUNT3_DISCRIMINATOR
+        // Next 32 bytes: owner pubkey (passed in data, not as account)
+        let mut data = vec![0x12]; // 1-byte discriminator for InitializeAccount3
+        data.extend_from_slice(&[
+            0x84, 0x76, 0x4b, 0x97, 0x3f, 0x35, 0x99, 0xfa, 0x1c, 0x29, 0x4f, 0x66, 0x98, 0xf1, 0xfa, 0xa8,
+            0x55, 0x8d, 0xf1, 0x4b, 0xa0, 0x58, 0x96, 0x1c, 0xdb, 0x82, 0x52, 0x7e, 0x14, 0x7d, 0xad, 0xe2
+        ]);
+
+        let instruction = create_test_instruction(data, accounts);
+
+        let result = parser.parse_instruction(&instruction).unwrap();
+        assert!(result.is_some());
+
+        let parsed = result.unwrap();
+        assert_eq!(parsed.name, "InitializeAccount3");
+        assert_eq!(parsed.account_names.len(), 2); // Exactly 2 accounts as per spec
+        assert_eq!(parsed.account_names[0], "account");
+        assert_eq!(parsed.account_names[1], "mint");
+        assert_eq!(parsed.fields.len(), 1);
+        assert!(parsed.fields.iter().any(|(k, _v)| k == "owner"));
+    }
+
+    #[test]
+    fn test_initialize_account3_instruction_with_wrong_account_count() {
+        let parser = TokenProgramParser::new();
+
+        // Test with wrong number of accounts (should fail)
+        let accounts = vec![
+            create_test_account(2, "fi7Cf1LvD71ZCnfPXMsRCHaUdBm4GFPk535cumoQmLH", false, true),   // account to initialize
+            create_test_account(52, "JhWbUQTjwZ46UehbEGiX93VAjmHwWWRtNNgPJBPpump", false, false), // mint
+            create_test_account(1, "9v5SME5EnRDhSdutpKh9V5csweuSEepg3Jyqq1V75kdo", false, false), // extra account - should fail
+        ];
+
+        let mut data = vec![0x12]; // 1-byte discriminator for InitializeAccount3
+        data.extend_from_slice(&[
+            0x84, 0x76, 0x4b, 0x97, 0x3f, 0x35, 0x99, 0xfa, 0x1c, 0x29, 0x4f, 0x66, 0x98, 0xf1, 0xfa, 0xa8,
+            0x55, 0x8d, 0xf1, 0x4b, 0xa0, 0x58, 0x96, 0x1c, 0xdb, 0x82, 0x52, 0x7e, 0x14, 0x7d, 0xad, 0xe2
+        ]);
+
+        let instruction = create_test_instruction(data, accounts);
+
+        let result = parser.parse_instruction(&instruction).unwrap();
+        assert!(result.is_none()); // Should fail due to wrong account count (3 instead of 2)
+    }
+
+    #[test]
+    fn test_initialize_account3_instruction_with_single_account() {
+        let parser = TokenProgramParser::new();
+
+        // Test with only 1 account (should fail)
+        let accounts = vec![
+            create_test_account(2, "fi7Cf1LvD71ZCnfPXMsRCHaUdBm4GFPk535cumoQmLH", false, true),   // account to initialize
+            // Missing mint account - only 1 account instead of 2
+        ];
+
+        let mut data = vec![0x12]; // 1-byte discriminator for InitializeAccount3
+        data.extend_from_slice(&[
+            0x84, 0x76, 0x4b, 0x97, 0x3f, 0x35, 0x99, 0xfa, 0x1c, 0x29, 0x4f, 0x66, 0x98, 0xf1, 0xfa, 0xa8,
+            0x55, 0x8d, 0xf1, 0x4b, 0xa0, 0x58, 0x96, 0x1c, 0xdb, 0x82, 0x52, 0x7e, 0x14, 0x7d, 0xad, 0xe2
+        ]);
+
+        let instruction = create_test_instruction(data, accounts);
+
+        let result = parser.parse_instruction(&instruction).unwrap();
+        assert!(result.is_none()); // Should fail due to wrong account count (1 instead of 2)
     }
 }
