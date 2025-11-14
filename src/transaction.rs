@@ -383,9 +383,8 @@ fn build_address_lookup_plan(message: &VersionedMessage) -> Vec<AddressLookupPla
 /// This function builds account index mapping according to Solana V0 transaction spec. In V0 transactions, global account order is:
 /// 1. Static accounts (static_account_keys)
 /// 2. Accounts from address lookup tables, in the following order:
-///    - For each lookup table (in address_table_lookups order):
-///      a. All accounts corresponding to writable_indexes of that table
-///      b. All accounts corresponding to readonly_indexes of that table
+///    a. All accounts corresponding to writable_indexes from all address lookup tables (in address_table_lookups order)
+///    b. All accounts corresponding to readonly_indexes from all address lookup tables (in address_table_lookups order)
 ///
 /// The index of returned Vec<LookupLocation> corresponds to (global account index - static account count)
 ///
