@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::path::Path;
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
@@ -130,6 +131,29 @@ pub fn load_idl_parsers() -> Result<IdlRegistry, anyhow::Error> {
     Ok(registry)
 }
 
+/// Load IDL-based parsers from a specified directory
+pub fn load_idl_parsers_from_path(idl_path: &Path) -> Result<IdlRegistry, anyhow::Error> {
+    use crate::instruction_parsers::anchor_idl;
+    use anyhow::Context;
+    let mut registry = anchor_idl::IdlRegistry::new();
+
+    log::debug!(
+        "Looking for IDL directory at: {}",
+        idl_path.canonicalize().unwrap_or(idl_path.to_path_buf()).display()
+    );
+
+    if idl_path.exists() && idl_path.is_dir() {
+        log::info!("Loading IDLs from: {}", idl_path.display());
+        registry.load_idls(idl_path).with_context(|| {
+            format!("Failed to load IDLs from directory: {}", idl_path.display())
+        })?;
+    } else {
+        return Err(anyhow::anyhow!("IDL directory does not exist: {}", idl_path.display()));
+    }
+
+    Ok(registry)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -187,6 +211,4 @@ mod associated_token_program;
 pub use associated_token_program::AssociatedTokenProgramParser;
 
 mod anchor_idl;
-pub use anchor_idl::{
-    AnchorIdlParser, IdlRegistry, create_parsers_from_idl_registry, load_idls_from_default_dir,
-};
+pub use anchor_idl::{IdlRegistry, create_parsers_from_idl_registry, load_idls_from_default_dir};

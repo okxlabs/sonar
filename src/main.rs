@@ -30,19 +30,41 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
     // Create parser registry and load IDL-based parsers
     let mut parser_registry = ParserRegistry::new();
 
-    // Load IDL parsers from the idl/ directory
-    let idl_registry = match instruction_parsers::load_idl_parsers() {
-        Ok(idl_registry) => {
-            log::info!(
-                "Loaded {} IDL files for instruction parsing",
-                idl_registry.program_ids().len()
-            );
-            parser_registry.register_idl_parsers(&idl_registry);
-            idl_registry
+    // Load IDL parsers from specified path or default directory
+    let _idl_registry = match &args.idl_path {
+        Some(idl_path) => {
+            log::info!("Loading IDLs from custom path: {}", idl_path.display());
+            match instruction_parsers::load_idl_parsers_from_path(idl_path) {
+                Ok(idl_registry) => {
+                    log::info!(
+                        "Loaded {} IDL files for instruction parsing",
+                        idl_registry.program_ids().len()
+                    );
+                    parser_registry.register_idl_parsers(&idl_registry);
+                    idl_registry
+                }
+                Err(err) => {
+                    log::warn!("Failed to load IDL parsers from custom path: {:?}", err);
+                    instruction_parsers::IdlRegistry::new()
+                }
+            }
         }
-        Err(err) => {
-            log::warn!("Failed to load IDL parsers: {:?}", err);
-            instruction_parsers::IdlRegistry::new()
+        None => {
+            // Load from default idl/ directory
+            match instruction_parsers::load_idl_parsers() {
+                Ok(idl_registry) => {
+                    log::info!(
+                        "Loaded {} IDL files for instruction parsing",
+                        idl_registry.program_ids().len()
+                    );
+                    parser_registry.register_idl_parsers(&idl_registry);
+                    idl_registry
+                }
+                Err(err) => {
+                    log::warn!("Failed to load IDL parsers from default directory: {:?}", err);
+                    instruction_parsers::IdlRegistry::new()
+                }
+            }
         }
     };
 
@@ -54,6 +76,7 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
         fundings: funding_args,
         parse_only,
         verify_signatures,
+        idl_path: _,
     } = args;
     let TransactionInputArgs { tx, tx_file, output } = transaction;
 

@@ -13,6 +13,7 @@
 - **Fund system accounts with arbitrary SOL amounts for testing**
 - Multiple output formats (text and JSON)
 - Account loading from Solana RPC nodes
+- **Load IDL files from custom directories for Anchor program instruction parsing**
 - Parse-only mode for transaction analysis without simulation
 
 ## Technology Stack
@@ -163,6 +164,11 @@ solsim simulate --tx 2gTzNX3zLNhhmJaY44LycEgF8UMadrKeDLHz8rgcQVbXWVU4bs8fLBzWKhv
 
 # Read transaction from file
 solsim simulate --tx-file ./transaction.txt --rpc-url <RPC_URL>
+
+# Load IDL files from custom directory for instruction parsing
+solsim simulate --tx <TRANSACTION_SIGNATURE> \
+  --rpc-url https://api.mainnet-beta.solana.com \
+  --idl-path /path/to/idl/files/
 
 # Fund system accounts with SOL for testing
 solsim simulate \
