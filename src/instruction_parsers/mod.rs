@@ -88,8 +88,8 @@ impl ParserRegistry {
         self.parsers.insert(program_id, parser);
     }
 
-    /// Attempts to parse an instruction using registered parsers
-    /// Returns the first successful parse result
+    /// Attempts to parse an instruction using the parser registered for the given program ID
+    /// Returns the parsed instruction if successful, None otherwise
     pub fn parse_instruction(
         &self,
         instruction: &InstructionSummary,
