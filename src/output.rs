@@ -706,7 +706,7 @@ impl InnerInstructionSection {
                 accounts: Vec::new(), // Not needed for CPI event detection
                 data: inner_ix.instruction.data.clone().into_boxed_slice(),
             };
-            
+
             // Check for CPI event first
             if is_anchor_cpi_event(&temp_summary) {
                 // Try to parse as CPI event
@@ -717,7 +717,11 @@ impl InnerInstructionSection {
                     &parsed.account_plan,
                     &lookup_locations,
                 );
-                log::debug!("CPI event parse result for {}: {:?}", program_id, cpi_result.is_some());
+                log::debug!(
+                    "CPI event parse result for {}: {:?}",
+                    program_id,
+                    cpi_result.is_some()
+                );
                 cpi_result
             } else {
                 // Regular instruction parsing
