@@ -733,7 +733,7 @@ impl InnerInstructionSection {
         let parsed_instruction = if let Ok(program_id) = Pubkey::from_str(&program.pubkey) {
             // First, check if this is an Anchor CPI event
             let data_slice = inner_ix.instruction.data.clone().into_boxed_slice();
-            let mut temp_summary = crate::transaction::InstructionSummary {
+            let temp_summary = crate::transaction::InstructionSummary {
                 index: 0,
                 program: crate::transaction::AccountReferenceSummary {
                     index: inner_ix.instruction.program_id_index as usize,

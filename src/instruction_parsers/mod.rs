@@ -211,4 +211,4 @@ mod associated_token_program;
 pub use associated_token_program::AssociatedTokenProgramParser;
 
 pub mod anchor_idl;
-pub use anchor_idl::{IdlRegistry, create_parsers_from_idl_registry, load_idls_from_default_dir};
+pub use anchor_idl::IdlRegistry;

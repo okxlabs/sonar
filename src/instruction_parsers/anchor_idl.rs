@@ -108,8 +108,20 @@ pub struct IdlTypeDefinition {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IdlTypeDefinitionBody {
     pub kind: String,
-    pub fields: Option<Vec<IdlField>>,
+    #[serde(default, deserialize_with = "deserialize_optional_idl_fields")]
+    pub fields: Option<IdlFields>,
+    #[serde(default)]
     pub variants: Option<Vec<IdlEnumVariant>>,
+}
+
+/// Fields for IDL types - can be either named (regular structs) or tuple (tuple structs)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum IdlFields {
+    /// Named fields like struct Foo { field1: Type1, field2: Type2 }
+    Named(Vec<IdlField>),
+    /// Tuple fields like struct Bar(Type1, Type2)
+    Tuple(Vec<String>),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -117,6 +129,126 @@ pub struct IdlField {
     pub name: String,
     #[serde(rename = "type")]
     pub type_: IdlType,
+}
+
+/// Custom deserializer for IDL fields that handles both named and tuple struct formats
+fn deserialize_idl_fields<'de, D>(deserializer: D) -> Result<Option<IdlFields>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::Error;
+    let value = serde_json::Value::deserialize(deserializer)?;
+
+    match value {
+        serde_json::Value::Array(arr) => {
+            if arr.is_empty() {
+                Ok(Some(IdlFields::Tuple(Vec::new())))
+            } else if arr[0].get("name").is_some() {
+                // It's an array of objects with "name" field - this is a regular struct
+                match serde_json::from_value::<Vec<IdlField>>(serde_json::Value::Array(arr)) {
+                    Ok(fields) => Ok(Some(IdlFields::Named(fields))),
+                    Err(e) => Err(D::Error::custom(format!("Failed to parse named fields: {}", e))),
+                }
+            } else {
+                // It's an array of strings - this is a tuple struct
+                match serde_json::from_value::<Vec<String>>(serde_json::Value::Array(arr)) {
+                    Ok(types) => Ok(Some(IdlFields::Tuple(types))),
+                    Err(e) => Err(D::Error::custom(format!("Failed to parse tuple fields: {}", e))),
+                }
+            }
+        }
+        _ => Err(D::Error::custom("Fields must be an array")),
+    }
+}
+
+/// Custom deserializer for optional IDL fields that handles missing fields gracefully
+fn deserialize_optional_idl_fields<'de, D>(deserializer: D) -> Result<Option<IdlFields>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::{Error, Visitor};
+
+    struct OptionalIdlFieldsVisitor;
+
+    impl<'de> Visitor<'de> for OptionalIdlFieldsVisitor {
+        type Value = Option<IdlFields>;
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str("an array of field definitions or null")
+        }
+
+        fn visit_none<E>(self) -> Result<Self::Value, E>
+        where
+            E: Error,
+        {
+            Ok(None)
+        }
+
+        fn visit_some<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+        where
+            D: serde::Deserializer<'de>,
+        {
+            deserializer.deserialize_any(OptionalIdlFieldsVisitor)
+        }
+
+        fn visit_unit<E>(self) -> Result<Self::Value, E>
+        where
+            E: Error,
+        {
+            Ok(None)
+        }
+
+        fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+        where
+            A: serde::de::SeqAccess<'de>,
+        {
+            // Just try to extract the array elements - this is a fallback
+            let mut arr = Vec::new();
+            while let Some(element) = seq.next_element::<serde_json::Value>()? {
+                arr.push(element);
+            }
+
+            deserialize_idl_fields_(serde_json::Value::Array(arr)).map_err(A::Error::custom)
+        }
+
+        fn visit_newtype_struct<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+        where
+            D: serde::Deserializer<'de>,
+        {
+            deserializer.deserialize_any(OptionalIdlFieldsVisitor)
+        }
+    }
+
+    // Actually, a simpler approach is to use Option::deserialize and handle the Some case
+    let value = Option::<serde_json::Value>::deserialize(deserializer)?;
+
+    match value {
+        Some(val) => deserialize_idl_fields_(val).map_err(D::Error::custom),
+        None => Ok(None),
+    }
+}
+
+fn deserialize_idl_fields_(value: serde_json::Value) -> Result<Option<IdlFields>, String> {
+    match value {
+        serde_json::Value::Array(arr) => {
+            if arr.is_empty() {
+                Ok(Some(IdlFields::Tuple(Vec::new())))
+            } else if arr[0].get("name").is_some() {
+                // It's an array of objects with "name" field - this is a regular struct
+                match serde_json::from_value::<Vec<IdlField>>(serde_json::Value::Array(arr)) {
+                    Ok(fields) => Ok(Some(IdlFields::Named(fields))),
+                    Err(e) => Err(format!("Failed to parse named fields: {}", e)),
+                }
+            } else {
+                // It's an array of strings - this is a tuple struct
+                match serde_json::from_value::<Vec<String>>(serde_json::Value::Array(arr)) {
+                    Ok(types) => Ok(Some(IdlFields::Tuple(types))),
+                    Err(e) => Err(format!("Failed to parse tuple fields: {}", e)),
+                }
+            }
+        }
+        _ => Err("Fields must be an array".to_string()),
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -561,23 +693,46 @@ fn parse_type_definition(
     match type_def.type_.kind.as_str() {
         "struct" => {
             if let Some(fields) = &type_def.type_.fields {
-                let mut field_values = Vec::new();
                 let mut current_offset = start;
 
-                for field in fields {
-                    if current_offset >= data.len() {
-                        break;
-                    }
-                    let (value, bytes_read) =
-                        parse_type(data, &current_offset, &field.type_, registry, idl)?;
-                    field_values.push(format!("{}: {}", field.name, value));
-                    current_offset += bytes_read;
-                }
+                return match fields {
+                    crate::instruction_parsers::anchor_idl::IdlFields::Named(named_fields) => {
+                        // Regular struct with named fields
+                        let mut field_values = Vec::new();
+                        for field in named_fields {
+                            if current_offset >= data.len() {
+                                break;
+                            }
+                            let (value, bytes_read) =
+                                parse_type(data, &current_offset, &field.type_, registry, idl)?;
+                            field_values.push(format!("{}: {}", field.name, value));
+                            current_offset += bytes_read;
+                        }
 
-                return Ok((
-                    format!("{} {{{}}}", type_def.name, field_values.join(", ")),
-                    current_offset - start,
-                ));
+                        Ok((
+                            format!("{} {{{}}}", type_def.name, field_values.join(", ")),
+                            current_offset - start,
+                        ))
+                    }
+                    crate::instruction_parsers::anchor_idl::IdlFields::Tuple(type_names) => {
+                        // Tuple struct like struct Foo(Type1, Type2)
+                        let mut field_values = Vec::new();
+                        for type_name in type_names {
+                            if current_offset >= data.len() {
+                                break;
+                            }
+                            let (value, bytes_read) =
+                                parse_simple_type(data, &current_offset, type_name)?;
+                            field_values.push(value);
+                            current_offset += bytes_read;
+                        }
+
+                        Ok((
+                            format!("{}({})", type_def.name, field_values.join(", ")),
+                            current_offset - start,
+                        ))
+                    }
+                };
             }
         }
         "enum" => {
@@ -780,8 +935,9 @@ pub fn parse_anchor_cpi_event(
     let mut fields = Vec::new();
 
     match &type_def.type_.fields {
-        Some(field_defs) => {
-            for field in field_defs {
+        Some(crate::instruction_parsers::anchor_idl::IdlFields::Named(named_fields)) => {
+            // Regular struct with named fields
+            for field in named_fields {
                 if offset >= instruction.data.len() {
                     break;
                 }
@@ -789,6 +945,18 @@ pub fn parse_anchor_cpi_event(
                 let (value, bytes_read) =
                     parse_type(&instruction.data, &mut offset, &field.type_, idl_registry, idl)?;
                 fields.push((field.name.clone(), value));
+                offset += bytes_read;
+            }
+        }
+        Some(crate::instruction_parsers::anchor_idl::IdlFields::Tuple(type_names)) => {
+            // Tuple struct like struct Foo(Type1, Type2)
+            for (idx, type_name) in type_names.iter().enumerate() {
+                if offset >= instruction.data.len() {
+                    break;
+                }
+
+                let (value, bytes_read) = parse_simple_type(&instruction.data, &offset, type_name)?;
+                fields.push((format!("field_{}", idx), value));
                 offset += bytes_read;
             }
         }
