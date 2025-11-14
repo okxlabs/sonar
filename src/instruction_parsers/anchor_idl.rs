@@ -534,6 +534,50 @@ fn parse_simple_type(data: &[u8], offset: &usize, type_name: &str) -> Result<(St
             ]);
             Ok((value.to_string(), 8))
         }
+        "u128" => {
+            check_data_len(data, start, 16)?;
+            let value = u128::from_le_bytes([
+                data[start],
+                data[start + 1],
+                data[start + 2],
+                data[start + 3],
+                data[start + 4],
+                data[start + 5],
+                data[start + 6],
+                data[start + 7],
+                data[start + 8],
+                data[start + 9],
+                data[start + 10],
+                data[start + 11],
+                data[start + 12],
+                data[start + 13],
+                data[start + 14],
+                data[start + 15],
+            ]);
+            Ok((value.to_string(), 16))
+        }
+        "i128" => {
+            check_data_len(data, start, 16)?;
+            let value = i128::from_le_bytes([
+                data[start],
+                data[start + 1],
+                data[start + 2],
+                data[start + 3],
+                data[start + 4],
+                data[start + 5],
+                data[start + 6],
+                data[start + 7],
+                data[start + 8],
+                data[start + 9],
+                data[start + 10],
+                data[start + 11],
+                data[start + 12],
+                data[start + 13],
+                data[start + 14],
+                data[start + 15],
+            ]);
+            Ok((value.to_string(), 16))
+        }
         "pubkey" | "publicKey" => {
             check_data_len(data, start, 32)?;
             let pubkey = Pubkey::try_from(&data[start..start + 32])
