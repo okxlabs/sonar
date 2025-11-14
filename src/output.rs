@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::str::FromStr;
+use std::sync::OnceLock;
 
 use anyhow::Result;
 use base64::Engine;
@@ -13,6 +14,7 @@ use crate::{
     account_loader::{ResolvedAccounts, ResolvedLookup},
     cli::{Funding, OutputFormat, ProgramReplacement},
     executor::{ExecutionStatus, SimulationResult},
+    instruction_parsers::anchor_idl::{is_anchor_cpi_event, parse_anchor_cpi_event},
     instruction_parsers::{ParsedInstruction, ParserRegistry},
     transaction::{AccountReferenceSummary, AccountSourceSummary, ParsedTransaction},
 };
@@ -25,6 +27,7 @@ pub fn render(
     replacements: &[ProgramReplacement],
     fundings: &[Funding],
     parser_registry: &ParserRegistry,
+    idl_registry: &crate::instruction_parsers::anchor_idl::IdlRegistry,
     format: OutputFormat,
     verify_signatures: bool,
 ) -> Result<()> {
@@ -35,6 +38,7 @@ pub fn render(
         replacements,
         fundings,
         parser_registry,
+        idl_registry,
         verify_signatures,
     );
     match format {
@@ -47,11 +51,18 @@ pub fn render_transaction_only(
     parsed: &ParsedTransaction,
     resolved: &ResolvedAccounts,
     parser_registry: &ParserRegistry,
+    idl_registry: &crate::instruction_parsers::anchor_idl::IdlRegistry,
     format: OutputFormat,
 ) -> Result<()> {
     let resolver = LookupResolver::new(resolved.lookup_details());
-    let transaction =
-        TransactionSection::from_sources(parsed, resolved, &resolver, parser_registry, false);
+    let transaction = TransactionSection::from_sources(
+        parsed,
+        resolved,
+        &resolver,
+        parser_registry,
+        idl_registry,
+        false,
+    );
     match format {
         OutputFormat::Text => {
             render_transaction_section_text(&transaction, resolved, parser_registry);
@@ -399,6 +410,7 @@ impl Report {
         replacements: &[ProgramReplacement],
         fundings: &[Funding],
         parser_registry: &ParserRegistry,
+        idl_registry: &crate::instruction_parsers::anchor_idl::IdlRegistry,
         verify_signatures: bool,
     ) -> Self {
         let resolver = LookupResolver::new(resolved.lookup_details());
@@ -407,6 +419,7 @@ impl Report {
             resolved,
             &resolver,
             parser_registry,
+            idl_registry,
             verify_signatures,
         );
         let simulation = SimulationSection::from_result(simulation);
@@ -447,6 +460,7 @@ impl TransactionSection {
         resolved: &ResolvedAccounts,
         resolver: &LookupResolver,
         parser_registry: &ParserRegistry,
+        idl_registry: &crate::instruction_parsers::anchor_idl::IdlRegistry,
         verify_signatures: bool,
     ) -> Self {
         let encoding = match parsed.encoding {
@@ -483,6 +497,7 @@ impl TransactionSection {
                     &parsed.summary.inner_instructions,
                     parsed,
                     parser_registry,
+                    idl_registry,
                 )
             })
             .collect();
@@ -559,6 +574,7 @@ impl InstructionSection {
         inner_instructions_list: &[solana_message::inner_instruction::InnerInstructions],
         parsed: &ParsedTransaction,
         parser_registry: &ParserRegistry,
+        idl_registry: &crate::instruction_parsers::anchor_idl::IdlRegistry,
     ) -> Self {
         let program =
             InstructionAccountEntry::from_reference_with_resolver(&summary.program, Some(resolver));
@@ -619,6 +635,62 @@ struct InnerInstructionSection {
     parsed: Option<ParsedInstruction>,
 }
 
+fn find_idl_registry_for_program<'a>(
+    _parser_registry: &'a ParserRegistry,
+    _program_id: &Pubkey,
+) -> &'a crate::instruction_parsers::anchor_idl::IdlRegistry {
+    // For now, return the global IDL registry. This is a simplification
+    // In a more complex setup, we might have multiple registries
+    use crate::instruction_parsers::anchor_idl;
+
+    static REGISTRY: OnceLock<anchor_idl::IdlRegistry> = OnceLock::new();
+    let registry =
+        REGISTRY.get_or_init(|| anchor_idl::load_idls_from_default_dir().unwrap_or_default());
+
+    // SAFETY: This is safe because OnceLock ensures the registry lives forever,
+    // and we're just extending the lifetime to match the expected signature
+    unsafe {
+        std::mem::transmute::<&anchor_idl::IdlRegistry, &'a anchor_idl::IdlRegistry>(registry)
+    }
+}
+
+fn parse_inner_instruction_as_regular(
+    inner_ix: &solana_message::inner_instruction::InnerInstruction,
+    message: &solana_message::VersionedMessage,
+    account_plan: &crate::transaction::MessageAccountPlan,
+    lookup_locations: &[crate::transaction::LookupLocation],
+    parser_registry: &ParserRegistry,
+    program_id: &Pubkey,
+) -> Option<ParsedInstruction> {
+    let inner_accounts: Vec<crate::transaction::AccountReferenceSummary> = inner_ix
+        .instruction
+        .accounts
+        .iter()
+        .map(|account_index| {
+            crate::transaction::classify_account_reference(
+                message,
+                *account_index as usize,
+                account_plan,
+                lookup_locations,
+            )
+        })
+        .collect();
+
+    let inner_summary = crate::transaction::InstructionSummary {
+        index: 0, // Inner instruction index doesn't matter for parsing
+        program: crate::transaction::AccountReferenceSummary {
+            index: inner_ix.instruction.program_id_index as usize,
+            pubkey: Some(program_id.to_string()),
+            signer: false,
+            writable: false,
+            source: crate::transaction::AccountSourceSummary::Static,
+        },
+        accounts: inner_accounts,
+        data: inner_ix.instruction.data.clone().into_boxed_slice(),
+    };
+    parser_registry.parse_instruction(&inner_summary, program_id)
+}
+
 impl InnerInstructionSection {
     fn from_inner_instruction(
         inner_ix: &solana_message::inner_instruction::InnerInstruction,
@@ -659,24 +731,10 @@ impl InnerInstructionSection {
 
         // Try to parse the inner instruction
         let parsed_instruction = if let Ok(program_id) = Pubkey::from_str(&program.pubkey) {
-            // Create a summary for the inner instruction
-            let inner_accounts: Vec<crate::transaction::AccountReferenceSummary> = inner_ix
-                .instruction
-                .accounts
-                .iter()
-                .map(|account_index| {
-                    let ref_summary = crate::transaction::classify_account_reference(
-                        message,
-                        *account_index as usize,
-                        &parsed.account_plan,
-                        &lookup_locations,
-                    );
-                    ref_summary
-                })
-                .collect();
-
-            let inner_summary = crate::transaction::InstructionSummary {
-                index: 0, // Inner instruction index doesn't matter for parsing
+            // First, check if this is an Anchor CPI event
+            let data_slice = inner_ix.instruction.data.clone().into_boxed_slice();
+            let mut temp_summary = crate::transaction::InstructionSummary {
+                index: 0,
                 program: crate::transaction::AccountReferenceSummary {
                     index: inner_ix.instruction.program_id_index as usize,
                     pubkey: Some(program_id.to_string()),
@@ -684,10 +742,41 @@ impl InnerInstructionSection {
                     writable: false,
                     source: crate::transaction::AccountSourceSummary::Static,
                 },
-                accounts: inner_accounts,
-                data: inner_ix.instruction.data.clone().into_boxed_slice(),
+                accounts: vec![],
+                data: data_slice.clone(),
             };
-            parser_registry.parse_instruction(&inner_summary, &program_id)
+
+            // Check for Anchor CPI events
+            if is_anchor_cpi_event(&temp_summary) {
+                // For CPI events, we need to find which IDL registry to use
+                // Try to find an IDL for this program
+                let cpi_registry = find_idl_registry_for_program(&parser_registry, &program_id);
+                if let Ok(Some(parsed_event)) =
+                    parse_anchor_cpi_event(&temp_summary, cpi_registry, &program_id)
+                {
+                    Some(parsed_event)
+                } else {
+                    // Fallback: try regular instruction parsing
+                    parse_inner_instruction_as_regular(
+                        &inner_ix,
+                        message,
+                        &parsed.account_plan,
+                        &lookup_locations,
+                        parser_registry,
+                        &program_id,
+                    )
+                }
+            } else {
+                // Regular instruction parsing
+                parse_inner_instruction_as_regular(
+                    &inner_ix,
+                    message,
+                    &parsed.account_plan,
+                    &lookup_locations,
+                    parser_registry,
+                    &program_id,
+                )
+            }
         } else {
             None
         };

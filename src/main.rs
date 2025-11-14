@@ -31,7 +31,7 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
     let mut parser_registry = ParserRegistry::new();
 
     // Load IDL parsers from specified path or default directory
-    let _idl_registry = match &args.idl_path {
+    let idl_registry = match &args.idl_path {
         Some(idl_path) => {
             log::info!("Loading IDLs from custom path: {}", idl_path.display());
             match instruction_parsers::load_idl_parsers_from_path(idl_path) {
@@ -118,6 +118,7 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
                     &parsed_tx,
                     &resolved_accounts,
                     &parser_registry,
+                    &idl_registry,
                     output,
                 )?;
             } else {
@@ -144,6 +145,7 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
                     executor.replacements(),
                     executor.fundings(),
                     &parser_registry,
+                    &idl_registry,
                     output,
                     verify_signatures,
                 )?;
@@ -160,7 +162,13 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
         account_loader.load_for_transaction(&parsed_tx.transaction, &replacements)?;
 
     if parse_only {
-        output::render_transaction_only(&parsed_tx, &resolved_accounts, &parser_registry, output)?;
+        output::render_transaction_only(
+            &parsed_tx,
+            &resolved_accounts,
+            &parser_registry,
+            &idl_registry,
+            output,
+        )?;
     } else {
         let mut executor = executor::TransactionExecutor::prepare(
             resolved_accounts,
@@ -185,6 +193,7 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
             executor.replacements(),
             executor.fundings(),
             &parser_registry,
+            &idl_registry,
             output,
             verify_signatures,
         )?;

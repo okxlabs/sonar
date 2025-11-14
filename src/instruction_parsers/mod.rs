@@ -210,5 +210,5 @@ pub use token2022_program::Token2022ProgramParser;
 mod associated_token_program;
 pub use associated_token_program::AssociatedTokenProgramParser;
 
-mod anchor_idl;
+pub mod anchor_idl;
 pub use anchor_idl::{IdlRegistry, create_parsers_from_idl_registry, load_idls_from_default_dir};

@@ -19,6 +19,8 @@ pub struct CompleteIdl {
     pub metadata: IdlMetadata,
     pub instructions: Vec<IdlInstruction>,
     pub types: Option<Vec<IdlTypeDefinition>>,
+    #[serde(default)]
+    pub events: Option<Vec<IdlEvent>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -36,6 +38,12 @@ pub struct IdlInstruction {
     pub discriminator: Vec<u8>,
     pub accounts: Vec<IdlAccountItem>,
     pub args: Vec<IdlArg>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IdlEvent {
+    pub name: String,
+    pub discriminator: Vec<u8>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -692,6 +700,111 @@ pub fn load_idls_from_default_dir() -> Result<IdlRegistry> {
     }
 
     Ok(registry)
+}
+
+/// Find an event by discriminator
+pub fn find_event_by_discriminator<'a>(
+    idl: &'a CompleteIdl,
+    discriminator: &[u8],
+) -> Option<&'a IdlEvent> {
+    if let Some(events) = &idl.events {
+        events.iter().find(|event| {
+            event.discriminator.len() == 8 && &event.discriminator[..8] == discriminator
+        })
+    } else {
+        None
+    }
+}
+
+const EMIT_CPI_DISCRIMINATOR: [u8; 8] = [0xe4, 0x45, 0xa5, 0x2e, 0x51, 0xcb, 0x9a, 0x1d];
+
+/// Check if an inner instruction is an Anchor CPI event
+pub fn is_anchor_cpi_event(instruction: &crate::transaction::InstructionSummary) -> bool {
+    if instruction.data.len() >= 16 {
+        // First 8 bytes: emit_cpi discriminator
+        // Next 8 bytes: event discriminator
+        &instruction.data[..8] == EMIT_CPI_DISCRIMINATOR
+    } else {
+        false
+    }
+}
+
+/// Parse an Anchor CPI event from instruction data
+pub fn parse_anchor_cpi_event(
+    instruction: &crate::transaction::InstructionSummary,
+    idl_registry: &IdlRegistry,
+    program_id: &Pubkey,
+) -> Result<Option<ParsedInstruction>> {
+    if instruction.data.len() < 16 {
+        return Ok(None);
+    }
+
+    // Check if this is an emit_cpi instruction
+    if &instruction.data[..8] != EMIT_CPI_DISCRIMINATOR {
+        return Ok(None);
+    }
+
+    // Get the event discriminator (bytes 8-15)
+    let event_discriminator = &instruction.data[8..16];
+
+    // Look up the IDL for this program
+    let Some(idl) = idl_registry.get(program_id) else {
+        return Ok(None);
+    };
+
+    // Find the event by discriminator
+    let Some(event_def) = find_event_by_discriminator(idl, event_discriminator) else {
+        return Ok(None);
+    };
+
+    // Find the corresponding type definition for the event data
+    let Some(type_def) = idl_registry.get_type(&event_def.name) else {
+        // Fallback: if no type definition, show raw data
+        let mut fields = Vec::new();
+        if instruction.data.len() > 16 {
+            let raw_data = &instruction.data[16..];
+            let raw_hex = hex::encode(raw_data).to_uppercase();
+            let preview =
+                if raw_hex.len() > 32 { format!("{}...", &raw_hex[..32]) } else { raw_hex };
+            fields.push(("raw_data".to_string(), format!("0x{}", preview)));
+        }
+        return Ok(Some(ParsedInstruction {
+            name: event_def.name.clone(),
+            fields,
+            account_names: vec![],
+        }));
+    };
+
+    // Parse the event data
+    let mut offset = 16; // Skip discriminators
+    let mut fields = Vec::new();
+
+    match &type_def.type_.fields {
+        Some(field_defs) => {
+            for field in field_defs {
+                if offset >= instruction.data.len() {
+                    break;
+                }
+
+                let (value, bytes_read) =
+                    parse_type(&instruction.data, &mut offset, &field.type_, idl_registry, idl)?;
+                fields.push((field.name.clone(), value));
+                offset += bytes_read;
+            }
+        }
+        None => {
+            // No fields defined
+            if offset < instruction.data.len() {
+                let raw_data = &instruction.data[offset..];
+                let raw_hex = hex::encode(raw_data).to_uppercase();
+                let preview =
+                    if raw_hex.len() > 32 { format!("{}...", &raw_hex[..32]) } else { raw_hex };
+                fields.push(("raw_data".to_string(), format!("0x{}", preview)));
+            }
+        }
+    }
+
+    Ok(Some(ParsedInstruction { name: event_def.name.clone(), fields, account_names: vec![] }))
 }
 
 /// Create parsers from an IDL registry
