@@ -202,14 +202,13 @@ impl IdlRegistry {
         self.inner.idls.get(program_id)
     }
 
-    /// Get a type definition by name only (for backward compatibility, prefer get_type_by_program)
-    pub fn get_type(&self, name: &str) -> Option<&IdlTypeDefinition> {
-        // Fallback to any type with this name (may not be the correct one)
-        self.inner
-            .types_by_program_and_name
-            .iter()
-            .find(|((_, type_name), _)| type_name == name)
-            .map(|(_, type_def)| type_def)
+    /// Get a type definition by program ID and name
+    pub fn get_type_by_program(
+        &self,
+        program_id: &Pubkey,
+        name: &str,
+    ) -> Option<&IdlTypeDefinition> {
+        self.inner.types_by_program_and_name.get(&(*program_id, name.to_string()))
     }
 }
 
@@ -583,16 +582,20 @@ fn parse_defined_type(
     registry: &IdlRegistry,
     idl: &CompleteIdl,
 ) -> Result<(String, usize)> {
-    // First check the registry (global types)
-    if let Some(type_def) = registry.get_type(&defined.name) {
-        return parse_type_definition(data, offset, type_def, registry, idl);
-    }
+    // Derive program_id from the IDL
+    let program_id = Pubkey::try_from(idl.address.as_str())
+        .map_err(|_| anyhow!("Invalid program ID in IDL: {}", idl.address))?;
 
-    // Then check the IDL's local types
+    // First check the IDL's local types (most specific)
     if let Some(types) = &idl.types {
         if let Some(type_def) = types.iter().find(|t| t.name == defined.name) {
             return parse_type_definition(data, offset, type_def, registry, idl);
         }
+    }
+
+    // Then check the registry for types from this specific program
+    if let Some(type_def) = registry.get_type_by_program(&program_id, &defined.name) {
+        return parse_type_definition(data, offset, type_def, registry, idl);
     }
 
     // Type not found, show hex
@@ -819,7 +822,9 @@ pub fn parse_anchor_cpi_event(
         None
     };
 
-    let Some(type_def) = type_def.or_else(|| idl_registry.get_type(&event_def.name)) else {
+    let Some(type_def) =
+        type_def.or_else(|| idl_registry.get_type_by_program(program_id, &event_def.name))
+    else {
         // Fallback: if no type definition, show raw data
         let mut fields = Vec::new();
         if instruction.data.len() > 16 {
