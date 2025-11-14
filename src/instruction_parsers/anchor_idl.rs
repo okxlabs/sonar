@@ -267,7 +267,8 @@ pub struct IdlRegistry {
 #[derive(Debug, Clone)]
 struct IdlRegistryInner {
     idls: HashMap<Pubkey, CompleteIdl>,
-    types_by_name: HashMap<String, IdlTypeDefinition>,
+    // Maps (program_id, type_name) to type definition to avoid conflicts between programs
+    types_by_program_and_name: HashMap<(Pubkey, String), IdlTypeDefinition>,
 }
 
 impl IdlRegistry {
@@ -275,7 +276,7 @@ impl IdlRegistry {
         Self {
             inner: Arc::new(IdlRegistryInner {
                 idls: HashMap::new(),
-                types_by_name: HashMap::new(),
+                types_by_program_and_name: HashMap::new(),
             }),
         }
     }
@@ -307,13 +308,13 @@ impl IdlRegistry {
             let pubkey = Pubkey::from_str(&idl.address)
                 .with_context(|| format!("Invalid program address in IDL: {}", idl.address))?;
 
-            // Index all type definitions by name for fast lookup
+            // Index all type definitions by (program_id, type_name) for fast lookup
             if let Some(types) = &idl.types {
                 for type_def in types {
                     Arc::get_mut(&mut self.inner)
                         .unwrap()
-                        .types_by_name
-                        .insert(type_def.name.clone(), type_def.clone());
+                        .types_by_program_and_name
+                        .insert((pubkey, type_def.name.clone()), type_def.clone());
                 }
             }
 
@@ -328,9 +329,23 @@ impl IdlRegistry {
         self.inner.idls.get(program_id)
     }
 
-    /// Get a type definition by name
+    /// Get a type definition by (program_id, type_name)
+    pub fn get_type_by_program(
+        &self,
+        program_id: &Pubkey,
+        name: &str,
+    ) -> Option<&IdlTypeDefinition> {
+        self.inner.types_by_program_and_name.get(&(*program_id, name.to_string()))
+    }
+
+    /// Get a type definition by name only (for backward compatibility, prefer get_type_by_program)
     pub fn get_type(&self, name: &str) -> Option<&IdlTypeDefinition> {
-        self.inner.types_by_name.get(name)
+        // Fallback to any type with this name (may not be the correct one)
+        self.inner
+            .types_by_program_and_name
+            .iter()
+            .find(|((_, type_name), _)| type_name == name)
+            .map(|(_, type_def)| type_def)
     }
 
     /// Check if an IDL exists for a program
@@ -957,7 +972,14 @@ pub fn parse_anchor_cpi_event(
     };
 
     // Find the corresponding type definition for the event data
-    let Some(type_def) = idl_registry.get_type(&event_def.name) else {
+    // First check this IDL's local types
+    let type_def = if let Some(types) = &idl.types {
+        types.iter().find(|t| t.name == event_def.name)
+    } else {
+        None
+    };
+
+    let Some(type_def) = type_def.or_else(|| idl_registry.get_type(&event_def.name)) else {
         // Fallback: if no type definition, show raw data
         let mut fields = Vec::new();
         if instruction.data.len() > 16 {
