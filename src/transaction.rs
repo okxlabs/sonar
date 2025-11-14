@@ -323,7 +323,7 @@ impl TransactionSummary {
 ///
 /// # Returns
 /// Returns account reference summary containing account source, pubkey, signer, and writable attributes
-pub fn classify_account_reference(
+pub(crate) fn classify_account_reference(
     message: &VersionedMessage,
     index: usize,
     plan: &MessageAccountPlan,

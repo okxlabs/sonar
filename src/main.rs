@@ -9,6 +9,8 @@ use anyhow::Result;
 use clap::Parser;
 use cli::{Cli, Commands, SimulateArgs, TransactionInputArgs};
 use instruction_parsers::ParserRegistry;
+use solana_pubkey::Pubkey;
+use std::str::FromStr;
 
 fn main() {
     if let Err(err) = run() {
@@ -27,48 +29,10 @@ fn run() -> Result<()> {
 }
 
 fn handle_simulate(args: SimulateArgs) -> Result<()> {
-    // Create parser registry and load IDL-based parsers
-    let mut parser_registry = ParserRegistry::new();
+        // Create parser registry with optional IDL directory path for lazy loading
+        let mut parser_registry = ParserRegistry::new(args.idl_path.clone());
 
-    // Load IDL parsers from specified path or default directory
-    let idl_registry = match &args.idl_path {
-        Some(idl_path) => {
-            log::info!("Loading IDLs from custom path: {}", idl_path.display());
-            match instruction_parsers::load_idl_parsers_from_path(idl_path) {
-                Ok(idl_registry) => {
-                    log::info!(
-                        "Loaded {} IDL files for instruction parsing",
-                        idl_registry.program_ids().len()
-                    );
-                    parser_registry.register_idl_parsers(&idl_registry);
-                    idl_registry
-                }
-                Err(err) => {
-                    log::warn!("Failed to load IDL parsers from custom path: {:?}", err);
-                    instruction_parsers::IdlRegistry::new()
-                }
-            }
-        }
-        None => {
-            // Load from default idl/ directory
-            match instruction_parsers::load_idl_parsers() {
-                Ok(idl_registry) => {
-                    log::info!(
-                        "Loaded {} IDL files for instruction parsing",
-                        idl_registry.program_ids().len()
-                    );
-                    parser_registry.register_idl_parsers(&idl_registry);
-                    idl_registry
-                }
-                Err(err) => {
-                    log::warn!("Failed to load IDL parsers from default directory: {:?}", err);
-                    instruction_parsers::IdlRegistry::new()
-                }
-            }
-        }
-    };
-
-    log::debug!("Registered parsers for {} programs", parser_registry.parser_count());
+        log::debug!("Created parser registry with lazy IDL loading support");
     let SimulateArgs {
         transaction,
         rpc_url,
@@ -109,6 +73,27 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
             let fetched_tx = transaction::fetch_transaction_from_rpc(&rpc_url, tx_str)?;
             let parsed_tx = transaction::parse_raw_transaction(&fetched_tx)?;
 
+            // Extract program IDs from the transaction for lazy IDL loading
+            let program_ids: Vec<Pubkey> = parsed_tx
+                .summary
+                .instructions
+                .iter()
+                .filter_map(|ix| {
+                    if let Some(pubkey_str) = &ix.program.pubkey {
+                        Pubkey::from_str(pubkey_str).ok()
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+
+            // Load IDL parsers for programs used in this transaction
+            match parser_registry.load_idl_parsers_for_programs(program_ids) {
+                Ok(count) if count > 0 => log::info!("Lazy-loaded {} IDL parsers", count),
+                Ok(_) => {}
+                Err(err) => log::warn!("Failed to load IDL parsers: {:?}", err),
+            }
+
             let account_loader = account_loader::AccountLoader::new(rpc_url)?;
             let resolved_accounts =
                 account_loader.load_for_transaction(&parsed_tx.transaction, &replacements)?;
@@ -117,8 +102,7 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
                 output::render_transaction_only(
                     &parsed_tx,
                     &resolved_accounts,
-                    &parser_registry,
-                    &idl_registry,
+                    &mut parser_registry,
                     output,
                 )?;
             } else {
@@ -144,8 +128,7 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
                     &simulation,
                     executor.replacements(),
                     executor.fundings(),
-                    &parser_registry,
-                    &idl_registry,
+                    &mut parser_registry,
                     output,
                     verify_signatures,
                 )?;
@@ -157,18 +140,22 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
     // If not a signature, parse as raw transaction
     let parsed_tx = transaction::parse_raw_transaction(&raw_input)?;
 
+    // Extract all program IDs (including from inner instructions) for lazy IDL loading
+    let program_ids = collect_all_program_ids(&parsed_tx);
+
+    // Load IDL parsers for all programs used in this transaction
+    match parser_registry.load_idl_parsers_for_programs(program_ids) {
+        Ok(count) if count > 0 => log::info!("Lazy-loaded {} IDL parsers", count),
+        Ok(_) => {}
+        Err(err) => log::warn!("Failed to load IDL parsers: {:?}", err),
+    }
+
     let account_loader = account_loader::AccountLoader::new(rpc_url)?;
     let resolved_accounts =
         account_loader.load_for_transaction(&parsed_tx.transaction, &replacements)?;
 
     if parse_only {
-        output::render_transaction_only(
-            &parsed_tx,
-            &resolved_accounts,
-            &parser_registry,
-            &idl_registry,
-            output,
-        )?;
+        output::render_transaction_only(&parsed_tx, &resolved_accounts, &mut parser_registry, output)?;
     } else {
         let mut executor = executor::TransactionExecutor::prepare(
             resolved_accounts,
@@ -192,11 +179,58 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
             &simulation,
             executor.replacements(),
             executor.fundings(),
-            &parser_registry,
-            &idl_registry,
+            &mut parser_registry,
             output,
             verify_signatures,
         )?;
     }
     Ok(())
+}
+
+/// Recursively collects all program IDs from instructions (including inner instructions)
+fn collect_all_program_ids(parsed_tx: &transaction::ParsedTransaction) -> Vec<Pubkey> {
+    let mut program_ids = Vec::new();
+    
+    // Collect from main instructions
+    for ix in &parsed_tx.summary.instructions {
+        if let Some(pubkey_str) = &ix.program.pubkey {
+            if let Ok(program_id) = Pubkey::from_str(pubkey_str) {
+                program_ids.push(program_id);
+            }
+        }
+    }
+    
+    // Collect from inner instructions recursively
+    let inner_program_ids = extract_program_ids_from_inner_instructions(&parsed_tx);
+    program_ids.extend(inner_program_ids);
+    
+    // Deduplicate while preserving order
+    let mut seen = std::collections::HashSet::new();
+    program_ids.into_iter().filter(|id| seen.insert(*id)).collect()
+}
+
+/// Collects all program IDs from inner instructions
+fn extract_program_ids_from_inner_instructions(parsed_tx: &transaction::ParsedTransaction) -> Vec<Pubkey> {
+    let mut program_ids = Vec::new();
+    let lookup_locations = transaction::build_lookup_locations(&parsed_tx.account_plan.address_lookups);
+    
+    for inner_ix_list in parsed_tx.summary.inner_instructions.iter() {
+        for inner_ix in inner_ix_list.iter() {
+            // Resolve the program ID index to an actual Pubkey like in output.rs
+            let ref_summary = transaction::classify_account_reference(
+                &parsed_tx.transaction.message,
+                inner_ix.instruction.program_id_index as usize,
+                &parsed_tx.account_plan,
+                &lookup_locations,
+            );
+            
+            if let Some(pubkey_str) = ref_summary.pubkey {
+                if let Ok(program_id) = Pubkey::from_str(&pubkey_str) {
+                    program_ids.push(program_id);
+                }
+            }
+        }
+    }
+    
+    program_ids
 }

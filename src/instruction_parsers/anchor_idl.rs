@@ -261,14 +261,14 @@ pub struct IdlEnumVariant {
 /// Registry for loading and managing IDL files
 #[derive(Debug, Clone)]
 pub struct IdlRegistry {
-    inner: Arc<IdlRegistryInner>,
+    pub(crate) inner: Arc<IdlRegistryInner>,
 }
 
 #[derive(Debug, Clone)]
-struct IdlRegistryInner {
-    idls: HashMap<Pubkey, CompleteIdl>,
+pub(crate) struct IdlRegistryInner {
+    pub(crate) idls: HashMap<Pubkey, CompleteIdl>,
     // Maps (program_id, type_name) to type definition to avoid conflicts between programs
-    types_by_program_and_name: HashMap<(Pubkey, String), IdlTypeDefinition>,
+    pub(crate) types_by_program_and_name: HashMap<(Pubkey, String), IdlTypeDefinition>,
 }
 
 impl IdlRegistry {
@@ -368,8 +368,8 @@ impl Default for IdlRegistry {
 /// Parser for Anchor programs using IDL data
 pub struct AnchorIdlParser {
     program_id: Pubkey,
-    idl: CompleteIdl,
-    registry: IdlRegistry,
+    pub(crate) idl: CompleteIdl,
+    pub(crate) registry: IdlRegistry,
 }
 
 impl AnchorIdlParser {
@@ -415,6 +415,10 @@ impl InstructionParser for AnchorIdlParser {
         } else {
             Ok(None)
         }
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
     }
 }
 
