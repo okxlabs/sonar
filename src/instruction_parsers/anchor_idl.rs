@@ -417,8 +417,12 @@ impl InstructionParser for AnchorIdlParser {
         }
     }
 
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
+    fn parse_cpi_event(
+        &self,
+        instruction: &InstructionSummary,
+        program_id: &Pubkey,
+    ) -> Result<Option<ParsedInstruction>> {
+        parse_anchor_cpi_event(instruction, &self.registry, program_id)
     }
 }
 

@@ -32,9 +32,13 @@ pub trait InstructionParser: Send + Sync {
         instruction: &InstructionSummary,
     ) -> Result<Option<ParsedInstruction>>;
 
-    /// Downcast to Any for type-specific operations
-    fn as_any(&self) -> &dyn std::any::Any {
-        panic!("as_any not implemented for this parser")
+    /// Attempt to parse a CPI event if this parser supports it
+    fn parse_cpi_event(
+        &self,
+        _instruction: &InstructionSummary,
+        _program_id: &Pubkey,
+    ) -> Result<Option<ParsedInstruction>> {
+        Ok(None) // Default: not supported
     }
 }
 
@@ -241,37 +245,19 @@ impl ParserRegistry {
             }
         }
 
-        // If we have an Anchor IDL parser, try to parse the CPI event
+        // If we have a parser, try to parse the CPI event using the trait method
         if let Some(parser) = self.parsers.get(program_id) {
-            // Check if this is an AnchorIdlParser by attempting to downcast
-            if let Some(anchor_parser) = parser
-                .as_any()
-                .downcast_ref::<crate::instruction_parsers::anchor_idl::AnchorIdlParser>(
-            ) {
-                log::debug!("Found Anchor IDL parser with IDL for CPI event: {}", program_id);
-                log::debug!(
-                    "IDL has {} events",
-                    anchor_parser.idl.events.as_ref().map(|e| e.len()).unwrap_or(0)
-                );
-                // Use the IDL from the parser to parse the CPI event
-                match anchor_idl::parse_anchor_cpi_event(
-                    instruction,
-                    &anchor_parser.registry, // Use the parser's registry
-                    program_id,
-                ) {
-                    Ok(Some(parsed)) => {
-                        log::debug!("Successfully parsed CPI event: {}", parsed.name);
-                        return Some(parsed);
-                    }
-                    Ok(None) => {
-                        log::debug!("parse_anchor_cpi_event returned None");
-                    }
-                    Err(e) => {
-                        log::debug!("parse_anchor_cpi_event returned error: {:?}", e);
-                    }
+            match parser.parse_cpi_event(instruction, program_id) {
+                Ok(Some(parsed)) => {
+                    log::debug!("Successfully parsed CPI event: {}", parsed.name);
+                    return Some(parsed);
                 }
-            } else {
-                log::debug!("Parser exists but couldn't downcast to AnchorIdlParser");
+                Ok(None) => {
+                    log::debug!("parse_cpi_event returned None");
+                }
+                Err(e) => {
+                    log::debug!("parse_cpi_event returned error: {:?}", e);
+                }
             }
         } else {
             log::debug!("No parser found for program: {}", program_id);
