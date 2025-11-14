@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::path::Path;
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -116,24 +115,6 @@ impl Default for ParserRegistry {
 }
 
 impl ParserRegistry {
-    /// Register IDL-based parsers from the IDL registry
-    pub fn register_idl_parsers(
-        &mut self,
-        idl_registry: &crate::instruction_parsers::anchor_idl::IdlRegistry,
-    ) {
-        let parsers =
-            crate::instruction_parsers::anchor_idl::create_parsers_from_idl_registry(idl_registry);
-        for parser in parsers {
-            let program_id = *parser.program_id();
-            self.parsers.insert(program_id, parser);
-        }
-    }
-
-    /// Get the number of registered parsers
-    pub fn parser_count(&self) -> usize {
-        self.parsers.len()
-    }
-
     /// Load IDL parser for a specific program ID if needed
     pub fn load_idl_parser_if_needed(&mut self, program_id: &Pubkey) -> Result<bool> {
         // If parser already exists, return early
@@ -164,9 +145,6 @@ impl ParserRegistry {
                 format!("Failed to parse IDL JSON: {}", idl_file_path.display())
             })?;
 
-        // Create parser from the IDL
-        // Also create an IDL registry to store this IDL for CPI event parsing
-        let mut idl_registry = crate::instruction_parsers::anchor_idl::IdlRegistry::new();
         // The IdlRegistry needs to be populated - use a temporary approach
         // by creating a wrapper that contains both the IDL and an empty registry
         let parser = Box::new(crate::instruction_parsers::anchor_idl::AnchorIdlParser::new(
@@ -174,11 +152,9 @@ impl ParserRegistry {
             idl_data.clone(), // Clone for the parser
             // Create a registry with just this IDL for event lookup
             {
-                let mut registry = crate::instruction_parsers::anchor_idl::IdlRegistry::new();
                 // We need to populate the registry with this IDL
                 // Since IdlRegistry doesn't have a simple insert method,
                 // we'll create a minimal one
-                use solana_pubkey::Pubkey;
                 use std::collections::HashMap;
                 use std::sync::Arc;
 
@@ -222,9 +198,9 @@ impl ParserRegistry {
         &mut self,
         instruction: &crate::transaction::InstructionSummary,
         program_id: &Pubkey,
-        message: &solana_message::VersionedMessage,
-        account_plan: &crate::transaction::MessageAccountPlan,
-        lookup_locations: &[crate::transaction::LookupLocation],
+        _message: &solana_message::VersionedMessage,
+        _account_plan: &crate::transaction::MessageAccountPlan,
+        _lookup_locations: &[crate::transaction::LookupLocation],
     ) -> Option<ParsedInstruction> {
         use crate::instruction_parsers::anchor_idl;
 
@@ -265,36 +241,6 @@ impl ParserRegistry {
 
         None
     }
-}
-
-/// Load IDL-based parsers from the default IDL directory
-pub fn load_idl_parsers() -> Result<IdlRegistry, anyhow::Error> {
-    use crate::instruction_parsers::anchor_idl;
-    let registry = anchor_idl::load_idls_from_default_dir()?;
-    Ok(registry)
-}
-
-/// Load IDL-based parsers from a specified directory
-pub fn load_idl_parsers_from_path(idl_path: &Path) -> Result<IdlRegistry, anyhow::Error> {
-    use crate::instruction_parsers::anchor_idl;
-    use anyhow::Context;
-    let mut registry = anchor_idl::IdlRegistry::new();
-
-    log::debug!(
-        "Looking for IDL directory at: {}",
-        idl_path.canonicalize().unwrap_or(idl_path.to_path_buf()).display()
-    );
-
-    if idl_path.exists() && idl_path.is_dir() {
-        log::info!("Loading IDLs from: {}", idl_path.display());
-        registry.load_idls(idl_path).with_context(|| {
-            format!("Failed to load IDLs from directory: {}", idl_path.display())
-        })?;
-    } else {
-        return Err(anyhow::anyhow!("IDL directory does not exist: {}", idl_path.display()));
-    }
-
-    Ok(registry)
 }
 
 #[cfg(test)]
@@ -354,4 +300,3 @@ mod associated_token_program;
 pub use associated_token_program::AssociatedTokenProgramParser;
 
 pub mod anchor_idl;
-pub use anchor_idl::IdlRegistry;

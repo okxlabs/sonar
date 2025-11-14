@@ -1,10 +1,7 @@
 use std::collections::HashMap;
-use std::fs;
-use std::path::{Path, PathBuf};
-use std::str::FromStr;
 use std::sync::Arc;
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Result, anyhow};
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use solana_pubkey::Pubkey;
@@ -131,93 +128,12 @@ pub struct IdlField {
     pub type_: IdlType,
 }
 
-/// Custom deserializer for IDL fields that handles both named and tuple struct formats
-fn deserialize_idl_fields<'de, D>(deserializer: D) -> Result<Option<IdlFields>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    use serde::de::Error;
-    let value = serde_json::Value::deserialize(deserializer)?;
-
-    match value {
-        serde_json::Value::Array(arr) => {
-            if arr.is_empty() {
-                Ok(Some(IdlFields::Tuple(Vec::new())))
-            } else if arr[0].get("name").is_some() {
-                // It's an array of objects with "name" field - this is a regular struct
-                match serde_json::from_value::<Vec<IdlField>>(serde_json::Value::Array(arr)) {
-                    Ok(fields) => Ok(Some(IdlFields::Named(fields))),
-                    Err(e) => Err(D::Error::custom(format!("Failed to parse named fields: {}", e))),
-                }
-            } else {
-                // It's an array of strings - this is a tuple struct
-                match serde_json::from_value::<Vec<String>>(serde_json::Value::Array(arr)) {
-                    Ok(types) => Ok(Some(IdlFields::Tuple(types))),
-                    Err(e) => Err(D::Error::custom(format!("Failed to parse tuple fields: {}", e))),
-                }
-            }
-        }
-        _ => Err(D::Error::custom("Fields must be an array")),
-    }
-}
-
 /// Custom deserializer for optional IDL fields that handles missing fields gracefully
 fn deserialize_optional_idl_fields<'de, D>(deserializer: D) -> Result<Option<IdlFields>, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
-    use serde::de::{Error, Visitor};
-
-    struct OptionalIdlFieldsVisitor;
-
-    impl<'de> Visitor<'de> for OptionalIdlFieldsVisitor {
-        type Value = Option<IdlFields>;
-
-        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-            formatter.write_str("an array of field definitions or null")
-        }
-
-        fn visit_none<E>(self) -> Result<Self::Value, E>
-        where
-            E: Error,
-        {
-            Ok(None)
-        }
-
-        fn visit_some<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
-        where
-            D: serde::Deserializer<'de>,
-        {
-            deserializer.deserialize_any(OptionalIdlFieldsVisitor)
-        }
-
-        fn visit_unit<E>(self) -> Result<Self::Value, E>
-        where
-            E: Error,
-        {
-            Ok(None)
-        }
-
-        fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
-        where
-            A: serde::de::SeqAccess<'de>,
-        {
-            // Just try to extract the array elements - this is a fallback
-            let mut arr = Vec::new();
-            while let Some(element) = seq.next_element::<serde_json::Value>()? {
-                arr.push(element);
-            }
-
-            deserialize_idl_fields_(serde_json::Value::Array(arr)).map_err(A::Error::custom)
-        }
-
-        fn visit_newtype_struct<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
-        where
-            D: serde::Deserializer<'de>,
-        {
-            deserializer.deserialize_any(OptionalIdlFieldsVisitor)
-        }
-    }
+    use serde::de::Error;
 
     // Actually, a simpler approach is to use Option::deserialize and handle the Some case
     let value = Option::<serde_json::Value>::deserialize(deserializer)?;
@@ -281,61 +197,9 @@ impl IdlRegistry {
         }
     }
 
-    /// Load all IDL files from a directory
-    pub fn load_idls(&mut self, dir: &Path) -> Result<()> {
-        if !dir.exists() {
-            return Err(anyhow!("IDL directory does not exist: {}", dir.display()));
-        }
-
-        if !dir.is_dir() {
-            return Err(anyhow!("IDL path is not a directory: {}", dir.display()));
-        }
-
-        for entry in fs::read_dir(dir).with_context(|| "Failed to read IDL directory")? {
-            let entry = entry.with_context(|| "Failed to read directory entry")?;
-            let path = entry.path();
-
-            if path.extension().and_then(|s| s.to_str()) != Some("json") {
-                continue;
-            }
-
-            let content = fs::read_to_string(&path)
-                .with_context(|| format!("Failed to read IDL file: {}", path.display()))?;
-
-            let idl: CompleteIdl = serde_json::from_str(&content)
-                .with_context(|| format!("Failed to parse IDL JSON: {}", path.display()))?;
-
-            let pubkey = Pubkey::from_str(&idl.address)
-                .with_context(|| format!("Invalid program address in IDL: {}", idl.address))?;
-
-            // Index all type definitions by (program_id, type_name) for fast lookup
-            if let Some(types) = &idl.types {
-                for type_def in types {
-                    Arc::get_mut(&mut self.inner)
-                        .unwrap()
-                        .types_by_program_and_name
-                        .insert((pubkey, type_def.name.clone()), type_def.clone());
-                }
-            }
-
-            Arc::get_mut(&mut self.inner).unwrap().idls.insert(pubkey, idl);
-        }
-
-        Ok(())
-    }
-
     /// Get an IDL by program ID
     pub fn get(&self, program_id: &Pubkey) -> Option<&CompleteIdl> {
         self.inner.idls.get(program_id)
-    }
-
-    /// Get a type definition by (program_id, type_name)
-    pub fn get_type_by_program(
-        &self,
-        program_id: &Pubkey,
-        name: &str,
-    ) -> Option<&IdlTypeDefinition> {
-        self.inner.types_by_program_and_name.get(&(*program_id, name.to_string()))
     }
 
     /// Get a type definition by name only (for backward compatibility, prefer get_type_by_program)
@@ -346,16 +210,6 @@ impl IdlRegistry {
             .iter()
             .find(|((_, type_name), _)| type_name == name)
             .map(|(_, type_def)| type_def)
-    }
-
-    /// Check if an IDL exists for a program
-    pub fn contains(&self, program_id: &Pubkey) -> bool {
-        self.inner.idls.contains_key(program_id)
-    }
-
-    /// Get all registered IDL program IDs
-    pub fn program_ids(&self) -> Vec<Pubkey> {
-        self.inner.idls.keys().cloned().collect()
     }
 }
 
@@ -902,28 +756,6 @@ fn check_data_len(data: &[u8], offset: usize, required: usize) -> Result<()> {
     }
 }
 
-/// Load IDL files from the default directory
-pub fn load_idls_from_default_dir() -> Result<IdlRegistry> {
-    let idl_dir = PathBuf::from("idl");
-    let mut registry = IdlRegistry::new();
-
-    log::debug!(
-        "Looking for IDL directory at: {}",
-        idl_dir.canonicalize().unwrap_or(idl_dir.clone()).display()
-    );
-
-    if idl_dir.exists() && idl_dir.is_dir() {
-        log::info!("Loading IDLs from: {}", idl_dir.display());
-        registry
-            .load_idls(&idl_dir)
-            .with_context(|| "Failed to load IDLs from default 'idl/' directory")?;
-    } else {
-        log::warn!("IDL directory does not exist at: {}", idl_dir.display());
-    }
-
-    Ok(registry)
-}
-
 /// Find an event by discriminator
 pub fn find_event_by_discriminator<'a>(
     idl: &'a CompleteIdl,
@@ -1047,18 +879,4 @@ pub fn parse_anchor_cpi_event(
     }
 
     Ok(Some(ParsedInstruction { name: event_def.name.clone(), fields, account_names: vec![] }))
-}
-
-/// Create parsers from an IDL registry
-pub fn create_parsers_from_idl_registry(registry: &IdlRegistry) -> Vec<Box<dyn InstructionParser>> {
-    let mut parsers: Vec<Box<dyn InstructionParser>> = Vec::new();
-
-    for program_id in registry.program_ids() {
-        if let Some(idl) = registry.get(&program_id) {
-            let parser = AnchorIdlParser::new(program_id, idl.clone(), registry.clone());
-            parsers.push(Box::new(parser) as Box<dyn InstructionParser>);
-        }
-    }
-
-    parsers
 }
