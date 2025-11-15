@@ -480,6 +480,22 @@ fn parse_simple_type(data: &[u8], offset: &usize, type_name: &str) -> Result<(St
             let value = String::from_utf8_lossy(string_data);
             Ok((value.to_string(), 4 + length))
         }
+        "bytes" => {
+            // Bytes: 4-byte length + data
+            check_data_len(data, start, 4)?;
+            let length = u32::from_le_bytes([
+                data[start],
+                data[start + 1],
+                data[start + 2],
+                data[start + 3],
+            ]) as usize;
+            let content_start = start + 4;
+            check_data_len(data, content_start, length)?;
+            let bytes_data = &data[content_start..content_start + length];
+            let decimal_array =
+                bytes_data.iter().map(|b| b.to_string()).collect::<Vec<_>>().join(", ");
+            Ok((format!("[{}]", decimal_array), 4 + length))
+        }
         _ => {
             // Unknown type
             let hex_len = (data.len() - start).min(32);

@@ -90,10 +90,17 @@ impl ParserRegistry {
     /// Attempts to parse an instruction using the parser registered for the given program ID
     /// Returns the parsed instruction if successful, None otherwise
     pub fn parse_instruction(
-        &self,
+        &mut self,
         instruction: &InstructionSummary,
         program_id: &Pubkey,
     ) -> Option<ParsedInstruction> {
+        // Try to load IDL parser if we don't have one registered
+        if !self.parsers.contains_key(program_id) {
+            if let Err(err) = self.load_idl_parser_if_needed(program_id) {
+                log::debug!("Failed to load IDL parser for {}: {}", program_id, err);
+            }
+        }
+
         if let Some(parser) = self.parsers.get(program_id) {
             match parser.parse_instruction(instruction) {
                 Ok(parsed) => parsed,
