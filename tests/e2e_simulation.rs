@@ -1,4 +1,4 @@
-use assert_cmd::Command;
+use assert_cmd::cargo::cargo_bin_cmd;
 
 const V0_RAW_TX: &str = "GPdrKqMbYtzsysuEJhYG4bpUB9xQFpdQ8ps9s8XorbfD5SA5FrFfMAL2oznLNP9Ah4wXPe6Y9BVkAXM7Gw47whMxuK5TCKvpKtkyDEiuYfaRZCmv1mk5u16HvPzQqXGHzmf3iFUraHA2yEghbqaJsUW27PmXWvs2xPhK1WtFBvF4PNxtFBNa7sGwHZPmT88zk5pwpVnseAu48HhDvY6Nj7qjTzRAAFczubznScT4aT1m5CNyYjVwYjR5iqc7PrpTzyAxevb1Zk1ndXgHfwnQAhZfKfV712i5z352Jbf96WdQFGva3f22NGSVWtSFjp6agEBDTvWVUa3Db4WvArURczERDymqEEhX5EfMSZTUYenfgRXL2kgjWoXkuFaDyumgapdyqzQFixL4aJZCEDp6yfq7V5g2WYqwqNXHBsKbfpTfqKsqCV1niunXSZfGTTRgXjFWXuQNbtLrbd9TTJmUhsTMJuPzhohT89yX292vmUDGvHv3YqkJGynKcEGT6cPrB6ayWiBGybsJ2fUiax7QFPKT1hscSm5HDJPV3HmrC3DyHQAWq6hrPzGMeUcEBfSEtkvPFtNe9kpw4N9x2bJwuiGRgHbVmzDnRGMdXpu9KWigYb3uebLTFLUDeDq1CfD377AzdxBkBJQkdQ3peTjAz1kW3pEQQLiE57p16Wf8oUgxCveHpGr73RCoveDsjeF7puENGkM2aFkmKLBRvW3yJHL9mCP6ZkuScMy9VCWkh554yEs72DEZU25Upj7RAAhc7zG7iWyP6m2gZg6gGZ5hqjrCasQXUjJkaPT4LgBeLS9W5scn7QA51QMZi95DgAvD9mQeSFixnFofpqNDTNWVnisoQQ2eAEPVwKC1sfKjBdMgrMJKG1JjzDM7DWRzR7xPYSyjPfHXHx5aZJ8LdyYjYXjS6dViihtH3sNebZzqLdDzERDEe6bAFAkB5tGcRdqF1kcdPN3HNeRgeA7xvJg5r3kaDkAQQ9yjZV2stexZ1eDa4KiRwBY3MsgujEntBT992CrU4uAtHKkSXUbusXHMjbx9Dn57HD9GEdzAnDq53Gmmz7xU2qKZ3hKhLZg3ZtYVTeAysqUSfZTRPp87VjdyrG2Msk32ufPdQbAZ2x9FYbUCPpRvLMPsNhDe5D4fMt9X63bQTsk9VQNx39j5Mo6NkYvcKmKiz3pb5J19bHnnSKixEKa89typqcbNFunudMMmAAT3egyok3WRCqwC83EwNBWwrdm5zs1mRefEDu77arj7E";
 
@@ -7,7 +7,7 @@ const V0_RAW_TX: &str = "GPdrKqMbYtzsysuEJhYG4bpUB9xQFpdQ8ps9s8XorbfD5SA5FrFfMAL
 #[test]
 #[ignore]
 fn simulate_real_transaction_via_cli() -> Result<(), Box<dyn std::error::Error>> {
-    let mut cmd = Command::cargo_bin("solsim")?;
+    let mut cmd = cargo_bin_cmd!("solsim");
     cmd.arg("simulate")
         .arg("--tx")
         .arg(V0_RAW_TX)
@@ -31,7 +31,7 @@ fn simulate_real_transaction_via_cli() -> Result<(), Box<dyn std::error::Error>>
 #[test]
 #[ignore]
 fn parse_real_transaction_via_cli() -> Result<(), Box<dyn std::error::Error>> {
-    let mut cmd = Command::cargo_bin("solsim")?;
+    let mut cmd = cargo_bin_cmd!("solsim");
     cmd.arg("simulate")
         .arg("--tx")
         .arg(V0_RAW_TX)
@@ -54,7 +54,7 @@ fn parse_real_transaction_via_cli() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 #[ignore]
 fn simulate_real_transaction_replace_multiple_program() -> Result<(), Box<dyn std::error::Error>> {
-    let mut cmd = Command::cargo_bin("solsim")?;
+    let mut cmd = cargo_bin_cmd!("solsim");
     cmd.arg("simulate")
         .arg("--tx")
         .arg(V0_RAW_TX)
