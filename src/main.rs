@@ -28,15 +28,8 @@ fn run() -> Result<()> {
 }
 
 fn handle_simulate(args: SimulateArgs) -> Result<()> {
-    // Create parser registry with optional IDL directory path for lazy loading
-    // Default to "idl" directory if it exists
-    let idl_path = if args.idl_path.is_some() {
-        args.idl_path.clone()
-    } else if std::path::Path::new("idl").exists() {
-        Some(std::path::PathBuf::from("idl"))
-    } else {
-        None
-    };
+    // Only attempt IDL-based parsing when the user explicitly supplies a directory
+    let idl_path = args.idl_path.clone();
     let mut parser_registry = ParserRegistry::new(idl_path);
 
     log::debug!("Created parser registry with lazy IDL loading support");

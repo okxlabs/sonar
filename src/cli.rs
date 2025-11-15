@@ -43,7 +43,7 @@ pub struct SimulateArgs {
     /// Verify transaction signatures during simulation
     #[arg(long = "check-sig")]
     pub verify_signatures: bool,
-    /// Path to directory containing IDL files (JSON format)
+    /// Directory containing Anchor IDLs; omit to disable IDL parsing
     #[arg(long = "idl-path", value_name = "PATH")]
     pub idl_path: Option<PathBuf>,
 }
