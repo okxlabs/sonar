@@ -39,6 +39,7 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
         replacements: replacement_args,
         fundings: funding_args,
         parse_only,
+        ix_data,
         verify_signatures,
         idl_path: _,
     } = args;
@@ -93,6 +94,7 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
                     &resolved_accounts,
                     &mut parser_registry,
                     output,
+                    ix_data,
                 )?;
             } else {
                 let mut executor = executor::TransactionExecutor::prepare(
@@ -119,6 +121,7 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
                     executor.fundings(),
                     &mut parser_registry,
                     output,
+                    ix_data,
                     verify_signatures,
                 )?;
             }
@@ -149,6 +152,7 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
             &resolved_accounts,
             &mut parser_registry,
             output,
+            ix_data,
         )?;
     } else {
         let mut executor = executor::TransactionExecutor::prepare(
@@ -175,6 +179,7 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
             executor.fundings(),
             &mut parser_registry,
             output,
+            ix_data,
             verify_signatures,
         )?;
     }

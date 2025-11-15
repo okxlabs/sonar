@@ -40,6 +40,9 @@ pub struct SimulateArgs {
     /// Parse transaction only, skip simulation
     #[arg(long = "parse-only")]
     pub parse_only: bool,
+    /// Always print raw instruction data, even when parser succeeds
+    #[arg(long = "ix-data")]
+    pub ix_data: bool,
     /// Verify transaction signatures during simulation
     #[arg(long = "check-sig")]
     pub verify_signatures: bool,

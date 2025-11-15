@@ -27,6 +27,7 @@ pub fn render(
     fundings: &[Funding],
     parser_registry: &mut ParserRegistry,
     format: OutputFormat,
+    show_ix_data: bool,
     verify_signatures: bool,
 ) -> Result<()> {
     let report = Report::from_sources(
@@ -39,7 +40,7 @@ pub fn render(
         verify_signatures,
     );
     match format {
-        OutputFormat::Text => render_text(&report, resolved, parser_registry),
+        OutputFormat::Text => render_text(&report, resolved, parser_registry, show_ix_data),
         OutputFormat::Json => render_json(&report),
     }
 }
@@ -49,13 +50,14 @@ pub fn render_transaction_only(
     resolved: &ResolvedAccounts,
     parser_registry: &mut ParserRegistry,
     format: OutputFormat,
+    show_ix_data: bool,
 ) -> Result<()> {
     let resolver = LookupResolver::new(resolved.lookup_details());
     let transaction =
         TransactionSection::from_sources(parsed, resolved, &resolver, parser_registry, false);
     match format {
         OutputFormat::Text => {
-            render_transaction_section_text(&transaction, resolved, parser_registry);
+            render_transaction_section_text(&transaction, resolved, parser_registry, show_ix_data);
             Ok(())
         }
         OutputFormat::Json => {
@@ -70,8 +72,9 @@ fn render_text(
     report: &Report,
     resolved: &ResolvedAccounts,
     parser_registry: &mut ParserRegistry,
+    show_ix_data: bool,
 ) -> Result<()> {
-    render_transaction_section_text(&report.transaction, resolved, parser_registry);
+    render_transaction_section_text(&report.transaction, resolved, parser_registry, show_ix_data);
     render_fundings_text(&report.fundings);
     render_replacements_text(&report.replacements);
     render_simulation_text(&report.simulation);
@@ -82,11 +85,12 @@ fn render_transaction_section_text(
     transaction: &TransactionSection,
     resolved: &ResolvedAccounts,
     _parser_registry: &mut ParserRegistry,
+    show_ix_data: bool,
 ) {
     render_transaction_overview_text(transaction);
     render_lookup_tables_text(transaction);
     render_account_list_text(transaction, resolved);
-    render_instruction_details_text(transaction, resolved);
+    render_instruction_details_text(transaction, resolved, show_ix_data);
 }
 
 fn render_transaction_overview_text(transaction: &TransactionSection) {
@@ -162,7 +166,11 @@ fn render_account_entry_text(
     index + 1
 }
 
-fn render_instruction_details_text(transaction: &TransactionSection, resolved: &ResolvedAccounts) {
+fn render_instruction_details_text(
+    transaction: &TransactionSection,
+    resolved: &ResolvedAccounts,
+    show_ix_data: bool,
+) {
     println!("\nInstruction Details:");
     for ix in &transaction.instructions {
         let program_pubkey_with_link = format_solscan_link(&ix.program.pubkey);
@@ -188,8 +196,10 @@ fn render_instruction_details_text(transaction: &TransactionSection, resolved: &
                 render_instruction_account_text_with_name(account, resolved, &account_name);
             }
 
-            // Display raw instruction data first
-            println!("     🔢 0x{} | {} byte(s)", hex::encode(&ix.data), ix.data.len());
+            // Display raw instruction data only when requested
+            if show_ix_data {
+                println!("     🔢 0x{} | {} byte(s)", hex::encode(&ix.data), ix.data.len());
+            }
 
             // Then render parsed fields as formatted JSON, preserving original order
             render_parsed_fields(&parsed.fields);
@@ -228,12 +238,14 @@ fn render_instruction_details_text(transaction: &TransactionSection, resolved: &
                         render_instruction_account_text_with_name(account, resolved, &account_name);
                     }
 
-                    // Display raw instruction data first
-                    println!(
-                        "     🔢 0x{} | {} byte(s)",
-                        hex::encode(&inner_ix.data),
-                        inner_ix.data.len()
-                    );
+                    // Display raw instruction data only when requested
+                    if show_ix_data {
+                        println!(
+                            "     🔢 0x{} | {} byte(s)",
+                            hex::encode(&inner_ix.data),
+                            inner_ix.data.len()
+                        );
+                    }
 
                     // Then render parsed fields as formatted JSON, preserving original order
                     render_parsed_fields(&parsed_inner.fields);
