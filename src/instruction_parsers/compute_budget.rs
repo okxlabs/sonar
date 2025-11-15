@@ -1,7 +1,7 @@
 use anyhow::Result;
 use solana_pubkey::Pubkey;
 
-use super::{InstructionParser, ParsedInstruction};
+use super::{InstructionParser, ParsedField, ParsedInstruction};
 use crate::transaction::InstructionSummary;
 
 /// Parser for Compute Budget program instructions
@@ -66,8 +66,8 @@ fn parse_request_units_deprecated(
     Ok(Some(ParsedInstruction {
         name: "RequestUnitsDeprecated".to_string(),
         fields: vec![
-            ("units".to_string(), units.to_string()),
-            ("additional_fee".to_string(), additional_fee.to_string()),
+            ParsedField::text("units", units.to_string()),
+            ParsedField::text("additional_fee", additional_fee.to_string()),
         ],
         account_names: vec![],
     }))
@@ -87,7 +87,7 @@ fn parse_request_heap_frame(
 
     Ok(Some(ParsedInstruction {
         name: "RequestHeapFrame".to_string(),
-        fields: vec![("bytes".to_string(), bytes.to_string())],
+        fields: vec![ParsedField::text("bytes", bytes.to_string())],
         account_names: vec![],
     }))
 }
@@ -106,7 +106,7 @@ fn parse_set_compute_unit_limit(
 
     Ok(Some(ParsedInstruction {
         name: "SetComputeUnitLimit".to_string(),
-        fields: vec![("units".to_string(), units.to_string())],
+        fields: vec![ParsedField::text("units", units.to_string())],
         account_names: vec![],
     }))
 }
@@ -127,7 +127,7 @@ fn parse_set_compute_unit_price(
 
     Ok(Some(ParsedInstruction {
         name: "SetComputeUnitPrice".to_string(),
-        fields: vec![("micro_lamports".to_string(), micro_lamports.to_string())],
+        fields: vec![ParsedField::text("micro_lamports", micro_lamports.to_string())],
         account_names: vec![],
     }))
 }
@@ -167,7 +167,7 @@ mod tests {
         let parsed = result.unwrap();
         assert_eq!(parsed.name, "SetComputeUnitLimit");
 
-        assert!(parsed.fields.iter().any(|(k, v)| k == "units" && v == "500000"));
+        assert!(parsed.fields.iter().any(|field| field.name == "units" && field.value == "500000"));
     }
 
     #[test]
@@ -185,7 +185,12 @@ mod tests {
         let parsed = result.unwrap();
         assert_eq!(parsed.name, "SetComputeUnitPrice");
 
-        assert!(parsed.fields.iter().any(|(k, v)| k == "micro_lamports" && v == "1500000"));
+        assert!(
+            parsed
+                .fields
+                .iter()
+                .any(|field| field.name == "micro_lamports" && field.value == "1500000")
+        );
     }
 
     #[test]
@@ -203,7 +208,7 @@ mod tests {
         let parsed = result.unwrap();
         assert_eq!(parsed.name, "RequestHeapFrame");
 
-        assert!(parsed.fields.iter().any(|(k, v)| k == "bytes" && v == "32768"));
+        assert!(parsed.fields.iter().any(|field| field.name == "bytes" && field.value == "32768"));
     }
 
     #[test]
@@ -222,8 +227,10 @@ mod tests {
         let parsed = result.unwrap();
         assert_eq!(parsed.name, "RequestUnitsDeprecated");
 
-        assert!(parsed.fields.iter().any(|(k, v)| k == "units" && v == "300000"));
-        assert!(parsed.fields.iter().any(|(k, v)| k == "additional_fee" && v == "0"));
+        assert!(parsed.fields.iter().any(|field| field.name == "units" && field.value == "300000"));
+        assert!(
+            parsed.fields.iter().any(|field| field.name == "additional_fee" && field.value == "0")
+        );
     }
 
     #[test]

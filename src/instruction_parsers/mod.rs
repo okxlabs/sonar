@@ -1,20 +1,134 @@
 use std::collections::HashMap;
 
 use anyhow::{Context, Result};
-use serde::{Deserialize, Serialize};
+use serde::{Serialize, Serializer, ser::SerializeMap, ser::SerializeSeq};
+use serde_json::Number as JsonNumber;
 use solana_pubkey::Pubkey;
 
 use crate::transaction::InstructionSummary;
 
 /// Represents a parsed instruction with human-readable data and account names
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct ParsedInstruction {
     /// The instruction name (e.g., "Transfer", "CreateAccount")
     pub name: String,
-    /// Vector of (field_name, field_value) pairs for display
-    pub fields: Vec<(String, String)>,
+    /// Vector of parsed fields preserving order
+    pub fields: Vec<ParsedField>,
     /// Human-readable names for each account in the instruction
     pub account_names: Vec<String>,
+}
+
+/// Ordered parsed field entry
+#[derive(Debug, Clone, Serialize)]
+pub struct ParsedField {
+    pub name: String,
+    pub value: ParsedFieldValue,
+}
+
+impl ParsedField {
+    pub fn text(name: impl Into<String>, value: impl Into<String>) -> Self {
+        Self { name: name.into(), value: ParsedFieldValue::Text(value.into()) }
+    }
+
+    pub fn json(name: impl Into<String>, value: OrderedJsonValue) -> Self {
+        Self { name: name.into(), value: ParsedFieldValue::Json(value) }
+    }
+}
+
+impl<N, V> From<(N, V)> for ParsedField
+where
+    N: Into<String>,
+    V: Into<String>,
+{
+    fn from((name, value): (N, V)) -> Self {
+        ParsedField::text(name, value)
+    }
+}
+
+/// Parsed field value, either plain text or structured JSON
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(untagged)]
+pub enum ParsedFieldValue {
+    Text(String),
+    Json(OrderedJsonValue),
+}
+
+impl From<String> for ParsedFieldValue {
+    fn from(value: String) -> Self {
+        ParsedFieldValue::Text(value)
+    }
+}
+
+impl From<&str> for ParsedFieldValue {
+    fn from(value: &str) -> Self {
+        ParsedFieldValue::Text(value.to_string())
+    }
+}
+
+impl PartialEq<&str> for ParsedFieldValue {
+    fn eq(&self, other: &&str) -> bool {
+        match self {
+            ParsedFieldValue::Text(text) => text == *other,
+            ParsedFieldValue::Json(_) => false,
+        }
+    }
+}
+
+impl PartialEq<String> for ParsedFieldValue {
+    fn eq(&self, other: &String) -> bool {
+        match self {
+            ParsedFieldValue::Text(text) => text == other,
+            ParsedFieldValue::Json(_) => false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum OrderedJsonValue {
+    Null,
+    Bool(bool),
+    Number(JsonNumber),
+    String(String),
+    Array(Vec<OrderedJsonValue>),
+    Object(Vec<(String, OrderedJsonValue)>),
+}
+
+impl Serialize for OrderedJsonValue {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match self {
+            OrderedJsonValue::Null => serializer.serialize_unit(),
+            OrderedJsonValue::Bool(value) => serializer.serialize_bool(*value),
+            OrderedJsonValue::Number(num) => {
+                if let Some(value) = num.as_i64() {
+                    serializer.serialize_i64(value)
+                } else if let Some(value) = num.as_u64() {
+                    serializer.serialize_u64(value)
+                } else if let Some(value) = num.as_f64() {
+                    serializer.serialize_f64(value)
+                } else {
+                    serializer.serialize_str(&num.to_string())
+                }
+            }
+            OrderedJsonValue::String(value) => serializer.serialize_str(value),
+            OrderedJsonValue::Array(values) => {
+                let mut seq = serializer.serialize_seq(Some(values.len()))?;
+                for value in values {
+                    seq.serialize_element(value)?;
+                }
+                seq.end()
+            }
+            OrderedJsonValue::Object(entries) => {
+                let mut map = serializer.serialize_map(Some(entries.len()))?;
+                for (key, value) in entries {
+                    map.serialize_entry(key, value)?;
+                }
+                map.end()
+            }
+        }
+    }
 }
 
 /// Trait for parsing instructions of specific Solana programs

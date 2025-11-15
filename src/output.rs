@@ -14,7 +14,7 @@ use crate::{
     cli::{Funding, OutputFormat, ProgramReplacement},
     executor::{ExecutionStatus, SimulationResult},
     instruction_parsers::anchor_idl::is_anchor_cpi_event,
-    instruction_parsers::{ParsedInstruction, ParserRegistry},
+    instruction_parsers::{ParsedField, ParsedInstruction, ParserRegistry},
     transaction::{AccountReferenceSummary, AccountSourceSummary, ParsedTransaction},
 };
 use litesvm::types::TransactionMetadata;
@@ -192,18 +192,7 @@ fn render_instruction_details_text(transaction: &TransactionSection, resolved: &
             println!("     🔢 0x{} | {} byte(s)", hex::encode(&ix.data), ix.data.len());
 
             // Then render parsed fields as formatted JSON, preserving original order
-            if !parsed.fields.is_empty() {
-                println!("       {{");
-                for (idx, (field_name, field_value)) in parsed.fields.iter().enumerate() {
-                    // Format as JSON key-value pair with proper indentation (9 spaces total: 7 + 2)
-                    let is_last = idx == parsed.fields.len() - 1;
-                    let comma = if is_last { "" } else { "," };
-                    let formatted_line =
-                        format!("         \"{}\": \"{}\"{}", field_name, field_value, comma);
-                    println!("{}", formatted_line.custom_color((255, 255, 224)));
-                }
-                println!("       }}");
-            }
+            render_parsed_fields(&parsed.fields);
         } else {
             println!(
                 "  #{} {}",
@@ -247,22 +236,7 @@ fn render_instruction_details_text(transaction: &TransactionSection, resolved: &
                     );
 
                     // Then render parsed fields as formatted JSON, preserving original order
-                    if !parsed_inner.fields.is_empty() {
-                        println!("       {{");
-                        for (idx, (field_name, field_value)) in
-                            parsed_inner.fields.iter().enumerate()
-                        {
-                            // Format as JSON key-value pair with proper indentation (9 spaces total: 7 + 2)
-                            let is_last = idx == parsed_inner.fields.len() - 1;
-                            let comma = if is_last { "" } else { "," };
-                            let formatted_line = format!(
-                                "         \"{}\": \"{}\"{}",
-                                field_name, field_value, comma
-                            );
-                            println!("{}", formatted_line.custom_color((255, 255, 224)));
-                        }
-                        println!("       }}");
-                    }
+                    render_parsed_fields(&parsed_inner.fields);
                 } else {
                     println!(
                         "    {} {}",
@@ -922,5 +896,35 @@ fn account_privilege_emoji(signer: bool, writable: bool, executable: bool) -> &'
             (false, true) => "📜",
             (false, false) => "🔒",
         }
+    }
+}
+
+fn render_parsed_fields(fields: &[ParsedField]) {
+    if fields.is_empty() {
+        return;
+    }
+
+    struct OrderedFields<'a>(&'a [ParsedField]);
+
+    impl Serialize for OrderedFields<'_> {
+        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: serde::Serializer,
+        {
+            use serde::ser::SerializeMap;
+
+            let mut map = serializer.serialize_map(Some(self.0.len()))?;
+            for field in self.0 {
+                map.serialize_entry(&field.name, &field.value)?;
+            }
+            map.end()
+        }
+    }
+
+    let ordered = OrderedFields(fields);
+    let pretty = serde_json::to_string_pretty(&ordered).unwrap_or_else(|_| "{}".to_string());
+
+    for line in pretty.lines() {
+        println!("{}", format!("       {}", line).custom_color((255, 255, 224)));
     }
 }

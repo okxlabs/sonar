@@ -1,7 +1,7 @@
 use anyhow::Result;
 use solana_pubkey::Pubkey;
 
-use super::{InstructionParser, ParsedInstruction};
+use super::{InstructionParser, ParsedField, ParsedInstruction};
 use crate::transaction::InstructionSummary;
 
 /// SPL Token program ID: TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA
@@ -140,7 +140,7 @@ fn parse_transfer_instruction(
 
     Ok(Some(ParsedInstruction {
         name: "Transfer".to_string(),
-        fields: vec![("amount".to_string(), amount.to_string())],
+        fields: vec![ParsedField::text("amount", amount.to_string())],
         account_names: vec!["source".to_string(), "destination".to_string(), "owner".to_string()],
     }))
 }
@@ -188,8 +188,8 @@ fn parse_transfer_checked_instruction(
     Ok(Some(ParsedInstruction {
         name: "TransferChecked".to_string(),
         fields: vec![
-            ("amount".to_string(), amount.to_string()),
-            ("decimals".to_string(), decimals.to_string()),
+            ParsedField::text("amount", amount.to_string()),
+            ParsedField::text("decimals", decimals.to_string()),
         ],
         account_names,
     }))
@@ -211,12 +211,12 @@ fn parse_initialize_mint_instruction(
 
     // For now, we just parse the basic fields without going into the optional authorities
     // The actual parsing would need to handle variable-length data based on optional flags
-    let mut fields = vec![("decimals".to_string(), decimals.to_string())];
+    let mut fields = vec![ParsedField::text("decimals", decimals.to_string())];
 
     // Check for mint authority (4 bytes + 32 bytes = 36 bytes minimum)
     if data.len() >= 36 {
         let has_freeze_authority = data[35] != 0;
-        fields.push(("has_freeze_authority".to_string(), has_freeze_authority.to_string()));
+        fields.push(ParsedField::text("has_freeze_authority", has_freeze_authority.to_string()));
     }
 
     Ok(Some(ParsedInstruction {
@@ -276,7 +276,7 @@ fn parse_initialize_multisig_instruction(
 
     Ok(Some(ParsedInstruction {
         name: "InitializeMultisig".to_string(),
-        fields: vec![("m".to_string(), m.to_string())],
+        fields: vec![ParsedField::text("m", m.to_string())],
         account_names,
     }))
 }
@@ -303,7 +303,7 @@ fn parse_approve_instruction(
 
     Ok(Some(ParsedInstruction {
         name: "Approve".to_string(),
-        fields: vec![("amount".to_string(), amount.to_string())],
+        fields: vec![ParsedField::text("amount", amount.to_string())],
         account_names: vec!["source".to_string(), "delegate".to_string(), "owner".to_string()],
     }))
 }
@@ -347,13 +347,13 @@ fn parse_set_authority_instruction(
         _ => "Unknown",
     };
 
-    let mut fields = vec![("authority_type".to_string(), authority_type.to_string())];
+    let mut fields = vec![ParsedField::text("authority_type", authority_type.to_string())];
 
     // Check if new authority is present
     if data.len() > 1 && data[1] != 0 {
-        fields.push(("cleared".to_string(), "false".to_string()));
+        fields.push(ParsedField::text("cleared", "false"));
     } else {
-        fields.push(("cleared".to_string(), "true".to_string()));
+        fields.push(ParsedField::text("cleared", "true"));
     }
 
     Ok(Some(ParsedInstruction {
@@ -385,7 +385,7 @@ fn parse_mint_to_instruction(
 
     Ok(Some(ParsedInstruction {
         name: "MintTo".to_string(),
-        fields: vec![("amount".to_string(), amount.to_string())],
+        fields: vec![ParsedField::text("amount", amount.to_string())],
         account_names: vec!["mint".to_string(), "account".to_string(), "owner".to_string()],
     }))
 }
@@ -412,7 +412,7 @@ fn parse_burn_instruction(
 
     Ok(Some(ParsedInstruction {
         name: "Burn".to_string(),
-        fields: vec![("amount".to_string(), amount.to_string())],
+        fields: vec![ParsedField::text("amount", amount.to_string())],
         account_names: vec!["account".to_string(), "mint".to_string(), "owner".to_string()],
     }))
 }
@@ -517,8 +517,8 @@ fn parse_approve_checked_instruction(
     Ok(Some(ParsedInstruction {
         name: "ApproveChecked".to_string(),
         fields: vec![
-            ("amount".to_string(), amount.to_string()),
-            ("decimals".to_string(), decimals.to_string()),
+            ParsedField::text("amount", amount.to_string()),
+            ParsedField::text("decimals", decimals.to_string()),
         ],
         account_names,
     }))
@@ -548,8 +548,8 @@ fn parse_mint_to_checked_instruction(
     Ok(Some(ParsedInstruction {
         name: "MintToChecked".to_string(),
         fields: vec![
-            ("amount".to_string(), amount.to_string()),
-            ("decimals".to_string(), decimals.to_string()),
+            ParsedField::text("amount", amount.to_string()),
+            ParsedField::text("decimals", decimals.to_string()),
         ],
         account_names: vec!["mint".to_string(), "account".to_string(), "owner".to_string()],
     }))
@@ -579,8 +579,8 @@ fn parse_burn_checked_instruction(
     Ok(Some(ParsedInstruction {
         name: "BurnChecked".to_string(),
         fields: vec![
-            ("amount".to_string(), amount.to_string()),
-            ("decimals".to_string(), decimals.to_string()),
+            ParsedField::text("amount", amount.to_string()),
+            ParsedField::text("decimals", decimals.to_string()),
         ],
         account_names: vec!["account".to_string(), "mint".to_string(), "owner".to_string()],
     }))
@@ -608,7 +608,7 @@ fn parse_initialize_account2_instruction(
 
     Ok(Some(ParsedInstruction {
         name: "InitializeAccount2".to_string(),
-        fields: vec![("owner".to_string(), owner_pubkey)],
+        fields: vec![ParsedField::text("owner", owner_pubkey)],
         account_names: vec![
             "account".to_string(),
             "mint".to_string(),
@@ -660,7 +660,7 @@ fn parse_initialize_account3_instruction(
 
     Ok(Some(ParsedInstruction {
         name: "InitializeAccount3".to_string(),
-        fields: vec![("owner".to_string(), owner_pubkey)],
+        fields: vec![ParsedField::text("owner", owner_pubkey)],
         account_names: vec!["account".to_string(), "mint".to_string()],
     }))
 }
@@ -692,7 +692,7 @@ fn parse_initialize_multisig2_instruction(
 
     Ok(Some(ParsedInstruction {
         name: "InitializeMultisig2".to_string(),
-        fields: vec![("m".to_string(), m.to_string())],
+        fields: vec![ParsedField::text("m", m.to_string())],
         account_names,
     }))
 }
@@ -712,12 +712,12 @@ fn parse_initialize_mint2_instruction(
 
     let decimals = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
 
-    let mut fields = vec![("decimals".to_string(), decimals.to_string())];
+    let mut fields = vec![ParsedField::text("decimals", decimals.to_string())];
 
     // Check for mint authority (4 bytes + 32 bytes = 36 bytes minimum)
     if data.len() >= 36 {
         let has_freeze_authority = data[35] != 0;
-        fields.push(("has_freeze_authority".to_string(), has_freeze_authority.to_string()));
+        fields.push(ParsedField::text("has_freeze_authority", has_freeze_authority.to_string()));
     }
 
     Ok(Some(ParsedInstruction {
@@ -787,7 +787,7 @@ fn parse_amount_to_ui_amount_instruction(
 
     Ok(Some(ParsedInstruction {
         name: "AmountToUiAmount".to_string(),
-        fields: vec![("amount".to_string(), amount.to_string())],
+        fields: vec![ParsedField::text("amount", amount.to_string())],
         account_names: vec!["mint".to_string()],
     }))
 }
@@ -812,7 +812,7 @@ fn parse_ui_amount_to_amount_instruction(
 
     Ok(Some(ParsedInstruction {
         name: "UiAmountToAmount".to_string(),
-        fields: vec![("ui_amount".to_string(), ui_amount)],
+        fields: vec![ParsedField::text("ui_amount", ui_amount)],
         account_names: vec!["mint".to_string()],
     }))
 }
@@ -881,7 +881,9 @@ mod tests {
         assert_eq!(parsed.account_names[1], "destination");
         assert_eq!(parsed.account_names[2], "owner");
 
-        assert!(parsed.fields.iter().any(|(k, v)| k == "amount" && v == "1000000"));
+        assert!(
+            parsed.fields.iter().any(|field| field.name == "amount" && field.value == "1000000")
+        );
     }
 
     #[test]
@@ -935,7 +937,7 @@ mod tests {
         assert_eq!(parsed.account_names[0], "account");
         assert_eq!(parsed.account_names[1], "mint");
         assert_eq!(parsed.fields.len(), 1);
-        assert!(parsed.fields.iter().any(|(k, _v)| k == "owner"));
+        assert!(parsed.fields.iter().any(|field| field.name == "owner"));
     }
 
     #[test]

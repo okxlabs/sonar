@@ -1,7 +1,7 @@
 use anyhow::Result;
 use solana_pubkey::Pubkey;
 
-use super::{InstructionParser, ParsedInstruction};
+use super::{InstructionParser, ParsedField, ParsedInstruction};
 use crate::transaction::InstructionSummary;
 
 /// Parser for the System Program instructions
@@ -78,7 +78,7 @@ fn parse_transfer_instruction(
 
     Ok(Some(ParsedInstruction {
         name: "Transfer".to_string(),
-        fields: vec![("lamports".to_string(), lamports.to_string())],
+        fields: vec![ParsedField::text("lamports", lamports.to_string())],
         account_names: vec!["funding_account".to_string(), "recipient_account".to_string()],
     }))
 }
@@ -105,9 +105,9 @@ fn parse_create_account_instruction(
     Ok(Some(ParsedInstruction {
         name: "CreateAccount".to_string(),
         fields: vec![
-            ("lamports".to_string(), lamports.to_string()),
-            ("space".to_string(), space.to_string()),
-            ("owner".to_string(), owner.to_string()),
+            ParsedField::text("lamports", lamports.to_string()),
+            ParsedField::text("space", space.to_string()),
+            ParsedField::text("owner", owner.to_string()),
         ],
         account_names: vec!["funding_account".to_string(), "new_account".to_string()],
     }))
@@ -127,7 +127,7 @@ fn parse_assign_instruction(
 
     Ok(Some(ParsedInstruction {
         name: "Assign".to_string(),
-        fields: vec![("owner".to_string(), owner.to_string())],
+        fields: vec![ParsedField::text("owner", owner.to_string())],
         account_names: vec!["assigned_account".to_string()],
     }))
 }
@@ -190,11 +190,11 @@ fn parse_create_account_with_seed_instruction(
     Ok(Some(ParsedInstruction {
         name: "CreateAccountWithSeed".to_string(),
         fields: vec![
-            ("base".to_string(), base.to_string()),
-            ("seed".to_string(), seed),
-            ("lamports".to_string(), lamports.to_string()),
-            ("space".to_string(), space.to_string()),
-            ("owner".to_string(), owner.to_string()),
+            ParsedField::text("base", base.to_string()),
+            ParsedField::text("seed", seed),
+            ParsedField::text("lamports", lamports.to_string()),
+            ParsedField::text("space", space.to_string()),
+            ParsedField::text("owner", owner.to_string()),
         ],
         account_names: vec![
             "funding_account".to_string(),
@@ -235,7 +235,7 @@ fn parse_withdraw_nonce_account_instruction(
 
     Ok(Some(ParsedInstruction {
         name: "WithdrawNonceAccount".to_string(),
-        fields: vec![("lamports".to_string(), lamports.to_string())],
+        fields: vec![ParsedField::text("lamports", lamports.to_string())],
         account_names: vec![
             "nonce_account".to_string(),
             "recipient_account".to_string(),
@@ -260,7 +260,7 @@ fn parse_initialize_nonce_account_instruction(
 
     Ok(Some(ParsedInstruction {
         name: "InitializeNonceAccount".to_string(),
-        fields: vec![("authorized".to_string(), authorized.to_string())],
+        fields: vec![ParsedField::text("authorized", authorized.to_string())],
         account_names: vec![
             "nonce_account".to_string(),
             "recent_blockhashes_sysvar".to_string(),
@@ -283,7 +283,7 @@ fn parse_authorize_nonce_account_instruction(
 
     Ok(Some(ParsedInstruction {
         name: "AuthorizeNonceAccount".to_string(),
-        fields: vec![("new_authorized".to_string(), authorized.to_string())],
+        fields: vec![ParsedField::text("new_authorized", authorized.to_string())],
         account_names: vec!["nonce_account".to_string(), "nonce_authority".to_string()],
     }))
 }
@@ -303,7 +303,7 @@ fn parse_allocate_instruction(
 
     Ok(Some(ParsedInstruction {
         name: "Allocate".to_string(),
-        fields: vec![("space".to_string(), space.to_string())],
+        fields: vec![ParsedField::text("space", space.to_string())],
         account_names: vec!["allocated_account".to_string()],
     }))
 }
@@ -353,10 +353,10 @@ fn parse_allocate_with_seed_instruction(
     Ok(Some(ParsedInstruction {
         name: "AllocateWithSeed".to_string(),
         fields: vec![
-            ("base".to_string(), base.to_string()),
-            ("seed".to_string(), seed),
-            ("space".to_string(), space.to_string()),
-            ("owner".to_string(), owner.to_string()),
+            ParsedField::text("base", base.to_string()),
+            ParsedField::text("seed", seed),
+            ParsedField::text("space", space.to_string()),
+            ParsedField::text("owner", owner.to_string()),
         ],
         account_names: vec!["allocated_account".to_string(), "base_account".to_string()],
     }))
@@ -395,9 +395,9 @@ fn parse_assign_with_seed_instruction(
     Ok(Some(ParsedInstruction {
         name: "AssignWithSeed".to_string(),
         fields: vec![
-            ("base".to_string(), base.to_string()),
-            ("seed".to_string(), seed),
-            ("owner".to_string(), owner.to_string()),
+            ParsedField::text("base", base.to_string()),
+            ParsedField::text("seed", seed),
+            ParsedField::text("owner", owner.to_string()),
         ],
         account_names: vec!["assigned_account".to_string(), "base_account".to_string()],
     }))
@@ -438,9 +438,9 @@ fn parse_transfer_with_seed_instruction(
     Ok(Some(ParsedInstruction {
         name: "TransferWithSeed".to_string(),
         fields: vec![
-            ("lamports".to_string(), lamports.to_string()),
-            ("from_seed".to_string(), from_seed),
-            ("from_owner".to_string(), from_owner.to_string()),
+            ParsedField::text("lamports", lamports.to_string()),
+            ParsedField::text("from_seed", from_seed),
+            ParsedField::text("from_owner", from_owner.to_string()),
         ],
         account_names: vec![
             "funding_account".to_string(),
@@ -484,9 +484,9 @@ fn parse_create_account_allow_prefund_instruction(
     Ok(Some(ParsedInstruction {
         name: "CreateAccountAllowPrefund".to_string(),
         fields: vec![
-            ("lamports".to_string(), lamports.to_string()),
-            ("space".to_string(), space.to_string()),
-            ("owner".to_string(), owner.to_string()),
+            ParsedField::text("lamports", lamports.to_string()),
+            ParsedField::text("space", space.to_string()),
+            ParsedField::text("owner", owner.to_string()),
         ],
         account_names: vec!["new_account".to_string(), "(optional) funding_account".to_string()],
     }))
@@ -555,7 +555,9 @@ mod tests {
         assert_eq!(parsed.account_names[0], "funding_account");
         assert_eq!(parsed.account_names[1], "recipient_account");
 
-        assert!(parsed.fields.iter().any(|(k, v)| k == "lamports" && v == "1000000"));
+        assert!(
+            parsed.fields.iter().any(|field| field.name == "lamports" && field.value == "1000000")
+        );
     }
 
     #[test]
@@ -591,9 +593,19 @@ mod tests {
         assert_eq!(parsed.account_names[0], "funding_account");
         assert_eq!(parsed.account_names[1], "new_account");
 
-        assert!(parsed.fields.iter().any(|(k, v)| k == "lamports" && v == "100000000"));
-        assert!(parsed.fields.iter().any(|(k, v)| k == "space" && v == "256"));
-        assert!(parsed.fields.iter().any(|(k, v)| k == "owner" && v == &owner.to_string()));
+        assert!(
+            parsed
+                .fields
+                .iter()
+                .any(|field| field.name == "lamports" && field.value == "100000000")
+        );
+        assert!(parsed.fields.iter().any(|field| field.name == "space" && field.value == "256"));
+        assert!(
+            parsed
+                .fields
+                .iter()
+                .any(|field| field.name == "owner" && field.value == owner.to_string())
+        );
     }
 
     #[test]
@@ -617,7 +629,12 @@ mod tests {
         assert_eq!(parsed.account_names.len(), 1);
         assert_eq!(parsed.account_names[0], "assigned_account");
 
-        assert!(parsed.fields.iter().any(|(k, v)| k == "owner" && v == &owner.to_string()));
+        assert!(
+            parsed
+                .fields
+                .iter()
+                .any(|field| field.name == "owner" && field.value == owner.to_string())
+        );
     }
 
     #[test]
@@ -667,11 +684,23 @@ mod tests {
         assert_eq!(parsed.account_names[1], "created_account");
         assert_eq!(parsed.account_names[2], "base_account");
 
-        assert!(parsed.fields.iter().any(|(k, v)| k == "base" && v == &base.to_string()));
-        assert!(parsed.fields.iter().any(|(k, v)| k == "seed" && v == seed));
-        assert!(parsed.fields.iter().any(|(k, v)| k == "lamports" && v == "50000000"));
-        assert!(parsed.fields.iter().any(|(k, v)| k == "space" && v == "128"));
-        assert!(parsed.fields.iter().any(|(k, v)| k == "owner" && v == &owner.to_string()));
+        assert!(
+            parsed
+                .fields
+                .iter()
+                .any(|field| field.name == "base" && field.value == base.to_string())
+        );
+        assert!(parsed.fields.iter().any(|field| field.name == "seed" && field.value == seed));
+        assert!(
+            parsed.fields.iter().any(|field| field.name == "lamports" && field.value == "50000000")
+        );
+        assert!(parsed.fields.iter().any(|field| field.name == "space" && field.value == "128"));
+        assert!(
+            parsed
+                .fields
+                .iter()
+                .any(|field| field.name == "owner" && field.value == owner.to_string())
+        );
     }
 
     #[test]
@@ -767,7 +796,9 @@ mod tests {
         assert_eq!(parsed.account_names[3], "rent_sysvar");
         assert_eq!(parsed.account_names[4], "nonce_authority");
 
-        assert!(parsed.fields.iter().any(|(k, v)| k == "lamports" && v == "25000000"));
+        assert!(
+            parsed.fields.iter().any(|field| field.name == "lamports" && field.value == "25000000")
+        );
     }
 
     #[test]
@@ -816,7 +847,10 @@ mod tests {
         assert_eq!(parsed.account_names[2], "rent_sysvar");
 
         assert!(
-            parsed.fields.iter().any(|(k, v)| k == "authorized" && v == &authorized.to_string())
+            parsed
+                .fields
+                .iter()
+                .any(|field| field.name == "authorized" && field.value == authorized.to_string())
         );
     }
 
@@ -852,10 +886,9 @@ mod tests {
         assert_eq!(parsed.account_names[1], "nonce_authority");
 
         assert!(
-            parsed
-                .fields
-                .iter()
-                .any(|(k, v)| k == "new_authorized" && v == &authorized.to_string())
+            parsed.fields.iter().any(
+                |field| field.name == "new_authorized" && field.value == authorized.to_string()
+            )
         );
     }
 }

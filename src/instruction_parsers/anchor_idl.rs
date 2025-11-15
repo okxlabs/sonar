@@ -3,10 +3,12 @@ use std::sync::Arc;
 
 use anyhow::{Result, anyhow};
 use serde::{Deserialize, Serialize};
-use serde_json::Value as JsonValue;
+use serde_json::{Number as JsonNumber, Value as JsonValue};
 use solana_pubkey::Pubkey;
 
-use crate::instruction_parsers::{InstructionParser, ParsedInstruction};
+use crate::instruction_parsers::{
+    InstructionParser, OrderedJsonValue, ParsedField, ParsedInstruction,
+};
 use crate::transaction::InstructionSummary;
 
 /// Complete IDL structure including types for full type resolution
@@ -307,7 +309,7 @@ fn parse_instruction_data(
     args: &[IdlArg],
     registry: &IdlRegistry,
     idl: &CompleteIdl,
-) -> Result<Vec<(String, String)>> {
+) -> Result<Vec<ParsedField>> {
     let mut fields = Vec::new();
 
     for arg in args {
@@ -315,9 +317,8 @@ fn parse_instruction_data(
             break;
         }
 
-        let (value, bytes_read) = parse_type(data, offset, &arg.type_, registry, idl)?;
-        fields.push((arg.name.clone(), value));
-        *offset += bytes_read;
+        let value = parse_type(data, offset, &arg.type_, registry, idl)?;
+        fields.push(ParsedField::json(arg.name.clone(), value));
     }
 
     Ok(fields)
@@ -325,11 +326,11 @@ fn parse_instruction_data(
 
 fn parse_type(
     data: &[u8],
-    offset: &usize,
+    offset: &mut usize,
     idl_type: &IdlType,
     registry: &IdlRegistry,
     idl: &CompleteIdl,
-) -> Result<(String, usize)> {
+) -> Result<OrderedJsonValue> {
     match idl_type {
         IdlType::Simple(type_name) => parse_simple_type(data, offset, type_name),
         IdlType::Vec { vec } => parse_vec_type(data, offset, vec, registry, idl),
@@ -339,28 +340,27 @@ fn parse_type(
     }
 }
 
-fn parse_simple_type(data: &[u8], offset: &usize, type_name: &str) -> Result<(String, usize)> {
+fn parse_simple_type(data: &[u8], offset: &mut usize, type_name: &str) -> Result<OrderedJsonValue> {
     let start = *offset;
 
-    match type_name {
+    let (value, bytes_read) = match type_name {
         "u8" => {
             check_data_len(data, start, 1)?;
-            Ok((data[start].to_string(), 1))
+            (OrderedJsonValue::Number(JsonNumber::from(u64::from(data[start]))), 1)
         }
         "i8" => {
             check_data_len(data, start, 1)?;
-            let value = data[start] as i8;
-            Ok((value.to_string(), 1))
+            (OrderedJsonValue::Number(JsonNumber::from(data[start] as i64)), 1)
         }
         "u16" => {
             check_data_len(data, start, 2)?;
             let value = u16::from_le_bytes([data[start], data[start + 1]]);
-            Ok((value.to_string(), 2))
+            (OrderedJsonValue::Number(JsonNumber::from(u64::from(value))), 2)
         }
         "i16" => {
             check_data_len(data, start, 2)?;
             let value = i16::from_le_bytes([data[start], data[start + 1]]);
-            Ok((value.to_string(), 2))
+            (OrderedJsonValue::Number(JsonNumber::from(value as i64)), 2)
         }
         "u32" => {
             check_data_len(data, start, 4)?;
@@ -370,7 +370,7 @@ fn parse_simple_type(data: &[u8], offset: &usize, type_name: &str) -> Result<(St
                 data[start + 2],
                 data[start + 3],
             ]);
-            Ok((value.to_string(), 4))
+            (OrderedJsonValue::Number(JsonNumber::from(u64::from(value))), 4)
         }
         "i32" => {
             check_data_len(data, start, 4)?;
@@ -380,7 +380,7 @@ fn parse_simple_type(data: &[u8], offset: &usize, type_name: &str) -> Result<(St
                 data[start + 2],
                 data[start + 3],
             ]);
-            Ok((value.to_string(), 4))
+            (OrderedJsonValue::Number(JsonNumber::from(value as i64)), 4)
         }
         "u64" => {
             check_data_len(data, start, 8)?;
@@ -394,7 +394,7 @@ fn parse_simple_type(data: &[u8], offset: &usize, type_name: &str) -> Result<(St
                 data[start + 6],
                 data[start + 7],
             ]);
-            Ok((value.to_string(), 8))
+            (OrderedJsonValue::Number(JsonNumber::from(value)), 8)
         }
         "i64" => {
             check_data_len(data, start, 8)?;
@@ -408,7 +408,7 @@ fn parse_simple_type(data: &[u8], offset: &usize, type_name: &str) -> Result<(St
                 data[start + 6],
                 data[start + 7],
             ]);
-            Ok((value.to_string(), 8))
+            (OrderedJsonValue::Number(JsonNumber::from(value)), 8)
         }
         "u128" => {
             check_data_len(data, start, 16)?;
@@ -430,7 +430,7 @@ fn parse_simple_type(data: &[u8], offset: &usize, type_name: &str) -> Result<(St
                 data[start + 14],
                 data[start + 15],
             ]);
-            Ok((value.to_string(), 16))
+            (OrderedJsonValue::String(value.to_string()), 16)
         }
         "i128" => {
             check_data_len(data, start, 16)?;
@@ -452,21 +452,20 @@ fn parse_simple_type(data: &[u8], offset: &usize, type_name: &str) -> Result<(St
                 data[start + 14],
                 data[start + 15],
             ]);
-            Ok((value.to_string(), 16))
+            (OrderedJsonValue::String(value.to_string()), 16)
         }
         "pubkey" | "publicKey" => {
             check_data_len(data, start, 32)?;
             let pubkey = Pubkey::try_from(&data[start..start + 32])
                 .map_err(|_| anyhow!("Invalid pubkey data"))?;
-            Ok((pubkey.to_string(), 32))
+            (OrderedJsonValue::String(pubkey.to_string()), 32)
         }
         "bool" => {
             check_data_len(data, start, 1)?;
             let value = data[start] != 0;
-            Ok((value.to_string(), 1))
+            (OrderedJsonValue::Bool(value), 1)
         }
         "string" => {
-            // String: 4-byte length + data
             check_data_len(data, start, 4)?;
             let length = u32::from_le_bytes([
                 data[start],
@@ -477,11 +476,10 @@ fn parse_simple_type(data: &[u8], offset: &usize, type_name: &str) -> Result<(St
             let content_start = start + 4;
             check_data_len(data, content_start, length)?;
             let string_data = &data[content_start..content_start + length];
-            let value = String::from_utf8_lossy(string_data);
-            Ok((value.to_string(), 4 + length))
+            let value = String::from_utf8_lossy(string_data).to_string();
+            (OrderedJsonValue::String(value), 4 + length)
         }
         "bytes" => {
-            // Bytes: 4-byte length + data
             check_data_len(data, start, 4)?;
             let length = u32::from_le_bytes([
                 data[start],
@@ -491,275 +489,216 @@ fn parse_simple_type(data: &[u8], offset: &usize, type_name: &str) -> Result<(St
             ]) as usize;
             let content_start = start + 4;
             check_data_len(data, content_start, length)?;
-            let bytes_data = &data[content_start..content_start + length];
-            let decimal_array =
-                bytes_data.iter().map(|b| b.to_string()).collect::<Vec<_>>().join(", ");
-            Ok((format!("[{}]", decimal_array), 4 + length))
+            let mut array = Vec::with_capacity(length);
+            for byte in &data[content_start..content_start + length] {
+                array.push(OrderedJsonValue::Number(JsonNumber::from(u64::from(*byte))));
+            }
+            (OrderedJsonValue::Array(array), 4 + length)
         }
         _ => {
-            // Unknown type
             let hex_len = (data.len() - start).min(32);
             let hex = hex::encode(&data[start..start + hex_len]);
-            Ok((format!("<{}: 0x{}>", type_name, hex), hex_len))
+            (OrderedJsonValue::String(format!("<{}: 0x{}>", type_name, hex)), hex_len)
         }
-    }
+    };
+
+    *offset += bytes_read;
+    Ok(value)
 }
 
 fn parse_vec_type(
     data: &[u8],
-    offset: &usize,
+    offset: &mut usize,
     element_type: &IdlType,
     registry: &IdlRegistry,
     idl: &CompleteIdl,
-) -> Result<(String, usize)> {
+) -> Result<OrderedJsonValue> {
     let start = *offset;
     check_data_len(data, start, 4)?;
 
     let length =
         u32::from_le_bytes([data[start], data[start + 1], data[start + 2], data[start + 3]])
             as usize;
-    let mut current_offset = start + 4;
+    *offset += 4;
 
-    if length == 0 {
-        return Ok(("[]".to_string(), current_offset - start));
-    }
-
-    let mut elements = Vec::new();
-    for _i in 0..length {
-        if current_offset >= data.len() {
+    let mut elements = Vec::with_capacity(length);
+    for _ in 0..length {
+        if *offset >= data.len() {
             break;
         }
-        let (element, bytes_read) = parse_type(data, &current_offset, element_type, registry, idl)?;
-        elements.push("            ".to_owned() + &element);
-        current_offset += bytes_read;
+        let element = parse_type(data, offset, element_type, registry, idl)?;
+        elements.push(element);
     }
 
-    let display = format!("[\n{}\n          ]", elements.join(",\n"));
-
-    Ok((display, current_offset - start))
+    Ok(OrderedJsonValue::Array(elements))
 }
 
 fn parse_option_type(
     data: &[u8],
-    offset: &usize,
+    offset: &mut usize,
     inner_type: &IdlType,
     registry: &IdlRegistry,
     idl: &CompleteIdl,
-) -> Result<(String, usize)> {
+) -> Result<OrderedJsonValue> {
     let start = *offset;
     check_data_len(data, start, 1)?;
 
     let is_some = data[start] != 0;
-    if !is_some {
-        return Ok(("None".to_string(), 1));
-    }
+    *offset += 1;
 
-    let (value, bytes_read) = parse_type(data, &(start + 1), inner_type, registry, idl)?;
-    Ok((format!("Some({})", value), 1 + bytes_read))
+    if !is_some {
+        Ok(OrderedJsonValue::Null)
+    } else {
+        parse_type(data, offset, inner_type, registry, idl)
+    }
 }
 
 fn parse_array_type(
     data: &[u8],
-    offset: &usize,
+    offset: &mut usize,
     array_def: &[JsonValue; 2],
     registry: &IdlRegistry,
     idl: &CompleteIdl,
-) -> Result<(String, usize)> {
-    let start = *offset;
-
+) -> Result<OrderedJsonValue> {
     let element_type = array_def[0].clone();
     let length = array_def[1].as_u64().ok_or_else(|| anyhow!("Invalid array length"))? as usize;
 
-    // Convert JSON value to IdlType
     let idl_type = serde_json::from_value(element_type)
         .map_err(|_| anyhow!("Failed to parse array element type"))?;
 
-    let mut elements = Vec::new();
-    let mut current_offset = start;
-
+    let mut elements = Vec::with_capacity(length);
     for _ in 0..length {
-        if current_offset >= data.len() {
+        if *offset >= data.len() {
             break;
         }
-        let (element, bytes_read) = parse_type(data, &current_offset, &idl_type, registry, idl)?;
+        let element = parse_type(data, offset, &idl_type, registry, idl)?;
         elements.push(element);
-        current_offset += bytes_read;
     }
 
-    let display = format!("[{}]; {}", elements.join(", "), length);
-
-    Ok((display, current_offset - start))
+    Ok(OrderedJsonValue::Array(elements))
 }
 
 fn parse_defined_type(
     data: &[u8],
-    offset: &usize,
+    offset: &mut usize,
     defined: &DefinedType,
     registry: &IdlRegistry,
     idl: &CompleteIdl,
-) -> Result<(String, usize)> {
-    // Derive program_id from the IDL
+) -> Result<OrderedJsonValue> {
     let program_id = Pubkey::try_from(idl.address.as_str())
         .map_err(|_| anyhow!("Invalid program ID in IDL: {}", idl.address))?;
 
-    // First check the IDL's local types (most specific)
     if let Some(types) = &idl.types {
         if let Some(type_def) = types.iter().find(|t| t.name == defined.name) {
             return parse_type_definition(data, offset, type_def, registry, idl);
         }
     }
 
-    // Then check the registry for types from this specific program
     if let Some(type_def) = registry.get_type_by_program(&program_id, &defined.name) {
         return parse_type_definition(data, offset, type_def, registry, idl);
     }
 
-    // Type not found, show hex
     let start = *offset;
     let hex_len = (data.len() - start).min(32);
     let hex = hex::encode(&data[start..start + hex_len]);
-    Ok((format!("<{}: 0x{}>", defined.name, hex), hex_len))
+    *offset += hex_len;
+    Ok(OrderedJsonValue::String(format!("<{}: 0x{}>", defined.name, hex)))
 }
 
 fn parse_type_definition(
     data: &[u8],
-    offset: &usize,
+    offset: &mut usize,
     type_def: &IdlTypeDefinition,
     registry: &IdlRegistry,
     idl: &CompleteIdl,
-) -> Result<(String, usize)> {
-    let start = *offset;
-
+) -> Result<OrderedJsonValue> {
     match type_def.type_.kind.as_str() {
         "struct" => {
             if let Some(fields) = &type_def.type_.fields {
-                let mut current_offset = start;
-
                 return match fields {
                     crate::instruction_parsers::anchor_idl::IdlFields::Named(named_fields) => {
-                        // Regular struct with named fields
-                        let mut field_values = Vec::new();
+                        let mut entries = Vec::new();
                         for field in named_fields {
-                            if current_offset >= data.len() {
+                            if *offset >= data.len() {
                                 break;
                             }
-                            let (value, bytes_read) =
-                                parse_type(data, &current_offset, &field.type_, registry, idl)?;
-                            field_values.push(format!("{}: {}", field.name, value));
-                            current_offset += bytes_read;
+                            let value = parse_type(data, offset, &field.type_, registry, idl)?;
+                            entries.push((field.name.clone(), value));
                         }
-
-                        Ok((
-                            format!("{} {{{}}}", type_def.name, field_values.join(", ")),
-                            current_offset - start,
-                        ))
+                        Ok(OrderedJsonValue::Object(entries))
                     }
                     crate::instruction_parsers::anchor_idl::IdlFields::Tuple(type_names) => {
-                        // Tuple struct like struct Foo(Type1, Type2)
-                        let mut field_values = Vec::new();
+                        let mut values = Vec::new();
                         for type_name in type_names {
-                            if current_offset >= data.len() {
+                            if *offset >= data.len() {
                                 break;
                             }
-                            let (value, bytes_read) =
-                                parse_simple_type(data, &current_offset, type_name)?;
-                            field_values.push(value);
-                            current_offset += bytes_read;
+                            let value = parse_simple_type(data, offset, type_name)?;
+                            values.push(value);
                         }
-
-                        Ok((
-                            format!("{}({})", type_def.name, field_values.join(", ")),
-                            current_offset - start,
-                        ))
+                        Ok(OrderedJsonValue::Array(values))
                     }
                 };
             }
         }
         "enum" => {
             if let Some(variants) = &type_def.type_.variants {
-                // Borsh enum: 1-byte variant index + variant data
-                check_data_len(data, start, 1)?;
-                let variant_index = data[start] as usize;
+                check_data_len(data, *offset, 1)?;
+                let variant_index = data[*offset] as usize;
+                *offset += 1;
 
                 if variant_index < variants.len() {
                     let variant = &variants[variant_index];
-                    let mut current_offset = start + 1;
-
-                    let variant_str = if let Some(fields) = &variant.fields {
-                        // Parse the fields JSON dynamically
+                    let payload = if let Some(fields) = &variant.fields {
                         if let Some(fields_array) = fields.as_array() {
                             if fields_array.is_empty() {
-                                variant.name.clone()
-                            } else {
-                                // Determine if it's named fields or tuple fields
-                                let first_field = &fields_array[0];
-                                if first_field.get("name").is_some() {
-                                    // Named fields
-                                    let mut field_values = Vec::new();
-                                    for field in fields_array {
-                                        if let (Some(name), Some(type_value)) =
-                                            (field.get("name"), field.get("type"))
-                                        {
-                                            let type_ = serde_json::from_value(type_value.clone())
-                                                .map_err(|_| {
-                                                    anyhow!("Failed to parse field type")
-                                                })?;
-                                            let (value, bytes_read) = parse_type(
-                                                data,
-                                                &current_offset,
-                                                &type_,
-                                                registry,
-                                                idl,
-                                            )?;
-                                            field_values.push(format!(
-                                                "{}: {}",
-                                                name.as_str().unwrap_or(""),
-                                                value
-                                            ));
-                                            current_offset += bytes_read;
-                                        }
-                                    }
-                                    format!("{}::{{{}}}", variant.name, field_values.join(", "))
-                                } else {
-                                    // Tuple fields
-                                    let mut field_values = Vec::new();
-                                    for type_value in fields_array {
+                                OrderedJsonValue::Null
+                            } else if fields_array[0].get("name").is_some() {
+                                let mut entries = Vec::new();
+                                for field in fields_array {
+                                    if let (Some(name), Some(type_value)) =
+                                        (field.get("name"), field.get("type"))
+                                    {
                                         let type_ = serde_json::from_value(type_value.clone())
                                             .map_err(|_| {
-                                                anyhow!("Failed to parse tuple field type")
+                                                anyhow!("Failed to parse enum field type")
                                             })?;
-                                        let (value, bytes_read) = parse_type(
-                                            data,
-                                            &current_offset,
-                                            &type_,
-                                            registry,
-                                            idl,
-                                        )?;
-                                        field_values.push(value);
-                                        current_offset += bytes_read;
+                                        let value =
+                                            parse_type(data, offset, &type_, registry, idl)?;
+                                        entries
+                                            .push((name.as_str().unwrap_or("").to_string(), value));
                                     }
-                                    format!("{}({})", variant.name, field_values.join(", "))
                                 }
+                                OrderedJsonValue::Object(entries)
+                            } else {
+                                let mut values = Vec::new();
+                                for type_value in fields_array {
+                                    let type_ = serde_json::from_value(type_value.clone())
+                                        .map_err(|_| anyhow!("Failed to parse tuple field type"))?;
+                                    let value = parse_type(data, offset, &type_, registry, idl)?;
+                                    values.push(value);
+                                }
+                                OrderedJsonValue::Array(values)
                             }
                         } else {
-                            // Not an array, treat as simple variant
-                            variant.name.clone()
+                            OrderedJsonValue::Null
                         }
                     } else {
-                        variant.name.clone()
+                        OrderedJsonValue::Null
                     };
 
-                    return Ok((variant_str, current_offset - start));
+                    return Ok(OrderedJsonValue::Object(vec![(variant.name.clone(), payload)]));
                 }
             }
         }
         _ => {}
     }
 
-    // Fallback
+    let start = *offset;
     let hex_len = (data.len() - start).min(32);
     let hex = hex::encode(&data[start..start + hex_len]);
-    Ok((format!("<{}: 0x{}>", type_def.name, hex), hex_len))
+    *offset += hex_len;
+    Ok(OrderedJsonValue::String(format!("<{}: 0x{}>", type_def.name, hex)))
 }
 
 fn check_data_len(data: &[u8], offset: usize, required: usize) -> Result<()> {
@@ -841,14 +780,13 @@ pub fn parse_anchor_cpi_event(
     let Some(type_def) =
         type_def.or_else(|| idl_registry.get_type_by_program(program_id, &event_def.name))
     else {
-        // Fallback: if no type definition, show raw data
         let mut fields = Vec::new();
         if instruction.data.len() > 16 {
             let raw_data = &instruction.data[16..];
             let raw_hex = hex::encode(raw_data).to_uppercase();
             let preview =
                 if raw_hex.len() > 32 { format!("{}...", &raw_hex[..32]) } else { raw_hex };
-            fields.push(("raw_data".to_string(), format!("0x{}", preview)));
+            fields.push(ParsedField::text("raw_data", format!("0x{}", preview)));
         }
         return Ok(Some(ParsedInstruction {
             name: event_def.name.clone(),
@@ -869,10 +807,9 @@ pub fn parse_anchor_cpi_event(
                     break;
                 }
 
-                let (value, bytes_read) =
+                let value =
                     parse_type(&instruction.data, &mut offset, &field.type_, idl_registry, idl)?;
-                fields.push((field.name.clone(), value));
-                offset += bytes_read;
+                fields.push(ParsedField::json(field.name.clone(), value));
             }
         }
         Some(crate::instruction_parsers::anchor_idl::IdlFields::Tuple(type_names)) => {
@@ -882,9 +819,8 @@ pub fn parse_anchor_cpi_event(
                     break;
                 }
 
-                let (value, bytes_read) = parse_simple_type(&instruction.data, &offset, type_name)?;
-                fields.push((format!("field_{}", idx), value));
-                offset += bytes_read;
+                let value = parse_simple_type(&instruction.data, &mut offset, type_name)?;
+                fields.push(ParsedField::json(format!("field_{}", idx), value));
             }
         }
         None => {
@@ -894,7 +830,7 @@ pub fn parse_anchor_cpi_event(
                 let raw_hex = hex::encode(raw_data).to_uppercase();
                 let preview =
                     if raw_hex.len() > 32 { format!("{}...", &raw_hex[..32]) } else { raw_hex };
-                fields.push(("raw_data".to_string(), format!("0x{}", preview)));
+                fields.push(ParsedField::text("raw_data", format!("0x{}", preview)));
             }
         }
     }

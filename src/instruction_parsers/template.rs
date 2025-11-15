@@ -28,7 +28,7 @@ use anyhow::Result;
 use solana_pubkey::Pubkey;
 
 use crate::transaction::InstructionSummary;
-use super::{InstructionParser, ParsedInstruction};
+use super::{InstructionParser, ParsedField, ParsedInstruction};
 
 /// Parser for [Your Program Name] instructions
 pub struct TemplateProgramParser {
@@ -99,7 +99,7 @@ fn parse_example_instruction(
 
     Ok(Some(ParsedInstruction {
         name: "ExampleInstruction".to_string(),
-        fields: vec![("amount".to_string(), amount.to_string())],
+        fields: vec![ParsedField::text("amount", amount.to_string())],
         account_names: vec![
             "account1".to_string(),
             "account2".to_string(),
@@ -178,6 +178,6 @@ mod tests {
         assert_eq!(parsed.name, "ExampleInstruction");
         assert_eq!(parsed.account_names.len(), 2);
         
-        assert!(parsed.fields.iter().any(|(k, v)| k == "amount" && v == "1000000"));
+        assert!(parsed.fields.iter().any(|field| field.name == "amount" && field.value == "1000000"));
     }
 }
