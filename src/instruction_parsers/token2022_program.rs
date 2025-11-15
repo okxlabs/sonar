@@ -1,5 +1,6 @@
 use anyhow::Result;
 use solana_pubkey::Pubkey;
+use std::convert::TryInto;
 
 use super::{InstructionParser, ParsedField, ParsedInstruction};
 use crate::transaction::InstructionSummary;
@@ -34,6 +35,26 @@ const GET_ACCOUNT_DATA_SIZE_DISCRIMINATOR: u32 = 21;
 const INITIALIZE_IMMUTABLE_OWNER_DISCRIMINATOR: u32 = 22;
 const AMOUNT_TO_UI_AMOUNT_DISCRIMINATOR: u32 = 23;
 const UI_AMOUNT_TO_AMOUNT_DISCRIMINATOR: u32 = 24;
+const INITIALIZE_MINT_CLOSE_AUTHORITY_DISCRIMINATOR: u32 = 25;
+const TRANSFER_FEE_EXTENSION_DISCRIMINATOR: u32 = 26;
+const CONFIDENTIAL_TRANSFER_EXTENSION_DISCRIMINATOR: u32 = 27;
+const DEFAULT_ACCOUNT_STATE_EXTENSION_DISCRIMINATOR: u32 = 28;
+const REALLOCATE_DISCRIMINATOR: u32 = 29;
+const MEMO_TRANSFER_EXTENSION_DISCRIMINATOR: u32 = 30;
+const CREATE_NATIVE_MINT_DISCRIMINATOR: u32 = 31;
+const INITIALIZE_NON_TRANSFERABLE_MINT_DISCRIMINATOR: u32 = 32;
+const INTEREST_BEARING_MINT_EXTENSION_DISCRIMINATOR: u32 = 33;
+const CPI_GUARD_EXTENSION_DISCRIMINATOR: u32 = 34;
+const INITIALIZE_PERMANENT_DELEGATE_DISCRIMINATOR: u32 = 35;
+const TRANSFER_HOOK_EXTENSION_DISCRIMINATOR: u32 = 36;
+const CONFIDENTIAL_TRANSFER_FEE_EXTENSION_DISCRIMINATOR: u32 = 37;
+const WITHDRAW_EXCESS_LAMPORTS_DISCRIMINATOR: u32 = 38;
+const METADATA_POINTER_EXTENSION_DISCRIMINATOR: u32 = 39;
+const GROUP_POINTER_EXTENSION_DISCRIMINATOR: u32 = 40;
+const GROUP_MEMBER_POINTER_EXTENSION_DISCRIMINATOR: u32 = 41;
+const CONFIDENTIAL_MINT_BURN_EXTENSION_DISCRIMINATOR: u32 = 42;
+const SCALED_UI_AMOUNT_EXTENSION_DISCRIMINATOR: u32 = 43;
+const PAUSABLE_EXTENSION_DISCRIMINATOR: u32 = 44;
 
 /// Parser for the Token2022 Program instructions
 /// Supports all Token2022 Program instructions including Transfer and TransferChecked
@@ -113,6 +134,74 @@ impl InstructionParser for Token2022ProgramParser {
             }
             UI_AMOUNT_TO_AMOUNT_DISCRIMINATOR => {
                 parse_ui_amount_to_amount_instruction(data, instruction)
+            }
+            INITIALIZE_MINT_CLOSE_AUTHORITY_DISCRIMINATOR => {
+                parse_initialize_mint_close_authority_instruction(data, instruction)
+            }
+            TRANSFER_FEE_EXTENSION_DISCRIMINATOR => {
+                parse_transfer_fee_extension_instruction(data, instruction)
+            }
+            CONFIDENTIAL_TRANSFER_EXTENSION_DISCRIMINATOR => parse_extension_prefix_instruction(
+                "ConfidentialTransferExtension",
+                data,
+                instruction,
+            ),
+            DEFAULT_ACCOUNT_STATE_EXTENSION_DISCRIMINATOR => parse_extension_prefix_instruction(
+                "DefaultAccountStateExtension",
+                data,
+                instruction,
+            ),
+            REALLOCATE_DISCRIMINATOR => parse_reallocate_instruction(data, instruction),
+            MEMO_TRANSFER_EXTENSION_DISCRIMINATOR => {
+                parse_extension_prefix_instruction("MemoTransferExtension", data, instruction)
+            }
+            CREATE_NATIVE_MINT_DISCRIMINATOR => parse_create_native_mint_instruction(instruction),
+            INITIALIZE_NON_TRANSFERABLE_MINT_DISCRIMINATOR => {
+                parse_single_account_instruction("InitializeNonTransferableMint", instruction)
+            }
+            INTEREST_BEARING_MINT_EXTENSION_DISCRIMINATOR => parse_extension_prefix_instruction(
+                "InterestBearingMintExtension",
+                data,
+                instruction,
+            ),
+            CPI_GUARD_EXTENSION_DISCRIMINATOR => {
+                parse_extension_prefix_instruction("CpiGuardExtension", data, instruction)
+            }
+            INITIALIZE_PERMANENT_DELEGATE_DISCRIMINATOR => {
+                parse_initialize_permanent_delegate_instruction(data, instruction)
+            }
+            TRANSFER_HOOK_EXTENSION_DISCRIMINATOR => {
+                parse_extension_prefix_instruction("TransferHookExtension", data, instruction)
+            }
+            CONFIDENTIAL_TRANSFER_FEE_EXTENSION_DISCRIMINATOR => {
+                parse_extension_prefix_instruction(
+                    "ConfidentialTransferFeeExtension",
+                    data,
+                    instruction,
+                )
+            }
+            WITHDRAW_EXCESS_LAMPORTS_DISCRIMINATOR => {
+                parse_withdraw_excess_lamports_instruction(instruction)
+            }
+            METADATA_POINTER_EXTENSION_DISCRIMINATOR => {
+                parse_extension_prefix_instruction("MetadataPointerExtension", data, instruction)
+            }
+            GROUP_POINTER_EXTENSION_DISCRIMINATOR => {
+                parse_extension_prefix_instruction("GroupPointerExtension", data, instruction)
+            }
+            GROUP_MEMBER_POINTER_EXTENSION_DISCRIMINATOR => {
+                parse_extension_prefix_instruction("GroupMemberPointerExtension", data, instruction)
+            }
+            CONFIDENTIAL_MINT_BURN_EXTENSION_DISCRIMINATOR => parse_extension_prefix_instruction(
+                "ConfidentialMintBurnExtension",
+                data,
+                instruction,
+            ),
+            SCALED_UI_AMOUNT_EXTENSION_DISCRIMINATOR => {
+                parse_extension_prefix_instruction("ScaledUiAmountExtension", data, instruction)
+            }
+            PAUSABLE_EXTENSION_DISCRIMINATOR => {
+                parse_extension_prefix_instruction("PausableExtension", data, instruction)
             }
             _ => Ok(None), // Unknown instruction
         }
@@ -739,6 +828,434 @@ fn parse_ui_amount_to_amount_instruction(
         fields: vec![ParsedField::text("ui_amount", ui_amount)],
         account_names: vec!["mint".to_string()],
     }))
+}
+
+fn parse_initialize_mint_close_authority_instruction(
+    data: &[u8],
+    instruction: &InstructionSummary,
+) -> Result<Option<ParsedInstruction>> {
+    if instruction.accounts.len() != 1 {
+        return Ok(None);
+    }
+
+    let (close_authority, _) = match read_coption_pubkey_string(data) {
+        Some(value) => value,
+        None => return Ok(None),
+    };
+
+    let close_authority_value = close_authority.unwrap_or_else(|| "none".to_string());
+
+    Ok(Some(ParsedInstruction {
+        name: "InitializeMintCloseAuthority".to_string(),
+        fields: vec![ParsedField::text("close_authority", close_authority_value)],
+        account_names: vec!["mint".to_string()],
+    }))
+}
+
+fn parse_transfer_fee_extension_instruction(
+    data: &[u8],
+    instruction: &InstructionSummary,
+) -> Result<Option<ParsedInstruction>> {
+    if data.is_empty() {
+        return Ok(None);
+    }
+
+    let (sub_tag, payload) = data.split_first().unwrap();
+    match sub_tag {
+        0 => parse_transfer_fee_initialize_instruction(payload, instruction),
+        1 => parse_transfer_checked_with_fee_instruction(payload, instruction),
+        2 => parse_transfer_fee_withdraw_from_mint_instruction(instruction),
+        3 => parse_transfer_fee_withdraw_from_accounts_instruction(payload, instruction),
+        4 => parse_transfer_fee_harvest_to_mint_instruction(instruction),
+        5 => parse_transfer_fee_set_fee_instruction(payload, instruction),
+        unknown => Ok(Some(ParsedInstruction {
+            name: format!("TransferFeeExtension({unknown})"),
+            fields: vec![ParsedField::text("raw_extension_data", hex::encode(payload))],
+            account_names: generate_generic_account_names(instruction.accounts.len()),
+        })),
+    }
+}
+
+fn parse_transfer_fee_initialize_instruction(
+    data: &[u8],
+    instruction: &InstructionSummary,
+) -> Result<Option<ParsedInstruction>> {
+    if instruction.accounts.len() != 1 {
+        return Ok(None);
+    }
+
+    let (config_authority, rest) = match read_coption_pubkey_string(data) {
+        Some(value) => value,
+        None => return Ok(None),
+    };
+    let (withdraw_authority, rest) = match read_coption_pubkey_string(rest) {
+        Some(value) => value,
+        None => return Ok(None),
+    };
+    let (bps, rest) = match read_u16_le(rest) {
+        Some(value) => value,
+        None => return Ok(None),
+    };
+    let (maximum_fee, _) = match read_u64_le(rest) {
+        Some(value) => value,
+        None => return Ok(None),
+    };
+
+    Ok(Some(ParsedInstruction {
+        name: "InitializeTransferFeeConfig".to_string(),
+        fields: vec![
+            ParsedField::text(
+                "transfer_fee_config_authority",
+                config_authority.unwrap_or_else(|| "none".to_string()),
+            ),
+            ParsedField::text(
+                "withdraw_withheld_authority",
+                withdraw_authority.unwrap_or_else(|| "none".to_string()),
+            ),
+            ParsedField::text("transfer_fee_basis_points", bps.to_string()),
+            ParsedField::text("maximum_fee", maximum_fee.to_string()),
+        ],
+        account_names: vec!["mint".to_string()],
+    }))
+}
+
+fn parse_transfer_checked_with_fee_instruction(
+    data: &[u8],
+    instruction: &InstructionSummary,
+) -> Result<Option<ParsedInstruction>> {
+    if instruction.accounts.len() < 3 {
+        return Ok(None);
+    }
+
+    let (amount, rest) = match read_u64_le(data) {
+        Some(value) => value,
+        None => return Ok(None),
+    };
+    if rest.is_empty() {
+        return Ok(None);
+    }
+    let decimals = rest[0];
+    let (fee, _) = match read_u64_le(&rest[1..]) {
+        Some(value) => value,
+        None => return Ok(None),
+    };
+
+    let mut account_names = Vec::new();
+    if !instruction.accounts.is_empty() {
+        account_names.push("source".to_string());
+    }
+    if instruction.accounts.len() > 1 {
+        account_names.push("mint".to_string());
+    }
+    if instruction.accounts.len() > 2 {
+        account_names.push("destination".to_string());
+    }
+    if instruction.accounts.len() > 3 {
+        account_names.push("authority".to_string());
+    }
+    for i in 4..instruction.accounts.len() {
+        account_names.push(format!("additional_signer_{}", i - 3));
+    }
+
+    Ok(Some(ParsedInstruction {
+        name: "TransferCheckedWithFee".to_string(),
+        fields: vec![
+            ParsedField::text("amount", amount.to_string()),
+            ParsedField::text("decimals", decimals.to_string()),
+            ParsedField::text("fee", fee.to_string()),
+        ],
+        account_names,
+    }))
+}
+
+fn parse_transfer_fee_withdraw_from_mint_instruction(
+    instruction: &InstructionSummary,
+) -> Result<Option<ParsedInstruction>> {
+    if instruction.accounts.len() < 2 {
+        return Ok(None);
+    }
+
+    let mut account_names = Vec::new();
+    if instruction.accounts.len() >= 1 {
+        account_names.push("mint".to_string());
+    }
+    if instruction.accounts.len() >= 2 {
+        account_names.push("destination".to_string());
+    }
+    if instruction.accounts.len() >= 3 {
+        account_names.push("authority".to_string());
+    }
+    for i in 3..instruction.accounts.len() {
+        account_names.push(format!("additional_signer_{}", i - 2));
+    }
+
+    Ok(Some(ParsedInstruction {
+        name: "WithdrawWithheldTokensFromMint".to_string(),
+        fields: vec![],
+        account_names,
+    }))
+}
+
+fn parse_transfer_fee_withdraw_from_accounts_instruction(
+    data: &[u8],
+    instruction: &InstructionSummary,
+) -> Result<Option<ParsedInstruction>> {
+    if data.is_empty() || instruction.accounts.len() < 3 {
+        return Ok(None);
+    }
+    let num_token_accounts = data[0] as usize;
+    if instruction.accounts.len() < 3 + num_token_accounts {
+        return Ok(None);
+    }
+
+    let mut account_names =
+        vec!["mint".to_string(), "destination".to_string(), "authority".to_string()];
+    let signers_count = instruction.accounts.len().saturating_sub(3 + num_token_accounts);
+    for i in 0..signers_count {
+        account_names.push(format!("additional_signer_{}", i + 1));
+    }
+    for i in 0..num_token_accounts {
+        account_names.push(format!("source_account_{}", i + 1));
+    }
+
+    Ok(Some(ParsedInstruction {
+        name: "WithdrawWithheldTokensFromAccounts".to_string(),
+        fields: vec![ParsedField::text("num_token_accounts", num_token_accounts.to_string())],
+        account_names,
+    }))
+}
+
+fn parse_transfer_fee_harvest_to_mint_instruction(
+    instruction: &InstructionSummary,
+) -> Result<Option<ParsedInstruction>> {
+    if instruction.accounts.is_empty() {
+        return Ok(None);
+    }
+
+    let mut account_names = vec!["mint".to_string()];
+    for i in 1..instruction.accounts.len() {
+        account_names.push(format!("source_account_{}", i));
+    }
+
+    Ok(Some(ParsedInstruction {
+        name: "HarvestWithheldTokensToMint".to_string(),
+        fields: vec![],
+        account_names,
+    }))
+}
+
+fn parse_transfer_fee_set_fee_instruction(
+    data: &[u8],
+    instruction: &InstructionSummary,
+) -> Result<Option<ParsedInstruction>> {
+    if instruction.accounts.len() < 1 {
+        return Ok(None);
+    }
+
+    let (transfer_fee_basis_points, rest) = match read_u16_le(data) {
+        Some(value) => value,
+        None => return Ok(None),
+    };
+    let (maximum_fee, _) = match read_u64_le(rest) {
+        Some(value) => value,
+        None => return Ok(None),
+    };
+
+    let mut account_names = Vec::new();
+    if instruction.accounts.len() >= 1 {
+        account_names.push("mint".to_string());
+    }
+    if instruction.accounts.len() >= 2 {
+        account_names.push("authority".to_string());
+    }
+    for i in 2..instruction.accounts.len() {
+        account_names.push(format!("additional_signer_{}", i - 1));
+    }
+
+    Ok(Some(ParsedInstruction {
+        name: "SetTransferFee".to_string(),
+        fields: vec![
+            ParsedField::text("transfer_fee_basis_points", transfer_fee_basis_points.to_string()),
+            ParsedField::text("maximum_fee", maximum_fee.to_string()),
+        ],
+        account_names,
+    }))
+}
+
+fn parse_reallocate_instruction(
+    data: &[u8],
+    instruction: &InstructionSummary,
+) -> Result<Option<ParsedInstruction>> {
+    if data.len() % 2 != 0 {
+        return Ok(None);
+    }
+
+    let mut extension_types = Vec::new();
+    for chunk in data.chunks(2) {
+        if chunk.len() == 2 {
+            extension_types.push(u16::from_le_bytes([chunk[0], chunk[1]]).to_string());
+        }
+    }
+
+    let mut account_names = Vec::new();
+    if instruction.accounts.len() >= 1 {
+        account_names.push("account".to_string());
+    }
+    if instruction.accounts.len() >= 2 {
+        account_names.push("payer".to_string());
+    }
+    if instruction.accounts.len() >= 3 {
+        account_names.push("system_program".to_string());
+    }
+    if instruction.accounts.len() >= 4 {
+        account_names.push("owner_or_delegate".to_string());
+    }
+    for i in 4..instruction.accounts.len() {
+        account_names.push(format!("additional_signer_{}", i - 3));
+    }
+
+    Ok(Some(ParsedInstruction {
+        name: "Reallocate".to_string(),
+        fields: vec![ParsedField::text(
+            "extension_types",
+            if extension_types.is_empty() { "none".to_string() } else { extension_types.join(",") },
+        )],
+        account_names,
+    }))
+}
+
+fn parse_create_native_mint_instruction(
+    instruction: &InstructionSummary,
+) -> Result<Option<ParsedInstruction>> {
+    if instruction.accounts.len() < 3 {
+        return Ok(None);
+    }
+
+    Ok(Some(ParsedInstruction {
+        name: "CreateNativeMint".to_string(),
+        fields: vec![],
+        account_names: vec![
+            "funding_account".to_string(),
+            "native_mint".to_string(),
+            "system_program".to_string(),
+        ],
+    }))
+}
+
+fn parse_single_account_instruction(
+    name: &str,
+    instruction: &InstructionSummary,
+) -> Result<Option<ParsedInstruction>> {
+    if instruction.accounts.len() != 1 {
+        return Ok(None);
+    }
+
+    Ok(Some(ParsedInstruction {
+        name: name.to_string(),
+        fields: vec![],
+        account_names: vec!["mint".to_string()],
+    }))
+}
+
+fn parse_initialize_permanent_delegate_instruction(
+    data: &[u8],
+    instruction: &InstructionSummary,
+) -> Result<Option<ParsedInstruction>> {
+    if instruction.accounts.len() != 1 {
+        return Ok(None);
+    }
+
+    let (delegate, _) = match read_pubkey_string(data) {
+        Some(value) => value,
+        None => return Ok(None),
+    };
+
+    Ok(Some(ParsedInstruction {
+        name: "InitializePermanentDelegate".to_string(),
+        fields: vec![ParsedField::text("delegate", delegate)],
+        account_names: vec!["mint".to_string()],
+    }))
+}
+
+fn parse_withdraw_excess_lamports_instruction(
+    instruction: &InstructionSummary,
+) -> Result<Option<ParsedInstruction>> {
+    if instruction.accounts.len() < 3 {
+        return Ok(None);
+    }
+
+    let mut account_names =
+        vec!["source".to_string(), "destination".to_string(), "authority".to_string()];
+    for i in 3..instruction.accounts.len() {
+        account_names.push(format!("additional_signer_{}", i - 2));
+    }
+
+    Ok(Some(ParsedInstruction {
+        name: "WithdrawExcessLamports".to_string(),
+        fields: vec![],
+        account_names,
+    }))
+}
+
+fn parse_extension_prefix_instruction(
+    name: &str,
+    data: &[u8],
+    instruction: &InstructionSummary,
+) -> Result<Option<ParsedInstruction>> {
+    let mut fields = Vec::new();
+    if !data.is_empty() {
+        fields.push(ParsedField::text("raw_extension_data", hex::encode(data)));
+    }
+
+    Ok(Some(ParsedInstruction {
+        name: name.to_string(),
+        fields,
+        account_names: generate_generic_account_names(instruction.accounts.len()),
+    }))
+}
+
+fn read_pubkey_string(data: &[u8]) -> Option<(String, &[u8])> {
+    if data.len() < 32 {
+        return None;
+    }
+    let mut bytes = [0u8; 32];
+    bytes.copy_from_slice(&data[..32]);
+    let key = Pubkey::new_from_array(bytes);
+    Some((key.to_string(), &data[32..]))
+}
+
+fn read_coption_pubkey_string(data: &[u8]) -> Option<(Option<String>, &[u8])> {
+    if data.is_empty() {
+        return None;
+    }
+    match data[0] {
+        0 => Some((None, &data[1..])),
+        1 => {
+            let (key, rest) = read_pubkey_string(&data[1..])?;
+            Some((Some(key), rest))
+        }
+        _ => None,
+    }
+}
+
+fn read_u16_le(data: &[u8]) -> Option<(u16, &[u8])> {
+    if data.len() < 2 {
+        return None;
+    }
+    let value = u16::from_le_bytes([data[0], data[1]]);
+    Some((value, &data[2..]))
+}
+
+fn read_u64_le(data: &[u8]) -> Option<(u64, &[u8])> {
+    if data.len() < 8 {
+        return None;
+    }
+    let value = u64::from_le_bytes(data[..8].try_into().ok()?);
+    Some((value, &data[8..]))
+}
+
+fn generate_generic_account_names(len: usize) -> Vec<String> {
+    (0..len).map(|i| format!("account_{}", i)).collect()
 }
 
 #[cfg(test)]
@@ -1550,5 +2067,124 @@ mod tests {
         let parser = Token2022ProgramParser::new();
         let expected_id = Pubkey::from_str_const(TOKEN2022_PROGRAM_ID);
         assert_eq!(parser.program_id(), &expected_id);
+    }
+
+    #[test]
+    fn test_initialize_mint_close_authority_instruction_parsing() {
+        let parser = Token2022ProgramParser::new();
+        let mut data = vec![INITIALIZE_MINT_CLOSE_AUTHORITY_DISCRIMINATOR as u8];
+        data.push(1); // Some
+        data.extend_from_slice(&[2u8; 32]);
+
+        let accounts = vec![create_test_account(
+            0,
+            "MintPubkey111111111111111111111111111111111",
+            false,
+            true,
+        )];
+        let instruction = create_test_instruction(data, accounts);
+        let parsed = parser.parse_instruction(&instruction).unwrap().unwrap();
+
+        assert_eq!(parsed.name, "InitializeMintCloseAuthority");
+        assert_eq!(parsed.account_names, vec!["mint"]);
+        assert!(parsed.fields.iter().any(|field| field.name == "close_authority"));
+    }
+
+    #[test]
+    fn test_transfer_checked_with_fee_instruction_parsing() {
+        let parser = Token2022ProgramParser::new();
+        let mut data = vec![TRANSFER_FEE_EXTENSION_DISCRIMINATOR as u8];
+        data.push(1); // TransferCheckedWithFee
+        data.extend_from_slice(&500_u64.to_le_bytes());
+        data.push(6);
+        data.extend_from_slice(&5_u64.to_le_bytes());
+
+        let accounts = vec![
+            create_test_account(0, "Source111111111111111111111111111111111", true, true),
+            create_test_account(1, "Mint11111111111111111111111111111111111", false, false),
+            create_test_account(2, "Dest11111111111111111111111111111111111", false, true),
+            create_test_account(3, "Owner1111111111111111111111111111111111", true, false),
+            create_test_account(4, "Signer111111111111111111111111111111111", true, false),
+        ];
+
+        let instruction = create_test_instruction(data, accounts);
+        let parsed = parser.parse_instruction(&instruction).unwrap().unwrap();
+
+        assert_eq!(parsed.name, "TransferCheckedWithFee");
+        assert_eq!(parsed.account_names[0], "source");
+        assert_eq!(parsed.account_names[1], "mint");
+        assert_eq!(parsed.account_names[2], "destination");
+        assert_eq!(parsed.account_names[3], "authority");
+        assert_eq!(parsed.account_names[4], "additional_signer_1");
+        assert!(parsed.fields.iter().any(|field| field.name == "fee" && field.value == "5"));
+    }
+
+    #[test]
+    fn test_reallocate_instruction_parsing() {
+        let parser = Token2022ProgramParser::new();
+        let mut data = vec![REALLOCATE_DISCRIMINATOR as u8];
+        data.extend_from_slice(&1u16.to_le_bytes());
+        data.extend_from_slice(&2u16.to_le_bytes());
+
+        let accounts = vec![
+            create_test_account(0, "Account11111111111111111111111111111111", false, true),
+            create_test_account(1, "Payer1111111111111111111111111111111111", true, true),
+            create_test_account(2, "Sys111111111111111111111111111111111111", false, false),
+            create_test_account(3, "Owner1111111111111111111111111111111111", true, false),
+        ];
+
+        let instruction = create_test_instruction(data, accounts);
+        let parsed = parser.parse_instruction(&instruction).unwrap().unwrap();
+
+        assert_eq!(parsed.name, "Reallocate");
+        assert_eq!(
+            parsed.account_names,
+            vec!["account", "payer", "system_program", "owner_or_delegate"]
+        );
+        assert!(
+            parsed
+                .fields
+                .iter()
+                .any(|field| field.name == "extension_types" && field.value == "1,2")
+        );
+    }
+
+    #[test]
+    fn test_withdraw_withheld_tokens_from_accounts_parsing() {
+        let parser = Token2022ProgramParser::new();
+        let mut data = vec![TRANSFER_FEE_EXTENSION_DISCRIMINATOR as u8];
+        data.push(3); // WithdrawWithheldTokensFromAccounts
+        data.push(2); // two token accounts
+
+        let accounts = vec![
+            create_test_account(0, "Mint11111111111111111111111111111111111", false, true),
+            create_test_account(1, "Destination11111111111111111111111111111", false, true),
+            create_test_account(2, "Authority111111111111111111111111111111", true, false),
+            create_test_account(3, "Signer111111111111111111111111111111111", true, false),
+            create_test_account(4, "Source111111111111111111111111111111111", false, true),
+            create_test_account(5, "Source211111111111111111111111111111111", false, true),
+        ];
+
+        let instruction = create_test_instruction(data, accounts);
+        let parsed = parser.parse_instruction(&instruction).unwrap().unwrap();
+
+        assert_eq!(parsed.name, "WithdrawWithheldTokensFromAccounts");
+        assert_eq!(
+            parsed.account_names,
+            vec![
+                "mint",
+                "destination",
+                "authority",
+                "additional_signer_1",
+                "source_account_1",
+                "source_account_2"
+            ]
+        );
+        assert!(
+            parsed
+                .fields
+                .iter()
+                .any(|field| field.name == "num_token_accounts" && field.value == "2")
+        );
     }
 }
