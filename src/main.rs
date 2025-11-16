@@ -9,6 +9,7 @@ use anyhow::Result;
 use clap::Parser;
 use cli::{Cli, Commands, SimulateArgs, TransactionInputArgs};
 use instruction_parsers::ParserRegistry;
+use solana_account::ReadableAccount;
 use solana_pubkey::Pubkey;
 
 fn main() {
@@ -74,19 +75,21 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
             let fetched_tx = transaction::fetch_transaction_from_rpc(&rpc_url, tx_str)?;
             let parsed_tx = transaction::parse_raw_transaction(&fetched_tx)?;
 
-            // Extract all program IDs (including those that might be used in inner instructions)
-            let program_ids = collect_all_program_ids(&parsed_tx);
-
-            // Load IDL parsers for all programs used in this transaction
-            match parser_registry.load_idl_parsers_for_programs(program_ids) {
-                Ok(count) if count > 0 => log::info!("Lazy-loaded {} IDL parsers", count),
-                Ok(_) => {}
-                Err(err) => log::warn!("Failed to load IDL parsers: {:?}", err),
-            }
-
-            let account_loader = account_loader::AccountLoader::new(rpc_url)?;
+            let account_loader = account_loader::AccountLoader::new(rpc_url.clone())?;
             let resolved_accounts =
                 account_loader.load_for_transaction(&parsed_tx.transaction, &replacements)?;
+
+            let program_ids = collect_program_ids(&resolved_accounts);
+
+            if program_ids.is_empty() {
+                log::error!("No executable accounts found after RPC load; skipping IDL parsing");
+            } else {
+                match parser_registry.load_idl_parsers_for_programs(program_ids) {
+                    Ok(count) if count > 0 => log::info!("Lazy-loaded {} IDL parsers", count),
+                    Ok(_) => {}
+                    Err(err) => log::warn!("Failed to load IDL parsers: {:?}", err),
+                }
+            }
 
             if parse_only {
                 output::render_transaction_only(
@@ -132,19 +135,22 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
     // If not a signature, parse as raw transaction
     let parsed_tx = transaction::parse_raw_transaction(&raw_input)?;
 
-    // Extract all program IDs (including from inner instructions) for lazy IDL loading
-    let program_ids = collect_all_program_ids(&parsed_tx);
-
-    // Load IDL parsers for all programs used in this transaction
-    match parser_registry.load_idl_parsers_for_programs(program_ids) {
-        Ok(count) if count > 0 => log::info!("Lazy-loaded {} IDL parsers", count),
-        Ok(_) => {}
-        Err(err) => log::warn!("Failed to load IDL parsers: {:?}", err),
-    }
-
     let account_loader = account_loader::AccountLoader::new(rpc_url)?;
     let resolved_accounts =
         account_loader.load_for_transaction(&parsed_tx.transaction, &replacements)?;
+
+    let program_ids = collect_program_ids(&resolved_accounts);
+
+    if program_ids.is_empty() {
+        log::error!("No executable accounts found after RPC load; skipping IDL parsing");
+    } else {
+        // Load IDL parsers for all programs used in this transaction
+        match parser_registry.load_idl_parsers_for_programs(program_ids) {
+            Ok(count) if count > 0 => log::info!("Lazy-loaded {} IDL parsers", count),
+            Ok(_) => {}
+            Err(err) => log::warn!("Failed to load IDL parsers: {:?}", err),
+        }
+    }
 
     if parse_only {
         output::render_transaction_only(
@@ -186,25 +192,84 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
     Ok(())
 }
 
-/// Collects all program IDs from the transaction account plan
-/// In Solana, all accounts that could be accessed (including program accounts in inner instructions)
-/// must be included in the transaction's account keys (static accounts or address lookups) before execution.
-/// Therefore, we can extract all program IDs from the account plan without needing to parse inner instructions.
-fn collect_all_program_ids(parsed_tx: &transaction::ParsedTransaction) -> Vec<Pubkey> {
-    let mut program_ids = vec![];
+/// Collects executable program IDs from resolved accounts for IDL loading.
+fn collect_program_ids(resolved_accounts: &account_loader::ResolvedAccounts) -> Vec<Pubkey> {
+    let mut program_ids: Vec<_> = resolved_accounts
+        .accounts
+        .iter()
+        .filter(|(_, account)| account.executable())
+        .map(|(pubkey, _)| *pubkey)
+        .collect();
 
-    // Collect from static accounts (these are always present in the transaction)
-    for program_id in &parsed_tx.account_plan.static_accounts {
-        program_ids.push(*program_id);
+    program_ids.sort();
+    program_ids.dedup();
+
+    if program_ids.is_empty() {
+        log::error!("No executable accounts found; IDL parsers will not be loaded");
     }
 
-    // Collect from address lookup tables
-    for lookup_plan in &parsed_tx.account_plan.address_lookups {
-        // The account_key here is the lookup table account itself (which could be executable if it's a program)
-        program_ids.push(lookup_plan.account_key);
+    program_ids
+}
+
+#[cfg(test)]
+mod tests {
+    use super::collect_program_ids;
+    use crate::account_loader;
+    use solana_account::Account;
+    use solana_pubkey::Pubkey;
+    use solana_sdk_ids::system_program;
+    use std::collections::HashMap;
+
+    fn executable_account() -> Account {
+        Account {
+            lamports: 0,
+            data: Vec::new(),
+            owner: system_program::id(),
+            executable: true,
+            rent_epoch: 0,
+        }
     }
 
-    // Deduplicate while preserving order
-    let mut seen = std::collections::HashSet::new();
-    program_ids.into_iter().filter(|id| seen.insert(*id)).collect()
+    fn non_executable_account() -> Account {
+        Account {
+            lamports: 0,
+            data: Vec::new(),
+            owner: system_program::id(),
+            executable: false,
+            rent_epoch: 0,
+        }
+    }
+
+    #[test]
+    fn collect_program_ids_only_includes_executable_accounts() {
+        let exec_a = Pubkey::new_unique();
+        let exec_b = Pubkey::new_unique();
+        let non_exec = Pubkey::new_unique();
+        let mut accounts = HashMap::new();
+        accounts.insert(exec_a, executable_account());
+        accounts.insert(exec_b, executable_account());
+        accounts.insert(non_exec, non_executable_account());
+
+        let resolved = account_loader::ResolvedAccounts { accounts, lookups: vec![] };
+
+        let program_ids = collect_program_ids(&resolved);
+
+        assert_eq!(program_ids.len(), 2);
+        assert!(program_ids.contains(&exec_a));
+        assert!(program_ids.contains(&exec_b));
+        assert!(!program_ids.contains(&non_exec));
+    }
+
+    #[test]
+    fn collect_program_ids_returns_empty_when_no_executable_accounts() {
+        let mut accounts = HashMap::new();
+        accounts.insert(Pubkey::new_unique(), non_executable_account());
+        accounts.insert(Pubkey::new_unique(), non_executable_account());
+
+        let resolved = account_loader::ResolvedAccounts { accounts, lookups: vec![] };
+
+        let program_ids = collect_program_ids(&resolved);
+
+        assert!(program_ids.is_empty());
+    }
 }
