@@ -37,6 +37,13 @@ pub struct SimulateArgs {
         value_parser = clap::builder::NonEmptyStringValueParser::new()
     )]
     pub fundings: Vec<String>,
+    /// Fund a token account with raw token amount, format: <TOKEN_ACCOUNT>:<MINT_ACCOUNT>:<AMOUNT_RAW>
+    #[arg(
+        long = "fund-token",
+        value_name = "FUNDING",
+        value_parser = clap::builder::NonEmptyStringValueParser::new()
+    )]
+    pub token_fundings: Vec<String>,
     /// Parse transaction only, skip simulation
     #[arg(long = "parse-only")]
     pub parse_only: bool,
@@ -83,6 +90,13 @@ pub struct Funding {
     pub amount_sol: f64,
 }
 
+#[derive(Clone, Debug)]
+pub struct TokenFunding {
+    pub account: Pubkey,
+    pub mint: Pubkey,
+    pub amount_raw: u64,
+}
+
 pub fn parse_program_replacement(raw: &str) -> Result<ProgramReplacement, String> {
     let (program_str, path_str) = raw
         .split_once('=')
@@ -112,4 +126,63 @@ pub fn parse_funding(raw: &str) -> Result<Funding, String> {
     }
 
     Ok(Funding { pubkey, amount_sol })
+}
+
+pub fn parse_token_funding(raw: &str) -> Result<TokenFunding, String> {
+    let mut parts = raw.split(':');
+    let token_str = parts.next().ok_or_else(|| {
+        "Token funding must be in <TOKEN_ACCOUNT>:<MINT_ACCOUNT>:<AMOUNT> format".to_string()
+    })?;
+    let mint_str = parts.next().ok_or_else(|| {
+        "Token funding must be in <TOKEN_ACCOUNT>:<MINT_ACCOUNT>:<AMOUNT> format".to_string()
+    })?;
+    let amount_str = parts.next().ok_or_else(|| {
+        "Token funding must be in <TOKEN_ACCOUNT>:<MINT_ACCOUNT>:<AMOUNT> format".to_string()
+    })?;
+    if parts.next().is_some() {
+        return Err(
+            "Token funding must be in <TOKEN_ACCOUNT>:<MINT_ACCOUNT>:<AMOUNT> format".to_string()
+        );
+    }
+
+    let account = Pubkey::from_str(token_str)
+        .map_err(|err| format!("Failed to parse token account `{token_str}`: {err}"))?;
+    let mint = Pubkey::from_str(mint_str)
+        .map_err(|err| format!("Failed to parse mint account `{mint_str}`: {err}"))?;
+    let amount_raw = amount_str
+        .trim()
+        .parse::<u64>()
+        .map_err(|err| format!("Failed to parse token amount `{amount_str}`: {err}"))?;
+
+    Ok(TokenFunding { account, mint, amount_raw })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_token_funding_accepts_valid_input() {
+        let token = Pubkey::new_unique();
+        let mint = Pubkey::new_unique();
+        let input = format!("{token}:{mint}:12345");
+        let parsed = parse_token_funding(&input).expect("parses");
+        assert_eq!(parsed.account, token);
+        assert_eq!(parsed.mint, mint);
+        assert_eq!(parsed.amount_raw, 12_345);
+    }
+
+    #[test]
+    fn parse_token_funding_rejects_invalid_format() {
+        let err = parse_token_funding("invalid").unwrap_err();
+        assert!(err.contains("<TOKEN_ACCOUNT>:<MINT_ACCOUNT>:<AMOUNT>"));
+    }
+
+    #[test]
+    fn parse_token_funding_rejects_negative_amount() {
+        let key = Pubkey::new_unique();
+        let mint = Pubkey::new_unique();
+        let err = parse_token_funding(&format!("{key}:{mint}:-1")).unwrap_err();
+        assert!(err.contains("Failed to parse token amount"));
+    }
 }

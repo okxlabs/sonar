@@ -1,6 +1,7 @@
 mod account_loader;
 mod cli;
 mod executor;
+mod funding;
 mod instruction_parsers;
 mod output;
 mod transaction;
@@ -9,7 +10,6 @@ use anyhow::Result;
 use clap::Parser;
 use cli::{Cli, Commands, SimulateArgs, TransactionInputArgs};
 use instruction_parsers::ParserRegistry;
-use solana_account::ReadableAccount;
 use solana_pubkey::Pubkey;
 
 fn main() {
@@ -39,6 +39,7 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
         rpc_url,
         replacements: replacement_args,
         fundings: funding_args,
+        token_fundings: token_funding_args,
         parse_only,
         ix_data,
         verify_signatures,
@@ -64,6 +65,15 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
             .collect::<Result<Vec<_>>>()?
     };
 
+    let token_funding_requests = if parse_only {
+        vec![]
+    } else {
+        token_funding_args
+            .into_iter()
+            .map(|raw| cli::parse_token_funding(&raw).map_err(anyhow::Error::msg))
+            .collect::<Result<Vec<_>>>()?
+    };
+
     let raw_input = transaction::read_raw_transaction(tx.clone(), tx_file.as_deref())?;
 
     // Check if input looks like a transaction signature first
@@ -76,8 +86,17 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
             let parsed_tx = transaction::parse_raw_transaction(&fetched_tx)?;
 
             let account_loader = account_loader::AccountLoader::new(rpc_url.clone())?;
-            let resolved_accounts =
+            let mut resolved_accounts =
                 account_loader.load_for_transaction(&parsed_tx.transaction, &replacements)?;
+            let prepared_token_fundings = if token_funding_requests.is_empty() {
+                Vec::new()
+            } else {
+                funding::prepare_token_fundings(
+                    &account_loader,
+                    &mut resolved_accounts,
+                    &token_funding_requests,
+                )?
+            };
 
             let program_ids = collect_program_ids(&resolved_accounts);
 
@@ -104,6 +123,7 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
                     resolved_accounts,
                     replacements,
                     fundings,
+                    prepared_token_fundings,
                     verify_signatures,
                 )?;
                 let simulation = executor.simulate(&parsed_tx.transaction)?;
@@ -122,6 +142,7 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
                     &simulation,
                     executor.replacements(),
                     executor.fundings(),
+                    executor.token_fundings(),
                     &mut parser_registry,
                     output,
                     ix_data,
@@ -136,8 +157,17 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
     let parsed_tx = transaction::parse_raw_transaction(&raw_input)?;
 
     let account_loader = account_loader::AccountLoader::new(rpc_url)?;
-    let resolved_accounts =
+    let mut resolved_accounts =
         account_loader.load_for_transaction(&parsed_tx.transaction, &replacements)?;
+    let prepared_token_fundings = if token_funding_requests.is_empty() {
+        Vec::new()
+    } else {
+        funding::prepare_token_fundings(
+            &account_loader,
+            &mut resolved_accounts,
+            &token_funding_requests,
+        )?
+    };
 
     let program_ids = collect_program_ids(&resolved_accounts);
 
@@ -165,6 +195,7 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
             resolved_accounts,
             replacements,
             fundings,
+            prepared_token_fundings,
             verify_signatures,
         )?;
         let simulation = executor.simulate(&parsed_tx.transaction)?;
@@ -183,6 +214,7 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
             &simulation,
             executor.replacements(),
             executor.fundings(),
+            executor.token_fundings(),
             &mut parser_registry,
             output,
             ix_data,
@@ -197,7 +229,7 @@ fn collect_program_ids(resolved_accounts: &account_loader::ResolvedAccounts) -> 
     let mut program_ids: Vec<_> = resolved_accounts
         .accounts
         .iter()
-        .filter(|(_, account)| account.executable())
+        .filter(|(_, account)| account.executable)
         .map(|(pubkey, _)| *pubkey)
         .collect();
 

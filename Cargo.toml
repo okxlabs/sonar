@@ -36,6 +36,8 @@ solana-signer = "3.0"
 solana-system-interface = { version = "3.0", features = ["bincode"] }
 hex = "0.4"
 colored = "2.1"
+spl-token = "9.0.0"
+spl-token-2022 = "10.0.0"
 
 [dev-dependencies]
 assert_cmd = "2.0"

@@ -15,6 +15,7 @@ use solana_transaction::versioned::VersionedTransaction as LiteVersionedTransact
 use crate::{
     account_loader::{ResolvedAccounts, ResolvedLookup},
     cli::{Funding, ProgramReplacement},
+    funding::PreparedTokenFunding,
 };
 
 pub struct TransactionExecutor {
@@ -22,6 +23,7 @@ pub struct TransactionExecutor {
     resolved: ResolvedAccounts,
     replacements: Vec<ProgramReplacement>,
     fundings: Vec<Funding>,
+    token_fundings: Vec<PreparedTokenFunding>,
 }
 
 impl TransactionExecutor {
@@ -29,6 +31,7 @@ impl TransactionExecutor {
         resolved: ResolvedAccounts,
         replacements: Vec<ProgramReplacement>,
         fundings: Vec<Funding>,
+        token_fundings: Vec<PreparedTokenFunding>,
         verify_signatures: bool,
     ) -> Result<Self> {
         let mut svm = LiteSVM::new()
@@ -79,7 +82,7 @@ impl TransactionExecutor {
             }
         }
 
-        Ok(Self { svm, resolved, replacements, fundings })
+        Ok(Self { svm, resolved, replacements, fundings, token_fundings })
     }
 
     pub fn simulate(&mut self, tx: &VersionedTransaction) -> Result<SimulationResult> {
@@ -113,6 +116,10 @@ impl TransactionExecutor {
 
     pub fn fundings(&self) -> &[Funding] {
         &self.fundings
+    }
+
+    pub fn token_fundings(&self) -> &[PreparedTokenFunding] {
+        &self.token_fundings
     }
 }
 

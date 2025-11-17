@@ -95,6 +95,22 @@ impl AccountLoader {
         Ok(ResolvedAccounts { accounts, lookups })
     }
 
+    pub fn append_accounts(
+        &self,
+        resolved: &mut ResolvedAccounts,
+        pubkeys: &[Pubkey],
+    ) -> Result<()> {
+        if pubkeys.is_empty() {
+            return Ok(());
+        }
+        self.fetch_accounts(pubkeys, &mut resolved.accounts).with_context(|| {
+            format!("Failed to fetch appended accounts: [{}]", format_pubkeys(pubkeys))
+        })?;
+        self.ensure_upgradeable_dependencies(&mut resolved.accounts)
+            .context("Failed to load upgradeable program dependencies for appended accounts")?;
+        Ok(())
+    }
+
     fn ensure_upgradeable_dependencies(
         &self,
         accounts: &mut HashMap<Pubkey, Account>,

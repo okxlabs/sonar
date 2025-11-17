@@ -13,6 +13,7 @@ use crate::{
     account_loader::{ResolvedAccounts, ResolvedLookup},
     cli::{Funding, OutputFormat, ProgramReplacement},
     executor::{ExecutionStatus, SimulationResult},
+    funding::PreparedTokenFunding,
     instruction_parsers::anchor_idl::is_anchor_cpi_event,
     instruction_parsers::{ParsedField, ParsedInstruction, ParserRegistry},
     transaction::{AccountReferenceSummary, AccountSourceSummary, ParsedTransaction},
@@ -25,6 +26,7 @@ pub fn render(
     simulation: &SimulationResult,
     replacements: &[ProgramReplacement],
     fundings: &[Funding],
+    token_fundings: &[PreparedTokenFunding],
     parser_registry: &mut ParserRegistry,
     format: OutputFormat,
     show_ix_data: bool,
@@ -36,6 +38,7 @@ pub fn render(
         simulation,
         replacements,
         fundings,
+        token_fundings,
         parser_registry,
         verify_signatures,
     );
@@ -76,6 +79,7 @@ fn render_text(
 ) -> Result<()> {
     render_transaction_section_text(&report.transaction, resolved, parser_registry, show_ix_data);
     render_fundings_text(&report.fundings);
+    render_token_fundings_text(&report.token_fundings);
     render_replacements_text(&report.replacements);
     render_simulation_text(&report.simulation);
     Ok(())
@@ -318,6 +322,20 @@ fn render_fundings_text(fundings: &[FundingSection]) {
     }
 }
 
+fn render_token_fundings_text(fundings: &[TokenFundingSection]) {
+    if fundings.is_empty() {
+        return;
+    }
+
+    println!("\nToken Funding:");
+    for funding in fundings {
+        println!(
+            "  account {} mint {} | decimals {} | UI {} | raw {}",
+            funding.account, funding.mint, funding.decimals, funding.ui_amount, funding.amount_raw
+        );
+    }
+}
+
 fn render_replacements_text(replacements: &[ReplacementSection]) {
     if replacements.is_empty() {
         return;
@@ -372,6 +390,7 @@ struct Report {
     simulation: SimulationSection,
     replacements: Vec<ReplacementSection>,
     fundings: Vec<FundingSection>,
+    token_fundings: Vec<TokenFundingSection>,
 }
 
 impl Report {
@@ -381,6 +400,7 @@ impl Report {
         simulation: &SimulationResult,
         replacements: &[ProgramReplacement],
         fundings: &[Funding],
+        token_fundings: &[PreparedTokenFunding],
         parser_registry: &mut ParserRegistry,
         verify_signatures: bool,
     ) -> Self {
@@ -407,7 +427,17 @@ impl Report {
                 amount_sol: entry.amount_sol,
             })
             .collect();
-        Self { transaction, simulation, replacements, fundings }
+        let token_fundings = token_fundings
+            .iter()
+            .map(|entry| TokenFundingSection {
+                account: entry.account.to_string(),
+                mint: entry.mint.to_string(),
+                decimals: entry.decimals,
+                ui_amount: entry.ui_amount,
+                amount_raw: entry.amount_raw,
+            })
+            .collect();
+        Self { transaction, simulation, replacements, fundings, token_fundings }
     }
 }
 
@@ -857,6 +887,15 @@ impl ReturnDataReport {
 struct FundingSection {
     pubkey: String,
     amount_sol: f64,
+}
+
+#[derive(Serialize)]
+struct TokenFundingSection {
+    account: String,
+    mint: String,
+    decimals: u8,
+    ui_amount: f64,
+    amount_raw: u64,
 }
 
 #[derive(Serialize)]
