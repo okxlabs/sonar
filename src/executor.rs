@@ -4,7 +4,7 @@ use anyhow::{Context, Result, anyhow};
 use bincode;
 use litesvm::{LiteSVM, types::TransactionMetadata};
 use log::info;
-use solana_account::{Account, AccountSharedData, WritableAccount};
+use solana_account::{Account, AccountSharedData};
 
 use solana_loader_v3_interface::state::UpgradeableLoaderState;
 use solana_pubkey::Pubkey;
@@ -15,7 +15,7 @@ use solana_transaction::versioned::VersionedTransaction as LiteVersionedTransact
 use crate::{
     account_loader::{ResolvedAccounts, ResolvedLookup},
     cli::{Funding, ProgramReplacement},
-    funding::PreparedTokenFunding,
+    funding::{PreparedTokenFunding, apply_sol_fundings},
 };
 
 pub struct TransactionExecutor {
@@ -63,24 +63,7 @@ impl TransactionExecutor {
             )?;
         }
 
-        // Apply funding to specified accounts
-        for Funding { pubkey, amount_sol } in &fundings {
-            let lamports = (amount_sol * 1_000_000_000.0) as u64;
-            info!("Funding account {} with {} SOL ({} lamports)", pubkey, amount_sol, lamports);
-
-            // Check if account already exists
-            if let Some(existing_account) = svm.get_account(&pubkey) {
-                // Update existing account with new balance
-                let mut new_account = existing_account.clone();
-                new_account.set_lamports(lamports);
-                svm.set_account(*pubkey, new_account)?;
-            } else {
-                // Create new system account with the specified balance
-                let system_program_id = solana_sdk_ids::system_program::id();
-                let new_account = AccountSharedData::new(lamports, 0, &system_program_id);
-                svm.set_account(*pubkey, new_account.into())?;
-            }
-        }
+        apply_sol_fundings(&mut svm, &fundings)?;
 
         Ok(Self { svm, resolved, replacements, fundings, token_fundings })
     }

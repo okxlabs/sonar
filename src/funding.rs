@@ -1,11 +1,16 @@
 use anyhow::{Context, Result, anyhow};
+use litesvm::LiteSVM;
+use log::info;
+use solana_account::{Account, AccountSharedData, WritableAccount};
 use solana_pubkey::Pubkey;
 use spl_token::solana_program::program_pack::Pack;
 
 use crate::{
     account_loader::{AccountLoader, ResolvedAccounts},
-    cli::TokenFunding,
+    cli::{Funding, TokenFunding},
 };
+
+const LAMPORTS_PER_SOL: f64 = 1_000_000_000.0;
 
 #[derive(Clone, Debug)]
 pub struct PreparedTokenFunding {
@@ -14,6 +19,37 @@ pub struct PreparedTokenFunding {
     pub decimals: u8,
     pub amount_raw: u64,
     pub ui_amount: f64,
+}
+
+pub fn apply_sol_fundings(svm: &mut LiteSVM, fundings: &[Funding]) -> Result<()> {
+    for funding in fundings {
+        apply_single_sol_funding(svm, funding)?;
+    }
+    Ok(())
+}
+
+fn apply_single_sol_funding(svm: &mut LiteSVM, funding: &Funding) -> Result<()> {
+    let lamports = sol_to_lamports(funding.amount_sol);
+    info!(
+        "Funding account {} with {} SOL ({} lamports)",
+        funding.pubkey, funding.amount_sol, lamports
+    );
+
+    if let Some(existing_account) = svm.get_account(&funding.pubkey) {
+        let mut updated = existing_account.clone();
+        updated.set_lamports(lamports);
+        svm.set_account(funding.pubkey, updated)?;
+    } else {
+        let system_program_id = solana_sdk_ids::system_program::id();
+        let new_account = AccountSharedData::new(lamports, 0, &system_program_id);
+        svm.set_account(funding.pubkey, new_account.into())?;
+    }
+
+    Ok(())
+}
+
+fn sol_to_lamports(amount_sol: f64) -> u64 {
+    (amount_sol * LAMPORTS_PER_SOL) as u64
 }
 
 pub fn prepare_token_fundings(
@@ -108,8 +144,6 @@ fn create_missing_token_account(
     request: &TokenFunding,
     kind: TokenProgramKind,
 ) -> Result<()> {
-    use solana_account::Account;
-
     match kind {
         TokenProgramKind::Legacy => {
             use spl_token::solana_program::{
@@ -331,7 +365,8 @@ fn token2022_program_id() -> Pubkey {
 mod tests {
     use std::collections::HashMap;
 
-    use solana_account::Account;
+    use litesvm::LiteSVM;
+    use solana_account::{Account, AccountSharedData, ReadableAccount};
     use solana_pubkey::Pubkey;
     use spl_token::solana_program::program_pack::Pack;
 
@@ -381,6 +416,34 @@ mod tests {
         let parsed = SplAccount::unpack(&account.data[..SplAccount::LEN]).unwrap();
         assert_eq!(Pubkey::new_from_array(parsed.mint.to_bytes()), mint);
         assert_eq!(parsed.amount, 42);
+    }
+
+    #[test]
+    fn apply_sol_funding_updates_existing_account() {
+        let mut svm = LiteSVM::new();
+        let key = Pubkey::new_unique();
+        let owner = solana_sdk_ids::system_program::id();
+        let template = AccountSharedData::new(0, 0, &owner);
+        svm.set_account(key, template.into()).unwrap();
+
+        let funding = Funding { pubkey: key, amount_sol: 1.25 };
+        apply_sol_fundings(&mut svm, &[funding]).expect("funding succeeds");
+
+        let updated = svm.get_account(&key).expect("account exists");
+        assert_eq!(updated.lamports(), 1_250_000_000);
+    }
+
+    #[test]
+    fn apply_sol_funding_creates_account_when_missing() {
+        let mut svm = LiteSVM::new();
+        let key = Pubkey::new_unique();
+
+        let funding = Funding { pubkey: key, amount_sol: 0.5 };
+        apply_sol_fundings(&mut svm, &[funding]).expect("funding succeeds");
+
+        let created = svm.get_account(&key).expect("account created");
+        assert_eq!(created.lamports(), 500_000_000);
+        assert_eq!(created.owner(), &solana_sdk_ids::system_program::id());
     }
 
     fn spl_token_account_and_mint(mint: &Pubkey, owner: &Pubkey) -> (Account, Account) {
