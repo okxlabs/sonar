@@ -281,7 +281,7 @@ impl ParserRegistry {
                 }
             };
 
-        // Convert to canonical CompleteIdl
+        // Convert to canonical Idl
         let idl_data = raw_idl.convert(&program_id.to_string());
 
         // The IdlRegistry needs to be populated - use a temporary approach

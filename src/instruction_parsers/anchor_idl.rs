@@ -43,15 +43,15 @@ fn to_snake_case(s: &str) -> String {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum RawAnchorIdl {
-    Current(CompleteIdl),
+    Current(Idl),
     Legacy(LegacyIdl),
 }
 
 impl RawAnchorIdl {
-    pub fn convert(self, program_address: &str) -> CompleteIdl {
+    pub fn convert(self, program_address: &str) -> Idl {
         match self {
             RawAnchorIdl::Current(idl) => idl,
-            RawAnchorIdl::Legacy(legacy) => legacy.into_complete_idl(program_address),
+            RawAnchorIdl::Legacy(legacy) => legacy.into_idl(program_address),
         }
     }
 }
@@ -75,7 +75,7 @@ pub struct LegacyIdl {
 }
 
 impl LegacyIdl {
-    fn into_complete_idl(self, address: &str) -> CompleteIdl {
+    fn into_idl(self, address: &str) -> Idl {
         // 1. Merge 'accounts' into 'types'
         let mut types = self.types.unwrap_or_default();
         if let Some(accounts) = self.accounts {
@@ -118,7 +118,7 @@ impl LegacyIdl {
             description: None,
         });
 
-        CompleteIdl {
+        Idl {
             address: address.to_string(),
             metadata,
             instructions,
@@ -130,7 +130,7 @@ impl LegacyIdl {
 
 /// Complete IDL structure including types for full type resolution
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CompleteIdl {
+pub struct Idl {
     pub address: String,
     pub metadata: IdlMetadata,
     pub instructions: Vec<IdlInstruction>,
@@ -318,7 +318,7 @@ pub struct IdlRegistry {
 
 #[derive(Debug, Clone)]
 pub(crate) struct IdlRegistryInner {
-    pub(crate) idls: HashMap<Pubkey, CompleteIdl>,
+    pub(crate) idls: HashMap<Pubkey, Idl>,
     // Maps (program_id, type_name) to type definition to avoid conflicts between programs
     pub(crate) types_by_program_and_name: HashMap<(Pubkey, String), IdlTypeDefinition>,
 }
@@ -334,7 +334,7 @@ impl IdlRegistry {
     }
 
     /// Get an IDL by program ID
-    pub fn get(&self, program_id: &Pubkey) -> Option<&CompleteIdl> {
+    pub fn get(&self, program_id: &Pubkey) -> Option<&Idl> {
         self.inner.idls.get(program_id)
     }
 
@@ -357,12 +357,12 @@ impl Default for IdlRegistry {
 /// Parser for Anchor programs using IDL data
 pub struct AnchorIdlParser {
     program_id: Pubkey,
-    pub(crate) idl: CompleteIdl,
+    pub(crate) idl: Idl,
     pub(crate) registry: IdlRegistry,
 }
 
 impl AnchorIdlParser {
-    pub fn new(program_id: Pubkey, idl: CompleteIdl, registry: IdlRegistry) -> Self {
+    pub fn new(program_id: Pubkey, idl: Idl, registry: IdlRegistry) -> Self {
         Self { program_id, idl, registry }
     }
 }
@@ -416,7 +416,7 @@ impl InstructionParser for AnchorIdlParser {
 }
 
 fn find_instruction_by_discriminator<'a>(
-    idl: &'a CompleteIdl,
+    idl: &'a Idl,
     discriminator: &[u8],
 ) -> Option<&'a IdlInstruction> {
     idl.instructions
@@ -442,7 +442,7 @@ fn parse_instruction_data(
     offset: &mut usize,
     args: &[IdlArg],
     registry: &IdlRegistry,
-    idl: &CompleteIdl,
+    idl: &Idl,
 ) -> Result<Vec<ParsedField>> {
     let mut fields = Vec::new();
 
@@ -463,7 +463,7 @@ fn parse_type(
     offset: &mut usize,
     idl_type: &IdlType,
     registry: &IdlRegistry,
-    idl: &CompleteIdl,
+    idl: &Idl,
 ) -> Result<OrderedJsonValue> {
     match idl_type {
         IdlType::Simple(type_name) => parse_simple_type(data, offset, type_name),
@@ -645,7 +645,7 @@ fn parse_vec_type(
     offset: &mut usize,
     element_type: &IdlType,
     registry: &IdlRegistry,
-    idl: &CompleteIdl,
+    idl: &Idl,
 ) -> Result<OrderedJsonValue> {
     let start = *offset;
     check_data_len(data, start, 4)?;
@@ -672,7 +672,7 @@ fn parse_option_type(
     offset: &mut usize,
     inner_type: &IdlType,
     registry: &IdlRegistry,
-    idl: &CompleteIdl,
+    idl: &Idl,
 ) -> Result<OrderedJsonValue> {
     let start = *offset;
     check_data_len(data, start, 1)?;
@@ -692,7 +692,7 @@ fn parse_array_type(
     offset: &mut usize,
     array_def: &[JsonValue; 2],
     registry: &IdlRegistry,
-    idl: &CompleteIdl,
+    idl: &Idl,
 ) -> Result<OrderedJsonValue> {
     let element_type = array_def[0].clone();
     let length = array_def[1].as_u64().ok_or_else(|| anyhow!("Invalid array length"))? as usize;
@@ -717,7 +717,7 @@ fn parse_defined_type(
     offset: &mut usize,
     defined: &DefinedType,
     registry: &IdlRegistry,
-    idl: &CompleteIdl,
+    idl: &Idl,
 ) -> Result<OrderedJsonValue> {
     let program_id = Pubkey::try_from(idl.address.as_str())
         .map_err(|_| anyhow!("Invalid program ID in IDL: {}", idl.address))?;
@@ -744,7 +744,7 @@ fn parse_type_definition(
     offset: &mut usize,
     type_def: &IdlTypeDefinition,
     registry: &IdlRegistry,
-    idl: &CompleteIdl,
+    idl: &Idl,
 ) -> Result<OrderedJsonValue> {
     match type_def.type_.kind.as_str() {
         "struct" => {
@@ -849,10 +849,7 @@ fn check_data_len(data: &[u8], offset: usize, required: usize) -> Result<()> {
 }
 
 /// Find an event by discriminator
-pub fn find_event_by_discriminator<'a>(
-    idl: &'a CompleteIdl,
-    discriminator: &[u8],
-) -> Option<&'a IdlEvent> {
+pub fn find_event_by_discriminator<'a>(idl: &'a Idl, discriminator: &[u8]) -> Option<&'a IdlEvent> {
     if let Some(events) = &idl.events {
         events.iter().find(|event| {
             event.discriminator.len() == 8 && &event.discriminator[..8] == discriminator
