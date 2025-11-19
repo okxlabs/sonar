@@ -47,12 +47,16 @@ impl AccountLoader {
         let plan = collect_account_plan(tx);
         let mut accounts = HashMap::new();
 
-        // Pre-load static accounts
-        self.fetch_accounts(&plan.static_accounts, &mut accounts)
-            .context("Failed to fetch static account info")?;
+        // Phase 1: Batch fetch static accounts, sysvars, and address lookup table accounts
+        let mut initial_accounts = plan.static_accounts.clone();
+        initial_accounts.push(Clock::id());
+        initial_accounts.push(SlotHashes::id());
+        for lookup in &plan.address_lookups {
+            initial_accounts.push(lookup.account_key);
+        }
 
-        self.fetch_accounts(&[Clock::id(), SlotHashes::id()], &mut accounts)
-            .context("Failed to fetch sysvar accounts")?;
+        self.fetch_accounts(&initial_accounts, &mut accounts)
+            .context("Failed to fetch initial accounts (static + sysvars + lookups)")?;
 
         self.ensure_upgradeable_dependencies(&mut accounts)
             .context("Failed to load upgradeable program metadata")?;
@@ -62,7 +66,8 @@ impl AccountLoader {
         let mut readonly_lookup_accounts = Vec::new();
 
         // Process address lookup tables
-        // Maintain consistent order with `build_lookup_locations`: aggregate all writable indexes first, then all readonly indexes
+        // Since we pre-fetched the lookup table accounts in Phase 1, `load_lookup_table`
+        // will hit the cache/map and not trigger new network requests.
         for lookup_plan in &plan.address_lookups {
             let resolved = self.load_lookup_table(lookup_plan, &mut accounts)?;
             writable_lookup_accounts.extend(resolved.writable_addresses.iter().copied());
@@ -70,26 +75,21 @@ impl AccountLoader {
             lookups.push(resolved);
         }
 
-        if !writable_lookup_accounts.is_empty() {
-            self.fetch_accounts(&writable_lookup_accounts, &mut accounts).with_context(|| {
-                format!(
-                    "Failed to load writable accounts from address lookup table: [{}]",
-                    format_pubkeys(&writable_lookup_accounts)
-                )
-            })?;
-            self.ensure_upgradeable_dependencies(&mut accounts)
-                .context("Failed to load upgradeable program dependencies when processing writable accounts from address lookup table")?;
-        }
+        // Phase 2: Batch fetch all resolved lookup accounts
+        let mut lookup_accounts_to_fetch = writable_lookup_accounts.clone();
+        lookup_accounts_to_fetch.extend_from_slice(&readonly_lookup_accounts);
 
-        if !readonly_lookup_accounts.is_empty() {
-            self.fetch_accounts(&readonly_lookup_accounts, &mut accounts).with_context(|| {
+        if !lookup_accounts_to_fetch.is_empty() {
+            self.fetch_accounts(&lookup_accounts_to_fetch, &mut accounts).with_context(|| {
                 format!(
-                    "Failed to load readonly accounts from address lookup table: [{}]",
-                    format_pubkeys(&readonly_lookup_accounts)
+                    "Failed to load accounts from address lookup tables: [{}]",
+                    format_pubkeys(&lookup_accounts_to_fetch)
                 )
             })?;
-            self.ensure_upgradeable_dependencies(&mut accounts)
-                .context("Failed to load upgradeable program dependencies when processing readonly accounts from address lookup table")?;
+
+            self.ensure_upgradeable_dependencies(&mut accounts).context(
+                "Failed to load upgradeable program dependencies for lookup table accounts",
+            )?;
         }
 
         Ok(ResolvedAccounts { accounts, lookups })
