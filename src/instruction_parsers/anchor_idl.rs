@@ -92,16 +92,6 @@ impl LegacyIdl {
                     // IDL usually has camelCase names, so we convert them
                     let snake_name = to_snake_case(&inst.name);
                     inst.discriminator = sighash("global", &snake_name).to_vec();
-
-                    // Debug log for specific instruction
-                    if inst.name == "flashBorrowReserveLiquidity" {
-                        log::info!(
-                            "Calculated discriminator for {}: {:02x?} (snake: {})",
-                            inst.name,
-                            inst.discriminator,
-                            snake_name
-                        );
-                    }
                 }
                 inst
             })
