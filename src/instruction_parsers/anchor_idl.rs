@@ -376,14 +376,10 @@ impl InstructionParser for AnchorIdlParser {
         &self,
         instruction: &InstructionSummary,
     ) -> Result<Option<ParsedInstruction>> {
-        if instruction.data.len() < 8 {
-            return Ok(None);
-        }
-
-        let discriminator = &instruction.data[..8];
-
-        if let Some(idl_instruction) = find_instruction_by_discriminator(&self.idl, discriminator) {
-            let mut offset = 8;
+        if let Some(idl_instruction) =
+            find_instruction_by_discriminator(&self.idl, &instruction.data)
+        {
+            let mut offset = idl_instruction.discriminator.len();
             let data = parse_instruction_data(
                 &instruction.data,
                 &mut offset,
@@ -415,13 +411,11 @@ impl InstructionParser for AnchorIdlParser {
     }
 }
 
-fn find_instruction_by_discriminator<'a>(
-    idl: &'a Idl,
-    discriminator: &[u8],
-) -> Option<&'a IdlInstruction> {
-    idl.instructions
-        .iter()
-        .find(|inst| inst.discriminator.len() == 8 && &inst.discriminator[..8] == discriminator)
+fn find_instruction_by_discriminator<'a>(idl: &'a Idl, data: &[u8]) -> Option<&'a IdlInstruction> {
+    idl.instructions.iter().find(|inst| {
+        let disc_len = inst.discriminator.len();
+        data.len() >= disc_len && &data[..disc_len] == inst.discriminator.as_slice()
+    })
 }
 
 fn extract_account_names(accounts: &[IdlAccountItem]) -> Vec<String> {

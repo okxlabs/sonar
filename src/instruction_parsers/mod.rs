@@ -171,25 +171,9 @@ impl ParserRegistry {
         let system_parser = SystemProgramParser::new();
         registry.parsers.insert(*system_parser.program_id(), Box::new(system_parser));
 
-        // Register Token Program parser
-        let token_parser = TokenProgramParser::new();
-        registry.parsers.insert(*token_parser.program_id(), Box::new(token_parser));
-
-        // Register Compute Budget parser
-        let compute_budget_parser = ComputeBudgetParser::new();
-        registry
-            .parsers
-            .insert(*compute_budget_parser.program_id(), Box::new(compute_budget_parser));
-
         // Register Token2022 parser
         let token2022_parser = Token2022ProgramParser::new();
         registry.parsers.insert(*token2022_parser.program_id(), Box::new(token2022_parser));
-
-        // Register Associated Token Program parser
-        let associated_token_parser = AssociatedTokenProgramParser::new();
-        registry
-            .parsers
-            .insert(*associated_token_parser.program_id(), Box::new(associated_token_parser));
 
         registry
     }
@@ -403,39 +387,12 @@ mod tests {
 
         assert_eq!(*parser.program_id(), expected_id);
     }
-
-    #[test]
-    fn test_associated_token_parser_registration() {
-        let registry = ParserRegistry::new(None);
-        let associated_token_id =
-            Pubkey::from_str_const("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
-
-        // The Associated Token Program parser should be registered
-        assert!(registry.parsers.contains_key(&associated_token_id));
-    }
-
-    #[test]
-    fn test_associated_token_parser_program_id() {
-        let parser = AssociatedTokenProgramParser::new();
-        let expected_id = Pubkey::from_str_const("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
-
-        assert_eq!(*parser.program_id(), expected_id);
-    }
 }
 
 mod system_program;
 pub use system_program::SystemProgramParser;
 
-mod token_program;
-pub use token_program::TokenProgramParser;
-
-mod compute_budget;
-pub use compute_budget::ComputeBudgetParser;
-
 mod token2022_program;
 pub use token2022_program::Token2022ProgramParser;
-
-mod associated_token_program;
-pub use associated_token_program::AssociatedTokenProgramParser;
 
 pub mod anchor_idl;
