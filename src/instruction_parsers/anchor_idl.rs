@@ -4,12 +4,139 @@ use std::sync::Arc;
 use anyhow::{Result, anyhow};
 use serde::{Deserialize, Serialize};
 use serde_json::{Number as JsonNumber, Value as JsonValue};
+use sha2::{Digest, Sha256};
 use solana_pubkey::Pubkey;
 
 use crate::instruction_parsers::{
     InstructionParser, OrderedJsonValue, ParsedField, ParsedInstruction,
 };
 use crate::transaction::InstructionSummary;
+
+/// Helper to calculate sighash for discriminators
+fn sighash(namespace: &str, name: &str) -> [u8; 8] {
+    let preimage = format!("{}:{}", namespace, name);
+    let mut hasher = Sha256::new();
+    hasher.update(preimage.as_bytes());
+    let result = hasher.finalize();
+    let mut sighash = [0u8; 8];
+    sighash.copy_from_slice(&result[..8]);
+    sighash
+}
+
+/// Convert camelCase to snake_case for sighash calculation
+fn to_snake_case(s: &str) -> String {
+    let mut snake = String::new();
+    for (i, c) in s.chars().enumerate() {
+        if c.is_uppercase() {
+            if i > 0 {
+                snake.push('_');
+            }
+            snake.push(c.to_ascii_lowercase());
+        } else {
+            snake.push(c);
+        }
+    }
+    snake
+}
+
+/// Enum to handle both legacy (flat) and new (nested metadata) IDL formats
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum RawAnchorIdl {
+    Current(CompleteIdl),
+    Legacy(LegacyIdl),
+}
+
+impl RawAnchorIdl {
+    pub fn convert(self, program_address: &str) -> CompleteIdl {
+        match self {
+            RawAnchorIdl::Current(idl) => idl,
+            RawAnchorIdl::Legacy(legacy) => legacy.into_complete_idl(program_address),
+        }
+    }
+}
+
+/// Legacy IDL structure (pre-0.30)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LegacyIdl {
+    pub version: String,
+    pub name: String,
+    pub instructions: Vec<IdlInstruction>,
+    #[serde(default)]
+    pub accounts: Option<Vec<IdlTypeDefinition>>,
+    #[serde(default)]
+    pub types: Option<Vec<IdlTypeDefinition>>,
+    #[serde(default)]
+    pub events: Option<Vec<IdlEvent>>,
+    #[serde(default)]
+    pub errors: Option<Vec<JsonValue>>,
+    #[serde(default)]
+    pub metadata: Option<IdlMetadata>,
+}
+
+impl LegacyIdl {
+    fn into_complete_idl(self, address: &str) -> CompleteIdl {
+        // 1. Merge 'accounts' into 'types'
+        let mut types = self.types.unwrap_or_default();
+        if let Some(accounts) = self.accounts {
+            types.extend(accounts);
+        }
+
+        // 2. Ensure instructions have discriminators
+        let instructions: Vec<IdlInstruction> = self
+            .instructions
+            .into_iter()
+            .map(|mut inst| {
+                if inst.discriminator.is_empty() {
+                    // Anchor discriminators for instructions are based on the snake_case Rust function name
+                    // IDL usually has camelCase names, so we convert them
+                    let snake_name = to_snake_case(&inst.name);
+                    inst.discriminator = sighash("global", &snake_name).to_vec();
+
+                    // Debug log for specific instruction
+                    if inst.name == "flashBorrowReserveLiquidity" {
+                        log::info!(
+                            "Calculated discriminator for {}: {:02x?} (snake: {})",
+                            inst.name,
+                            inst.discriminator,
+                            snake_name
+                        );
+                    }
+                }
+                inst
+            })
+            .collect();
+
+        // 3. Handle events - calculate discriminators if missing and merge fields from types if needed
+        let events: Option<Vec<IdlEvent>> = self.events.map(|events| {
+            events
+                .into_iter()
+                .map(|mut event| {
+                    if event.discriminator.is_empty() {
+                        event.discriminator = sighash("event", &event.name).to_vec();
+                    }
+                    event
+                })
+                .collect()
+        });
+
+        // 4. Construct metadata
+        let metadata = self.metadata.unwrap_or_else(|| IdlMetadata {
+            name: self.name.clone(),
+            version: self.version.clone(),
+            spec: "0.1.0".to_string(), // Default for legacy
+            description: None,
+        });
+
+        CompleteIdl {
+            address: address.to_string(),
+            metadata,
+            instructions,
+            types: if types.is_empty() { None } else { Some(types) },
+            events,
+        }
+    }
+}
 
 /// Complete IDL structure including types for full type resolution
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -34,6 +161,7 @@ pub struct IdlMetadata {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IdlInstruction {
     pub name: String,
+    #[serde(default)]
     pub discriminator: Vec<u8>,
     pub accounts: Vec<IdlAccountItem>,
     pub args: Vec<IdlArg>,
@@ -42,7 +170,10 @@ pub struct IdlInstruction {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IdlEvent {
     pub name: String,
+    #[serde(default)]
     pub discriminator: Vec<u8>,
+    #[serde(default)]
+    pub fields: Option<Vec<IdlField>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -55,9 +186,9 @@ pub enum IdlAccountItem {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IdlAccount {
     pub name: String,
-    #[serde(default)]
+    #[serde(default, alias = "isMut")]
     pub writable: bool,
-    #[serde(default)]
+    #[serde(default, alias = "isSigner")]
     pub signer: bool,
     #[serde(default)]
     pub optional: bool,
@@ -90,10 +221,23 @@ pub enum IdlType {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct DefinedType {
-    pub name: String,
-    #[serde(default)]
-    pub generics: Option<Vec<JsonValue>>,
+#[serde(untagged)]
+pub enum DefinedType {
+    Simple(String),
+    Complex {
+        name: String,
+        #[serde(default)]
+        generics: Option<Vec<JsonValue>>,
+    },
+}
+
+impl DefinedType {
+    pub fn name(&self) -> &str {
+        match self {
+            DefinedType::Simple(name) => name,
+            DefinedType::Complex { name, .. } => name,
+        }
+    }
 }
 
 /// Custom type definitions (structs and enums)
@@ -589,12 +733,12 @@ fn parse_defined_type(
         .map_err(|_| anyhow!("Invalid program ID in IDL: {}", idl.address))?;
 
     if let Some(types) = &idl.types {
-        if let Some(type_def) = types.iter().find(|t| t.name == defined.name) {
+        if let Some(type_def) = types.iter().find(|t| t.name == defined.name()) {
             return parse_type_definition(data, offset, type_def, registry, idl);
         }
     }
 
-    if let Some(type_def) = registry.get_type_by_program(&program_id, &defined.name) {
+    if let Some(type_def) = registry.get_type_by_program(&program_id, defined.name()) {
         return parse_type_definition(data, offset, type_def, registry, idl);
     }
 
@@ -602,7 +746,7 @@ fn parse_defined_type(
     let hex_len = (data.len() - start).min(32);
     let hex = hex::encode(&data[start..start + hex_len]);
     *offset += hex_len;
-    Ok(OrderedJsonValue::String(format!("<{}: 0x{}>", defined.name, hex)))
+    Ok(OrderedJsonValue::String(format!("<{}: 0x{}>", defined.name(), hex)))
 }
 
 fn parse_type_definition(
@@ -770,36 +914,26 @@ pub fn parse_anchor_cpi_event(
     };
 
     // Find the corresponding type definition for the event data
-    // First check this IDL's local types
-    let type_def = if let Some(types) = &idl.types {
-        types.iter().find(|t| t.name == event_def.name)
+    // First, check if the event itself has fields (legacy IDL converted)
+    let type_fields = if let Some(fields) = &event_def.fields {
+        Some(IdlFields::Named(fields.clone()))
     } else {
-        None
-    };
-
-    let Some(type_def) =
-        type_def.or_else(|| idl_registry.get_type_by_program(program_id, &event_def.name))
-    else {
-        let mut fields = Vec::new();
-        if instruction.data.len() > 16 {
-            let raw_data = &instruction.data[16..];
-            let raw_hex = hex::encode(raw_data).to_uppercase();
-            let preview =
-                if raw_hex.len() > 32 { format!("{}...", &raw_hex[..32]) } else { raw_hex };
-            fields.push(ParsedField::text("raw_data", format!("0x{}", preview)));
+        // Fallback: Check this IDL's local types
+        if let Some(types) = &idl.types {
+            types.iter().find(|t| t.name == event_def.name).and_then(|t| t.type_.fields.clone())
+        } else {
+            // Fallback: Check registry types
+            idl_registry
+                .get_type_by_program(program_id, &event_def.name)
+                .and_then(|t| t.type_.fields.clone())
         }
-        return Ok(Some(ParsedInstruction {
-            name: event_def.name.clone(),
-            fields,
-            account_names: vec![],
-        }));
     };
 
     // Parse the event data
     let mut offset = 16; // Skip discriminators
     let mut fields = Vec::new();
 
-    match &type_def.type_.fields {
+    match type_fields {
         Some(crate::instruction_parsers::anchor_idl::IdlFields::Named(named_fields)) => {
             // Regular struct with named fields
             for field in named_fields {
@@ -824,7 +958,7 @@ pub fn parse_anchor_cpi_event(
             }
         }
         None => {
-            // No fields defined
+            // No fields defined or found
             if offset < instruction.data.len() {
                 let raw_data = &instruction.data[offset..];
                 let raw_hex = hex::encode(raw_data).to_uppercase();
