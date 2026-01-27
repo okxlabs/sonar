@@ -4,13 +4,21 @@ use clap::{Args, ValueEnum};
 
 #[derive(Args, Debug)]
 pub struct B2nArgs {
-    /// Input data (auto-detects format: hex string 0x..., hex array [0x12,...], decimal array [12,...] or [12 ...])
-    #[arg(value_name = "INPUT")]
-    pub input: String,
+    /// Hex string input (e.g., 0x12345678)
+    #[arg(value_name = "HEX", group = "input")]
+    pub hex: Option<String>,
 
-    /// Byte order for interpreting the input
-    #[arg(short = 'e', long, value_enum, default_value_t = Endianness::Little)]
-    pub endian: Endianness,
+    /// Hex byte array input (e.g., [12,34,56,78] or [12 34 56 78])
+    #[arg(short = 'x', value_name = "ARRAY", group = "input")]
+    pub hex_array: Option<String>,
+
+    /// Decimal byte array input (e.g., [18,52,86,120] or [18 52 86 120])
+    #[arg(short = 'd', value_name = "ARRAY", group = "input")]
+    pub dec_array: Option<String>,
+
+    /// Use big-endian byte order (default: little-endian)
+    #[arg(short = 'b', long)]
+    pub be: bool,
 }
 
 #[derive(Args, Debug)]
@@ -19,20 +27,25 @@ pub struct N2bArgs {
     #[arg(value_name = "NUMBER")]
     pub number: String,
 
-    /// Byte order for output
-    #[arg(short = 'e', long, value_enum, default_value_t = Endianness::Little)]
-    pub endian: Endianness,
+    /// Output as hex byte array (e.g., [12,34,56,78])
+    #[arg(short = 'x', group = "format")]
+    pub hex_array: bool,
 
-    /// Output format
-    #[arg(short = 'f', long, value_enum, default_value_t = ByteFormat::Hex)]
-    pub format: ByteFormat,
-}
+    /// Output as decimal byte array (e.g., [18,52,86,120])
+    #[arg(short = 'd', group = "format")]
+    pub dec_array: bool,
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum, Default)]
-pub enum Endianness {
-    #[default]
-    Little,
-    Big,
+    /// Use big-endian byte order (default: little-endian)
+    #[arg(short = 'b', long)]
+    pub be: bool,
+
+    /// Use space as separator for arrays (default: comma)
+    #[arg(long)]
+    pub space: bool,
+
+    /// Add 0x prefix to each element in hex-array output (e.g., [0x12,0x34])
+    #[arg(long)]
+    pub prefix: bool,
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum, Default)]
@@ -41,7 +54,6 @@ pub enum ByteFormat {
     Hex,
     HexArray,
     DecArray,
-    DecArraySpace,
 }
 
 const MAX_BYTES: usize = 32;
@@ -49,10 +61,16 @@ const MAX_BYTES: usize = 32;
 /// Parse various byte input formats into a byte vector.
 /// Supported formats:
 /// - Hex string: 0x12345678
-/// - Hex byte array: [0x12,0x34,0x45,0x78]
+/// - Hex byte array: [12,34,45,78] (with format hint) or [0x12,0x34,0x45,0x78]
 /// - Decimal byte array (comma-separated): [18,52,69,120]
 /// - Decimal byte array (space-separated): [18 52 69 120]
-pub fn parse_bytes_input(input: &str) -> Result<Vec<u8>, String> {
+///
+/// The `format_hint` parameter specifies how to interpret array elements without 0x prefix:
+/// - None: auto-detect (0x prefix = hex, otherwise decimal)
+/// - Some(HexArray): interpret as hex
+/// - Some(DecArray): interpret as decimal
+/// - Some(Hex): ignored for arrays, only affects hex string interpretation
+pub fn parse_bytes_input(input: &str, format_hint: Option<ByteFormat>) -> Result<Vec<u8>, String> {
     let input = input.trim();
 
     if input.is_empty() {
@@ -89,6 +107,9 @@ pub fn parse_bytes_input(input: &str) -> Result<Vec<u8>, String> {
             inner.split_whitespace().collect()
         };
 
+        // Determine if we should interpret elements as hex based on format hint
+        let force_hex = matches!(format_hint, Some(ByteFormat::HexArray));
+
         let mut bytes = Vec::new();
         for elem in elements {
             let elem = elem.trim();
@@ -97,9 +118,13 @@ pub fn parse_bytes_input(input: &str) -> Result<Vec<u8>, String> {
             }
 
             let value = if elem.starts_with("0x") || elem.starts_with("0X") {
-                // Hex element
+                // Explicit hex element
                 let hex_str = &elem[2..];
                 u64::from_str_radix(hex_str, 16)
+                    .map_err(|e| format!("Invalid hex value '{}': {}", elem, e))?
+            } else if force_hex {
+                // Format hint says treat as hex
+                u64::from_str_radix(elem, 16)
                     .map_err(|e| format!("Invalid hex value '{}': {}", elem, e))?
             } else {
                 // Decimal element
@@ -146,7 +171,10 @@ pub fn parse_number(input: &str) -> Result<num_bigint::BigUint, String> {
 }
 
 /// Format bytes according to the specified format.
-pub fn format_bytes(bytes: &[u8], format: ByteFormat) -> String {
+/// - `use_space`: use space instead of comma as separator for arrays
+/// - `use_prefix`: add 0x prefix to each element in hex-array output
+pub fn format_bytes(bytes: &[u8], format: ByteFormat, use_space: bool, use_prefix: bool) -> String {
+    let separator = if use_space { " " } else { "," };
     match format {
         ByteFormat::Hex => {
             if bytes.is_empty() {
@@ -156,16 +184,16 @@ pub fn format_bytes(bytes: &[u8], format: ByteFormat) -> String {
             }
         }
         ByteFormat::HexArray => {
-            let elements: Vec<String> = bytes.iter().map(|b| format!("0x{:02x}", b)).collect();
-            format!("[{}]", elements.join(","))
+            let elements: Vec<String> = if use_prefix {
+                bytes.iter().map(|b| format!("0x{:02x}", b)).collect()
+            } else {
+                bytes.iter().map(|b| format!("{:02x}", b)).collect()
+            };
+            format!("[{}]", elements.join(separator))
         }
         ByteFormat::DecArray => {
             let elements: Vec<String> = bytes.iter().map(|b| b.to_string()).collect();
-            format!("[{}]", elements.join(","))
-        }
-        ByteFormat::DecArraySpace => {
-            let elements: Vec<String> = bytes.iter().map(|b| b.to_string()).collect();
-            format!("[{}]", elements.join(" "))
+            format!("[{}]", elements.join(separator))
         }
     }
 }
@@ -178,87 +206,101 @@ mod tests {
 
     #[test]
     fn parse_bytes_input_hex_string() {
-        let result = parse_bytes_input("0x12345678").unwrap();
+        let result = parse_bytes_input("0x12345678", None).unwrap();
         assert_eq!(result, vec![0x12, 0x34, 0x56, 0x78]);
     }
 
     #[test]
     fn parse_bytes_input_hex_string_uppercase() {
-        let result = parse_bytes_input("0X12AB").unwrap();
+        let result = parse_bytes_input("0X12AB", None).unwrap();
         assert_eq!(result, vec![0x12, 0xAB]);
     }
 
     #[test]
     fn parse_bytes_input_hex_string_with_whitespace() {
-        let result = parse_bytes_input("  0x12 34 56  ").unwrap();
+        let result = parse_bytes_input("  0x12 34 56  ", None).unwrap();
         assert_eq!(result, vec![0x12, 0x34, 0x56]);
     }
 
     #[test]
     fn parse_bytes_input_hex_string_odd_length() {
         // Odd length hex should be padded with leading zero
-        let result = parse_bytes_input("0x123").unwrap();
+        let result = parse_bytes_input("0x123", None).unwrap();
         assert_eq!(result, vec![0x01, 0x23]);
     }
 
     #[test]
-    fn parse_bytes_input_hex_array() {
-        let result = parse_bytes_input("[0x12,0x34,0x56,0x78]").unwrap();
+    fn parse_bytes_input_hex_array_with_0x_prefix() {
+        let result = parse_bytes_input("[0x12,0x34,0x56,0x78]", None).unwrap();
         assert_eq!(result, vec![0x12, 0x34, 0x56, 0x78]);
     }
 
     #[test]
     fn parse_bytes_input_hex_array_with_whitespace() {
-        let result = parse_bytes_input("[ 0x12 , 0x34 , 0x56 ]").unwrap();
+        let result = parse_bytes_input("[ 0x12 , 0x34 , 0x56 ]", None).unwrap();
         assert_eq!(result, vec![0x12, 0x34, 0x56]);
     }
 
     #[test]
+    fn parse_bytes_input_hex_array_with_format_hint() {
+        // With hex-array format hint, interpret as hex without 0x prefix
+        let result = parse_bytes_input("[12,34,56,78]", Some(ByteFormat::HexArray)).unwrap();
+        assert_eq!(result, vec![0x12, 0x34, 0x56, 0x78]);
+    }
+
+    #[test]
+    fn parse_bytes_input_hex_array_space_with_format_hint() {
+        // HexArray format hint works for both comma and space separated
+        let result = parse_bytes_input("[12 34 56 78]", Some(ByteFormat::HexArray)).unwrap();
+        assert_eq!(result, vec![0x12, 0x34, 0x56, 0x78]);
+    }
+
+    #[test]
     fn parse_bytes_input_decimal_array_comma() {
-        let result = parse_bytes_input("[18,52,86,120]").unwrap();
+        let result = parse_bytes_input("[18,52,86,120]", None).unwrap();
         assert_eq!(result, vec![18, 52, 86, 120]);
     }
 
     #[test]
     fn parse_bytes_input_decimal_array_space() {
-        let result = parse_bytes_input("[18 52 86 120]").unwrap();
+        let result = parse_bytes_input("[18 52 86 120]", None).unwrap();
         assert_eq!(result, vec![18, 52, 86, 120]);
     }
 
     #[test]
     fn parse_bytes_input_decimal_array_with_extra_whitespace() {
-        let result = parse_bytes_input("[  18,  52,  86  ]").unwrap();
+        let result = parse_bytes_input("[  18,  52,  86  ]", None).unwrap();
         assert_eq!(result, vec![18, 52, 86]);
     }
 
     #[test]
     fn parse_bytes_input_empty_array() {
-        let result = parse_bytes_input("[]").unwrap();
+        let result = parse_bytes_input("[]", None).unwrap();
         assert!(result.is_empty());
     }
 
     #[test]
     fn parse_bytes_input_rejects_empty_input() {
-        let err = parse_bytes_input("").unwrap_err();
+        let err = parse_bytes_input("", None).unwrap_err();
         assert!(err.contains("empty"));
     }
 
     #[test]
     fn parse_bytes_input_rejects_invalid_format() {
-        let err = parse_bytes_input("invalid").unwrap_err();
+        let err = parse_bytes_input("invalid", None).unwrap_err();
         assert!(err.contains("Invalid input format"));
     }
 
     #[test]
     fn parse_bytes_input_rejects_value_over_255() {
-        let err = parse_bytes_input("[256]").unwrap_err();
+        let err = parse_bytes_input("[256]", None).unwrap_err();
         assert!(err.contains("exceeds 255"));
     }
 
     #[test]
     fn parse_bytes_input_rejects_too_many_bytes() {
         let long_input = format!("[{}]", (0..33).map(|_| "1").collect::<Vec<_>>().join(","));
-        let err = parse_bytes_input(&long_input).unwrap_err();
+        let err = parse_bytes_input(&long_input, None).unwrap_err();
         assert!(err.contains("exceeds maximum"));
     }
 
@@ -298,31 +340,49 @@ mod tests {
 
     #[test]
     fn format_bytes_hex() {
-        let result = format_bytes(&[0x12, 0x34, 0x56, 0x78], ByteFormat::Hex);
+        let result = format_bytes(&[0x12, 0x34, 0x56, 0x78], ByteFormat::Hex, false, false);
         assert_eq!(result, "0x12345678");
     }
 
     #[test]
     fn format_bytes_hex_empty() {
-        let result = format_bytes(&[], ByteFormat::Hex);
+        let result = format_bytes(&[], ByteFormat::Hex, false, false);
         assert_eq!(result, "0x0");
     }
 
     #[test]
-    fn format_bytes_hex_array() {
-        let result = format_bytes(&[0x12, 0x34, 0x56], ByteFormat::HexArray);
+    fn format_bytes_hex_array_comma() {
+        let result = format_bytes(&[0x12, 0x34, 0x56], ByteFormat::HexArray, false, false);
+        assert_eq!(result, "[12,34,56]");
+    }
+
+    #[test]
+    fn format_bytes_hex_array_space() {
+        let result = format_bytes(&[0x12, 0x34, 0x56], ByteFormat::HexArray, true, false);
+        assert_eq!(result, "[12 34 56]");
+    }
+
+    #[test]
+    fn format_bytes_hex_array_with_prefix() {
+        let result = format_bytes(&[0x12, 0x34, 0x56], ByteFormat::HexArray, false, true);
         assert_eq!(result, "[0x12,0x34,0x56]");
     }
 
     #[test]
-    fn format_bytes_dec_array() {
-        let result = format_bytes(&[18, 52, 86], ByteFormat::DecArray);
+    fn format_bytes_hex_array_space_with_prefix() {
+        let result = format_bytes(&[0x12, 0x34, 0x56], ByteFormat::HexArray, true, true);
+        assert_eq!(result, "[0x12 0x34 0x56]");
+    }
+
+    #[test]
+    fn format_bytes_dec_array_comma() {
+        let result = format_bytes(&[18, 52, 86], ByteFormat::DecArray, false, false);
         assert_eq!(result, "[18,52,86]");
     }
 
     #[test]
     fn format_bytes_dec_array_space() {
-        let result = format_bytes(&[18, 52, 86], ByteFormat::DecArraySpace);
+        let result = format_bytes(&[18, 52, 86], ByteFormat::DecArray, true, false);
         assert_eq!(result, "[18 52 86]");
     }
 
@@ -330,17 +390,35 @@ mod tests {
 
     #[test]
     fn roundtrip_hex_to_decimal_array() {
-        let bytes = parse_bytes_input("0x12345678").unwrap();
-        let formatted = format_bytes(&bytes, ByteFormat::DecArray);
-        let parsed_back = parse_bytes_input(&formatted).unwrap();
+        let bytes = parse_bytes_input("0x12345678", None).unwrap();
+        let formatted = format_bytes(&bytes, ByteFormat::DecArray, false, false);
+        let parsed_back = parse_bytes_input(&formatted, None).unwrap();
         assert_eq!(bytes, parsed_back);
     }
 
     #[test]
     fn roundtrip_decimal_to_hex() {
-        let bytes = parse_bytes_input("[18,52,86,120]").unwrap();
-        let formatted = format_bytes(&bytes, ByteFormat::Hex);
-        let parsed_back = parse_bytes_input(&formatted).unwrap();
+        let bytes = parse_bytes_input("[18,52,86,120]", None).unwrap();
+        let formatted = format_bytes(&bytes, ByteFormat::Hex, false, false);
+        let parsed_back = parse_bytes_input(&formatted, None).unwrap();
+        assert_eq!(bytes, parsed_back);
+    }
+
+    #[test]
+    fn roundtrip_hex_array_with_format() {
+        let bytes = parse_bytes_input("0x12345678", None).unwrap();
+        let formatted = format_bytes(&bytes, ByteFormat::HexArray, false, false);
+        // When parsing back, need to specify hex format
+        let parsed_back = parse_bytes_input(&formatted, Some(ByteFormat::HexArray)).unwrap();
+        assert_eq!(bytes, parsed_back);
+    }
+
+    #[test]
+    fn roundtrip_hex_array_with_prefix() {
+        let bytes = parse_bytes_input("0x12345678", None).unwrap();
+        let formatted = format_bytes(&bytes, ByteFormat::HexArray, false, true);
+        // With prefix, can parse back without format hint (0x prefix auto-detected)
+        let parsed_back = parse_bytes_input(&formatted, None).unwrap();
         assert_eq!(bytes, parsed_back);
     }
 }

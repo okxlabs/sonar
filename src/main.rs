@@ -104,13 +104,18 @@ fn handle_fetch_idl(args: FetchIdlArgs) -> Result<()> {
 }
 
 fn handle_b2n(args: B2nArgs) -> Result<()> {
-    let bytes =
-        cli::parse_bytes_input(&args.input).map_err(|e| anyhow::anyhow!("Parse error: {}", e))?;
+    let bytes = if let Some(ref hex) = args.hex {
+        cli::parse_bytes_input(hex, None)
+    } else if let Some(ref hex_array) = args.hex_array {
+        cli::parse_bytes_input(hex_array, Some(cli::ByteFormat::HexArray))
+    } else if let Some(ref dec_array) = args.dec_array {
+        cli::parse_bytes_input(dec_array, Some(cli::ByteFormat::DecArray))
+    } else {
+        return Err(anyhow::anyhow!("Must specify one of: HEX, -x, or -d"));
+    }
+    .map_err(|e| anyhow::anyhow!("Parse error: {}", e))?;
 
-    let num = match args.endian {
-        cli::Endianness::Little => BigUint::from_bytes_le(&bytes),
-        cli::Endianness::Big => BigUint::from_bytes_be(&bytes),
-    };
+    let num = if args.be { BigUint::from_bytes_be(&bytes) } else { BigUint::from_bytes_le(&bytes) };
 
     println!("{}", num);
     Ok(())
@@ -119,12 +124,18 @@ fn handle_b2n(args: B2nArgs) -> Result<()> {
 fn handle_n2b(args: N2bArgs) -> Result<()> {
     let num = cli::parse_number(&args.number).map_err(|e| anyhow::anyhow!("Parse error: {}", e))?;
 
-    let bytes = match args.endian {
-        cli::Endianness::Little => num.to_bytes_le(),
-        cli::Endianness::Big => num.to_bytes_be(),
+    let bytes = if args.be { num.to_bytes_be() } else { num.to_bytes_le() };
+
+    // Determine output format (default: hex)
+    let format = if args.hex_array {
+        cli::ByteFormat::HexArray
+    } else if args.dec_array {
+        cli::ByteFormat::DecArray
+    } else {
+        cli::ByteFormat::Hex
     };
 
-    println!("{}", cli::format_bytes(&bytes, args.format));
+    println!("{}", cli::format_bytes(&bytes, format, args.space, args.prefix));
     Ok(())
 }
 
