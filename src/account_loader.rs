@@ -1,7 +1,10 @@
 use std::{
     collections::{HashMap, HashSet},
+    io::Read,
     sync::Arc,
 };
+
+use flate2::read::ZlibDecoder;
 
 use anyhow::{Context, Result, anyhow};
 use log::{debug, trace};
@@ -323,4 +326,78 @@ fn format_pubkeys(pubkeys: &[Pubkey]) -> String {
         pubkeys.iter().take(MAX_DISPLAY).map(ToString::to_string).collect::<Vec<_>>();
     rendered.push(format!("... total {}", pubkeys.len()));
     rendered.join(", ")
+}
+
+/// Computes the Anchor IDL account address for a given program ID.
+///
+/// The IDL account is derived using:
+/// 1. base = PDA with empty seeds from program_id
+/// 2. idl_address = create_with_seed(base, "anchor:idl", program_id)
+pub fn get_idl_address(program_id: &Pubkey) -> Result<Pubkey> {
+    let (base, _) = Pubkey::find_program_address(&[], program_id);
+    Pubkey::create_with_seed(&base, "anchor:idl", program_id)
+        .map_err(|e| anyhow!("Failed to derive IDL address for {}: {}", program_id, e))
+}
+
+impl AccountLoader {
+    /// Fetches and parses the Anchor IDL for a given program ID.
+    ///
+    /// Returns `Ok(Some(json_string))` if the IDL exists and can be parsed,
+    /// `Ok(None)` if the IDL account doesn't exist,
+    /// or an error if something goes wrong during fetching/parsing.
+    pub fn fetch_idl(&self, program_id: &Pubkey) -> Result<Option<String>> {
+        let idl_address = get_idl_address(program_id)?;
+        debug!("IDL address for program {}: {}", program_id, idl_address);
+
+        // Try to fetch the IDL account
+        let account = match self.client.get_account(&idl_address) {
+            Ok(account) => account,
+            Err(e) => {
+                // Check if it's a "not found" error
+                let error_str = e.to_string();
+                if error_str.contains("AccountNotFound")
+                    || error_str.contains("could not find account")
+                {
+                    return Ok(None);
+                }
+                return Err(anyhow!("Failed to fetch IDL account {}: {}", idl_address, e));
+            }
+        };
+
+        // Parse IDL account data:
+        // - Bytes 0-7: Discriminator (8 bytes)
+        // - Bytes 8-39: Authority pubkey (32 bytes)
+        // - Bytes 40-43: Data length (u32 LE)
+        // - Bytes 44+: Compressed IDL data (zlib)
+        let data = account.data;
+        if data.len() < 44 {
+            return Err(anyhow!(
+                "IDL account data too short: {} bytes (expected at least 44)",
+                data.len()
+            ));
+        }
+
+        // Read data length (u32 little-endian at offset 40)
+        let data_len = u32::from_le_bytes([data[40], data[41], data[42], data[43]]) as usize;
+
+        if data.len() < 44 + data_len {
+            return Err(anyhow!(
+                "IDL account data truncated: has {} bytes, expected {} (header) + {} (data)",
+                data.len(),
+                44,
+                data_len
+            ));
+        }
+
+        let compressed_data = &data[44..44 + data_len];
+
+        // Decompress using zlib
+        let mut decoder = ZlibDecoder::new(compressed_data);
+        let mut decompressed = String::new();
+        decoder
+            .read_to_string(&mut decompressed)
+            .with_context(|| format!("Failed to decompress IDL data for program {}", program_id))?;
+
+        Ok(Some(decompressed))
+    }
 }
