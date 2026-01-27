@@ -14,8 +14,9 @@ use std::{
 
 use anyhow::{Context, Result};
 use clap::Parser;
-use cli::{Cli, Commands, FetchIdlArgs, SimulateArgs, TransactionInputArgs};
+use cli::{B2nArgs, Cli, Commands, FetchIdlArgs, N2bArgs, SimulateArgs, TransactionInputArgs};
 use instruction_parsers::ParserRegistry;
+use num_bigint::BigUint;
 use solana_pubkey::Pubkey;
 
 fn main() {
@@ -31,6 +32,8 @@ fn run() -> Result<()> {
     match cli.command {
         Commands::Simulate(args) => handle_simulate(args)?,
         Commands::FetchIdl(args) => handle_fetch_idl(args)?,
+        Commands::B2n(args) => handle_b2n(args)?,
+        Commands::N2b(args) => handle_n2b(args)?,
     }
     Ok(())
 }
@@ -97,6 +100,31 @@ fn handle_fetch_idl(args: FetchIdlArgs) -> Result<()> {
         success_count, not_found_count, error_count
     );
 
+    Ok(())
+}
+
+fn handle_b2n(args: B2nArgs) -> Result<()> {
+    let bytes =
+        cli::parse_bytes_input(&args.input).map_err(|e| anyhow::anyhow!("Parse error: {}", e))?;
+
+    let num = match args.endian {
+        cli::Endianness::Little => BigUint::from_bytes_le(&bytes),
+        cli::Endianness::Big => BigUint::from_bytes_be(&bytes),
+    };
+
+    println!("{}", num);
+    Ok(())
+}
+
+fn handle_n2b(args: N2bArgs) -> Result<()> {
+    let num = cli::parse_number(&args.number).map_err(|e| anyhow::anyhow!("Parse error: {}", e))?;
+
+    let bytes = match args.endian {
+        cli::Endianness::Little => num.to_bytes_le(),
+        cli::Endianness::Big => num.to_bytes_be(),
+    };
+
+    println!("{}", cli::format_bytes(&bytes, args.format));
     Ok(())
 }
 
