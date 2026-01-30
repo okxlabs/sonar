@@ -201,6 +201,32 @@ pub fn collect_account_plan(tx: &VersionedTransaction) -> MessageAccountPlan {
     MessageAccountPlan::from_transaction(tx)
 }
 
+/// Parse multiple raw transaction strings, handling both raw transactions and signatures.
+/// For signatures, fetches the transaction from RPC.
+pub fn parse_multi_raw_transactions(
+    raws: &[String],
+    rpc_url: &str,
+) -> Result<Vec<ParsedTransaction>> {
+    raws.iter()
+        .enumerate()
+        .map(|(index, raw)| {
+            let result = if is_transaction_signature(raw) {
+                log::info!(
+                    "Transaction {} appears to be a signature, fetching from RPC...",
+                    index + 1
+                );
+                let fetched = fetch_transaction_from_rpc(rpc_url, raw).with_context(|| {
+                    format!("Failed to fetch transaction {} from RPC", index + 1)
+                })?;
+                parse_raw_transaction(&fetched)
+            } else {
+                parse_raw_transaction(raw)
+            };
+            result.with_context(|| format!("Failed to parse transaction {}", index + 1))
+        })
+        .collect()
+}
+
 fn decode_bytes(input: &str, encoding: RawTransactionEncoding) -> Result<Vec<u8>> {
     match encoding {
         RawTransactionEncoding::Base58 => {

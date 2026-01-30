@@ -71,6 +71,128 @@ pub fn render_transaction_only(
     }
 }
 
+/// Render multiple transaction simulation results (bundle simulation).
+pub fn render_bundle(
+    parsed_txs: &[ParsedTransaction],
+    total_tx_count: usize,
+    resolved: &ResolvedAccounts,
+    simulations: &[SimulationResult],
+    replacements: &[ProgramReplacement],
+    fundings: &[Funding],
+    token_fundings: &[PreparedTokenFunding],
+    parser_registry: &mut ParserRegistry,
+    format: OutputFormat,
+    _show_ix_data: bool,
+    verify_signatures: bool,
+) -> Result<()> {
+    let bundle_report = BundleReport::from_sources(
+        parsed_txs,
+        resolved,
+        simulations,
+        replacements,
+        fundings,
+        token_fundings,
+        parser_registry,
+        verify_signatures,
+    );
+
+    match format {
+        OutputFormat::Text => render_bundle_text(&bundle_report, total_tx_count),
+        OutputFormat::Json => render_bundle_json(&bundle_report),
+    }
+}
+
+fn render_bundle_text(bundle: &BundleReport, total_count: usize) -> Result<()> {
+    println!("=== Bundle Simulation ({} transactions) ===", total_count);
+
+    // Render shared config first
+    render_fundings_text(&bundle.fundings);
+    render_token_fundings_text(&bundle.token_fundings);
+    render_replacements_text(&bundle.replacements);
+
+    // Render executed transactions with compact format
+    for (i, tx_report) in bundle.transactions.iter().enumerate() {
+        render_bundle_transaction_compact(i + 1, total_count, tx_report);
+    }
+
+    // Render skipped transactions (due to fail-fast)
+    for i in bundle.transactions.len()..total_count {
+        println!("\nTransaction {}/{}: (skipped)", i + 1, total_count);
+    }
+
+    // Summary
+    render_bundle_summary(bundle, total_count);
+
+    Ok(())
+}
+
+fn render_bundle_transaction_compact(
+    index: usize,
+    total: usize,
+    tx_report: &BundleTransactionReport,
+) {
+    let sig = tx_report
+        .transaction
+        .signatures
+        .first()
+        .map(|s| truncate_sig(s, 12))
+        .unwrap_or_else(|| "<no-sig>".to_string());
+
+    println!("\nTransaction {}/{}: {}", index, total, sig);
+
+    match &tx_report.simulation.status {
+        SimulationStatusReport::Succeeded => println!("  Status: 🟢 SUCCESS"),
+        SimulationStatusReport::Failed { error } => println!("  Status: 🔴 FAILED ({})", error),
+    }
+    println!("  Compute Units: {}", tx_report.simulation.compute_units_consumed);
+
+    if !tx_report.simulation.logs.is_empty() {
+        println!("  Logs:");
+        for log in &tx_report.simulation.logs {
+            println!("    {}", log);
+        }
+    }
+}
+
+fn truncate_sig(sig: &str, prefix_len: usize) -> String {
+    if sig.len() <= prefix_len * 2 + 3 {
+        sig.to_string()
+    } else {
+        format!("{}...{}", &sig[..prefix_len], &sig[sig.len() - prefix_len..])
+    }
+}
+
+fn render_bundle_summary(bundle: &BundleReport, total_count: usize) {
+    let succeeded = bundle
+        .transactions
+        .iter()
+        .filter(|t| matches!(t.simulation.status, SimulationStatusReport::Succeeded))
+        .count();
+
+    println!("\n{}", "═".repeat(50));
+    if succeeded == total_count {
+        println!("Bundle Summary: {}/{} succeeded", succeeded, total_count);
+    } else {
+        let failed_at = bundle
+            .transactions
+            .iter()
+            .position(|t| matches!(t.simulation.status, SimulationStatusReport::Failed { .. }))
+            .map(|i| i + 1);
+        if let Some(idx) = failed_at {
+            println!("Bundle Summary: FAILED at transaction {}", idx);
+        } else {
+            println!("Bundle Summary: {}/{} executed", bundle.transactions.len(), total_count);
+        }
+    }
+    println!("{}", "═".repeat(50));
+}
+
+fn render_bundle_json(bundle: &BundleReport) -> Result<()> {
+    let json = serde_json::to_string_pretty(bundle)?;
+    println!("{json}");
+    Ok(())
+}
+
 fn render_text(
     report: &Report,
     resolved: &ResolvedAccounts,
@@ -391,6 +513,83 @@ struct Report {
     replacements: Vec<ReplacementSection>,
     fundings: Vec<FundingSection>,
     token_fundings: Vec<TokenFundingSection>,
+}
+
+/// Report structure for bundle simulation (multiple transactions).
+#[derive(Serialize)]
+struct BundleReport {
+    transactions: Vec<BundleTransactionReport>,
+    replacements: Vec<ReplacementSection>,
+    fundings: Vec<FundingSection>,
+    token_fundings: Vec<TokenFundingSection>,
+}
+
+#[derive(Serialize)]
+struct BundleTransactionReport {
+    index: usize,
+    transaction: TransactionSection,
+    simulation: SimulationSection,
+}
+
+impl BundleReport {
+    fn from_sources(
+        parsed_txs: &[ParsedTransaction],
+        resolved: &ResolvedAccounts,
+        simulations: &[SimulationResult],
+        replacements: &[ProgramReplacement],
+        fundings: &[Funding],
+        token_fundings: &[PreparedTokenFunding],
+        parser_registry: &mut ParserRegistry,
+        verify_signatures: bool,
+    ) -> Self {
+        let resolver = LookupResolver::new(resolved.lookup_details());
+
+        let transactions = parsed_txs
+            .iter()
+            .zip(simulations)
+            .enumerate()
+            .map(|(index, (parsed, simulation))| {
+                let transaction = TransactionSection::from_sources(
+                    parsed,
+                    resolved,
+                    &resolver,
+                    parser_registry,
+                    verify_signatures,
+                );
+                let simulation = SimulationSection::from_result(simulation);
+                BundleTransactionReport { index, transaction, simulation }
+            })
+            .collect();
+
+        let replacements = replacements
+            .iter()
+            .map(|entry| ReplacementSection {
+                program_id: entry.program_id.to_string(),
+                path: entry.so_path.display().to_string(),
+            })
+            .collect();
+
+        let fundings = fundings
+            .iter()
+            .map(|entry| FundingSection {
+                pubkey: entry.pubkey.to_string(),
+                amount_sol: entry.amount_sol,
+            })
+            .collect();
+
+        let token_fundings = token_fundings
+            .iter()
+            .map(|entry| TokenFundingSection {
+                account: entry.account.to_string(),
+                mint: entry.mint.to_string(),
+                decimals: entry.decimals,
+                ui_amount: entry.ui_amount,
+                amount_raw: entry.amount_raw,
+            })
+            .collect();
+
+        Self { transactions, replacements, fundings, token_fundings }
+    }
 }
 
 impl Report {

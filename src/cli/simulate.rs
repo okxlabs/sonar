@@ -49,7 +49,9 @@ pub struct SimulateArgs {
 
 #[derive(Args, Debug, Clone)]
 pub struct TransactionInputArgs {
-    /// Raw transaction string (Base58/Base64) or transaction signature, mutually exclusive with --tx-file
+    /// Raw transaction string (Base58/Base64) or transaction signature.
+    /// For bundle simulation, use comma-separated values: tx1,tx2,tx3
+    /// Mutually exclusive with --tx-file
     #[arg(short = 't', long, conflicts_with = "tx_file", value_name = "STRING")]
     pub tx: Option<String>,
     /// File path containing raw transaction, mutually exclusive with --tx
@@ -117,6 +119,12 @@ pub fn parse_funding(raw: &str) -> Result<Funding, String> {
     Ok(Funding { pubkey, amount_sol })
 }
 
+/// Parse comma-separated transaction inputs for bundle simulation.
+/// Returns a vector of individual transaction strings.
+pub fn parse_multi_tx(input: &str) -> Vec<String> {
+    input.split(',').map(|s| s.trim().to_owned()).filter(|s| !s.is_empty()).collect()
+}
+
 pub fn parse_token_funding(raw: &str) -> Result<TokenFunding, String> {
     let mut parts = raw.split(':');
     let token_str = parts.next().ok_or_else(|| {
@@ -149,6 +157,30 @@ pub fn parse_token_funding(raw: &str) -> Result<TokenFunding, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parse_multi_tx_single_transaction() {
+        let result = parse_multi_tx("tx1");
+        assert_eq!(result, vec!["tx1"]);
+    }
+
+    #[test]
+    fn parse_multi_tx_multiple_transactions() {
+        let result = parse_multi_tx("tx1,tx2,tx3");
+        assert_eq!(result, vec!["tx1", "tx2", "tx3"]);
+    }
+
+    #[test]
+    fn parse_multi_tx_with_whitespace() {
+        let result = parse_multi_tx("tx1, tx2 , tx3");
+        assert_eq!(result, vec!["tx1", "tx2", "tx3"]);
+    }
+
+    #[test]
+    fn parse_multi_tx_filters_empty() {
+        let result = parse_multi_tx("tx1,,tx2,");
+        assert_eq!(result, vec!["tx1", "tx2"]);
+    }
 
     #[test]
     fn parse_token_funding_accepts_valid_input() {

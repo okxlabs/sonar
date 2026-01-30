@@ -98,6 +98,77 @@ impl AccountLoader {
         Ok(ResolvedAccounts { accounts, lookups })
     }
 
+    /// Load accounts for multiple transactions (bundle simulation).
+    /// Merges all required accounts from all transactions and fetches them in a single batch.
+    pub fn load_for_transactions(
+        &self,
+        txs: &[&VersionedTransaction],
+        _replacements: &[ProgramReplacement],
+    ) -> Result<ResolvedAccounts> {
+        if txs.is_empty() {
+            return Ok(ResolvedAccounts { accounts: HashMap::new(), lookups: Vec::new() });
+        }
+
+        // Collect account plans from all transactions
+        let plans: Vec<_> = txs.iter().map(|tx| collect_account_plan(tx)).collect();
+
+        // Merge all static accounts and sysvars
+        let mut all_initial_accounts: Vec<Pubkey> = Vec::new();
+        for plan in &plans {
+            all_initial_accounts.extend(plan.static_accounts.iter().copied());
+            for lookup in &plan.address_lookups {
+                all_initial_accounts.push(lookup.account_key);
+            }
+        }
+        all_initial_accounts.push(Clock::id());
+        all_initial_accounts.push(SlotHashes::id());
+
+        // Deduplicate
+        let mut seen = HashSet::new();
+        all_initial_accounts.retain(|key| seen.insert(*key));
+
+        let mut accounts = HashMap::new();
+
+        // Phase 1: Batch fetch all initial accounts
+        self.fetch_accounts(&all_initial_accounts, &mut accounts)
+            .context("Failed to fetch initial accounts for bundle")?;
+
+        self.ensure_upgradeable_dependencies(&mut accounts)
+            .context("Failed to load upgradeable program metadata for bundle")?;
+
+        // Process all address lookup tables and collect lookup accounts
+        let mut all_lookups = Vec::new();
+        let mut all_lookup_accounts: Vec<Pubkey> = Vec::new();
+
+        for plan in &plans {
+            for lookup_plan in &plan.address_lookups {
+                let resolved = self.load_lookup_table(lookup_plan, &mut accounts)?;
+                all_lookup_accounts.extend(resolved.writable_addresses.iter().copied());
+                all_lookup_accounts.extend(resolved.readonly_addresses.iter().copied());
+                all_lookups.push(resolved);
+            }
+        }
+
+        // Deduplicate lookup accounts
+        let mut seen = HashSet::new();
+        all_lookup_accounts.retain(|key| seen.insert(*key));
+
+        // Phase 2: Batch fetch all resolved lookup accounts
+        if !all_lookup_accounts.is_empty() {
+            self.fetch_accounts(&all_lookup_accounts, &mut accounts).with_context(|| {
+                format!(
+                    "Failed to load accounts from address lookup tables: [{}]",
+                    format_pubkeys(&all_lookup_accounts)
+                )
+            })?;
+
+            self.ensure_upgradeable_dependencies(&mut accounts)
+                .context("Failed to load upgradeable program dependencies for lookup accounts")?;
+        }
+
+        Ok(ResolvedAccounts { accounts, lookups: all_lookups })
+    }
+
     pub fn append_accounts(
         &self,
         resolved: &mut ResolvedAccounts,
