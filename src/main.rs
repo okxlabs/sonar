@@ -13,9 +13,11 @@ use std::{
 };
 
 use anyhow::{Context, Result};
+use base64::Engine;
 use clap::Parser;
 use cli::{
-    B2nArgs, Cli, Commands, FetchIdlArgs, N2bArgs, PdaArgs, SimulateArgs, TransactionInputArgs,
+    B2nArgs, B58B64Args, B64B58Args, Cli, Commands, FetchIdlArgs, N2bArgs, PdaArgs, SimulateArgs,
+    TransactionInputArgs,
 };
 use instruction_parsers::ParserRegistry;
 use num_bigint::BigUint;
@@ -37,6 +39,8 @@ fn run() -> Result<()> {
         Commands::B2n(args) => handle_b2n(args)?,
         Commands::N2b(args) => handle_n2b(args)?,
         Commands::Pda(args) => handle_pda(args)?,
+        Commands::B64B58(args) => handle_b64_b58(args)?,
+        Commands::B58B64(args) => handle_b58_b64(args)?,
     }
     Ok(())
 }
@@ -160,6 +164,22 @@ fn handle_pda(args: PdaArgs) -> Result<()> {
     println!("PDA: {}", pda);
     println!("Bump: {}", bump);
 
+    Ok(())
+}
+
+fn handle_b64_b58(args: B64B58Args) -> Result<()> {
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(&args.input)
+        .with_context(|| "Invalid base64 input")?;
+    let result = bs58::encode(&bytes).into_string();
+    println!("{}", result);
+    Ok(())
+}
+
+fn handle_b58_b64(args: B58B64Args) -> Result<()> {
+    let bytes = bs58::decode(&args.input).into_vec().with_context(|| "Invalid base58 input")?;
+    let result = base64::engine::general_purpose::STANDARD.encode(&bytes);
+    println!("{}", result);
     Ok(())
 }
 

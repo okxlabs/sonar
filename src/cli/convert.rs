@@ -422,3 +422,17 @@ mod tests {
         assert_eq!(bytes, parsed_back);
     }
 }
+
+#[derive(Args, Debug)]
+pub struct B64B58Args {
+    /// Base64 encoded string to convert
+    #[arg(value_name = "BASE64_STR")]
+    pub input: String,
+}
+
+#[derive(Args, Debug)]
+pub struct B58B64Args {
+    /// Base58 encoded string to convert
+    #[arg(value_name = "BASE58_STR")]
+    pub input: String,
+}

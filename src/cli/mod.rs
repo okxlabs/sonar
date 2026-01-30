@@ -32,4 +32,10 @@ pub enum Commands {
     N2b(N2bArgs),
     /// Derive a PDA (Program Derived Address) from seeds
     Pda(PdaArgs),
+    /// Convert base64 string to base58 string
+    #[command(name = "b64-b58")]
+    B64B58(B64B58Args),
+    /// Convert base58 string to base64 string
+    #[command(name = "b58-b64")]
+    B58B64(B58B64Args),
 }
