@@ -2,11 +2,13 @@
 
 mod convert;
 mod fetch_idl;
+mod pda;
 mod simulate;
 
 // Re-export all public types from submodules
 pub use convert::*;
 pub use fetch_idl::*;
+pub use pda::*;
 pub use simulate::*;
 
 use clap::{Parser, Subcommand};
@@ -28,4 +30,6 @@ pub enum Commands {
     B2n(B2nArgs),
     /// Convert number to bytes (n2b = number to bytes)
     N2b(N2bArgs),
+    /// Derive a PDA (Program Derived Address) from seeds
+    Pda(PdaArgs),
 }

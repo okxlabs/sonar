@@ -14,7 +14,9 @@ use std::{
 
 use anyhow::{Context, Result};
 use clap::Parser;
-use cli::{B2nArgs, Cli, Commands, FetchIdlArgs, N2bArgs, SimulateArgs, TransactionInputArgs};
+use cli::{
+    B2nArgs, Cli, Commands, FetchIdlArgs, N2bArgs, PdaArgs, SimulateArgs, TransactionInputArgs,
+};
 use instruction_parsers::ParserRegistry;
 use num_bigint::BigUint;
 use solana_pubkey::Pubkey;
@@ -34,6 +36,7 @@ fn run() -> Result<()> {
         Commands::FetchIdl(args) => handle_fetch_idl(args)?,
         Commands::B2n(args) => handle_b2n(args)?,
         Commands::N2b(args) => handle_n2b(args)?,
+        Commands::Pda(args) => handle_pda(args)?,
     }
     Ok(())
 }
@@ -136,6 +139,27 @@ fn handle_n2b(args: N2bArgs) -> Result<()> {
     };
 
     println!("{}", cli::format_bytes(&bytes, format, args.space, args.prefix));
+    Ok(())
+}
+
+fn handle_pda(args: PdaArgs) -> Result<()> {
+    let program_id = Pubkey::from_str(&args.program_id)
+        .with_context(|| format!("Invalid program ID: {}", args.program_id))?;
+
+    let parsed_seeds = cli::parse_seeds(&args.seeds)
+        .map_err(|e| anyhow::anyhow!("Failed to parse seeds: {}", e))?;
+
+    let seed_bytes = cli::seeds_to_bytes(&parsed_seeds)
+        .map_err(|e| anyhow::anyhow!("Failed to convert seeds to bytes: {}", e))?;
+
+    // Convert Vec<Vec<u8>> to Vec<&[u8]> for find_program_address
+    let seed_slices: Vec<&[u8]> = seed_bytes.iter().map(|v| v.as_slice()).collect();
+
+    let (pda, bump) = Pubkey::find_program_address(&seed_slices, &program_id);
+
+    println!("PDA: {}", pda);
+    println!("Bump: {}", bump);
+
     Ok(())
 }
 
