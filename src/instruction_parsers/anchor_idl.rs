@@ -952,3 +952,55 @@ pub fn parse_anchor_cpi_event(
 
     Ok(Some(ParsedInstruction { name: event_def.name.clone(), fields, account_names: vec![] }))
 }
+
+/// Find an account type by matching its discriminator against the IDL types.
+/// Returns the type definition if found.
+fn find_account_type_by_discriminator<'a>(
+    idl: &'a Idl,
+    discriminator: &[u8],
+) -> Option<&'a IdlTypeDefinition> {
+    let types = idl.types.as_ref()?;
+
+    types.iter().find(|type_def| {
+        // Only match struct types (accounts are structs)
+        if type_def.type_.kind != "struct" {
+            return false;
+        }
+
+        // Anchor account discriminators use the PascalCase name (original type name)
+        let expected_discriminator = sighash("account", &type_def.name);
+        discriminator == expected_discriminator
+    })
+}
+
+/// Parse Anchor account data using the IDL.
+///
+/// Returns `Ok(Some((type_name, parsed_data)))` if the account type is found and parsed,
+/// `Ok(None)` if no matching account type is found in the IDL,
+/// or an error if parsing fails.
+pub fn parse_account_data(
+    idl: &Idl,
+    account_data: &[u8],
+    registry: &IdlRegistry,
+) -> Result<Option<(String, OrderedJsonValue)>> {
+    // Account data must have at least 8 bytes for the discriminator
+    if account_data.len() < 8 {
+        return Err(anyhow!(
+            "Account data too short: {} bytes (expected at least 8 for discriminator)",
+            account_data.len()
+        ));
+    }
+
+    let discriminator = &account_data[..8];
+
+    // Find the matching account type by discriminator
+    let Some(type_def) = find_account_type_by_discriminator(idl, discriminator) else {
+        return Ok(None);
+    };
+
+    // Parse the account data after the discriminator
+    let mut offset = 8;
+    let parsed_value = parse_type_definition(account_data, &mut offset, type_def, registry, idl)?;
+
+    Ok(Some((type_def.name.clone(), parsed_value)))
+}

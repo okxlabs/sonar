@@ -2,12 +2,14 @@
 
 mod convert;
 mod fetch_idl;
+mod parse_account;
 mod pda;
 mod simulate;
 
 // Re-export all public types from submodules
 pub use convert::*;
 pub use fetch_idl::*;
+pub use parse_account::*;
 pub use pda::*;
 pub use simulate::*;
 
@@ -26,6 +28,9 @@ pub enum Commands {
     Simulate(SimulateArgs),
     /// Fetch Anchor IDL from on-chain program accounts
     FetchIdl(FetchIdlArgs),
+    /// Parse account data using Anchor IDL derived from account owner
+    #[command(name = "parse-account")]
+    ParseAccount(ParseAccountArgs),
     /// Convert bytes to number (b2n = bytes to number)
     B2n(B2nArgs),
     /// Convert number to bytes (n2b = number to bytes)

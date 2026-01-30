@@ -16,8 +16,8 @@ use anyhow::{Context, Result};
 use base64::Engine;
 use clap::Parser;
 use cli::{
-    B2nArgs, B58B64Args, B64B58Args, Cli, Commands, FetchIdlArgs, N2bArgs, PdaArgs, SimulateArgs,
-    TransactionInputArgs,
+    B2nArgs, B58B64Args, B64B58Args, Cli, Commands, FetchIdlArgs, N2bArgs, ParseAccountArgs,
+    PdaArgs, SimulateArgs, TransactionInputArgs,
 };
 use instruction_parsers::ParserRegistry;
 use num_bigint::BigUint;
@@ -36,6 +36,7 @@ fn run() -> Result<()> {
     match cli.command {
         Commands::Simulate(args) => handle_simulate(args)?,
         Commands::FetchIdl(args) => handle_fetch_idl(args)?,
+        Commands::ParseAccount(args) => handle_parse_account(args)?,
         Commands::B2n(args) => handle_b2n(args)?,
         Commands::N2b(args) => handle_n2b(args)?,
         Commands::Pda(args) => handle_pda(args)?,
@@ -106,6 +107,95 @@ fn handle_fetch_idl(args: FetchIdlArgs) -> Result<()> {
         "\nSummary: {} saved, {} not found, {} errors",
         success_count, not_found_count, error_count
     );
+
+    Ok(())
+}
+
+fn handle_parse_account(args: ParseAccountArgs) -> Result<()> {
+    use instruction_parsers::anchor_idl::{IdlRegistry, RawAnchorIdl, parse_account_data};
+    use solana_client::rpc_client::RpcClient;
+
+    let verbose = args.verbose;
+
+    // Parse the account pubkey
+    let account_pubkey = Pubkey::from_str(&args.account)
+        .with_context(|| format!("Invalid account pubkey: {}", args.account))?;
+
+    // Create RPC client and fetch the account
+    let client = RpcClient::new(&args.rpc_url);
+    let account = client
+        .get_account(&account_pubkey)
+        .with_context(|| format!("Failed to fetch account: {}", account_pubkey))?;
+
+    let owner = account.owner;
+    if verbose {
+        eprintln!("Account: {}", account_pubkey);
+        eprintln!("Owner: {}", owner);
+        eprintln!("Data length: {} bytes", account.data.len());
+        eprintln!();
+    }
+
+    // Create account loader to fetch the IDL
+    let loader = account_loader::AccountLoader::new(args.rpc_url)?;
+
+    // Fetch the IDL for the owner program
+    let idl_json = match loader.fetch_idl(&owner)? {
+        Some(json) => json,
+        None => {
+            if verbose {
+                eprintln!("No Anchor IDL found for program: {}", owner);
+            }
+            // Output raw data as JSON object
+            let output = serde_json::json!({
+                "error": "No Anchor IDL found",
+                "owner": owner.to_string(),
+                "raw_data": hex::encode(&account.data)
+            });
+            println!("{}", serde_json::to_string_pretty(&output)?);
+            return Ok(());
+        }
+    };
+
+    // Parse the IDL
+    let raw_idl: RawAnchorIdl =
+        serde_json::from_str(&idl_json).with_context(|| "Failed to parse IDL JSON")?;
+    let idl = raw_idl.convert(&owner.to_string());
+
+    if verbose {
+        eprintln!("IDL: {} v{}", idl.metadata.name, idl.metadata.version);
+        eprintln!();
+    }
+
+    // Create an empty registry (we only have one IDL)
+    let registry = IdlRegistry::new();
+
+    // Parse the account data
+    match parse_account_data(&idl, &account.data, &registry)? {
+        Some((type_name, parsed_value)) => {
+            if verbose {
+                eprintln!("Account type: {}", type_name);
+                eprintln!();
+            }
+            // OrderedJsonValue implements Serialize, so we can use it directly
+            println!("{}", serde_json::to_string_pretty(&parsed_value)?);
+        }
+        None => {
+            // Output error as JSON object
+            let output = if account.data.len() >= 8 {
+                serde_json::json!({
+                    "error": "No matching account type found",
+                    "discriminator": hex::encode(&account.data[..8]),
+                    "raw_data": hex::encode(&account.data)
+                })
+            } else {
+                serde_json::json!({
+                    "error": "Account data too short",
+                    "raw_data": hex::encode(&account.data)
+                })
+            };
+            println!("{}", serde_json::to_string_pretty(&output)?);
+        }
+    }
 
     Ok(())
 }
