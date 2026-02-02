@@ -4,6 +4,7 @@ mod account;
 mod convert;
 mod fetch_idl;
 mod pda;
+mod program_data;
 mod simulate;
 
 // Re-export all public types from submodules
@@ -11,6 +12,7 @@ pub use account::*;
 pub use convert::*;
 pub use fetch_idl::*;
 pub use pda::*;
+pub use program_data::*;
 pub use simulate::*;
 
 use clap::{Parser, Subcommand};
@@ -43,4 +45,7 @@ pub enum Commands {
     /// Convert base58 string to base64 string
     #[command(name = "b58-b64")]
     B58B64(B58B64Args),
+    /// Get raw program data (ELF bytecode) from an upgradeable program or buffer
+    #[command(name = "program-data")]
+    ProgramData(ProgramDataArgs),
 }
