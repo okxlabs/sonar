@@ -5,6 +5,7 @@ mod convert;
 mod fetch_idl;
 mod pda;
 mod program_data;
+mod send;
 mod simulate;
 
 // Re-export all public types from submodules
@@ -13,6 +14,7 @@ pub use convert::*;
 pub use fetch_idl::*;
 pub use pda::*;
 pub use program_data::*;
+pub use send::*;
 pub use simulate::*;
 
 use clap::{Parser, Subcommand};
@@ -48,4 +50,6 @@ pub enum Commands {
     /// Get raw program data (ELF bytecode) from an upgradeable program or buffer
     #[command(name = "program-data")]
     ProgramData(ProgramDataArgs),
+    /// Send a signed transaction to the network
+    Send(SendArgs),
 }

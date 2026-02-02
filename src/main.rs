@@ -17,7 +17,7 @@ use base64::Engine;
 use clap::Parser;
 use cli::{
     AccountArgs, B2nArgs, B58B64Args, B64B58Args, Cli, Commands, FetchIdlArgs, N2bArgs, PdaArgs,
-    ProgramDataArgs, SimulateArgs, TransactionInputArgs,
+    ProgramDataArgs, SendArgs, SimulateArgs, TransactionInputArgs,
 };
 use instruction_parsers::ParserRegistry;
 use num_bigint::BigUint;
@@ -43,6 +43,7 @@ fn run() -> Result<()> {
         Commands::B64B58(args) => handle_b64_b58(args)?,
         Commands::B58B64(args) => handle_b58_b64(args)?,
         Commands::ProgramData(args) => handle_program_data(args)?,
+        Commands::Send(args) => handle_send(args)?,
     }
     Ok(())
 }
@@ -323,6 +324,24 @@ fn handle_b58_b64(args: B58B64Args) -> Result<()> {
     let bytes = bs58::decode(&args.input).into_vec().with_context(|| "Invalid base58 input")?;
     let result = base64::engine::general_purpose::STANDARD.encode(&bytes);
     println!("{}", result);
+    Ok(())
+}
+
+fn handle_send(args: SendArgs) -> Result<()> {
+    use solana_client::rpc_client::RpcClient;
+    use solana_client::rpc_config::RpcSendTransactionConfig;
+
+    let parsed = transaction::parse_raw_transaction(&args.tx)?;
+    let client = RpcClient::new(&args.rpc_url);
+
+    let config =
+        RpcSendTransactionConfig { skip_preflight: args.skip_preflight, ..Default::default() };
+
+    let signature = client
+        .send_transaction_with_config(&parsed.transaction, config)
+        .context("Failed to send transaction")?;
+
+    println!("{}", signature);
     Ok(())
 }
 
