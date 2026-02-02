@@ -16,8 +16,8 @@ use anyhow::{Context, Result};
 use base64::Engine;
 use clap::Parser;
 use cli::{
-    B2nArgs, B58B64Args, B64B58Args, Cli, Commands, FetchIdlArgs, N2bArgs, ParseAccountArgs,
-    PdaArgs, SimulateArgs, TransactionInputArgs,
+    AccountArgs, B2nArgs, B58B64Args, B64B58Args, Cli, Commands, FetchIdlArgs, N2bArgs, PdaArgs,
+    SimulateArgs, TransactionInputArgs,
 };
 use instruction_parsers::ParserRegistry;
 use num_bigint::BigUint;
@@ -36,7 +36,7 @@ fn run() -> Result<()> {
     match cli.command {
         Commands::Simulate(args) => handle_simulate(args)?,
         Commands::FetchIdl(args) => handle_fetch_idl(args)?,
-        Commands::ParseAccount(args) => handle_parse_account(args)?,
+        Commands::Account(args) => handle_account(args)?,
         Commands::B2n(args) => handle_b2n(args)?,
         Commands::N2b(args) => handle_n2b(args)?,
         Commands::Pda(args) => handle_pda(args)?,
@@ -111,7 +111,7 @@ fn handle_fetch_idl(args: FetchIdlArgs) -> Result<()> {
     Ok(())
 }
 
-fn handle_parse_account(args: ParseAccountArgs) -> Result<()> {
+fn handle_account(args: AccountArgs) -> Result<()> {
     use instruction_parsers::anchor_idl::{IdlRegistry, RawAnchorIdl, parse_account_data};
     use solana_client::rpc_client::RpcClient;
 
@@ -135,23 +135,38 @@ fn handle_parse_account(args: ParseAccountArgs) -> Result<()> {
         eprintln!();
     }
 
-    // Create account loader to fetch the IDL
-    let loader = account_loader::AccountLoader::new(args.rpc_url)?;
+    // If --raw is specified, just print raw data and return
+    if args.raw {
+        print_raw_account_data(&account);
+        return Ok(());
+    }
 
-    // Fetch the IDL for the owner program
-    let idl_json = match loader.fetch_idl(&owner)? {
+    // Try to find IDL: first from local path, then from chain
+    let idl_json = try_load_idl_from_path(&args.idl_path, &owner).or_else(|| {
+        if verbose {
+            eprintln!("IDL not found locally, fetching from chain...");
+        }
+        let loader = account_loader::AccountLoader::new(args.rpc_url.clone()).ok()?;
+        match loader.fetch_idl(&owner) {
+            Ok(Some(json)) => Some(json),
+            Ok(None) => None,
+            Err(e) => {
+                if verbose {
+                    eprintln!("Failed to fetch IDL from chain: {:?}", e);
+                }
+                None
+            }
+        }
+    });
+
+    let idl_json = match idl_json {
         Some(json) => json,
         None => {
             if verbose {
                 eprintln!("No Anchor IDL found for program: {}", owner);
             }
-            // Output raw data as JSON object
-            let output = serde_json::json!({
-                "error": "No Anchor IDL found",
-                "owner": owner.to_string(),
-                "raw_data": hex::encode(&account.data)
-            });
-            println!("{}", serde_json::to_string_pretty(&output)?);
+            // Output raw data in Solana JSON RPC format
+            print_raw_account_data(&account);
             return Ok(());
         }
     };
@@ -198,6 +213,43 @@ fn handle_parse_account(args: ParseAccountArgs) -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Try to load IDL from local path (if specified).
+/// IDL files are expected to be named `<PROGRAM_ID>.json`.
+fn try_load_idl_from_path(idl_path: &Option<PathBuf>, owner: &Pubkey) -> Option<String> {
+    let path = idl_path.as_ref()?;
+    let idl_file = path.join(format!("{}.json", owner));
+
+    if idl_file.exists() {
+        match fs::read_to_string(&idl_file) {
+            Ok(content) => {
+                log::debug!("Loaded IDL from {}", idl_file.display());
+                Some(content)
+            }
+            Err(e) => {
+                log::warn!("Failed to read IDL file {}: {}", idl_file.display(), e);
+                None
+            }
+        }
+    } else {
+        log::debug!("IDL file not found: {}", idl_file.display());
+        None
+    }
+}
+
+/// Print account data in Solana JSON RPC format.
+fn print_raw_account_data(account: &solana_account::Account) {
+    let data_hex = hex::encode(&account.data);
+    let output = serde_json::json!({
+        "data": data_hex,
+        "executable": account.executable,
+        "lamports": account.lamports,
+        "owner": account.owner.to_string(),
+        "rentEpoch": account.rent_epoch,
+        "space": account.data.len()
+    });
+    println!("{}", serde_json::to_string_pretty(&output).unwrap_or_else(|_| "{}".to_string()));
 }
 
 fn handle_b2n(args: B2nArgs) -> Result<()> {
