@@ -6,18 +6,18 @@ use clap::Args;
 
 #[derive(Args, Debug)]
 pub struct AccountArgs {
-    /// Account pubkey to parse
+    /// Solana account address (base58 pubkey)
     pub account: String,
 
-    /// Solana RPC node URL
+    /// RPC endpoint for fetching account data
     #[arg(long = "rpc-url", default_value = "https://api.mainnet-beta.solana.com")]
     pub rpc_url: String,
 
-    /// Path to directory containing IDL files (named as <PROGRAM_ID>.json)
+    /// Local IDL directory. Falls back to fetching from chain if not found.
     #[arg(long = "idl-path")]
     pub idl_path: Option<PathBuf>,
 
-    /// Only print raw account data without parsing
+    /// Output raw account data in JSON format, skip IDL parsing
     #[arg(long)]
     pub raw: bool,
 

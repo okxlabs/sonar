@@ -32,7 +32,7 @@ pub enum Commands {
     Simulate(SimulateArgs),
     /// Fetch Anchor IDL from on-chain program accounts
     FetchIdl(FetchIdlArgs),
-    /// Parse account data using Anchor IDL
+    /// Fetch and decode Solana account data if IDL is available onchain or locally
     #[command(name = "account")]
     Account(AccountArgs),
     /// Convert bytes to number (b2n = bytes to number)
