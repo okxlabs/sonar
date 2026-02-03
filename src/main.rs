@@ -118,8 +118,6 @@ fn handle_account(args: AccountArgs) -> Result<()> {
     use instruction_parsers::anchor_idl::{IdlRegistry, RawAnchorIdl, parse_account_data};
     use solana_client::rpc_client::RpcClient;
 
-    let verbose = args.verbose;
-
     // Parse the account pubkey
     let account_pubkey = Pubkey::from_str(&args.account)
         .with_context(|| format!("Invalid account pubkey: {}", args.account))?;
@@ -131,12 +129,6 @@ fn handle_account(args: AccountArgs) -> Result<()> {
         .with_context(|| format!("Failed to fetch account: {}", account_pubkey))?;
 
     let owner = account.owner;
-    if verbose {
-        eprintln!("Account: {}", account_pubkey);
-        eprintln!("Owner: {}", owner);
-        eprintln!("Data length: {} bytes", account.data.len());
-        eprintln!();
-    }
 
     // If --raw is specified, just print raw data and return
     if args.raw {
@@ -146,53 +138,31 @@ fn handle_account(args: AccountArgs) -> Result<()> {
 
     // Try to decode as SPL Token or Token-2022 account (mint or token account)
     if let Some(token_json) = token_account_decoder::decode_spl_token_account(&account) {
-        if verbose {
-            // Infer program type from owner
-            let program_name = if owner == spl_token::ID.into() {
-                "token"
-            } else if owner == spl_token_2022::ID.into() {
-                "token_2022"
-            } else {
-                "unknown"
-            };
-            // Infer account type from presence of fields
-            let account_type =
-                if token_json.get("mint").is_some() && token_json.get("token_owner").is_some() {
-                    "token_account"
-                } else {
-                    "mint"
-                };
-            eprintln!("Detected {} {} account", program_name, account_type);
-            eprintln!();
+        if args.no_account_meta {
+            println!("{}", serde_json::to_string_pretty(&token_json)?);
+        } else {
+            let output = serde_json::json!({
+                "lamports": account.lamports,
+                "space": account.data.len(),
+                "owner": account.owner.to_string(),
+                "executable": account.executable,
+                "rentEpoch": account.rent_epoch,
+                "data": token_json
+            });
+            println!("{}", serde_json::to_string_pretty(&output)?);
         }
-        println!("{}", serde_json::to_string_pretty(&token_json)?);
         return Ok(());
     }
 
     // Try to find IDL: first from local path, then from chain
     let idl_json = try_load_idl_from_path(&args.idl_path, &owner).or_else(|| {
-        if verbose {
-            eprintln!("IDL not found locally, fetching from chain...");
-        }
         let loader = account_loader::AccountLoader::new(args.rpc_url.clone()).ok()?;
-        match loader.fetch_idl(&owner) {
-            Ok(Some(json)) => Some(json),
-            Ok(None) => None,
-            Err(e) => {
-                if verbose {
-                    eprintln!("Failed to fetch IDL from chain: {:?}", e);
-                }
-                None
-            }
-        }
+        loader.fetch_idl(&owner).ok().flatten()
     });
 
     let idl_json = match idl_json {
         Some(json) => json,
         None => {
-            if verbose {
-                eprintln!("No Anchor IDL found for program: {}", owner);
-            }
             // Output raw data in Solana JSON RPC format
             print_raw_account_data(&account);
             return Ok(());
@@ -204,36 +174,41 @@ fn handle_account(args: AccountArgs) -> Result<()> {
         serde_json::from_str(&idl_json).with_context(|| "Failed to parse IDL JSON")?;
     let idl = raw_idl.convert(&owner.to_string());
 
-    if verbose {
-        eprintln!("IDL: {} v{}", idl.metadata.name, idl.metadata.version);
-        eprintln!();
-    }
-
     // Create an empty registry (we only have one IDL)
     let registry = IdlRegistry::new();
 
     // Parse the account data
     match parse_account_data(&idl, &account.data, &registry)? {
-        Some((type_name, parsed_value)) => {
-            if verbose {
-                eprintln!("Account type: {}", type_name);
-                eprintln!();
+        Some((_type_name, parsed_value)) => {
+            if args.no_account_meta {
+                println!("{}", serde_json::to_string_pretty(&parsed_value)?);
+            } else {
+                let output = serde_json::json!({
+                    "lamports": account.lamports,
+                    "space": account.data.len(),
+                    "owner": account.owner.to_string(),
+                    "executable": account.executable,
+                    "rentEpoch": account.rent_epoch,
+                    "data": parsed_value
+                });
+                println!("{}", serde_json::to_string_pretty(&output)?);
             }
-            // Build output with metadata and parsed data
-            // Field order follows Solana Account struct: lamports, data(space), owner, executable, rent_epoch
-            let output = serde_json::json!({
-                "lamports": account.lamports,
-                "space": account.data.len(),
-                "owner": account.owner.to_string(),
-                "executable": account.executable,
-                "rentEpoch": account.rent_epoch,
-                "data": parsed_value
-            });
-            println!("{}", serde_json::to_string_pretty(&output)?);
         }
         None => {
-            // Output error as JSON object with metadata
-            let output = if account.data.len() >= 8 {
+            let output = if args.no_account_meta {
+                if account.data.len() >= 8 {
+                    serde_json::json!({
+                        "error": "No matching account type found",
+                        "discriminator": hex::encode(&account.data[..8]),
+                        "raw_data": hex::encode(&account.data)
+                    })
+                } else {
+                    serde_json::json!({
+                        "error": "Account data too short",
+                        "raw_data": hex::encode(&account.data)
+                    })
+                }
+            } else if account.data.len() >= 8 {
                 serde_json::json!({
                     "lamports": account.lamports,
                     "space": account.data.len(),

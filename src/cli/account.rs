@@ -21,7 +21,7 @@ pub struct AccountArgs {
     #[arg(long)]
     pub raw: bool,
 
-    /// Show verbose output (account info, owner, IDL details)
-    #[arg(short, long)]
-    pub verbose: bool,
+    /// Skip account metadata, only print parsed data
+    #[arg(long)]
+    pub no_account_meta: bool,
 }
