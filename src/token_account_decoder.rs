@@ -102,18 +102,14 @@ fn build_legacy_mint_json(
     account: &solana_account::Account,
     mint: &spl_token::state::Mint,
 ) -> Value {
-    json!({
-        "lamports": account.lamports,
-        "owner": account.owner.to_string(),
-        "executable": account.executable,
-        "rentEpoch": account.rent_epoch,
-        "space": account.data.len(),
-        "decimals": mint.decimals,
-        "supply": mint.supply.to_string(),
-        "mint_authority": coption_pubkey_to_json(&mint.mint_authority),
-        "freeze_authority": coption_pubkey_to_json(&mint.freeze_authority),
-        "is_initialized": mint.is_initialized
-    })
+    let mut result = base_account_json(account);
+    let obj = result.as_object_mut().unwrap();
+    obj.insert("decimals".into(), json!(mint.decimals));
+    obj.insert("supply".into(), json!(mint.supply.to_string()));
+    obj.insert("mint_authority".into(), coption_pubkey_to_json(&mint.mint_authority));
+    obj.insert("freeze_authority".into(), coption_pubkey_to_json(&mint.freeze_authority));
+    obj.insert("is_initialized".into(), json!(mint.is_initialized));
+    result
 }
 
 /// Build JSON for legacy Token Account
@@ -121,21 +117,17 @@ fn build_legacy_account_json(
     account: &solana_account::Account,
     token_account: &spl_token::state::Account,
 ) -> Value {
-    json!({
-        "lamports": account.lamports,
-        "owner": account.owner.to_string(),
-        "executable": account.executable,
-        "rentEpoch": account.rent_epoch,
-        "space": account.data.len(),
-        "mint": token_account.mint.to_string(),
-        "token_owner": token_account.owner.to_string(),
-        "amount": token_account.amount.to_string(),
-        "delegate": coption_pubkey_to_json(&token_account.delegate),
-        "state": format!("{:?}", token_account.state),
-        "is_native": coption_u64_to_json(&token_account.is_native),
-        "delegated_amount": token_account.delegated_amount.to_string(),
-        "close_authority": coption_pubkey_to_json(&token_account.close_authority)
-    })
+    let mut result = base_account_json(account);
+    let obj = result.as_object_mut().unwrap();
+    obj.insert("mint".into(), json!(token_account.mint.to_string()));
+    obj.insert("token_owner".into(), json!(token_account.owner.to_string()));
+    obj.insert("amount".into(), json!(token_account.amount.to_string()));
+    obj.insert("delegate".into(), coption_pubkey_to_json(&token_account.delegate));
+    obj.insert("state".into(), json!(format!("{:?}", token_account.state)));
+    obj.insert("is_native".into(), coption_u64_to_json(&token_account.is_native));
+    obj.insert("delegated_amount".into(), json!(token_account.delegated_amount.to_string()));
+    obj.insert("close_authority".into(), coption_pubkey_to_json(&token_account.close_authority));
+    result
 }
 
 /// Decode Token-2022 account (mint or token account with extensions)
@@ -169,25 +161,19 @@ fn build_token2022_mint_json(
     use spl_token_2022::extension::BaseStateWithExtensions;
 
     let mint = &state.base;
-
-    let mut result = json!({
-        "lamports": account.lamports,
-        "owner": account.owner.to_string(),
-        "executable": account.executable,
-        "rentEpoch": account.rent_epoch,
-        "space": account.data.len(),
-        "decimals": mint.decimals,
-        "supply": mint.supply.to_string(),
-        "mint_authority": coption_pubkey_to_json(&mint.mint_authority),
-        "freeze_authority": coption_pubkey_to_json(&mint.freeze_authority),
-        "is_initialized": mint.is_initialized
-    });
+    let mut result = base_account_json(account);
+    let obj = result.as_object_mut().unwrap();
+    obj.insert("decimals".into(), json!(mint.decimals));
+    obj.insert("supply".into(), json!(mint.supply.to_string()));
+    obj.insert("mint_authority".into(), coption_pubkey_to_json(&mint.mint_authority));
+    obj.insert("freeze_authority".into(), coption_pubkey_to_json(&mint.freeze_authority));
+    obj.insert("is_initialized".into(), json!(mint.is_initialized));
 
     // Parse extensions
     if let Ok(extension_types) = state.get_extension_types() {
         if !extension_types.is_empty() {
             let extensions = parse_mint_extensions(state, &extension_types);
-            result["extensions"] = Value::Array(extensions);
+            obj.insert("extensions".into(), Value::Array(extensions));
         }
     }
 
@@ -202,32 +188,48 @@ fn build_token2022_account_json(
     use spl_token_2022::extension::BaseStateWithExtensions;
 
     let token_account = &state.base;
-
-    let mut result = json!({
-        "lamports": account.lamports,
-        "owner": account.owner.to_string(),
-        "executable": account.executable,
-        "rentEpoch": account.rent_epoch,
-        "space": account.data.len(),
-        "mint": token_account.mint.to_string(),
-        "token_owner": token_account.owner.to_string(),
-        "amount": token_account.amount.to_string(),
-        "delegate": coption_pubkey_to_json(&token_account.delegate),
-        "state": format!("{:?}", token_account.state),
-        "is_native": coption_u64_to_json(&token_account.is_native),
-        "delegated_amount": token_account.delegated_amount.to_string(),
-        "close_authority": coption_pubkey_to_json(&token_account.close_authority)
-    });
+    let mut result = base_account_json(account);
+    let obj = result.as_object_mut().unwrap();
+    obj.insert("mint".into(), json!(token_account.mint.to_string()));
+    obj.insert("token_owner".into(), json!(token_account.owner.to_string()));
+    obj.insert("amount".into(), json!(token_account.amount.to_string()));
+    obj.insert("delegate".into(), coption_pubkey_to_json(&token_account.delegate));
+    obj.insert("state".into(), json!(format!("{:?}", token_account.state)));
+    obj.insert("is_native".into(), coption_u64_to_json(&token_account.is_native));
+    obj.insert("delegated_amount".into(), json!(token_account.delegated_amount.to_string()));
+    obj.insert("close_authority".into(), coption_pubkey_to_json(&token_account.close_authority));
 
     // Parse extensions
     if let Ok(extension_types) = state.get_extension_types() {
         if !extension_types.is_empty() {
             let extensions = parse_account_extensions(state, &extension_types);
-            result["extensions"] = Value::Array(extensions);
+            obj.insert("extensions".into(), Value::Array(extensions));
         }
     }
 
     result
+}
+
+/// Macro to reduce boilerplate for extension parsing
+macro_rules! ext_json {
+    ($state:expr, $type_name:literal, $ext_type:ty, |$ext:ident| $data:expr) => {{
+        use spl_token_2022::extension::BaseStateWithExtensions;
+        match $state.get_extension::<$ext_type>() {
+            Ok($ext) => json!({ "type": $type_name, "data": $data }),
+            Err(_) => null_extension($type_name),
+        }
+    }};
+}
+
+/// Macro for variable-length extensions (like TokenMetadata)
+macro_rules! ext_json_varlen {
+    ($state:expr, $type_name:literal, $ext_type:ty, |$ext:ident| $data:expr) => {{
+        use spl_token_2022::extension::BaseStateWithExtensions;
+        match $state.get_variable_len_extension::<$ext_type>() {
+            Ok($ext) => json!({ "type": $type_name, "data": $data }),
+            Err(_) => null_extension($type_name),
+        }
+    }};
 }
 
 /// Parse mint extensions
@@ -235,60 +237,133 @@ fn parse_mint_extensions(
     state: &spl_token_2022::extension::StateWithExtensions<spl_token_2022::state::Mint>,
     extension_types: &[spl_token_2022::extension::ExtensionType],
 ) -> Vec<Value> {
-    use spl_token_2022::extension::ExtensionType;
+    use spl_token_2022::extension::{
+        ExtensionType, default_account_state::DefaultAccountState,
+        group_member_pointer::GroupMemberPointer, group_pointer::GroupPointer,
+        interest_bearing_mint::InterestBearingConfig, metadata_pointer::MetadataPointer,
+        mint_close_authority::MintCloseAuthority, pausable::PausableConfig,
+        permanent_delegate::PermanentDelegate, scaled_ui_amount::ScaledUiAmountConfig,
+        transfer_fee::TransferFeeConfig, transfer_hook::TransferHook,
+    };
+    use spl_token_group_interface::state::{TokenGroup, TokenGroupMember};
+    use spl_token_metadata_interface::state::TokenMetadata;
 
-    let mut extensions = Vec::new();
-
-    for ext_type in extension_types {
-        let ext_json = match ext_type {
-            ExtensionType::TransferFeeConfig => parse_transfer_fee_config_extension(state),
-            ExtensionType::MintCloseAuthority => parse_mint_close_authority_extension(state),
-            ExtensionType::InterestBearingConfig => parse_interest_bearing_config_extension(state),
-            ExtensionType::PermanentDelegate => parse_permanent_delegate_extension(state),
-            ExtensionType::NonTransferable => {
+    extension_types
+        .iter()
+        .map(|ext_type| match ext_type {
+            ExtensionType::TransferFeeConfig => ext_json!(state, "TransferFeeConfig", TransferFeeConfig, |c| {
                 json!({
-                    "type": "NonTransferable",
-                    "data": {}
+                    "transfer_fee_config_authority": pod_option_pubkey_to_string(&c.transfer_fee_config_authority),
+                    "withdraw_withheld_authority": pod_option_pubkey_to_string(&c.withdraw_withheld_authority),
+                    "withheld_amount": u64::from(c.withheld_amount).to_string(),
+                    "older_transfer_fee": {
+                        "epoch": u64::from(c.older_transfer_fee.epoch).to_string(),
+                        "maximum_fee": u64::from(c.older_transfer_fee.maximum_fee).to_string(),
+                        "transfer_fee_basis_points": u16::from(c.older_transfer_fee.transfer_fee_basis_points)
+                    },
+                    "newer_transfer_fee": {
+                        "epoch": u64::from(c.newer_transfer_fee.epoch).to_string(),
+                        "maximum_fee": u64::from(c.newer_transfer_fee.maximum_fee).to_string(),
+                        "transfer_fee_basis_points": u16::from(c.newer_transfer_fee.transfer_fee_basis_points)
+                    }
                 })
-            }
-            ExtensionType::DefaultAccountState => parse_default_account_state_extension(state),
-            ExtensionType::MetadataPointer => parse_metadata_pointer_extension(state),
-            ExtensionType::GroupPointer => parse_group_pointer_extension(state),
-            ExtensionType::GroupMemberPointer => parse_group_member_pointer_extension(state),
-            ExtensionType::TransferHook => parse_transfer_hook_extension(state),
-            ExtensionType::TokenMetadata => parse_token_metadata_extension(state),
-            ExtensionType::Pausable => parse_pausable_config_extension(state),
-            ExtensionType::ScaledUiAmount => parse_scaled_ui_amount_extension(state),
-            ExtensionType::ConfidentialTransferMint => {
-                // Complex extension, output raw bytes
-                get_extension_raw_or_empty::<spl_token_2022::state::Mint>(
-                    state,
-                    "ConfidentialTransferMint",
-                )
-            }
-            ExtensionType::ConfidentialTransferFeeConfig => {
-                get_extension_raw_or_empty::<spl_token_2022::state::Mint>(
-                    state,
-                    "ConfidentialTransferFeeConfig",
-                )
-            }
-            ExtensionType::ConfidentialMintBurn => get_extension_raw_or_empty::<
-                spl_token_2022::state::Mint,
-            >(state, "ConfidentialMintBurn"),
-            ExtensionType::TokenGroup => parse_token_group_extension(state),
-            ExtensionType::TokenGroupMember => parse_token_group_member_extension(state),
-            _ => {
-                // Unknown or unhandled extension, output type name only
+            }),
+            ExtensionType::MintCloseAuthority => ext_json!(state, "MintCloseAuthority", MintCloseAuthority, |e| {
+                json!({ "close_authority": pod_option_pubkey_to_string(&e.close_authority) })
+            }),
+            ExtensionType::InterestBearingConfig => ext_json!(state, "InterestBearingConfig", InterestBearingConfig, |c| {
                 json!({
-                    "type": format!("{:?}", ext_type),
-                    "data": null
+                    "rate_authority": pod_option_pubkey_to_string(&c.rate_authority),
+                    "initialization_timestamp": i64::from(c.initialization_timestamp).to_string(),
+                    "pre_update_average_rate": i16::from(c.pre_update_average_rate),
+                    "last_update_timestamp": i64::from(c.last_update_timestamp).to_string(),
+                    "current_rate": i16::from(c.current_rate)
                 })
-            }
-        };
-        extensions.push(ext_json);
-    }
-
-    extensions
+            }),
+            ExtensionType::PermanentDelegate => ext_json!(state, "PermanentDelegate", PermanentDelegate, |e| {
+                json!({ "delegate": pod_option_pubkey_to_string(&e.delegate) })
+            }),
+            ExtensionType::DefaultAccountState => ext_json!(state, "DefaultAccountState", DefaultAccountState, |e| {
+                let state_str = match u8::from(e.state) {
+                    0 => "Uninitialized", 1 => "Initialized", 2 => "Frozen", _ => "Unknown"
+                };
+                json!({ "state": state_str })
+            }),
+            ExtensionType::MetadataPointer => ext_json!(state, "MetadataPointer", MetadataPointer, |e| {
+                json!({
+                    "authority": pod_option_pubkey_to_string(&e.authority),
+                    "metadata_address": pod_option_pubkey_to_string(&e.metadata_address)
+                })
+            }),
+            ExtensionType::GroupPointer => ext_json!(state, "GroupPointer", GroupPointer, |e| {
+                json!({
+                    "authority": pod_option_pubkey_to_string(&e.authority),
+                    "group_address": pod_option_pubkey_to_string(&e.group_address)
+                })
+            }),
+            ExtensionType::GroupMemberPointer => ext_json!(state, "GroupMemberPointer", GroupMemberPointer, |e| {
+                json!({
+                    "authority": pod_option_pubkey_to_string(&e.authority),
+                    "member_address": pod_option_pubkey_to_string(&e.member_address)
+                })
+            }),
+            ExtensionType::TransferHook => ext_json!(state, "TransferHook", TransferHook, |e| {
+                json!({
+                    "authority": pod_option_pubkey_to_string(&e.authority),
+                    "program_id": pod_option_pubkey_to_string(&e.program_id)
+                })
+            }),
+            ExtensionType::Pausable => ext_json!(state, "Pausable", PausableConfig, |c| {
+                json!({
+                    "authority": pod_option_pubkey_to_string(&c.authority),
+                    "paused": bool::from(c.paused)
+                })
+            }),
+            ExtensionType::ScaledUiAmount => ext_json!(state, "ScaledUiAmount", ScaledUiAmountConfig, |c| {
+                json!({
+                    "authority": pod_option_pubkey_to_string(&c.authority),
+                    "multiplier": f64::from(c.multiplier),
+                    "new_multiplier_effective_timestamp": i64::from(c.new_multiplier_effective_timestamp).to_string(),
+                    "new_multiplier": f64::from(c.new_multiplier)
+                })
+            }),
+            ExtensionType::TokenMetadata => ext_json_varlen!(state, "TokenMetadata", TokenMetadata, |m| {
+                json!({
+                    "update_authority": pod_option_pubkey_to_string(&m.update_authority),
+                    "mint": m.mint.to_string(),
+                    "name": m.name,
+                    "symbol": m.symbol,
+                    "uri": m.uri,
+                    "additional_metadata": m.additional_metadata.iter()
+                        .map(|(k, v)| json!({"key": k, "value": v}))
+                        .collect::<Vec<_>>()
+                })
+            }),
+            ExtensionType::TokenGroup => ext_json!(state, "TokenGroup", TokenGroup, |g| {
+                json!({
+                    "update_authority": pod_option_pubkey_to_string(&g.update_authority),
+                    "mint": g.mint.to_string(),
+                    "size": u64::from(g.size).to_string(),
+                    "max_size": u64::from(g.max_size).to_string()
+                })
+            }),
+            ExtensionType::TokenGroupMember => ext_json!(state, "TokenGroupMember", TokenGroupMember, |m| {
+                json!({
+                    "mint": m.mint.to_string(),
+                    "group": m.group.to_string(),
+                    "member_number": u64::from(m.member_number).to_string()
+                })
+            }),
+            // Marker extensions (no data)
+            ExtensionType::NonTransferable => marker_extension("NonTransferable"),
+            // Unsupported complex extensions
+            ExtensionType::ConfidentialTransferMint
+            | ExtensionType::ConfidentialTransferFeeConfig
+            | ExtensionType::ConfidentialMintBurn => null_extension(&format!("{:?}", ext_type)),
+            // Unknown extensions
+            _ => null_extension(&format!("{:?}", ext_type)),
+        })
+        .collect()
 }
 
 /// Parse account extensions
@@ -296,529 +371,69 @@ fn parse_account_extensions(
     state: &spl_token_2022::extension::StateWithExtensions<spl_token_2022::state::Account>,
     extension_types: &[spl_token_2022::extension::ExtensionType],
 ) -> Vec<Value> {
-    use spl_token_2022::extension::ExtensionType;
+    use spl_token_2022::extension::{
+        ExtensionType, cpi_guard::CpiGuard, memo_transfer::MemoTransfer,
+        transfer_fee::TransferFeeAmount, transfer_hook::TransferHookAccount,
+    };
 
-    let mut extensions = Vec::new();
-
-    for ext_type in extension_types {
-        let ext_json = match ext_type {
-            ExtensionType::TransferFeeAmount => parse_transfer_fee_amount_extension(state),
-            ExtensionType::ImmutableOwner => {
-                json!({
-                    "type": "ImmutableOwner",
-                    "data": {}
-                })
-            }
-            ExtensionType::MemoTransfer => parse_memo_transfer_extension(state),
-            ExtensionType::CpiGuard => parse_cpi_guard_extension(state),
-            ExtensionType::NonTransferableAccount => {
-                json!({
-                    "type": "NonTransferableAccount",
-                    "data": {}
-                })
-            }
-            ExtensionType::TransferHookAccount => parse_transfer_hook_account_extension(state),
-            ExtensionType::PausableAccount => {
-                json!({
-                    "type": "PausableAccount",
-                    "data": {}
-                })
-            }
-            ExtensionType::ConfidentialTransferAccount => {
-                // Complex extension, output raw hex
-                get_account_extension_raw_or_empty(state, "ConfidentialTransferAccount")
-            }
-            ExtensionType::ConfidentialTransferFeeAmount => {
-                get_account_extension_raw_or_empty(state, "ConfidentialTransferFeeAmount")
-            }
-            _ => {
-                json!({
-                    "type": format!("{:?}", ext_type),
-                    "data": null
-                })
-            }
-        };
-        extensions.push(ext_json);
-    }
-
-    extensions
+    extension_types
+        .iter()
+        .map(|ext_type| match ext_type {
+            ExtensionType::TransferFeeAmount => ext_json!(state, "TransferFeeAmount", TransferFeeAmount, |a| {
+                json!({ "withheld_amount": u64::from(a.withheld_amount).to_string() })
+            }),
+            ExtensionType::MemoTransfer => ext_json!(state, "MemoTransfer", MemoTransfer, |e| {
+                json!({ "require_incoming_transfer_memos": bool::from(e.require_incoming_transfer_memos) })
+            }),
+            ExtensionType::CpiGuard => ext_json!(state, "CpiGuard", CpiGuard, |e| {
+                json!({ "lock_cpi": bool::from(e.lock_cpi) })
+            }),
+            ExtensionType::TransferHookAccount => ext_json!(state, "TransferHookAccount", TransferHookAccount, |e| {
+                json!({ "transferring": bool::from(e.transferring) })
+            }),
+            // Marker extensions (no data)
+            ExtensionType::ImmutableOwner => marker_extension("ImmutableOwner"),
+            ExtensionType::NonTransferableAccount => marker_extension("NonTransferableAccount"),
+            ExtensionType::PausableAccount => marker_extension("PausableAccount"),
+            // Unsupported complex extensions
+            ExtensionType::ConfidentialTransferAccount
+            | ExtensionType::ConfidentialTransferFeeAmount => null_extension(&format!("{:?}", ext_type)),
+            // Unknown extensions
+            _ => null_extension(&format!("{:?}", ext_type)),
+        })
+        .collect()
 }
 
 // ============================================================================
-// Extension parsing helpers
+// Helper functions
 // ============================================================================
 
-fn parse_transfer_fee_config_extension(
-    state: &spl_token_2022::extension::StateWithExtensions<spl_token_2022::state::Mint>,
-) -> Value {
-    use spl_token_2022::extension::{BaseStateWithExtensions, transfer_fee::TransferFeeConfig};
-
-    match state.get_extension::<TransferFeeConfig>() {
-        Ok(config) => {
-            json!({
-                "type": "TransferFeeConfig",
-                "data": {
-                    "transfer_fee_config_authority": pod_option_pubkey_to_string(&config.transfer_fee_config_authority),
-                    "withdraw_withheld_authority": pod_option_pubkey_to_string(&config.withdraw_withheld_authority),
-                    "withheld_amount": u64::from(config.withheld_amount).to_string(),
-                    "older_transfer_fee": {
-                        "epoch": u64::from(config.older_transfer_fee.epoch).to_string(),
-                        "maximum_fee": u64::from(config.older_transfer_fee.maximum_fee).to_string(),
-                        "transfer_fee_basis_points": u16::from(config.older_transfer_fee.transfer_fee_basis_points)
-                    },
-                    "newer_transfer_fee": {
-                        "epoch": u64::from(config.newer_transfer_fee.epoch).to_string(),
-                        "maximum_fee": u64::from(config.newer_transfer_fee.maximum_fee).to_string(),
-                        "transfer_fee_basis_points": u16::from(config.newer_transfer_fee.transfer_fee_basis_points)
-                    }
-                }
-            })
-        }
-        Err(_) => json!({
-            "type": "TransferFeeConfig",
-            "data": null
-        }),
-    }
+/// Build base account metadata JSON (shared by all account types)
+fn base_account_json(account: &solana_account::Account) -> Value {
+    json!({
+        "lamports": account.lamports,
+        "owner": account.owner.to_string(),
+        "executable": account.executable,
+        "rentEpoch": account.rent_epoch,
+        "space": account.data.len()
+    })
 }
 
-fn parse_transfer_fee_amount_extension(
-    state: &spl_token_2022::extension::StateWithExtensions<spl_token_2022::state::Account>,
-) -> Value {
-    use spl_token_2022::extension::{BaseStateWithExtensions, transfer_fee::TransferFeeAmount};
-
-    match state.get_extension::<TransferFeeAmount>() {
-        Ok(amount) => {
-            json!({
-                "type": "TransferFeeAmount",
-                "data": {
-                    "withheld_amount": u64::from(amount.withheld_amount).to_string()
-                }
-            })
-        }
-        Err(_) => json!({
-            "type": "TransferFeeAmount",
-            "data": null
-        }),
-    }
+/// Create a marker extension JSON (extensions with no data fields)
+fn marker_extension(type_name: &str) -> Value {
+    json!({
+        "type": type_name,
+        "data": {}
+    })
 }
 
-fn parse_mint_close_authority_extension(
-    state: &spl_token_2022::extension::StateWithExtensions<spl_token_2022::state::Mint>,
-) -> Value {
-    use spl_token_2022::extension::{
-        BaseStateWithExtensions, mint_close_authority::MintCloseAuthority,
-    };
-
-    match state.get_extension::<MintCloseAuthority>() {
-        Ok(ext) => {
-            json!({
-                "type": "MintCloseAuthority",
-                "data": {
-                    "close_authority": pod_option_pubkey_to_string(&ext.close_authority)
-                }
-            })
-        }
-        Err(_) => json!({
-            "type": "MintCloseAuthority",
-            "data": null
-        }),
-    }
-}
-
-fn parse_interest_bearing_config_extension(
-    state: &spl_token_2022::extension::StateWithExtensions<spl_token_2022::state::Mint>,
-) -> Value {
-    use spl_token_2022::extension::{
-        BaseStateWithExtensions, interest_bearing_mint::InterestBearingConfig,
-    };
-
-    match state.get_extension::<InterestBearingConfig>() {
-        Ok(config) => {
-            json!({
-                "type": "InterestBearingConfig",
-                "data": {
-                    "rate_authority": pod_option_pubkey_to_string(&config.rate_authority),
-                    "initialization_timestamp": i64::from(config.initialization_timestamp).to_string(),
-                    "pre_update_average_rate": i16::from(config.pre_update_average_rate),
-                    "last_update_timestamp": i64::from(config.last_update_timestamp).to_string(),
-                    "current_rate": i16::from(config.current_rate)
-                }
-            })
-        }
-        Err(_) => json!({
-            "type": "InterestBearingConfig",
-            "data": null
-        }),
-    }
-}
-
-fn parse_permanent_delegate_extension(
-    state: &spl_token_2022::extension::StateWithExtensions<spl_token_2022::state::Mint>,
-) -> Value {
-    use spl_token_2022::extension::{
-        BaseStateWithExtensions, permanent_delegate::PermanentDelegate,
-    };
-
-    match state.get_extension::<PermanentDelegate>() {
-        Ok(ext) => {
-            json!({
-                "type": "PermanentDelegate",
-                "data": {
-                    "delegate": pod_option_pubkey_to_string(&ext.delegate)
-                }
-            })
-        }
-        Err(_) => json!({
-            "type": "PermanentDelegate",
-            "data": null
-        }),
-    }
-}
-
-fn parse_default_account_state_extension(
-    state: &spl_token_2022::extension::StateWithExtensions<spl_token_2022::state::Mint>,
-) -> Value {
-    use spl_token_2022::extension::{
-        BaseStateWithExtensions, default_account_state::DefaultAccountState,
-    };
-
-    match state.get_extension::<DefaultAccountState>() {
-        Ok(ext) => {
-            let state_value: u8 = ext.state.into();
-            let state_str = match state_value {
-                0 => "Uninitialized",
-                1 => "Initialized",
-                2 => "Frozen",
-                _ => "Unknown",
-            };
-            json!({
-                "type": "DefaultAccountState",
-                "data": {
-                    "state": state_str
-                }
-            })
-        }
-        Err(_) => json!({
-            "type": "DefaultAccountState",
-            "data": null
-        }),
-    }
-}
-
-fn parse_metadata_pointer_extension(
-    state: &spl_token_2022::extension::StateWithExtensions<spl_token_2022::state::Mint>,
-) -> Value {
-    use spl_token_2022::extension::{BaseStateWithExtensions, metadata_pointer::MetadataPointer};
-
-    match state.get_extension::<MetadataPointer>() {
-        Ok(ext) => {
-            json!({
-                "type": "MetadataPointer",
-                "data": {
-                    "authority": pod_option_pubkey_to_string(&ext.authority),
-                    "metadata_address": pod_option_pubkey_to_string(&ext.metadata_address)
-                }
-            })
-        }
-        Err(_) => json!({
-            "type": "MetadataPointer",
-            "data": null
-        }),
-    }
-}
-
-fn parse_group_pointer_extension(
-    state: &spl_token_2022::extension::StateWithExtensions<spl_token_2022::state::Mint>,
-) -> Value {
-    use spl_token_2022::extension::{BaseStateWithExtensions, group_pointer::GroupPointer};
-
-    match state.get_extension::<GroupPointer>() {
-        Ok(ext) => {
-            json!({
-                "type": "GroupPointer",
-                "data": {
-                    "authority": pod_option_pubkey_to_string(&ext.authority),
-                    "group_address": pod_option_pubkey_to_string(&ext.group_address)
-                }
-            })
-        }
-        Err(_) => json!({
-            "type": "GroupPointer",
-            "data": null
-        }),
-    }
-}
-
-fn parse_group_member_pointer_extension(
-    state: &spl_token_2022::extension::StateWithExtensions<spl_token_2022::state::Mint>,
-) -> Value {
-    use spl_token_2022::extension::{
-        BaseStateWithExtensions, group_member_pointer::GroupMemberPointer,
-    };
-
-    match state.get_extension::<GroupMemberPointer>() {
-        Ok(ext) => {
-            json!({
-                "type": "GroupMemberPointer",
-                "data": {
-                    "authority": pod_option_pubkey_to_string(&ext.authority),
-                    "member_address": pod_option_pubkey_to_string(&ext.member_address)
-                }
-            })
-        }
-        Err(_) => json!({
-            "type": "GroupMemberPointer",
-            "data": null
-        }),
-    }
-}
-
-fn parse_transfer_hook_extension(
-    state: &spl_token_2022::extension::StateWithExtensions<spl_token_2022::state::Mint>,
-) -> Value {
-    use spl_token_2022::extension::{BaseStateWithExtensions, transfer_hook::TransferHook};
-
-    match state.get_extension::<TransferHook>() {
-        Ok(ext) => {
-            json!({
-                "type": "TransferHook",
-                "data": {
-                    "authority": pod_option_pubkey_to_string(&ext.authority),
-                    "program_id": pod_option_pubkey_to_string(&ext.program_id)
-                }
-            })
-        }
-        Err(_) => json!({
-            "type": "TransferHook",
-            "data": null
-        }),
-    }
-}
-
-fn parse_transfer_hook_account_extension(
-    state: &spl_token_2022::extension::StateWithExtensions<spl_token_2022::state::Account>,
-) -> Value {
-    use spl_token_2022::extension::{BaseStateWithExtensions, transfer_hook::TransferHookAccount};
-
-    match state.get_extension::<TransferHookAccount>() {
-        Ok(ext) => {
-            let transferring: bool = ext.transferring.into();
-            json!({
-                "type": "TransferHookAccount",
-                "data": {
-                    "transferring": transferring
-                }
-            })
-        }
-        Err(_) => json!({
-            "type": "TransferHookAccount",
-            "data": null
-        }),
-    }
-}
-
-fn parse_memo_transfer_extension(
-    state: &spl_token_2022::extension::StateWithExtensions<spl_token_2022::state::Account>,
-) -> Value {
-    use spl_token_2022::extension::{BaseStateWithExtensions, memo_transfer::MemoTransfer};
-
-    match state.get_extension::<MemoTransfer>() {
-        Ok(ext) => {
-            let require_incoming_transfer_memos: bool = ext.require_incoming_transfer_memos.into();
-            json!({
-                "type": "MemoTransfer",
-                "data": {
-                    "require_incoming_transfer_memos": require_incoming_transfer_memos
-                }
-            })
-        }
-        Err(_) => json!({
-            "type": "MemoTransfer",
-            "data": null
-        }),
-    }
-}
-
-fn parse_cpi_guard_extension(
-    state: &spl_token_2022::extension::StateWithExtensions<spl_token_2022::state::Account>,
-) -> Value {
-    use spl_token_2022::extension::{BaseStateWithExtensions, cpi_guard::CpiGuard};
-
-    match state.get_extension::<CpiGuard>() {
-        Ok(ext) => {
-            let lock_cpi: bool = ext.lock_cpi.into();
-            json!({
-                "type": "CpiGuard",
-                "data": {
-                    "lock_cpi": lock_cpi
-                }
-            })
-        }
-        Err(_) => json!({
-            "type": "CpiGuard",
-            "data": null
-        }),
-    }
-}
-
-fn parse_token_metadata_extension(
-    state: &spl_token_2022::extension::StateWithExtensions<spl_token_2022::state::Mint>,
-) -> Value {
-    use spl_token_2022::extension::BaseStateWithExtensions;
-    use spl_token_metadata_interface::state::TokenMetadata;
-
-    match state.get_variable_len_extension::<TokenMetadata>() {
-        Ok(metadata) => {
-            let additional_metadata: Vec<Value> = metadata
-                .additional_metadata
-                .iter()
-                .map(|(k, v)| json!({"key": k, "value": v}))
-                .collect();
-
-            json!({
-                "type": "TokenMetadata",
-                "data": {
-                    "update_authority": pod_option_pubkey_to_string(&metadata.update_authority),
-                    "mint": metadata.mint.to_string(),
-                    "name": metadata.name,
-                    "symbol": metadata.symbol,
-                    "uri": metadata.uri,
-                    "additional_metadata": additional_metadata
-                }
-            })
-        }
-        Err(_) => json!({
-            "type": "TokenMetadata",
-            "data": null
-        }),
-    }
-}
-
-fn parse_token_group_extension(
-    state: &spl_token_2022::extension::StateWithExtensions<spl_token_2022::state::Mint>,
-) -> Value {
-    use spl_token_2022::extension::BaseStateWithExtensions;
-    use spl_token_group_interface::state::TokenGroup;
-
-    match state.get_extension::<TokenGroup>() {
-        Ok(group) => {
-            json!({
-                "type": "TokenGroup",
-                "data": {
-                    "update_authority": pod_option_pubkey_to_string(&group.update_authority),
-                    "mint": group.mint.to_string(),
-                    "size": u64::from(group.size).to_string(),
-                    "max_size": u64::from(group.max_size).to_string()
-                }
-            })
-        }
-        Err(_) => json!({
-            "type": "TokenGroup",
-            "data": null
-        }),
-    }
-}
-
-fn parse_token_group_member_extension(
-    state: &spl_token_2022::extension::StateWithExtensions<spl_token_2022::state::Mint>,
-) -> Value {
-    use spl_token_2022::extension::BaseStateWithExtensions;
-    use spl_token_group_interface::state::TokenGroupMember;
-
-    match state.get_extension::<TokenGroupMember>() {
-        Ok(member) => {
-            json!({
-                "type": "TokenGroupMember",
-                "data": {
-                    "mint": member.mint.to_string(),
-                    "group": member.group.to_string(),
-                    "member_number": u64::from(member.member_number).to_string()
-                }
-            })
-        }
-        Err(_) => json!({
-            "type": "TokenGroupMember",
-            "data": null
-        }),
-    }
-}
-
-fn parse_pausable_config_extension(
-    state: &spl_token_2022::extension::StateWithExtensions<spl_token_2022::state::Mint>,
-) -> Value {
-    use spl_token_2022::extension::{BaseStateWithExtensions, pausable::PausableConfig};
-
-    match state.get_extension::<PausableConfig>() {
-        Ok(config) => {
-            let paused: bool = config.paused.into();
-            json!({
-                "type": "Pausable",
-                "data": {
-                    "authority": pod_option_pubkey_to_string(&config.authority),
-                    "paused": paused
-                }
-            })
-        }
-        Err(_) => json!({
-            "type": "Pausable",
-            "data": null
-        }),
-    }
-}
-
-fn parse_scaled_ui_amount_extension(
-    state: &spl_token_2022::extension::StateWithExtensions<spl_token_2022::state::Mint>,
-) -> Value {
-    use spl_token_2022::extension::{
-        BaseStateWithExtensions, scaled_ui_amount::ScaledUiAmountConfig,
-    };
-
-    match state.get_extension::<ScaledUiAmountConfig>() {
-        Ok(config) => {
-            json!({
-                "type": "ScaledUiAmount",
-                "data": {
-                    "authority": pod_option_pubkey_to_string(&config.authority),
-                    "multiplier": f64::from(config.multiplier),
-                    "new_multiplier_effective_timestamp": i64::from(config.new_multiplier_effective_timestamp).to_string(),
-                    "new_multiplier": f64::from(config.new_multiplier)
-                }
-            })
-        }
-        Err(_) => json!({
-            "type": "ScaledUiAmount",
-            "data": null
-        }),
-    }
-}
-
-fn get_extension_raw_or_empty<
-    S: spl_token_2022::extension::BaseState + spl_token::solana_program::program_pack::Pack,
->(
-    _state: &spl_token_2022::extension::StateWithExtensions<S>,
-    type_name: &str,
-) -> Value {
-    // For complex extensions, we just output the type name
-    // Full raw bytes parsing would require more complex handling
+/// Create an extension JSON with null data (for parse failures or unsupported extensions)
+fn null_extension(type_name: &str) -> Value {
     json!({
         "type": type_name,
         "data": null
     })
 }
-
-fn get_account_extension_raw_or_empty(
-    _state: &spl_token_2022::extension::StateWithExtensions<spl_token_2022::state::Account>,
-    type_name: &str,
-) -> Value {
-    json!({
-        "type": type_name,
-        "data": null
-    })
-}
-
-// ============================================================================
-// Helper functions for converting COption and Pod types to JSON
-// ============================================================================
 
 fn coption_pubkey_to_json(opt: &COption<spl_token::solana_program::pubkey::Pubkey>) -> Value {
     match opt {
