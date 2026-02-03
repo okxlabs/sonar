@@ -18,9 +18,9 @@ pub enum ConvertFormat {
     /// Decimal byte array ([18,52,86,120])
     #[value(alias = "da", alias = "d")]
     DecArray,
-    /// ASCII string
-    #[value(alias = "a")]
-    Ascii,
+    /// UTF-8 string
+    #[value(alias = "u", alias = "utf")]
+    Utf8,
     /// Base64 encoded string
     #[value(alias = "b64")]
     Base64,
@@ -60,7 +60,7 @@ pub struct ConvertArgs {
     #[arg(long)]
     pub prefix: bool,
 
-    /// Show non-printable chars as \xNN escape sequences (for ascii output)
+    /// Show invalid UTF-8 bytes as \xNN escape sequences (for utf8 output)
     #[arg(short = 'e', long)]
     pub escape: bool,
 }
@@ -216,18 +216,42 @@ pub fn format_bytes(bytes: &[u8], format: ByteFormat, use_space: bool, use_prefi
     }
 }
 
-/// Convert bytes to ASCII string.
-/// - Printable ASCII characters (32-126) are displayed as-is.
-/// - Non-printable characters are replaced with '.' or '\xNN' escape sequences.
-pub fn bytes_to_ascii(bytes: &[u8], escape_non_printable: bool) -> String {
+/// Convert bytes to UTF-8 string.
+/// - Valid UTF-8 sequences are decoded normally (supports Chinese, emoji, etc.).
+/// - Invalid bytes are replaced with U+FFFD or '\xNN' escape sequences.
+pub fn bytes_to_utf8(bytes: &[u8], escape_invalid: bool) -> String {
+    if !escape_invalid {
+        // Use lossy conversion: invalid bytes become U+FFFD (replacement character)
+        return String::from_utf8_lossy(bytes).into_owned();
+    }
+
+    // With escape: show invalid bytes as \xNN
     let mut result = String::new();
-    for &byte in bytes {
-        if (32..=126).contains(&byte) {
-            result.push(byte as char);
-        } else if escape_non_printable {
-            result.push_str(&format!("\\x{:02x}", byte));
-        } else {
-            result.push('.');
+    let mut i = 0;
+    while i < bytes.len() {
+        // Try to decode a valid UTF-8 sequence starting at position i
+        let remaining = &bytes[i..];
+        match std::str::from_utf8(remaining) {
+            Ok(valid_str) => {
+                // Rest of the bytes are valid UTF-8
+                result.push_str(valid_str);
+                break;
+            }
+            Err(e) => {
+                // Push valid bytes before the error
+                let valid_up_to = e.valid_up_to();
+                if valid_up_to > 0 {
+                    // Safety: from_utf8 confirmed these bytes are valid
+                    result.push_str(unsafe {
+                        std::str::from_utf8_unchecked(&remaining[..valid_up_to])
+                    });
+                    i += valid_up_to;
+                } else {
+                    // The byte at position i is invalid, escape it
+                    result.push_str(&format!("\\x{:02x}", bytes[i]));
+                    i += 1;
+                }
+            }
         }
     }
     result
@@ -457,52 +481,69 @@ mod tests {
         assert_eq!(bytes, parsed_back);
     }
 
-    // ===== bytes_to_ascii tests =====
+    // ===== bytes_to_utf8 tests =====
 
     #[test]
-    fn bytes_to_ascii_printable() {
+    fn bytes_to_utf8_ascii() {
         // "Hello" = [72, 101, 108, 108, 111]
-        let result = bytes_to_ascii(&[72, 101, 108, 108, 111], false);
+        let result = bytes_to_utf8(&[72, 101, 108, 108, 111], false);
         assert_eq!(result, "Hello");
     }
 
     #[test]
-    fn bytes_to_ascii_with_non_printable_dot() {
-        // "Hi" with NUL and newline: [72, 0, 105, 10]
-        let result = bytes_to_ascii(&[72, 0, 105, 10], false);
-        assert_eq!(result, "H.i.");
+    fn bytes_to_utf8_chinese() {
+        // "你好" in UTF-8 = [228, 189, 160, 229, 165, 189]
+        let result = bytes_to_utf8(&[228, 189, 160, 229, 165, 189], false);
+        assert_eq!(result, "你好");
     }
 
     #[test]
-    fn bytes_to_ascii_with_non_printable_escape() {
-        // "Hi" with NUL and newline: [72, 0, 105, 10]
-        let result = bytes_to_ascii(&[72, 0, 105, 10], true);
-        assert_eq!(result, "H\\x00i\\x0a");
+    fn bytes_to_utf8_emoji() {
+        // "😀" in UTF-8 = [240, 159, 152, 128]
+        let result = bytes_to_utf8(&[240, 159, 152, 128], false);
+        assert_eq!(result, "😀");
     }
 
     #[test]
-    fn bytes_to_ascii_empty() {
-        let result = bytes_to_ascii(&[], false);
+    fn bytes_to_utf8_with_control_chars() {
+        // "Hi" with NUL and newline: [72, 0, 105, 10] - these are valid UTF-8
+        let result = bytes_to_utf8(&[72, 0, 105, 10], false);
+        assert_eq!(result, "H\0i\n");
+    }
+
+    #[test]
+    fn bytes_to_utf8_invalid_lossy() {
+        // Invalid UTF-8 byte 0xFF should become replacement character
+        let result = bytes_to_utf8(&[72, 255, 105], false);
+        assert_eq!(result, "H\u{FFFD}i");
+    }
+
+    #[test]
+    fn bytes_to_utf8_invalid_escape() {
+        // Invalid UTF-8 byte 0xFF should be escaped
+        let result = bytes_to_utf8(&[72, 255, 105], true);
+        assert_eq!(result, "H\\xffi");
+    }
+
+    #[test]
+    fn bytes_to_utf8_empty() {
+        let result = bytes_to_utf8(&[], false);
         assert_eq!(result, "");
     }
 
     #[test]
-    fn bytes_to_ascii_all_non_printable() {
-        let result = bytes_to_ascii(&[0, 1, 127, 255], false);
-        assert_eq!(result, "....");
+    fn bytes_to_utf8_all_invalid_escape() {
+        // All invalid bytes
+        let result = bytes_to_utf8(&[255, 254, 253], true);
+        assert_eq!(result, "\\xff\\xfe\\xfd");
     }
 
     #[test]
-    fn bytes_to_ascii_all_non_printable_escape() {
-        let result = bytes_to_ascii(&[0, 1, 127, 255], true);
-        assert_eq!(result, "\\x00\\x01\\x7f\\xff");
-    }
-
-    #[test]
-    fn bytes_to_ascii_boundary_chars() {
-        // Test boundary: 31 (non-printable), 32 (space), 126 (~), 127 (DEL, non-printable)
-        let result = bytes_to_ascii(&[31, 32, 126, 127], false);
-        assert_eq!(result, ". ~.");
+    fn bytes_to_utf8_mixed_valid_invalid() {
+        // Mix of valid ASCII, valid multibyte UTF-8, and invalid bytes
+        // "A" + invalid + "你" + invalid
+        let result = bytes_to_utf8(&[65, 255, 228, 189, 160, 254], true);
+        assert_eq!(result, "A\\xff你\\xfe");
     }
 
     // ===== detect_format tests =====
@@ -618,11 +659,11 @@ mod tests {
     }
 
     #[test]
-    fn convert_hex_to_ascii() {
+    fn convert_hex_to_utf8() {
         let args = ConvertArgs {
             input: "0x48656c6c6f".to_string(),
             from: Some(ConvertFormat::Hex),
-            to: ConvertFormat::Ascii,
+            to: ConvertFormat::Utf8,
             be: false,
             space: false,
             prefix: false,
@@ -630,6 +671,22 @@ mod tests {
         };
         let result = convert(&args).unwrap();
         assert_eq!(result, "Hello");
+    }
+
+    #[test]
+    fn convert_hex_to_utf8_chinese() {
+        // "你好" in UTF-8
+        let args = ConvertArgs {
+            input: "0xe4bda0e5a5bd".to_string(),
+            from: Some(ConvertFormat::Hex),
+            to: ConvertFormat::Utf8,
+            be: false,
+            space: false,
+            prefix: false,
+            escape: false,
+        };
+        let result = convert(&args).unwrap();
+        assert_eq!(result, "你好");
     }
 
     #[test]
@@ -667,7 +724,7 @@ mod tests {
         let args = ConvertArgs {
             input: "0x48656c6c6f".to_string(),
             from: None, // auto-detect
-            to: ConvertFormat::Ascii,
+            to: ConvertFormat::Utf8,
             be: false,
             space: false,
             prefix: false,
@@ -916,8 +973,8 @@ pub fn parse_input(input: &str, format: ConvertFormat) -> Result<ConvertValue, S
             let bytes = parse_bytes_input(input, Some(ByteFormat::DecArray))?;
             Ok(ConvertValue::Bytes(bytes))
         }
-        ConvertFormat::Ascii => {
-            // ASCII input: just convert string to bytes
+        ConvertFormat::Utf8 => {
+            // UTF-8 input: Rust strings are already UTF-8
             Ok(ConvertValue::Bytes(input.as_bytes().to_vec()))
         }
         ConvertFormat::Base64 => {
@@ -995,7 +1052,7 @@ pub fn format_output(
         ConvertFormat::Hex => format_bytes(bytes, ByteFormat::Hex, use_space, use_prefix),
         ConvertFormat::HexArray => format_bytes(bytes, ByteFormat::HexArray, use_space, use_prefix),
         ConvertFormat::DecArray => format_bytes(bytes, ByteFormat::DecArray, use_space, use_prefix),
-        ConvertFormat::Ascii => bytes_to_ascii(bytes, escape),
+        ConvertFormat::Utf8 => bytes_to_utf8(bytes, escape),
         ConvertFormat::Base64 => base64::engine::general_purpose::STANDARD.encode(bytes),
         ConvertFormat::Base58 => bs58::encode(bytes).into_string(),
         ConvertFormat::Lamports => {
