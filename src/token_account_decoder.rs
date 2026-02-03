@@ -104,11 +104,16 @@ fn build_legacy_mint_json(
 ) -> Value {
     let mut result = base_account_json(account);
     let obj = result.as_object_mut().unwrap();
-    obj.insert("decimals".into(), json!(mint.decimals));
-    obj.insert("supply".into(), json!(mint.supply.to_string()));
-    obj.insert("mint_authority".into(), coption_pubkey_to_json(&mint.mint_authority));
-    obj.insert("freeze_authority".into(), coption_pubkey_to_json(&mint.freeze_authority));
-    obj.insert("is_initialized".into(), json!(mint.is_initialized));
+    obj.insert(
+        "data".into(),
+        json!({
+            "mint_authority": coption_pubkey_to_json(&mint.mint_authority),
+            "supply": mint.supply.to_string(),
+            "decimals": mint.decimals,
+            "is_initialized": mint.is_initialized,
+            "freeze_authority": coption_pubkey_to_json(&mint.freeze_authority)
+        }),
+    );
     result
 }
 
@@ -119,14 +124,19 @@ fn build_legacy_account_json(
 ) -> Value {
     let mut result = base_account_json(account);
     let obj = result.as_object_mut().unwrap();
-    obj.insert("mint".into(), json!(token_account.mint.to_string()));
-    obj.insert("token_owner".into(), json!(token_account.owner.to_string()));
-    obj.insert("amount".into(), json!(token_account.amount.to_string()));
-    obj.insert("delegate".into(), coption_pubkey_to_json(&token_account.delegate));
-    obj.insert("state".into(), json!(format!("{:?}", token_account.state)));
-    obj.insert("is_native".into(), coption_u64_to_json(&token_account.is_native));
-    obj.insert("delegated_amount".into(), json!(token_account.delegated_amount.to_string()));
-    obj.insert("close_authority".into(), coption_pubkey_to_json(&token_account.close_authority));
+    obj.insert(
+        "data".into(),
+        json!({
+            "mint": token_account.mint.to_string(),
+            "token_owner": token_account.owner.to_string(),
+            "amount": token_account.amount.to_string(),
+            "delegate": coption_pubkey_to_json(&token_account.delegate),
+            "state": format!("{:?}", token_account.state),
+            "is_native": coption_u64_to_json(&token_account.is_native),
+            "delegated_amount": token_account.delegated_amount.to_string(),
+            "close_authority": coption_pubkey_to_json(&token_account.close_authority)
+        }),
+    );
     result
 }
 
@@ -162,21 +172,24 @@ fn build_token2022_mint_json(
 
     let mint = &state.base;
     let mut result = base_account_json(account);
-    let obj = result.as_object_mut().unwrap();
-    obj.insert("decimals".into(), json!(mint.decimals));
-    obj.insert("supply".into(), json!(mint.supply.to_string()));
-    obj.insert("mint_authority".into(), coption_pubkey_to_json(&mint.mint_authority));
-    obj.insert("freeze_authority".into(), coption_pubkey_to_json(&mint.freeze_authority));
-    obj.insert("is_initialized".into(), json!(mint.is_initialized));
+
+    let mut data = serde_json::Map::new();
+    data.insert("mint_authority".into(), coption_pubkey_to_json(&mint.mint_authority));
+    data.insert("supply".into(), json!(mint.supply.to_string()));
+    data.insert("decimals".into(), json!(mint.decimals));
+    data.insert("is_initialized".into(), json!(mint.is_initialized));
+    data.insert("freeze_authority".into(), coption_pubkey_to_json(&mint.freeze_authority));
 
     // Parse extensions
     if let Ok(extension_types) = state.get_extension_types() {
         if !extension_types.is_empty() {
             let extensions = parse_mint_extensions(state, &extension_types);
-            obj.insert("extensions".into(), Value::Array(extensions));
+            data.insert("extensions".into(), Value::Array(extensions));
         }
     }
 
+    let obj = result.as_object_mut().unwrap();
+    obj.insert("data".into(), Value::Object(data));
     result
 }
 
@@ -189,24 +202,27 @@ fn build_token2022_account_json(
 
     let token_account = &state.base;
     let mut result = base_account_json(account);
-    let obj = result.as_object_mut().unwrap();
-    obj.insert("mint".into(), json!(token_account.mint.to_string()));
-    obj.insert("token_owner".into(), json!(token_account.owner.to_string()));
-    obj.insert("amount".into(), json!(token_account.amount.to_string()));
-    obj.insert("delegate".into(), coption_pubkey_to_json(&token_account.delegate));
-    obj.insert("state".into(), json!(format!("{:?}", token_account.state)));
-    obj.insert("is_native".into(), coption_u64_to_json(&token_account.is_native));
-    obj.insert("delegated_amount".into(), json!(token_account.delegated_amount.to_string()));
-    obj.insert("close_authority".into(), coption_pubkey_to_json(&token_account.close_authority));
+
+    let mut data = serde_json::Map::new();
+    data.insert("mint".into(), json!(token_account.mint.to_string()));
+    data.insert("token_owner".into(), json!(token_account.owner.to_string()));
+    data.insert("amount".into(), json!(token_account.amount.to_string()));
+    data.insert("delegate".into(), coption_pubkey_to_json(&token_account.delegate));
+    data.insert("state".into(), json!(format!("{:?}", token_account.state)));
+    data.insert("is_native".into(), coption_u64_to_json(&token_account.is_native));
+    data.insert("delegated_amount".into(), json!(token_account.delegated_amount.to_string()));
+    data.insert("close_authority".into(), coption_pubkey_to_json(&token_account.close_authority));
 
     // Parse extensions
     if let Ok(extension_types) = state.get_extension_types() {
         if !extension_types.is_empty() {
             let extensions = parse_account_extensions(state, &extension_types);
-            obj.insert("extensions".into(), Value::Array(extensions));
+            data.insert("extensions".into(), Value::Array(extensions));
         }
     }
 
+    let obj = result.as_object_mut().unwrap();
+    obj.insert("data".into(), Value::Object(data));
     result
 }
 
@@ -409,13 +425,14 @@ fn parse_account_extensions(
 // ============================================================================
 
 /// Build base account metadata JSON (shared by all account types)
+/// Field order follows Solana Account struct: lamports, data(space), owner, executable, rent_epoch
 fn base_account_json(account: &solana_account::Account) -> Value {
     json!({
         "lamports": account.lamports,
+        "space": account.data.len(),
         "owner": account.owner.to_string(),
         "executable": account.executable,
-        "rentEpoch": account.rent_epoch,
-        "space": account.data.len()
+        "rentEpoch": account.rent_epoch
     })
 }
 
@@ -491,16 +508,16 @@ mod tests {
         assert!(result.is_some());
 
         let json = result.unwrap();
-        // Account metadata
+        // Account metadata (top-level)
         assert_eq!(json["lamports"], 1_000_000);
         assert_eq!(json["owner"], legacy_program_id().to_string());
         assert_eq!(json["executable"], false);
         assert_eq!(json["rentEpoch"], 0);
         assert_eq!(json["space"], Mint::LEN);
-        // Mint data
-        assert_eq!(json["decimals"], 9);
-        assert_eq!(json["supply"], "1000000000");
-        assert!(json["is_initialized"].as_bool().unwrap());
+        // Mint data (nested under "data")
+        assert_eq!(json["data"]["decimals"], 9);
+        assert_eq!(json["data"]["supply"], "1000000000");
+        assert!(json["data"]["is_initialized"].as_bool().unwrap());
     }
 
     #[test]
@@ -537,15 +554,15 @@ mod tests {
         assert!(result.is_some());
 
         let json = result.unwrap();
-        // Account metadata
+        // Account metadata (top-level)
         assert_eq!(json["lamports"], 2_000_000);
         assert_eq!(json["owner"], legacy_program_id().to_string());
         assert_eq!(json["executable"], false);
         assert_eq!(json["space"], TokenAccount::LEN);
-        // Token account data
-        assert_eq!(json["token_owner"], token_owner.to_string());
-        assert_eq!(json["amount"], "500000");
-        assert_eq!(json["state"], "Initialized");
+        // Token account data (nested under "data")
+        assert_eq!(json["data"]["token_owner"], token_owner.to_string());
+        assert_eq!(json["data"]["amount"], "500000");
+        assert_eq!(json["data"]["state"], "Initialized");
     }
 
     #[test]
@@ -608,15 +625,15 @@ mod tests {
         assert!(result.is_some());
 
         let json = result.unwrap();
-        // Account metadata
+        // Account metadata (top-level)
         assert_eq!(json["lamports"], 3_000_000);
         assert_eq!(json["owner"], token2022_program_id().to_string());
         assert_eq!(json["executable"], false);
         assert_eq!(json["space"], Mint::LEN);
-        // Mint data
-        assert_eq!(json["decimals"], 6);
-        assert_eq!(json["supply"], "2000000000");
-        assert!(json["is_initialized"].as_bool().unwrap());
+        // Mint data (nested under "data")
+        assert_eq!(json["data"]["decimals"], 6);
+        assert_eq!(json["data"]["supply"], "2000000000");
+        assert!(json["data"]["is_initialized"].as_bool().unwrap());
     }
 
     #[test]
@@ -653,14 +670,14 @@ mod tests {
         assert!(result.is_some());
 
         let json = result.unwrap();
-        // Account metadata
+        // Account metadata (top-level)
         assert_eq!(json["lamports"], 4_000_000);
         assert_eq!(json["owner"], token2022_program_id().to_string());
         assert_eq!(json["executable"], false);
         assert_eq!(json["space"], TokenAccount::LEN);
-        // Token account data
-        assert_eq!(json["token_owner"], token_owner.to_string());
-        assert_eq!(json["amount"], "750000");
-        assert_eq!(json["state"], "Initialized");
+        // Token account data (nested under "data")
+        assert_eq!(json["data"]["token_owner"], token_owner.to_string());
+        assert_eq!(json["data"]["amount"], "750000");
+        assert_eq!(json["data"]["state"], "Initialized");
     }
 }

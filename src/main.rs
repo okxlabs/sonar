@@ -219,19 +219,38 @@ fn handle_account(args: AccountArgs) -> Result<()> {
                 eprintln!("Account type: {}", type_name);
                 eprintln!();
             }
-            // OrderedJsonValue implements Serialize, so we can use it directly
-            println!("{}", serde_json::to_string_pretty(&parsed_value)?);
+            // Build output with metadata and parsed data
+            // Field order follows Solana Account struct: lamports, data(space), owner, executable, rent_epoch
+            let output = serde_json::json!({
+                "lamports": account.lamports,
+                "space": account.data.len(),
+                "owner": account.owner.to_string(),
+                "executable": account.executable,
+                "rentEpoch": account.rent_epoch,
+                "data": parsed_value
+            });
+            println!("{}", serde_json::to_string_pretty(&output)?);
         }
         None => {
-            // Output error as JSON object
+            // Output error as JSON object with metadata
             let output = if account.data.len() >= 8 {
                 serde_json::json!({
+                    "lamports": account.lamports,
+                    "space": account.data.len(),
+                    "owner": account.owner.to_string(),
+                    "executable": account.executable,
+                    "rentEpoch": account.rent_epoch,
                     "error": "No matching account type found",
                     "discriminator": hex::encode(&account.data[..8]),
                     "raw_data": hex::encode(&account.data)
                 })
             } else {
                 serde_json::json!({
+                    "lamports": account.lamports,
+                    "space": account.data.len(),
+                    "owner": account.owner.to_string(),
+                    "executable": account.executable,
+                    "rentEpoch": account.rent_epoch,
                     "error": "Account data too short",
                     "raw_data": hex::encode(&account.data)
                 })
@@ -267,13 +286,14 @@ fn try_load_idl_from_path(idl_path: &Option<PathBuf>, owner: &Pubkey) -> Option<
 }
 
 /// Print account data in Solana JSON RPC format.
+/// Field order follows Solana Account struct: lamports, data, owner, executable, rent_epoch
 fn print_raw_account_data(account: &solana_account::Account) {
     let data_hex = hex::encode(&account.data);
     let output = serde_json::json!({
-        "data": data_hex,
-        "executable": account.executable,
         "lamports": account.lamports,
+        "data": data_hex,
         "owner": account.owner.to_string(),
+        "executable": account.executable,
         "rentEpoch": account.rent_epoch,
         "space": account.data.len()
     });
