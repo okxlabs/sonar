@@ -74,8 +74,6 @@ pub enum ByteFormat {
     DecArray,
 }
 
-const MAX_BYTES: usize = 32;
-
 /// Parse various byte input formats into a byte vector.
 /// Supported formats:
 /// - Hex string: 0x12345678
@@ -105,9 +103,6 @@ pub fn parse_bytes_input(input: &str, format_hint: Option<ByteFormat>) -> Result
         // Pad with leading zero if odd length
         let hex_str = if hex_str.len() % 2 != 0 { format!("0{}", hex_str) } else { hex_str };
         let bytes = hex::decode(&hex_str).map_err(|e| format!("Invalid hex string: {}", e))?;
-        if bytes.len() > MAX_BYTES {
-            return Err(format!("Input exceeds maximum {} bytes", MAX_BYTES));
-        }
         return Ok(bytes);
     }
 
@@ -156,9 +151,6 @@ pub fn parse_bytes_input(input: &str, format_hint: Option<ByteFormat>) -> Result
             bytes.push(value as u8);
         }
 
-        if bytes.len() > MAX_BYTES {
-            return Err(format!("Input exceeds maximum {} bytes", MAX_BYTES));
-        }
         return Ok(bytes);
     }
 
@@ -357,10 +349,12 @@ mod tests {
     }
 
     #[test]
-    fn parse_bytes_input_rejects_too_many_bytes() {
-        let long_input = format!("[{}]", (0..33).map(|_| "1").collect::<Vec<_>>().join(","));
-        let err = parse_bytes_input(&long_input, None).unwrap_err();
-        assert!(err.contains("exceeds maximum"));
+    fn parse_bytes_input_accepts_long_arrays() {
+        // Test that we can parse arrays longer than 32 bytes
+        let long_input =
+            format!("[{}]", (0..100).map(|i| (i % 256).to_string()).collect::<Vec<_>>().join(","));
+        let result = parse_bytes_input(&long_input, None).unwrap();
+        assert_eq!(result.len(), 100);
     }
 
     // ===== parse_number tests =====
