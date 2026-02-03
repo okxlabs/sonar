@@ -41,6 +41,9 @@ spl-token-2022 = "10.0.0"
 sha2 = "0.10.9"
 flate2 = "1.0"
 num-bigint = "0.4"
+spl-pod = "0.7.1"
+spl-token-metadata-interface = "0.8.0"
+spl-token-group-interface = "0.7.1"
 
 [dev-dependencies]
 assert_cmd = "2.0"

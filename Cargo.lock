@@ -5751,8 +5751,11 @@ dependencies = [
  "solana-sysvar-id",
  "solana-transaction",
  "solana-transaction-status-client-types",
+ "spl-pod",
  "spl-token",
  "spl-token-2022",
+ "spl-token-group-interface",
+ "spl-token-metadata-interface",
  "thiserror 1.0.69",
 ]
 

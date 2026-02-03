@@ -4,6 +4,7 @@ mod executor;
 mod funding;
 mod instruction_parsers;
 mod output;
+mod token_account_decoder;
 mod transaction;
 
 use std::{
@@ -140,6 +141,31 @@ fn handle_account(args: AccountArgs) -> Result<()> {
     // If --raw is specified, just print raw data and return
     if args.raw {
         print_raw_account_data(&account);
+        return Ok(());
+    }
+
+    // Try to decode as SPL Token or Token-2022 account (mint or token account)
+    if let Some(token_json) = token_account_decoder::decode_spl_token_account(&account) {
+        if verbose {
+            // Infer program type from owner
+            let program_name = if owner == spl_token::ID.into() {
+                "token"
+            } else if owner == spl_token_2022::ID.into() {
+                "token_2022"
+            } else {
+                "unknown"
+            };
+            // Infer account type from presence of fields
+            let account_type =
+                if token_json.get("mint").is_some() && token_json.get("token_owner").is_some() {
+                    "token_account"
+                } else {
+                    "mint"
+                };
+            eprintln!("Detected {} {} account", program_name, account_type);
+            eprintln!();
+        }
+        println!("{}", serde_json::to_string_pretty(&token_json)?);
         return Ok(());
     }
 
