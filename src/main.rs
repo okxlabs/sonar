@@ -17,8 +17,8 @@ use anyhow::{Context, Result};
 use base64::Engine;
 use clap::Parser;
 use cli::{
-    AccountArgs, B2nArgs, B58B64Args, B64B58Args, Cli, Commands, FetchIdlArgs, N2bArgs, PdaArgs,
-    ProgramDataArgs, SendArgs, SimulateArgs, TransactionInputArgs,
+    AccountArgs, B2aArgs, B2nArgs, B58B64Args, B64B58Args, Cli, Commands, FetchIdlArgs, N2bArgs,
+    PdaArgs, ProgramDataArgs, SendArgs, SimulateArgs, TransactionInputArgs,
 };
 use instruction_parsers::ParserRegistry;
 use num_bigint::BigUint;
@@ -40,6 +40,7 @@ fn run() -> Result<()> {
         Commands::Account(args) => handle_account(args)?,
         Commands::B2n(args) => handle_b2n(args)?,
         Commands::N2b(args) => handle_n2b(args)?,
+        Commands::B2a(args) => handle_b2a(args)?,
         Commands::Pda(args) => handle_pda(args)?,
         Commands::B64B58(args) => handle_b64_b58(args)?,
         Commands::B58B64(args) => handle_b58_b64(args)?,
@@ -308,6 +309,23 @@ fn handle_n2b(args: N2bArgs) -> Result<()> {
     };
 
     println!("{}", cli::format_bytes(&bytes, format, args.space, args.prefix));
+    Ok(())
+}
+
+fn handle_b2a(args: B2aArgs) -> Result<()> {
+    let bytes = if let Some(ref hex) = args.hex {
+        cli::parse_bytes_input(hex, None)
+    } else if let Some(ref hex_array) = args.hex_array {
+        cli::parse_bytes_input(hex_array, Some(cli::ByteFormat::HexArray))
+    } else if let Some(ref dec_array) = args.dec_array {
+        cli::parse_bytes_input(dec_array, Some(cli::ByteFormat::DecArray))
+    } else {
+        return Err(anyhow::anyhow!("Must specify one of: HEX, -x, or -d"));
+    }
+    .map_err(|e| anyhow::anyhow!("Parse error: {}", e))?;
+
+    let ascii_str = cli::bytes_to_ascii(&bytes, args.escape);
+    println!("{}", ascii_str);
     Ok(())
 }
 

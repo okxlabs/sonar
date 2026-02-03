@@ -421,6 +421,54 @@ mod tests {
         let parsed_back = parse_bytes_input(&formatted, None).unwrap();
         assert_eq!(bytes, parsed_back);
     }
+
+    // ===== bytes_to_ascii tests =====
+
+    #[test]
+    fn bytes_to_ascii_printable() {
+        // "Hello" = [72, 101, 108, 108, 111]
+        let result = bytes_to_ascii(&[72, 101, 108, 108, 111], false);
+        assert_eq!(result, "Hello");
+    }
+
+    #[test]
+    fn bytes_to_ascii_with_non_printable_dot() {
+        // "Hi" with NUL and newline: [72, 0, 105, 10]
+        let result = bytes_to_ascii(&[72, 0, 105, 10], false);
+        assert_eq!(result, "H.i.");
+    }
+
+    #[test]
+    fn bytes_to_ascii_with_non_printable_escape() {
+        // "Hi" with NUL and newline: [72, 0, 105, 10]
+        let result = bytes_to_ascii(&[72, 0, 105, 10], true);
+        assert_eq!(result, "H\\x00i\\x0a");
+    }
+
+    #[test]
+    fn bytes_to_ascii_empty() {
+        let result = bytes_to_ascii(&[], false);
+        assert_eq!(result, "");
+    }
+
+    #[test]
+    fn bytes_to_ascii_all_non_printable() {
+        let result = bytes_to_ascii(&[0, 1, 127, 255], false);
+        assert_eq!(result, "....");
+    }
+
+    #[test]
+    fn bytes_to_ascii_all_non_printable_escape() {
+        let result = bytes_to_ascii(&[0, 1, 127, 255], true);
+        assert_eq!(result, "\\x00\\x01\\x7f\\xff");
+    }
+
+    #[test]
+    fn bytes_to_ascii_boundary_chars() {
+        // Test boundary: 31 (non-printable), 32 (space), 126 (~), 127 (DEL, non-printable)
+        let result = bytes_to_ascii(&[31, 32, 126, 127], false);
+        assert_eq!(result, ". ~.");
+    }
 }
 
 #[derive(Args, Debug)]
@@ -435,4 +483,40 @@ pub struct B58B64Args {
     /// Base58 encoded string to convert
     #[arg(value_name = "BASE58_STR")]
     pub input: String,
+}
+
+#[derive(Args, Debug)]
+pub struct B2aArgs {
+    /// Hex string input (e.g., 0x48656c6c6f)
+    #[arg(value_name = "HEX", group = "input")]
+    pub hex: Option<String>,
+
+    /// Hex byte array input (e.g., [48,65,6c,6c,6f] or [0x48,0x65,0x6c,0x6c,0x6f])
+    #[arg(short = 'x', value_name = "ARRAY", group = "input")]
+    pub hex_array: Option<String>,
+
+    /// Decimal byte array input (e.g., [72,101,108,108,111])
+    #[arg(short = 'd', value_name = "ARRAY", group = "input")]
+    pub dec_array: Option<String>,
+
+    /// Show non-printable chars as \xNN escape sequences instead of '.'
+    #[arg(short = 'e', long)]
+    pub escape: bool,
+}
+
+/// Convert bytes to ASCII string.
+/// - Printable ASCII characters (32-126) are displayed as-is.
+/// - Non-printable characters are replaced with '.' or '\xNN' escape sequences.
+pub fn bytes_to_ascii(bytes: &[u8], escape_non_printable: bool) -> String {
+    let mut result = String::new();
+    for &byte in bytes {
+        if (32..=126).contains(&byte) {
+            result.push(byte as char);
+        } else if escape_non_printable {
+            result.push_str(&format!("\\x{:02x}", byte));
+        } else {
+            result.push('.');
+        }
+    }
+    result
 }

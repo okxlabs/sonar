@@ -39,6 +39,8 @@ pub enum Commands {
     B2n(B2nArgs),
     /// Convert number to bytes (n2b = number to bytes)
     N2b(N2bArgs),
+    /// Convert bytes to ASCII string (b2a = binary to ASCII)
+    B2a(B2aArgs),
     /// Derive a PDA (Program Derived Address) from seeds
     Pda(PdaArgs),
     /// Convert base64 string to base58 string
