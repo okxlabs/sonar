@@ -35,20 +35,10 @@ pub enum Commands {
     /// Fetch and decode Solana account data if IDL is available onchain or locally
     #[command(name = "account")]
     Account(AccountArgs),
-    /// Convert bytes to number (b2n = bytes to number)
-    B2n(B2nArgs),
-    /// Convert number to bytes (n2b = number to bytes)
-    N2b(N2bArgs),
-    /// Convert bytes to ASCII string (b2a = binary to ASCII)
-    B2a(B2aArgs),
+    /// Convert between different data formats (number, hex, arrays, ascii, base64, base58)
+    Convert(ConvertArgs),
     /// Derive a PDA (Program Derived Address) from seeds
     Pda(PdaArgs),
-    /// Convert base64 string to base58 string
-    #[command(name = "b64-b58")]
-    B64B58(B64B58Args),
-    /// Convert base58 string to base64 string
-    #[command(name = "b58-b64")]
-    B58B64(B58B64Args),
     /// Get raw program data (ELF bytecode) from an upgradeable program or buffer
     #[command(name = "program-data")]
     ProgramData(ProgramDataArgs),

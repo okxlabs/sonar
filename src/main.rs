@@ -14,14 +14,12 @@ use std::{
 };
 
 use anyhow::{Context, Result};
-use base64::Engine;
 use clap::Parser;
 use cli::{
-    AccountArgs, B2aArgs, B2nArgs, B58B64Args, B64B58Args, Cli, Commands, FetchIdlArgs, N2bArgs,
-    PdaArgs, ProgramDataArgs, SendArgs, SimulateArgs, TransactionInputArgs,
+    AccountArgs, Cli, Commands, ConvertArgs, FetchIdlArgs, PdaArgs, ProgramDataArgs, SendArgs,
+    SimulateArgs, TransactionInputArgs,
 };
 use instruction_parsers::ParserRegistry;
-use num_bigint::BigUint;
 use solana_pubkey::Pubkey;
 
 fn main() {
@@ -38,12 +36,8 @@ fn run() -> Result<()> {
         Commands::Simulate(args) => handle_simulate(args)?,
         Commands::FetchIdl(args) => handle_fetch_idl(args)?,
         Commands::Account(args) => handle_account(args)?,
-        Commands::B2n(args) => handle_b2n(args)?,
-        Commands::N2b(args) => handle_n2b(args)?,
-        Commands::B2a(args) => handle_b2a(args)?,
+        Commands::Convert(args) => handle_convert(args)?,
         Commands::Pda(args) => handle_pda(args)?,
-        Commands::B64B58(args) => handle_b64_b58(args)?,
-        Commands::B58B64(args) => handle_b58_b64(args)?,
         Commands::ProgramData(args) => handle_program_data(args)?,
         Commands::Send(args) => handle_send(args)?,
     }
@@ -276,56 +270,9 @@ fn print_raw_account_data(account: &solana_account::Account) {
     println!("{}", serde_json::to_string_pretty(&output).unwrap_or_else(|_| "{}".to_string()));
 }
 
-fn handle_b2n(args: B2nArgs) -> Result<()> {
-    let bytes = if let Some(ref hex) = args.hex {
-        cli::parse_bytes_input(hex, None)
-    } else if let Some(ref hex_array) = args.hex_array {
-        cli::parse_bytes_input(hex_array, Some(cli::ByteFormat::HexArray))
-    } else if let Some(ref dec_array) = args.dec_array {
-        cli::parse_bytes_input(dec_array, Some(cli::ByteFormat::DecArray))
-    } else {
-        return Err(anyhow::anyhow!("Must specify one of: HEX, -x, or -d"));
-    }
-    .map_err(|e| anyhow::anyhow!("Parse error: {}", e))?;
-
-    let num = if args.be { BigUint::from_bytes_be(&bytes) } else { BigUint::from_bytes_le(&bytes) };
-
-    println!("{}", num);
-    Ok(())
-}
-
-fn handle_n2b(args: N2bArgs) -> Result<()> {
-    let num = cli::parse_number(&args.number).map_err(|e| anyhow::anyhow!("Parse error: {}", e))?;
-
-    let bytes = if args.be { num.to_bytes_be() } else { num.to_bytes_le() };
-
-    // Determine output format (default: hex)
-    let format = if args.hex_array {
-        cli::ByteFormat::HexArray
-    } else if args.dec_array {
-        cli::ByteFormat::DecArray
-    } else {
-        cli::ByteFormat::Hex
-    };
-
-    println!("{}", cli::format_bytes(&bytes, format, args.space, args.prefix));
-    Ok(())
-}
-
-fn handle_b2a(args: B2aArgs) -> Result<()> {
-    let bytes = if let Some(ref hex) = args.hex {
-        cli::parse_bytes_input(hex, None)
-    } else if let Some(ref hex_array) = args.hex_array {
-        cli::parse_bytes_input(hex_array, Some(cli::ByteFormat::HexArray))
-    } else if let Some(ref dec_array) = args.dec_array {
-        cli::parse_bytes_input(dec_array, Some(cli::ByteFormat::DecArray))
-    } else {
-        return Err(anyhow::anyhow!("Must specify one of: HEX, -x, or -d"));
-    }
-    .map_err(|e| anyhow::anyhow!("Parse error: {}", e))?;
-
-    let ascii_str = cli::bytes_to_ascii(&bytes, args.escape);
-    println!("{}", ascii_str);
+fn handle_convert(args: ConvertArgs) -> Result<()> {
+    let output = cli::convert(&args).map_err(|e| anyhow::anyhow!("{}", e))?;
+    println!("{}", output);
     Ok(())
 }
 
@@ -347,22 +294,6 @@ fn handle_pda(args: PdaArgs) -> Result<()> {
     println!("PDA: {}", pda);
     println!("Bump: {}", bump);
 
-    Ok(())
-}
-
-fn handle_b64_b58(args: B64B58Args) -> Result<()> {
-    let bytes = base64::engine::general_purpose::STANDARD
-        .decode(&args.input)
-        .with_context(|| "Invalid base64 input")?;
-    let result = bs58::encode(&bytes).into_string();
-    println!("{}", result);
-    Ok(())
-}
-
-fn handle_b58_b64(args: B58B64Args) -> Result<()> {
-    let bytes = bs58::decode(&args.input).into_vec().with_context(|| "Invalid base58 input")?;
-    let result = base64::engine::general_purpose::STANDARD.encode(&bytes);
-    println!("{}", result);
     Ok(())
 }
 

@@ -1,39 +1,52 @@
-//! Byte and number conversion utilities for B2n and N2b commands.
+//! Unified data format conversion utilities.
 
+use base64::Engine;
 use clap::{Args, ValueEnum};
 
-#[derive(Args, Debug)]
-pub struct B2nArgs {
-    /// Hex string input (e.g., 0x12345678)
-    #[arg(value_name = "HEX", group = "input")]
-    pub hex: Option<String>,
-
-    /// Hex byte array input (e.g., [12,34,56,78] or [12 34 56 78])
-    #[arg(short = 'x', value_name = "ARRAY", group = "input")]
-    pub hex_array: Option<String>,
-
-    /// Decimal byte array input (e.g., [18,52,86,120] or [18 52 86 120])
-    #[arg(short = 'd', value_name = "ARRAY", group = "input")]
-    pub dec_array: Option<String>,
-
-    /// Use big-endian byte order (default: little-endian)
-    #[arg(short = 'b', long)]
-    pub be: bool,
+/// Supported conversion formats
+#[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum)]
+pub enum ConvertFormat {
+    /// Big integer (decimal or 0x hex)
+    #[value(alias = "num", alias = "n")]
+    Number,
+    /// Hex string (0x...)
+    #[value(alias = "h")]
+    Hex,
+    /// Hex byte array ([12,34,56,78])
+    #[value(alias = "ha", alias = "x")]
+    HexArray,
+    /// Decimal byte array ([18,52,86,120])
+    #[value(alias = "da", alias = "d")]
+    DecArray,
+    /// ASCII string
+    #[value(alias = "a")]
+    Ascii,
+    /// Base64 encoded string
+    #[value(alias = "b64")]
+    Base64,
+    /// Base58 encoded string
+    #[value(alias = "b58")]
+    Base58,
+    /// Lamports (1 SOL = 1,000,000,000 lamports)
+    #[value(alias = "lam")]
+    Lamports,
+    /// SOL amount (decimal, e.g., 1.5)
+    Sol,
 }
 
 #[derive(Args, Debug)]
-pub struct N2bArgs {
-    /// Input number (decimal or 0x hex)
-    #[arg(value_name = "NUMBER")]
-    pub number: String,
+pub struct ConvertArgs {
+    /// Input value to convert
+    #[arg(value_name = "INPUT")]
+    pub input: String,
 
-    /// Output as hex byte array (e.g., [12,34,56,78])
-    #[arg(short = 'x', group = "format")]
-    pub hex_array: bool,
+    /// Input format (auto-detected if omitted)
+    #[arg(short = 'f', long, value_name = "FORMAT")]
+    pub from: Option<ConvertFormat>,
 
-    /// Output as decimal byte array (e.g., [18,52,86,120])
-    #[arg(short = 'd', group = "format")]
-    pub dec_array: bool,
+    /// Output format
+    #[arg(short = 't', long, value_name = "FORMAT")]
+    pub to: ConvertFormat,
 
     /// Use big-endian byte order (default: little-endian)
     #[arg(short = 'b', long)]
@@ -43,11 +56,16 @@ pub struct N2bArgs {
     #[arg(long)]
     pub space: bool,
 
-    /// Add 0x prefix to each element in hex-array output (e.g., [0x12,0x34])
+    /// Add 0x prefix to hex-array elements
     #[arg(long)]
     pub prefix: bool,
+
+    /// Show non-printable chars as \xNN escape sequences (for ascii output)
+    #[arg(short = 'e', long)]
+    pub escape: bool,
 }
 
+/// Internal byte format enum for parsing/formatting helpers
 #[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum, Default)]
 pub enum ByteFormat {
     #[default]
@@ -196,6 +214,23 @@ pub fn format_bytes(bytes: &[u8], format: ByteFormat, use_space: bool, use_prefi
             format!("[{}]", elements.join(separator))
         }
     }
+}
+
+/// Convert bytes to ASCII string.
+/// - Printable ASCII characters (32-126) are displayed as-is.
+/// - Non-printable characters are replaced with '.' or '\xNN' escape sequences.
+pub fn bytes_to_ascii(bytes: &[u8], escape_non_printable: bool) -> String {
+    let mut result = String::new();
+    for &byte in bytes {
+        if (32..=126).contains(&byte) {
+            result.push(byte as char);
+        } else if escape_non_printable {
+            result.push_str(&format!("\\x{:02x}", byte));
+        } else {
+            result.push('.');
+        }
+    }
+    result
 }
 
 #[cfg(test)]
@@ -469,54 +504,583 @@ mod tests {
         let result = bytes_to_ascii(&[31, 32, 126, 127], false);
         assert_eq!(result, ". ~.");
     }
+
+    // ===== detect_format tests =====
+
+    #[test]
+    fn detect_format_hex() {
+        assert_eq!(detect_format("0x12345678"), ConvertFormat::Hex);
+        assert_eq!(detect_format("0X12AB"), ConvertFormat::Hex);
+    }
+
+    #[test]
+    fn detect_format_array() {
+        assert_eq!(detect_format("[18,52,86,120]"), ConvertFormat::DecArray);
+        assert_eq!(detect_format("[1 2 3]"), ConvertFormat::DecArray);
+    }
+
+    #[test]
+    fn detect_format_base64() {
+        assert_eq!(detect_format("SGVsbG8="), ConvertFormat::Base64);
+        assert_eq!(detect_format("a+b/c"), ConvertFormat::Base64);
+    }
+
+    #[test]
+    fn detect_format_number() {
+        assert_eq!(detect_format("12345678"), ConvertFormat::Number);
+        assert_eq!(detect_format("0"), ConvertFormat::Number);
+    }
+
+    #[test]
+    fn detect_format_base58() {
+        // Alphanumeric without special chars defaults to base58
+        assert_eq!(detect_format("9Ajdvz"), ConvertFormat::Base58);
+    }
+
+    // ===== convert function tests =====
+
+    #[test]
+    fn convert_hex_to_number_le() {
+        let args = ConvertArgs {
+            input: "0x12345678".to_string(),
+            from: Some(ConvertFormat::Hex),
+            to: ConvertFormat::Number,
+            be: false,
+            space: false,
+            prefix: false,
+            escape: false,
+        };
+        let result = convert(&args).unwrap();
+        // Little-endian: [0x12, 0x34, 0x56, 0x78] -> 0x78563412 = 2018915346
+        assert_eq!(result, "2018915346");
+    }
+
+    #[test]
+    fn convert_hex_to_number_be() {
+        let args = ConvertArgs {
+            input: "0x12345678".to_string(),
+            from: Some(ConvertFormat::Hex),
+            to: ConvertFormat::Number,
+            be: true,
+            space: false,
+            prefix: false,
+            escape: false,
+        };
+        let result = convert(&args).unwrap();
+        // Big-endian: [0x12, 0x34, 0x56, 0x78] -> 0x12345678 = 305419896
+        assert_eq!(result, "305419896");
+    }
+
+    #[test]
+    fn convert_number_to_hex_le() {
+        let args = ConvertArgs {
+            input: "305419896".to_string(),
+            from: Some(ConvertFormat::Number),
+            to: ConvertFormat::Hex,
+            be: false,
+            space: false,
+            prefix: false,
+            escape: false,
+        };
+        let result = convert(&args).unwrap();
+        // 305419896 = 0x12345678, little-endian bytes: [0x78, 0x56, 0x34, 0x12]
+        assert_eq!(result, "0x78563412");
+    }
+
+    #[test]
+    fn convert_number_to_hex_be() {
+        let args = ConvertArgs {
+            input: "305419896".to_string(),
+            from: Some(ConvertFormat::Number),
+            to: ConvertFormat::Hex,
+            be: true,
+            space: false,
+            prefix: false,
+            escape: false,
+        };
+        let result = convert(&args).unwrap();
+        assert_eq!(result, "0x12345678");
+    }
+
+    #[test]
+    fn convert_hex_to_dec_array() {
+        let args = ConvertArgs {
+            input: "0x48656c6c6f".to_string(),
+            from: Some(ConvertFormat::Hex),
+            to: ConvertFormat::DecArray,
+            be: false,
+            space: false,
+            prefix: false,
+            escape: false,
+        };
+        let result = convert(&args).unwrap();
+        assert_eq!(result, "[72,101,108,108,111]");
+    }
+
+    #[test]
+    fn convert_hex_to_ascii() {
+        let args = ConvertArgs {
+            input: "0x48656c6c6f".to_string(),
+            from: Some(ConvertFormat::Hex),
+            to: ConvertFormat::Ascii,
+            be: false,
+            space: false,
+            prefix: false,
+            escape: false,
+        };
+        let result = convert(&args).unwrap();
+        assert_eq!(result, "Hello");
+    }
+
+    #[test]
+    fn convert_base64_to_base58() {
+        let args = ConvertArgs {
+            input: "SGVsbG8=".to_string(),
+            from: Some(ConvertFormat::Base64),
+            to: ConvertFormat::Base58,
+            be: false,
+            space: false,
+            prefix: false,
+            escape: false,
+        };
+        let result = convert(&args).unwrap();
+        assert_eq!(result, "9Ajdvzr");
+    }
+
+    #[test]
+    fn convert_base58_to_base64() {
+        let args = ConvertArgs {
+            input: "9Ajdvzr".to_string(),
+            from: Some(ConvertFormat::Base58),
+            to: ConvertFormat::Base64,
+            be: false,
+            space: false,
+            prefix: false,
+            escape: false,
+        };
+        let result = convert(&args).unwrap();
+        assert_eq!(result, "SGVsbG8=");
+    }
+
+    #[test]
+    fn convert_auto_detect_hex() {
+        let args = ConvertArgs {
+            input: "0x48656c6c6f".to_string(),
+            from: None, // auto-detect
+            to: ConvertFormat::Ascii,
+            be: false,
+            space: false,
+            prefix: false,
+            escape: false,
+        };
+        let result = convert(&args).unwrap();
+        assert_eq!(result, "Hello");
+    }
+
+    #[test]
+    fn convert_auto_detect_number() {
+        let args = ConvertArgs {
+            input: "255".to_string(),
+            from: None, // auto-detect
+            to: ConvertFormat::Hex,
+            be: false,
+            space: false,
+            prefix: false,
+            escape: false,
+        };
+        let result = convert(&args).unwrap();
+        assert_eq!(result, "0xff");
+    }
+
+    #[test]
+    fn convert_hex_array_with_space_separator() {
+        let args = ConvertArgs {
+            input: "0x12345678".to_string(),
+            from: Some(ConvertFormat::Hex),
+            to: ConvertFormat::HexArray,
+            be: false,
+            space: true,
+            prefix: false,
+            escape: false,
+        };
+        let result = convert(&args).unwrap();
+        assert_eq!(result, "[12 34 56 78]");
+    }
+
+    #[test]
+    fn convert_hex_array_with_prefix() {
+        let args = ConvertArgs {
+            input: "0x12345678".to_string(),
+            from: Some(ConvertFormat::Hex),
+            to: ConvertFormat::HexArray,
+            be: false,
+            space: false,
+            prefix: true,
+            escape: false,
+        };
+        let result = convert(&args).unwrap();
+        assert_eq!(result, "[0x12,0x34,0x56,0x78]");
+    }
+
+    // ===== lamports/sol conversion tests =====
+
+    #[test]
+    fn convert_lamports_to_sol_whole() {
+        let args = ConvertArgs {
+            input: "1000000000".to_string(),
+            from: Some(ConvertFormat::Lamports),
+            to: ConvertFormat::Sol,
+            be: false,
+            space: false,
+            prefix: false,
+            escape: false,
+        };
+        let result = convert(&args).unwrap();
+        assert_eq!(result, "1");
+    }
+
+    #[test]
+    fn convert_lamports_to_sol_decimal() {
+        let args = ConvertArgs {
+            input: "1500000000".to_string(),
+            from: Some(ConvertFormat::Lamports),
+            to: ConvertFormat::Sol,
+            be: false,
+            space: false,
+            prefix: false,
+            escape: false,
+        };
+        let result = convert(&args).unwrap();
+        assert_eq!(result, "1.500");
+    }
+
+    #[test]
+    fn convert_lamports_to_sol_small() {
+        let args = ConvertArgs {
+            input: "1".to_string(),
+            from: Some(ConvertFormat::Lamports),
+            to: ConvertFormat::Sol,
+            be: false,
+            space: false,
+            prefix: false,
+            escape: false,
+        };
+        let result = convert(&args).unwrap();
+        assert_eq!(result, "0.000000001");
+    }
+
+    #[test]
+    fn convert_sol_to_lamports_whole() {
+        let args = ConvertArgs {
+            input: "1".to_string(),
+            from: Some(ConvertFormat::Sol),
+            to: ConvertFormat::Lamports,
+            be: false,
+            space: false,
+            prefix: false,
+            escape: false,
+        };
+        let result = convert(&args).unwrap();
+        assert_eq!(result, "1000000000");
+    }
+
+    #[test]
+    fn convert_sol_to_lamports_decimal() {
+        let args = ConvertArgs {
+            input: "1.5".to_string(),
+            from: Some(ConvertFormat::Sol),
+            to: ConvertFormat::Lamports,
+            be: false,
+            space: false,
+            prefix: false,
+            escape: false,
+        };
+        let result = convert(&args).unwrap();
+        assert_eq!(result, "1500000000");
+    }
+
+    #[test]
+    fn convert_sol_to_lamports_small() {
+        let args = ConvertArgs {
+            input: "0.000000001".to_string(),
+            from: Some(ConvertFormat::Sol),
+            to: ConvertFormat::Lamports,
+            be: false,
+            space: false,
+            prefix: false,
+            escape: false,
+        };
+        let result = convert(&args).unwrap();
+        assert_eq!(result, "1");
+    }
+
+    #[test]
+    fn convert_lamports_to_sol_zero() {
+        let args = ConvertArgs {
+            input: "0".to_string(),
+            from: Some(ConvertFormat::Lamports),
+            to: ConvertFormat::Sol,
+            be: false,
+            space: false,
+            prefix: false,
+            escape: false,
+        };
+        let result = convert(&args).unwrap();
+        assert_eq!(result, "0");
+    }
+
+    #[test]
+    fn convert_lamports_to_hex() {
+        let args = ConvertArgs {
+            input: "1000000000".to_string(),
+            from: Some(ConvertFormat::Lamports),
+            to: ConvertFormat::Hex,
+            be: false,
+            space: false,
+            prefix: false,
+            escape: false,
+        };
+        let result = convert(&args).unwrap();
+        // 1000000000 = 0x3B9ACA00, little-endian
+        assert_eq!(result, "0x00ca9a3b00000000");
+    }
+
+    #[test]
+    fn format_sol_precision() {
+        // Test format_sol directly
+        assert_eq!(format_sol(0), "0");
+        assert_eq!(format_sol(1_000_000_000), "1");
+        assert_eq!(format_sol(2_500_000_000), "2.500");
+        assert_eq!(format_sol(1_234_567_000), "1.234567");
+        assert_eq!(format_sol(1_234_567_890), "1.23456789");
+        assert_eq!(format_sol(123), "0.000000123");
+    }
 }
 
-#[derive(Args, Debug)]
-pub struct B64B58Args {
-    /// Base64 encoded string to convert
-    #[arg(value_name = "BASE64_STR")]
-    pub input: String,
+/// Auto-detect input format based on content patterns.
+pub fn detect_format(input: &str) -> ConvertFormat {
+    let input = input.trim();
+
+    // Check for hex string (0x...)
+    if input.starts_with("0x") || input.starts_with("0X") {
+        return ConvertFormat::Hex;
+    }
+
+    // Check for array format [...]
+    if input.starts_with('[') && input.ends_with(']') {
+        // Default to decimal array (most common case)
+        return ConvertFormat::DecArray;
+    }
+
+    // Check if it looks like base64 (contains +, /, or ends with =)
+    if input.contains('+') || input.contains('/') || input.ends_with('=') {
+        return ConvertFormat::Base64;
+    }
+
+    // Check if it's a pure decimal number
+    if input.chars().all(|c| c.is_ascii_digit()) {
+        return ConvertFormat::Number;
+    }
+
+    // Default to base58 for alphanumeric strings (common for Solana)
+    ConvertFormat::Base58
 }
 
-#[derive(Args, Debug)]
-pub struct B58B64Args {
-    /// Base58 encoded string to convert
-    #[arg(value_name = "BASE58_STR")]
-    pub input: String,
+/// Intermediate representation for conversions
+pub enum ConvertValue {
+    Bytes(Vec<u8>),
+    Number(num_bigint::BigUint),
+    /// Lamports amount (for SOL/lamports conversion)
+    Lamports(u64),
 }
 
-#[derive(Args, Debug)]
-pub struct B2aArgs {
-    /// Hex string input (e.g., 0x48656c6c6f)
-    #[arg(value_name = "HEX", group = "input")]
-    pub hex: Option<String>,
+/// 1 SOL = 1,000,000,000 lamports
+const LAMPORTS_PER_SOL: u64 = 1_000_000_000;
 
-    /// Hex byte array input (e.g., [48,65,6c,6c,6f] or [0x48,0x65,0x6c,0x6c,0x6f])
-    #[arg(short = 'x', value_name = "ARRAY", group = "input")]
-    pub hex_array: Option<String>,
-
-    /// Decimal byte array input (e.g., [72,101,108,108,111])
-    #[arg(short = 'd', value_name = "ARRAY", group = "input")]
-    pub dec_array: Option<String>,
-
-    /// Show non-printable chars as \xNN escape sequences instead of '.'
-    #[arg(short = 'e', long)]
-    pub escape: bool,
-}
-
-/// Convert bytes to ASCII string.
-/// - Printable ASCII characters (32-126) are displayed as-is.
-/// - Non-printable characters are replaced with '.' or '\xNN' escape sequences.
-pub fn bytes_to_ascii(bytes: &[u8], escape_non_printable: bool) -> String {
-    let mut result = String::new();
-    for &byte in bytes {
-        if (32..=126).contains(&byte) {
-            result.push(byte as char);
-        } else if escape_non_printable {
-            result.push_str(&format!("\\x{:02x}", byte));
-        } else {
-            result.push('.');
+/// Parse input string according to the specified format into intermediate representation.
+pub fn parse_input(input: &str, format: ConvertFormat) -> Result<ConvertValue, String> {
+    match format {
+        ConvertFormat::Number => {
+            let num = parse_number(input)?;
+            Ok(ConvertValue::Number(num))
+        }
+        ConvertFormat::Hex => {
+            let bytes = parse_bytes_input(input, Some(ByteFormat::Hex))?;
+            Ok(ConvertValue::Bytes(bytes))
+        }
+        ConvertFormat::HexArray => {
+            let bytes = parse_bytes_input(input, Some(ByteFormat::HexArray))?;
+            Ok(ConvertValue::Bytes(bytes))
+        }
+        ConvertFormat::DecArray => {
+            let bytes = parse_bytes_input(input, Some(ByteFormat::DecArray))?;
+            Ok(ConvertValue::Bytes(bytes))
+        }
+        ConvertFormat::Ascii => {
+            // ASCII input: just convert string to bytes
+            Ok(ConvertValue::Bytes(input.as_bytes().to_vec()))
+        }
+        ConvertFormat::Base64 => {
+            let bytes = base64::engine::general_purpose::STANDARD
+                .decode(input)
+                .map_err(|e| format!("Invalid base64 input: {}", e))?;
+            Ok(ConvertValue::Bytes(bytes))
+        }
+        ConvertFormat::Base58 => {
+            let bytes = bs58::decode(input)
+                .into_vec()
+                .map_err(|e| format!("Invalid base58 input: {}", e))?;
+            Ok(ConvertValue::Bytes(bytes))
+        }
+        ConvertFormat::Lamports => {
+            let input = input.trim();
+            let lamports: u64 =
+                input.parse().map_err(|e| format!("Invalid lamports value '{}': {}", input, e))?;
+            Ok(ConvertValue::Lamports(lamports))
+        }
+        ConvertFormat::Sol => {
+            let input = input.trim();
+            let sol: f64 =
+                input.parse().map_err(|e| format!("Invalid SOL value '{}': {}", input, e))?;
+            if sol < 0.0 {
+                return Err("SOL amount cannot be negative".to_string());
+            }
+            // Convert SOL to lamports (1 SOL = 10^9 lamports)
+            let lamports = (sol * LAMPORTS_PER_SOL as f64).round() as u64;
+            Ok(ConvertValue::Lamports(lamports))
         }
     }
-    result
+}
+
+/// Convert intermediate value to bytes, considering endianness for numbers.
+pub fn value_to_bytes(value: ConvertValue, big_endian: bool) -> Vec<u8> {
+    match value {
+        ConvertValue::Bytes(bytes) => bytes,
+        ConvertValue::Number(num) => {
+            if big_endian {
+                num.to_bytes_be()
+            } else {
+                num.to_bytes_le()
+            }
+        }
+        ConvertValue::Lamports(lamports) => {
+            if big_endian {
+                lamports.to_be_bytes().to_vec()
+            } else {
+                lamports.to_le_bytes().to_vec()
+            }
+        }
+    }
+}
+
+/// Format bytes according to the target format.
+pub fn format_output(
+    bytes: &[u8],
+    format: ConvertFormat,
+    big_endian: bool,
+    use_space: bool,
+    use_prefix: bool,
+    escape: bool,
+) -> String {
+    match format {
+        ConvertFormat::Number => {
+            use num_bigint::BigUint;
+            let num = if big_endian {
+                BigUint::from_bytes_be(bytes)
+            } else {
+                BigUint::from_bytes_le(bytes)
+            };
+            num.to_string()
+        }
+        ConvertFormat::Hex => format_bytes(bytes, ByteFormat::Hex, use_space, use_prefix),
+        ConvertFormat::HexArray => format_bytes(bytes, ByteFormat::HexArray, use_space, use_prefix),
+        ConvertFormat::DecArray => format_bytes(bytes, ByteFormat::DecArray, use_space, use_prefix),
+        ConvertFormat::Ascii => bytes_to_ascii(bytes, escape),
+        ConvertFormat::Base64 => base64::engine::general_purpose::STANDARD.encode(bytes),
+        ConvertFormat::Base58 => bs58::encode(bytes).into_string(),
+        ConvertFormat::Lamports => {
+            // Interpret bytes as u64 lamports
+            let lamports = bytes_to_u64(bytes, big_endian);
+            lamports.to_string()
+        }
+        ConvertFormat::Sol => {
+            // Interpret bytes as u64 lamports, convert to SOL
+            let lamports = bytes_to_u64(bytes, big_endian);
+            format_sol(lamports)
+        }
+    }
+}
+
+/// Convert bytes to u64, handling variable-length input.
+fn bytes_to_u64(bytes: &[u8], big_endian: bool) -> u64 {
+    if bytes.is_empty() {
+        return 0;
+    }
+
+    // Pad or truncate to 8 bytes
+    let mut buf = [0u8; 8];
+    let len = bytes.len().min(8);
+
+    if big_endian {
+        // For big-endian, align to the right
+        buf[8 - len..].copy_from_slice(&bytes[..len]);
+        u64::from_be_bytes(buf)
+    } else {
+        // For little-endian, align to the left
+        buf[..len].copy_from_slice(&bytes[..len]);
+        u64::from_le_bytes(buf)
+    }
+}
+
+/// Format lamports as SOL with appropriate precision.
+fn format_sol(lamports: u64) -> String {
+    let sol = lamports as f64 / LAMPORTS_PER_SOL as f64;
+
+    // Use appropriate precision based on the amount
+    if lamports == 0 {
+        "0".to_string()
+    } else if lamports % LAMPORTS_PER_SOL == 0 {
+        // Whole SOL amount
+        format!("{}", lamports / LAMPORTS_PER_SOL)
+    } else if lamports % 1_000_000 == 0 {
+        // Millis precision (3 decimals)
+        format!("{:.3}", sol)
+    } else if lamports % 1_000 == 0 {
+        // Micros precision (6 decimals)
+        format!("{:.6}", sol)
+    } else {
+        // Full precision (9 decimals), trim trailing zeros
+        let formatted = format!("{:.9}", sol);
+        formatted.trim_end_matches('0').trim_end_matches('.').to_string()
+    }
+}
+
+/// Perform the complete conversion from input to output.
+pub fn convert(args: &ConvertArgs) -> Result<String, String> {
+    // Determine input format (auto-detect if not specified)
+    let from_format = args.from.unwrap_or_else(|| detect_format(&args.input));
+
+    // Parse input
+    let value = parse_input(&args.input, from_format)?;
+
+    // Special case: direct lamports <-> SOL conversion without bytes intermediate
+    if let ConvertValue::Lamports(lamports) = &value {
+        match args.to {
+            ConvertFormat::Sol => {
+                return Ok(format_sol(*lamports));
+            }
+            ConvertFormat::Lamports => {
+                return Ok(lamports.to_string());
+            }
+            _ => {} // Fall through to bytes conversion
+        }
+    }
+
+    // Convert to bytes
+    let bytes = value_to_bytes(value, args.be);
+
+    // Format output
+    let output = format_output(&bytes, args.to, args.be, args.space, args.prefix, args.escape);
+
+    Ok(output)
 }
