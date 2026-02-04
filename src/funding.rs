@@ -4,6 +4,7 @@ use log::info;
 use solana_account::{Account, AccountSharedData, WritableAccount};
 use solana_pubkey::Pubkey;
 use spl_token::solana_program::program_pack::Pack;
+use spl_token_2022::extension::{BaseStateWithExtensions, BaseStateWithExtensionsMut};
 
 use crate::{
     account_loader::{AccountLoader, ResolvedAccounts},
@@ -81,7 +82,8 @@ fn process_single(
     let mint_account = resolved
         .accounts
         .get(&request.mint)
-        .ok_or_else(|| anyhow!("Mint account {} missing after load", request.mint))?;
+        .ok_or_else(|| anyhow!("Mint account {} missing after load", request.mint))?
+        .clone();
 
     let program_kind = TokenProgramKind::from_owner(&mint_account.owner).ok_or_else(|| {
         anyhow!(
@@ -91,8 +93,8 @@ fn process_single(
     })?;
 
     let decimals = match program_kind {
-        TokenProgramKind::Legacy => read_legacy_mint_decimals(mint_account)?,
-        TokenProgramKind::Token2022 => read_token2022_mint_decimals(mint_account)?,
+        TokenProgramKind::Legacy => read_legacy_mint_decimals(&mint_account)?,
+        TokenProgramKind::Token2022 => read_token2022_mint_decimals(&mint_account)?,
     };
 
     ensure_account_loaded(loader, resolved, &request.account).with_context(|| {
@@ -100,7 +102,7 @@ fn process_single(
     })?;
 
     if !resolved.accounts.contains_key(&request.account) {
-        create_missing_token_account(resolved, request, program_kind)?;
+        create_missing_token_account(resolved, request, program_kind, &mint_account)?;
     }
 
     match program_kind {
@@ -143,6 +145,7 @@ fn create_missing_token_account(
     resolved: &mut ResolvedAccounts,
     request: &TokenFunding,
     kind: TokenProgramKind,
+    mint_account: &Account,
 ) -> Result<()> {
     match kind {
         TokenProgramKind::Legacy => {
@@ -176,37 +179,68 @@ fn create_missing_token_account(
             );
         }
         TokenProgramKind::Token2022 => {
-            use spl_token::solana_program::{
-                program_option::COption, pubkey::Pubkey as ProgramPubkey,
-            };
-            use spl_token_2022::state::{Account as Token2022Account, AccountState};
-
-            let mut data = vec![0u8; Token2022Account::LEN];
-            let state = Token2022Account {
-                mint: ProgramPubkey::new_from_array(request.mint.to_bytes()),
-                owner: ProgramPubkey::new_from_array(request.account.to_bytes()),
-                amount: request.amount_raw,
-                delegate: COption::None,
-                state: AccountState::Initialized,
-                is_native: COption::None,
-                delegated_amount: 0,
-                close_authority: COption::None,
-            };
-            Token2022Account::pack(state, &mut data)
-                .map_err(|err| anyhow!("Failed to pack new token-2022 account: {err}"))?;
-            resolved.accounts.insert(
-                request.account,
-                Account {
-                    lamports: 0,
-                    data,
-                    owner: token2022_program_id(),
-                    executable: false,
-                    rent_epoch: 0,
-                },
-            );
+            create_token2022_account_with_extensions(resolved, request, mint_account)?;
         }
     }
 
+    Ok(())
+}
+
+/// Creates a new Token-2022 token account, inferring required extensions from the mint.
+fn create_token2022_account_with_extensions(
+    resolved: &mut ResolvedAccounts,
+    request: &TokenFunding,
+    mint_account: &Account,
+) -> Result<()> {
+    use spl_token::solana_program::{program_option::COption, pubkey::Pubkey as ProgramPubkey};
+    use spl_token_2022::extension::{ExtensionType, StateWithExtensions, StateWithExtensionsMut};
+    use spl_token_2022::state::{Account as Token2022Account, AccountState, Mint as Token2022Mint};
+
+    let mint_state = StateWithExtensions::<Token2022Mint>::unpack(&mint_account.data)
+        .map_err(|e| anyhow!("Failed to unpack token-2022 mint {}: {}", request.mint, e))?;
+    let mint_extension_types = mint_state
+        .get_extension_types()
+        .map_err(|e| anyhow!("Failed to get mint extension types: {}", e))?;
+
+    let required_extensions =
+        ExtensionType::get_required_init_account_extensions(&mint_extension_types);
+    let account_len =
+        ExtensionType::try_calculate_account_len::<Token2022Account>(&required_extensions)
+            .map_err(|e| anyhow!("Failed to calculate token-2022 account length: {}", e))?;
+
+    let mut data = vec![0u8; account_len];
+    let mut state = StateWithExtensionsMut::<Token2022Account>::unpack_uninitialized(&mut data)
+        .map_err(|e| anyhow!("Failed to unpack uninitialized token-2022 account buffer: {}", e))?;
+
+    state.base = Token2022Account {
+        mint: ProgramPubkey::new_from_array(request.mint.to_bytes()),
+        owner: ProgramPubkey::new_from_array(request.account.to_bytes()),
+        amount: request.amount_raw,
+        delegate: COption::None,
+        state: AccountState::Initialized,
+        is_native: COption::None,
+        delegated_amount: 0,
+        close_authority: COption::None,
+    };
+
+    state.init_account_type().map_err(|e| anyhow!("Failed to init account type: {}", e))?;
+    state.pack_base();
+    for ext_type in &required_extensions {
+        state
+            .init_account_extension_from_type(*ext_type)
+            .map_err(|e| anyhow!("Failed to init extension {:?}: {}", ext_type, e))?;
+    }
+
+    resolved.accounts.insert(
+        request.account,
+        Account {
+            lamports: 0,
+            data,
+            owner: token2022_program_id(),
+            executable: false,
+            rent_epoch: 0,
+        },
+    );
     Ok(())
 }
 
@@ -369,6 +403,11 @@ mod tests {
     use solana_account::{Account, AccountSharedData, ReadableAccount};
     use solana_pubkey::Pubkey;
     use spl_token::solana_program::program_pack::Pack;
+    use spl_token_2022::extension::{
+        BaseStateWithExtensions, BaseStateWithExtensionsMut, ExtensionType, StateWithExtensions,
+        StateWithExtensionsMut,
+    };
+    use spl_token_2022::state::{Account as Token2022Account, Mint as Token2022Mint};
 
     use super::*;
 
@@ -407,8 +446,15 @@ mod tests {
         let token = Pubkey::new_unique();
         let mut resolved = ResolvedAccounts { accounts: HashMap::new(), lookups: vec![] };
 
+        let (_, mint_account) = spl_token_account_and_mint(&mint, &token);
         let request = TokenFunding { account: token, mint, amount_raw: 42 };
-        create_missing_token_account(&mut resolved, &request, TokenProgramKind::Legacy).unwrap();
+        create_missing_token_account(
+            &mut resolved,
+            &request,
+            TokenProgramKind::Legacy,
+            &mint_account,
+        )
+        .unwrap();
 
         let account = resolved.accounts.get(&token).expect("account created");
         assert_eq!(account.owner, legacy_program_id());
@@ -416,6 +462,66 @@ mod tests {
         let parsed = SplAccount::unpack(&account.data[..SplAccount::LEN]).unwrap();
         assert_eq!(Pubkey::new_from_array(parsed.mint.to_bytes()), mint);
         assert_eq!(parsed.amount, 42);
+    }
+
+    #[test]
+    fn create_missing_token2022_account_base_only() {
+        let mint = Pubkey::new_unique();
+        let token = Pubkey::new_unique();
+        let mut resolved = ResolvedAccounts { accounts: HashMap::new(), lookups: vec![] };
+
+        let mint_account = token2022_mint_account_base_only();
+        let request = TokenFunding { account: token, mint, amount_raw: 100 };
+        create_missing_token_account(
+            &mut resolved,
+            &request,
+            TokenProgramKind::Token2022,
+            &mint_account,
+        )
+        .unwrap();
+
+        let account = resolved.accounts.get(&token).expect("account created");
+        assert_eq!(account.owner, token2022_program_id());
+        assert_eq!(
+            account.data.len(),
+            Token2022Account::LEN,
+            "base Token2022 account has no extensions"
+        );
+        let state = StateWithExtensions::<Token2022Account>::unpack(&account.data).expect("unpack");
+        assert_eq!(state.base.amount, 100);
+        assert!(state.get_extension_types().unwrap().is_empty());
+    }
+
+    #[test]
+    fn create_missing_token2022_account_with_transfer_fee_extension() {
+        let mint = Pubkey::new_unique();
+        let token = Pubkey::new_unique();
+        let mut resolved = ResolvedAccounts { accounts: HashMap::new(), lookups: vec![] };
+
+        let mint_account = token2022_mint_account_with_transfer_fee_config();
+        let request = TokenFunding { account: token, mint, amount_raw: 200 };
+        create_missing_token_account(
+            &mut resolved,
+            &request,
+            TokenProgramKind::Token2022,
+            &mint_account,
+        )
+        .unwrap();
+
+        let account = resolved.accounts.get(&token).expect("account created");
+        assert_eq!(account.owner, token2022_program_id());
+        assert!(
+            account.data.len() > Token2022Account::LEN,
+            "account with TransferFeeAmount extension must be larger than base"
+        );
+        let state = StateWithExtensions::<Token2022Account>::unpack(&account.data).expect("unpack");
+        assert_eq!(state.base.amount, 200);
+        let ext_types = state.get_extension_types().unwrap();
+        assert!(
+            ext_types.contains(&ExtensionType::TransferFeeAmount),
+            "expected TransferFeeAmount extension, got {:?}",
+            ext_types
+        );
     }
 
     #[test]
@@ -444,6 +550,61 @@ mod tests {
         let created = svm.get_account(&key).expect("account created");
         assert_eq!(created.lamports(), 500_000_000);
         assert_eq!(created.owner(), &solana_sdk_ids::system_program::id());
+    }
+
+    /// Token2022 mint with no extensions (base state only).
+    fn token2022_mint_account_base_only() -> Account {
+        use spl_token::solana_program::program_option::COption;
+
+        let mint = Token2022Mint {
+            mint_authority: COption::None,
+            supply: 0,
+            decimals: 6,
+            is_initialized: true,
+            freeze_authority: COption::None,
+        };
+        let mut data = vec![0u8; Token2022Mint::LEN];
+        Token2022Mint::pack(mint, &mut data).unwrap();
+        Account {
+            lamports: 0,
+            data,
+            owner: token2022_program_id(),
+            executable: false,
+            rent_epoch: 0,
+        }
+    }
+
+    /// Token2022 mint with TransferFeeConfig extension (requires token account to have TransferFeeAmount).
+    fn token2022_mint_account_with_transfer_fee_config() -> Account {
+        use spl_token::solana_program::program_option::COption;
+        use spl_token_2022::extension::transfer_fee::TransferFeeConfig;
+
+        let account_len = ExtensionType::try_calculate_account_len::<Token2022Mint>(&[
+            ExtensionType::TransferFeeConfig,
+        ])
+        .expect("calculate mint len");
+        let mut data = vec![0u8; account_len];
+        let mut state = StateWithExtensionsMut::<Token2022Mint>::unpack_uninitialized(&mut data)
+            .expect("unpack_uninitialized mint");
+
+        state.base = Token2022Mint {
+            mint_authority: COption::None,
+            supply: 0,
+            decimals: 6,
+            is_initialized: true,
+            freeze_authority: COption::None,
+        };
+        state.init_account_type().expect("init_account_type");
+        state.pack_base();
+        state.init_extension::<TransferFeeConfig>(true).expect("init TransferFeeConfig");
+
+        Account {
+            lamports: 0,
+            data,
+            owner: token2022_program_id(),
+            executable: false,
+            rent_epoch: 0,
+        }
     }
 
     fn spl_token_account_and_mint(mint: &Pubkey, owner: &Pubkey) -> (Account, Account) {
