@@ -6,31 +6,31 @@ use clap::{Args, ValueEnum};
 /// Supported conversion formats
 #[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum)]
 pub enum ConvertFormat {
-    /// Big integer (decimal or 0x hex)
+    /// Big integer: decimal (e.g. 255) or 0x-prefixed hex (aliases: num, n)
     #[value(alias = "num", alias = "n")]
     Number,
-    /// Hex string (0x...)
+    /// Hex string with 0x prefix, e.g. 0x1234abcd (alias: h)
     #[value(alias = "h")]
     Hex,
-    /// Hex byte array ([12,34,56,78])
+    /// Hex byte array, e.g. [0x12,0x34,0x56] or [12,34,56] when -f hex-array (aliases: ha, x)
     #[value(alias = "ha", alias = "x")]
     HexArray,
-    /// Decimal byte array ([18,52,86,120])
+    /// Decimal byte array, e.g. [18,52,86,120] (aliases: da, d)
     #[value(alias = "da", alias = "d")]
     DecArray,
-    /// UTF-8 string
+    /// UTF-8 string (aliases: u, utf)
     #[value(alias = "u", alias = "utf")]
     Utf8,
-    /// Base64 encoded string
+    /// Base64 encoded string (alias: b64)
     #[value(alias = "b64")]
     Base64,
-    /// Base58 encoded string
+    /// Base58 encoded string, e.g. Solana pubkey (alias: b58)
     #[value(alias = "b58")]
     Base58,
-    /// Lamports (1 SOL = 1,000,000,000 lamports)
+    /// Lamports: raw amount (1 SOL = 1e9 lamports) (alias: lam)
     #[value(alias = "lam")]
     Lamports,
-    /// SOL amount (decimal, e.g., 1.5)
+    /// SOL amount as decimal, e.g. 1.5
     Sol,
 }
 
@@ -40,7 +40,7 @@ pub struct ConvertArgs {
     #[arg(value_name = "INPUT")]
     pub input: String,
 
-    /// Input format (auto-detected if omitted)
+    /// Input format; if omitted, auto-detected (0x→hex, [...]→dec-array, digits→number, +/=/→base64, else base58)
     #[arg(short = 'f', long, value_name = "FORMAT")]
     pub from: Option<ConvertFormat>,
 
@@ -48,7 +48,7 @@ pub struct ConvertArgs {
     #[arg(short = 't', long, value_name = "FORMAT")]
     pub to: ConvertFormat,
 
-    /// Use big-endian byte order (default: little-endian)
+    /// Use big-endian byte order for number/hex/lamports; default is little-endian
     #[arg(short = 'b', long)]
     pub be: bool,
 
