@@ -135,17 +135,15 @@ fn handle_account(args: AccountArgs) -> Result<()> {
     // Try to decode as SPL Token or Token-2022 account (mint or token account)
     if let Some(token_json) = token_account_decoder::decode_spl_token_account(&account) {
         if args.no_account_meta {
-            println!("{}", serde_json::to_string_pretty(&token_json)?);
+            // Only print the parsed data part
+            if let Some(data) = token_json.get("data") {
+                println!("{}", serde_json::to_string_pretty(data)?);
+            } else {
+                println!("{}", serde_json::to_string_pretty(&token_json)?);
+            }
         } else {
-            let output = serde_json::json!({
-                "lamports": account.lamports,
-                "space": account.data.len(),
-                "owner": account.owner.to_string(),
-                "executable": account.executable,
-                "rentEpoch": account.rent_epoch,
-                "data": token_json
-            });
-            println!("{}", serde_json::to_string_pretty(&output)?);
+            // Print the complete token_json (already contains account metadata and data)
+            println!("{}", serde_json::to_string_pretty(&token_json)?);
         }
         return Ok(());
     }
