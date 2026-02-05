@@ -78,11 +78,13 @@ impl TransactionExecutor {
                 status: ExecutionStatus::Succeeded,
                 meta: info.meta.clone(),
                 post_accounts: info.post_accounts.into_iter().collect(),
+                pre_accounts: HashMap::new(), // For single tx, use resolved.accounts as pre
             },
             Err(failure) => SimulationResult {
                 status: ExecutionStatus::Failed(failure.err.to_string()),
                 meta: failure.meta.clone(),
                 post_accounts: HashMap::new(),
+                pre_accounts: HashMap::new(),
             },
         };
 
@@ -92,24 +94,68 @@ impl TransactionExecutor {
     /// Execute a transaction and persist state changes to the SVM.
     /// Used for bundle simulation where tx1's effects should influence tx2.
     pub fn execute(&mut self, tx: &VersionedTransaction) -> Result<SimulationResult> {
-        let lite_tx = convert_versioned_transaction(tx)?;
+        // Collect account keys from the transaction
+        let account_keys = self.collect_transaction_accounts(tx);
 
+        // Snapshot accounts before execution
+        let pre_accounts = self.snapshot_accounts(&account_keys);
+
+        let lite_tx = convert_versioned_transaction(tx)?;
         let result = self.svm.send_transaction(lite_tx);
+
+        // Snapshot accounts after execution
+        let post_accounts = self.snapshot_accounts(&account_keys);
 
         let simulation = match result {
             litesvm::types::TransactionResult::Ok(info) => SimulationResult {
                 status: ExecutionStatus::Succeeded,
                 meta: info.clone(),
-                post_accounts: HashMap::new(), // post_accounts not available from send_transaction
+                post_accounts,
+                pre_accounts,
             },
             litesvm::types::TransactionResult::Err(failure) => SimulationResult {
                 status: ExecutionStatus::Failed(failure.err.to_string()),
                 meta: failure.meta.clone(),
-                post_accounts: HashMap::new(),
+                post_accounts,
+                pre_accounts,
             },
         };
 
         Ok(simulation)
+    }
+
+    /// Collect all account keys involved in a transaction.
+    fn collect_transaction_accounts(&self, tx: &VersionedTransaction) -> Vec<Pubkey> {
+        let mut keys: Vec<Pubkey> = tx.message.static_account_keys().to_vec();
+
+        // Add lookup table accounts if present
+        if let Some(lookups) = tx.message.address_table_lookups() {
+            for lookup in lookups {
+                // Get writable addresses from resolved lookups
+                for resolved_lookup in &self.resolved.lookups {
+                    if resolved_lookup.account_key == lookup.account_key {
+                        keys.extend(resolved_lookup.writable_addresses.iter().cloned());
+                        keys.extend(resolved_lookup.readonly_addresses.iter().cloned());
+                    }
+                }
+            }
+        }
+
+        // Deduplicate while preserving order
+        let mut seen = std::collections::HashSet::new();
+        keys.retain(|k| seen.insert(*k));
+        keys
+    }
+
+    /// Snapshot current account states from SVM.
+    fn snapshot_accounts(&self, keys: &[Pubkey]) -> HashMap<Pubkey, AccountSharedData> {
+        let mut snapshot = HashMap::new();
+        for key in keys {
+            if let Some(account) = self.svm.get_account(key) {
+                snapshot.insert(*key, account.into());
+            }
+        }
+        snapshot
     }
 
     /// Execute multiple transactions sequentially as a bundle.
@@ -123,6 +169,7 @@ impl TransactionExecutor {
                 status: ExecutionStatus::Failed(err.to_string()),
                 meta: TransactionMetadata::default(),
                 post_accounts: HashMap::new(),
+                pre_accounts: HashMap::new(),
             });
 
             let failed = matches!(result.status, ExecutionStatus::Failed(_));
@@ -157,7 +204,10 @@ impl TransactionExecutor {
 pub struct SimulationResult {
     pub status: ExecutionStatus,
     pub meta: TransactionMetadata,
+    /// Account states after simulation (for balance change calculation)
     pub post_accounts: HashMap<Pubkey, AccountSharedData>,
+    /// Account states before simulation (for balance change calculation in bundle mode)
+    pub pre_accounts: HashMap<Pubkey, AccountSharedData>,
 }
 
 #[derive(Debug)]

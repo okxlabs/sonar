@@ -45,6 +45,9 @@ pub struct SimulateArgs {
     /// Directory containing Anchor IDLs; omit to disable IDL parsing
     #[arg(long = "idl-path", value_name = "PATH")]
     pub idl_path: Option<PathBuf>,
+    /// Show SOL and token balance changes after simulation
+    #[arg(long = "balance-change")]
+    pub balance_change: bool,
 }
 
 #[derive(Args, Debug, Clone)]

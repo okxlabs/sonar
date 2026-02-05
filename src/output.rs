@@ -11,6 +11,7 @@ use solana_transaction::versioned::TransactionVersion;
 
 use crate::{
     account_loader::{ResolvedAccounts, ResolvedLookup},
+    balance_changes::{compute_sol_changes, compute_token_changes, extract_mint_decimals_combined},
     cli::{Funding, OutputFormat, ProgramReplacement},
     executor::{ExecutionStatus, SimulationResult},
     funding::PreparedTokenFunding,
@@ -19,6 +20,12 @@ use crate::{
     transaction::{AccountReferenceSummary, AccountSourceSummary, ParsedTransaction},
 };
 use litesvm::types::TransactionMetadata;
+
+/// Balance change display options.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct BalanceChangeOptions {
+    pub show_balance_change: bool,
+}
 
 pub fn render(
     parsed: &ParsedTransaction,
@@ -31,6 +38,7 @@ pub fn render(
     format: OutputFormat,
     show_ix_data: bool,
     verify_signatures: bool,
+    balance_opts: BalanceChangeOptions,
 ) -> Result<()> {
     let report = Report::from_sources(
         parsed,
@@ -41,6 +49,7 @@ pub fn render(
         token_fundings,
         parser_registry,
         verify_signatures,
+        balance_opts,
     );
     match format {
         OutputFormat::Text => render_text(&report, resolved, parser_registry, show_ix_data),
@@ -84,6 +93,7 @@ pub fn render_bundle(
     format: OutputFormat,
     _show_ix_data: bool,
     verify_signatures: bool,
+    balance_opts: BalanceChangeOptions,
 ) -> Result<()> {
     let bundle_report = BundleReport::from_sources(
         parsed_txs,
@@ -94,6 +104,7 @@ pub fn render_bundle(
         token_fundings,
         parser_registry,
         verify_signatures,
+        balance_opts,
     );
 
     match format {
@@ -119,6 +130,9 @@ fn render_bundle_text(bundle: &BundleReport, total_count: usize) -> Result<()> {
     for i in bundle.transactions.len()..total_count {
         println!("\nTransaction {}/{}: (skipped)", i + 1, total_count);
     }
+
+    // Render overall bundle balance changes
+    render_bundle_balance_changes(bundle);
 
     // Summary
     render_bundle_summary(bundle, total_count);
@@ -150,6 +164,47 @@ fn render_bundle_transaction_compact(
         println!("  Logs:");
         for log in &tx_report.simulation.logs {
             println!("    {}", log);
+        }
+    }
+}
+
+/// Render overall bundle balance changes (first tx pre -> last successful tx post)
+fn render_bundle_balance_changes(bundle: &BundleReport) {
+    if !bundle.sol_balance_changes.is_empty() {
+        println!("\n=== SOL Balance Changes (Bundle Total) ===");
+        for change in &bundle.sol_balance_changes {
+            let sol_before = change.before as f64 / 1_000_000_000.0;
+            let sol_after = change.after as f64 / 1_000_000_000.0;
+            let sign = if change.change >= 0 { "+" } else { "" };
+            let color = if change.change >= 0 { (0, 255, 0) } else { (255, 0, 0) };
+            println!(
+                "  {} {:.9} | {:.9} | {}",
+                change.account,
+                sol_before,
+                sol_after,
+                format!("{}{:.9}", sign, change.change_sol).custom_color(color)
+            );
+        }
+    }
+
+    if !bundle.token_balance_changes.is_empty() {
+        println!("\n=== Token Balance Changes (Bundle Total) ===");
+        for change in &bundle.token_balance_changes {
+            let divisor = 10f64.powi(change.decimals as i32);
+            let ui_before = change.before as f64 / divisor;
+            let ui_after = change.after as f64 / divisor;
+            let sign = if change.change >= 0 { "+" } else { "" };
+            let color = if change.change >= 0 { (0, 255, 0) } else { (255, 0, 0) };
+            println!(
+                "  {} ({}) {:.prec$} | {:.prec$} | {}",
+                change.account,
+                change.mint,
+                ui_before,
+                ui_after,
+                format!("{}{:.prec$}", sign, change.ui_change, prec = change.decimals as usize)
+                    .custom_color(color),
+                prec = change.decimals as usize
+            );
         }
     }
 }
@@ -204,6 +259,8 @@ fn render_text(
     render_token_fundings_text(&report.token_fundings);
     render_replacements_text(&report.replacements);
     render_simulation_text(&report.simulation);
+    render_sol_balance_changes_text(&report.sol_balance_changes);
+    render_token_balance_changes_text(&report.token_balance_changes);
     Ok(())
 }
 
@@ -469,6 +526,54 @@ fn render_replacements_text(replacements: &[ReplacementSection]) {
     }
 }
 
+fn render_sol_balance_changes_text(changes: &[SolBalanceChangeSection]) {
+    if changes.is_empty() {
+        return;
+    }
+
+    println!("\n=== SOL Balance Changes ===");
+    for change in changes {
+        let sol_before = change.before as f64 / 1_000_000_000.0;
+        let sol_after = change.after as f64 / 1_000_000_000.0;
+        let sign = if change.change >= 0 { "+" } else { "" };
+        let color = if change.change >= 0 { (0, 255, 0) } else { (255, 0, 0) };
+
+        println!(
+            "  {} {:.9} | {:.9} | {}",
+            change.account,
+            sol_before,
+            sol_after,
+            format!("{}{:.9}", sign, change.change_sol).custom_color(color)
+        );
+    }
+}
+
+fn render_token_balance_changes_text(changes: &[TokenBalanceChangeSection]) {
+    if changes.is_empty() {
+        return;
+    }
+
+    println!("\n=== Token Balance Changes ===");
+    for change in changes {
+        let divisor = 10f64.powi(change.decimals as i32);
+        let ui_before = change.before as f64 / divisor;
+        let ui_after = change.after as f64 / divisor;
+        let sign = if change.change >= 0 { "+" } else { "" };
+        let color = if change.change >= 0 { (0, 255, 0) } else { (255, 0, 0) };
+
+        println!(
+            "  {} ({}) {:.prec$} | {:.prec$} | {}",
+            change.account,
+            change.mint,
+            ui_before,
+            ui_after,
+            format!("{}{:.prec$}", sign, change.ui_change, prec = change.decimals as usize)
+                .custom_color(color),
+            prec = change.decimals as usize
+        );
+    }
+}
+
 fn render_simulation_text(simulation: &SimulationSection) {
     println!("\n=== Simulation Result ===");
     match &simulation.status {
@@ -513,6 +618,30 @@ struct Report {
     replacements: Vec<ReplacementSection>,
     fundings: Vec<FundingSection>,
     token_fundings: Vec<TokenFundingSection>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    sol_balance_changes: Vec<SolBalanceChangeSection>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    token_balance_changes: Vec<TokenBalanceChangeSection>,
+}
+
+#[derive(Serialize)]
+struct SolBalanceChangeSection {
+    account: String,
+    before: u64,
+    after: u64,
+    change: i128,
+    change_sol: f64,
+}
+
+#[derive(Serialize)]
+struct TokenBalanceChangeSection {
+    account: String,
+    mint: String,
+    before: u64,
+    after: u64,
+    change: i128,
+    decimals: u8,
+    ui_change: f64,
 }
 
 /// Report structure for bundle simulation (multiple transactions).
@@ -522,6 +651,12 @@ struct BundleReport {
     replacements: Vec<ReplacementSection>,
     fundings: Vec<FundingSection>,
     token_fundings: Vec<TokenFundingSection>,
+    /// SOL balance changes for the entire bundle (first tx pre -> last tx post)
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    sol_balance_changes: Vec<SolBalanceChangeSection>,
+    /// Token balance changes for the entire bundle (first tx pre -> last tx post)
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    token_balance_changes: Vec<TokenBalanceChangeSection>,
 }
 
 #[derive(Serialize)]
@@ -541,6 +676,7 @@ impl BundleReport {
         token_fundings: &[PreparedTokenFunding],
         parser_registry: &mut ParserRegistry,
         verify_signatures: bool,
+        balance_opts: BalanceChangeOptions,
     ) -> Self {
         let resolver = LookupResolver::new(resolved.lookup_details());
 
@@ -556,8 +692,9 @@ impl BundleReport {
                     parser_registry,
                     verify_signatures,
                 );
-                let simulation = SimulationSection::from_result(simulation);
-                BundleTransactionReport { index, transaction, simulation }
+                let simulation_section = SimulationSection::from_result(simulation);
+
+                BundleTransactionReport { index, transaction, simulation: simulation_section }
             })
             .collect();
 
@@ -588,7 +725,22 @@ impl BundleReport {
             })
             .collect();
 
-        Self { transactions, replacements, fundings, token_fundings }
+        // Compute overall bundle balance changes (first tx pre -> last successful tx post)
+        let (sol_balance_changes, token_balance_changes) =
+            if balance_opts.show_balance_change && !simulations.is_empty() {
+                compute_bundle_overall_balance_changes(resolved, simulations, balance_opts)
+            } else {
+                (Vec::new(), Vec::new())
+            };
+
+        Self {
+            transactions,
+            replacements,
+            fundings,
+            token_fundings,
+            sol_balance_changes,
+            token_balance_changes,
+        }
     }
 }
 
@@ -602,6 +754,7 @@ impl Report {
         token_fundings: &[PreparedTokenFunding],
         parser_registry: &mut ParserRegistry,
         verify_signatures: bool,
+        balance_opts: BalanceChangeOptions,
     ) -> Self {
         let resolver = LookupResolver::new(resolved.lookup_details());
         let transaction = TransactionSection::from_sources(
@@ -611,7 +764,7 @@ impl Report {
             parser_registry,
             verify_signatures,
         );
-        let simulation = SimulationSection::from_result(simulation);
+        let simulation_section = SimulationSection::from_result(simulation);
         let replacements = replacements
             .iter()
             .map(|entry| ReplacementSection {
@@ -636,8 +789,139 @@ impl Report {
                 amount_raw: entry.amount_raw,
             })
             .collect();
-        Self { transaction, simulation, replacements, fundings, token_fundings }
+
+        // Compute balance changes if requested and simulation succeeded
+        let (sol_balance_changes, token_balance_changes) =
+            if matches!(simulation.status, ExecutionStatus::Succeeded)
+                && balance_opts.show_balance_change
+            {
+                compute_balance_changes_for_single_tx(resolved, simulation, balance_opts)
+            } else {
+                (Vec::new(), Vec::new())
+            };
+
+        Self {
+            transaction,
+            simulation: simulation_section,
+            replacements,
+            fundings,
+            token_fundings,
+            sol_balance_changes,
+            token_balance_changes,
+        }
     }
+}
+
+/// Compute balance changes for single transaction mode.
+/// Uses resolved.accounts as pre-state and simulation.post_accounts as post-state.
+fn compute_balance_changes_for_single_tx(
+    resolved: &ResolvedAccounts,
+    simulation: &SimulationResult,
+    balance_opts: BalanceChangeOptions,
+) -> (Vec<SolBalanceChangeSection>, Vec<TokenBalanceChangeSection>) {
+    let mut sol_changes = Vec::new();
+    let mut token_changes = Vec::new();
+
+    if balance_opts.show_balance_change {
+        let changes = compute_sol_changes(&resolved.accounts, &simulation.post_accounts);
+        sol_changes = changes
+            .into_iter()
+            .map(|c| SolBalanceChangeSection {
+                account: c.account.to_string(),
+                before: c.before,
+                after: c.after,
+                change: c.change,
+                change_sol: c.change as f64 / 1_000_000_000.0,
+            })
+            .collect();
+
+        let mint_decimals =
+            extract_mint_decimals_combined(&resolved.accounts, &simulation.post_accounts);
+        let changes =
+            compute_token_changes(&resolved.accounts, &simulation.post_accounts, &mint_decimals);
+        token_changes = changes
+            .into_iter()
+            .map(|c| {
+                let divisor = 10f64.powi(c.decimals as i32);
+                TokenBalanceChangeSection {
+                    account: c.account.to_string(),
+                    mint: c.mint.to_string(),
+                    before: c.before,
+                    after: c.after,
+                    change: c.change,
+                    decimals: c.decimals,
+                    ui_change: c.change as f64 / divisor,
+                }
+            })
+            .collect();
+    }
+
+    (sol_changes, token_changes)
+}
+
+/// Compute overall balance changes for the entire bundle.
+/// Only computes when ALL transactions in the bundle succeeded.
+/// Uses the first transaction's pre_accounts and the last transaction's post_accounts.
+fn compute_bundle_overall_balance_changes(
+    resolved: &ResolvedAccounts,
+    simulations: &[SimulationResult],
+    balance_opts: BalanceChangeOptions,
+) -> (Vec<SolBalanceChangeSection>, Vec<TokenBalanceChangeSection>) {
+    use solana_account::Account;
+
+    if !balance_opts.show_balance_change || simulations.is_empty() {
+        return (Vec::new(), Vec::new());
+    }
+
+    // Only compute balance changes if ALL transactions succeeded
+    let all_succeeded =
+        simulations.iter().all(|sim| matches!(sim.status, ExecutionStatus::Succeeded));
+    if !all_succeeded {
+        return (Vec::new(), Vec::new());
+    }
+
+    // Get pre_accounts from the first transaction
+    let first_simulation = &simulations[0];
+    let pre_accounts: HashMap<Pubkey, Account> =
+        first_simulation.pre_accounts.iter().map(|(k, v)| (*k, Account::from(v.clone()))).collect();
+
+    // Get post_accounts from the last transaction (all succeeded, so use the last one)
+    let last_simulation = simulations.last().unwrap();
+    let post_accounts = &last_simulation.post_accounts;
+
+    // Compute SOL balance changes
+    let sol_changes: Vec<SolBalanceChangeSection> =
+        compute_sol_changes(&pre_accounts, post_accounts)
+            .into_iter()
+            .map(|c| SolBalanceChangeSection {
+                account: c.account.to_string(),
+                before: c.before,
+                after: c.after,
+                change: c.change,
+                change_sol: c.change as f64 / 1_000_000_000.0,
+            })
+            .collect();
+
+    // Extract mint decimals from both resolved accounts and post accounts
+    let mint_decimals = extract_mint_decimals_combined(&resolved.accounts, post_accounts);
+    let token_changes: Vec<TokenBalanceChangeSection> =
+        compute_token_changes(&pre_accounts, post_accounts, &mint_decimals)
+            .into_iter()
+            .map(|c| {
+                let divisor = 10f64.powi(c.decimals as i32);
+                TokenBalanceChangeSection {
+                    account: c.account.to_string(),
+                    mint: c.mint.to_string(),
+                    before: c.before,
+                    after: c.after,
+                    change: c.change,
+                    decimals: c.decimals,
+                    ui_change: c.change as f64 / divisor,
+                }
+            })
+            .collect();
+
+    (sol_changes, token_changes)
 }
 
 #[derive(Serialize)]

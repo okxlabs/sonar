@@ -1,4 +1,5 @@
 mod account_loader;
+mod balance_changes;
 mod cli;
 mod executor;
 mod funding;
@@ -492,7 +493,10 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
         ix_data,
         verify_signatures,
         idl_path: _,
+        balance_change,
     } = args;
+
+    let balance_opts = output::BalanceChangeOptions { show_balance_change: balance_change };
     let TransactionInputArgs { tx, tx_file, output } = transaction;
 
     let replacements = if parse_only {
@@ -538,6 +542,7 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
                 verify_signatures,
                 output,
                 &mut parser_registry,
+                balance_opts,
             );
         }
     }
@@ -615,6 +620,7 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
                     output,
                     ix_data,
                     verify_signatures,
+                    balance_opts,
                 )?;
             }
             return Ok(());
@@ -687,6 +693,7 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
             output,
             ix_data,
             verify_signatures,
+            balance_opts,
         )?;
     }
     Ok(())
@@ -704,6 +711,7 @@ fn handle_bundle_simulate(
     verify_signatures: bool,
     output_format: cli::OutputFormat,
     parser_registry: &mut instruction_parsers::ParserRegistry,
+    balance_opts: output::BalanceChangeOptions,
 ) -> Result<()> {
     log::info!("Bundle simulation mode: {} transactions", tx_inputs.len());
 
@@ -795,6 +803,7 @@ fn handle_bundle_simulate(
         output_format,
         ix_data,
         verify_signatures,
+        balance_opts,
     )?;
 
     Ok(())
