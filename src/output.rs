@@ -22,6 +22,9 @@ use crate::{
 };
 use litesvm::types::TransactionMetadata;
 
+/// Width of the separator line (using ═ character).
+const SEPARATOR_WIDTH: usize = 120;
+
 /// Balance change display options.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct BalanceChangeOptions {
@@ -33,6 +36,13 @@ pub struct BalanceChangeOptions {
 pub struct LogDisplayOptions {
     /// If true, print raw logs; otherwise print structured execution trace.
     pub raw_program_logs: bool,
+}
+
+/// Account list display options.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct AccountListOptions {
+    /// If true, print Address Lookup Tables and Account List.
+    pub show_account_list: bool,
 }
 
 pub fn render(
@@ -48,6 +58,7 @@ pub fn render(
     verify_signatures: bool,
     balance_opts: BalanceChangeOptions,
     log_opts: LogDisplayOptions,
+    account_list_opts: AccountListOptions,
 ) -> Result<()> {
     let report = Report::from_sources(
         parsed,
@@ -61,9 +72,14 @@ pub fn render(
         balance_opts,
     );
     match format {
-        OutputFormat::Text => {
-            render_text(&report, resolved, parser_registry, show_ix_data, log_opts)
-        }
+        OutputFormat::Text => render_text(
+            &report,
+            resolved,
+            parser_registry,
+            show_ix_data,
+            log_opts,
+            account_list_opts,
+        ),
         OutputFormat::Json => render_json(&report),
     }
 }
@@ -265,15 +281,196 @@ fn render_text(
     parser_registry: &mut ParserRegistry,
     show_ix_data: bool,
     log_opts: LogDisplayOptions,
+    account_list_opts: AccountListOptions,
 ) -> Result<()> {
-    render_transaction_section_text(&report.transaction, resolved, parser_registry, show_ix_data);
+    // 1. Account list and lookup tables (only if --show-account-list is specified)
+    if account_list_opts.show_account_list {
+        render_lookup_tables_text(&report.transaction);
+        render_account_list_text(&report.transaction, resolved);
+        println!();
+    }
+
+    // 2. Fundings and replacements (if any)
     render_fundings_text(&report.fundings);
     render_token_fundings_text(&report.token_fundings);
     render_replacements_text(&report.replacements);
-    render_simulation_text(&report.simulation, log_opts);
-    render_sol_balance_changes_text(&report.sol_balance_changes);
-    render_token_balance_changes_text(&report.token_balance_changes);
+
+    // 3. Summary header (status + CU) - displayed first
+    render_summary_header(&report.simulation, &report.transaction);
+
+    // 4. Execution Trace (no title)
+    render_execution_trace_section(&report.simulation, log_opts);
+
+    // 5. Wave separator with empty lines
+    render_wave_separator();
+
+    // 6. Instruction details (no title)
+    render_instruction_details_text(&report.transaction, resolved, show_ix_data);
+
+    // 7. Wave separator with empty lines
+    render_wave_separator();
+
+    // 8. Balance Changes (no title)
+    render_balance_changes_text(&report.sol_balance_changes, &report.token_balance_changes);
+
+    // 9. Final empty line
+    println!();
+
     Ok(())
+}
+
+/// Render a double-line separator.
+fn render_separator() {
+    println!("{}", "═".repeat(SEPARATOR_WIDTH));
+}
+
+/// Render a wave separator with empty lines before and after.
+fn render_wave_separator() {
+    println!();
+    println!();
+}
+
+/// Render the summary header showing status and compute units (displayed first).
+fn render_summary_header(simulation: &SimulationSection, transaction: &TransactionSection) {
+    render_separator();
+
+    // For failed transactions, don't print the error reason
+    let status_str = match &simulation.status {
+        SimulationStatusReport::Succeeded => "🟢 SUCCESS".to_string(),
+        SimulationStatusReport::Failed { .. } => "🔴 FAILED".to_string(),
+    };
+
+    // Try to extract compute unit limit from SetComputeUnitLimit instruction
+    let cu_limit = extract_compute_unit_limit(transaction).unwrap_or(200_000);
+    let cu_used = simulation.compute_units_consumed;
+    let percentage =
+        if cu_limit > 0 { (cu_used as f64 / cu_limit as f64 * 100.0) as u32 } else { 0 };
+
+    let result_text = format!(
+        "Result: {} | CU: {} / {} ({}%)",
+        status_str,
+        format_with_commas(cu_used),
+        format_with_commas(cu_limit),
+        percentage
+    );
+
+    // Center the result text
+    let text_len = result_text.chars().count();
+    let padding = (SEPARATOR_WIDTH.saturating_sub(text_len)) / 2;
+    println!("{:>width$}", result_text, width = padding + text_len);
+
+    render_separator();
+    println!(); // Empty line after summary
+}
+
+/// Extract compute unit limit from SetComputeUnitLimit instruction if present.
+fn extract_compute_unit_limit(transaction: &TransactionSection) -> Option<u64> {
+    use crate::instruction_parsers::{OrderedJsonValue, ParsedFieldValue};
+
+    for ix in &transaction.instructions {
+        if let Some(parsed) = &ix.parsed {
+            if parsed.name == "SetComputeUnitLimit" {
+                for field in &parsed.fields {
+                    if field.name == "units" {
+                        match &field.value {
+                            ParsedFieldValue::Text(text) => {
+                                if let Ok(units) = text.parse::<u64>() {
+                                    return Some(units);
+                                }
+                            }
+                            ParsedFieldValue::Json(json) => {
+                                if let OrderedJsonValue::Number(num) = json {
+                                    return num.as_u64();
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Format a number with comma separators for readability.
+fn format_with_commas(n: u64) -> String {
+    let s = n.to_string();
+    let mut result = String::new();
+    for (i, c) in s.chars().rev().enumerate() {
+        if i > 0 && i % 3 == 0 {
+            result.push(',');
+        }
+        result.push(c);
+    }
+    result.chars().rev().collect()
+}
+
+/// Render execution trace section with centered header.
+fn render_execution_trace_section(simulation: &SimulationSection, log_opts: LogDisplayOptions) {
+    if simulation.logs.is_empty() {
+        return;
+    }
+
+    if log_opts.raw_program_logs {
+        println!("Log Entries: {}", simulation.logs.len());
+        for line in &simulation.logs {
+            println!("  {}", line);
+        }
+    } else {
+        render_logs_structured(&simulation.logs);
+    }
+}
+
+/// Render balance changes section with centered header.
+/// Render balance changes without header (for new layout).
+fn render_balance_changes_text(
+    sol_changes: &[SolBalanceChangeSection],
+    token_changes: &[TokenBalanceChangeSection],
+) {
+    if sol_changes.is_empty() && token_changes.is_empty() {
+        return;
+    }
+
+    // SOL balance changes first
+    for change in sol_changes {
+        let sol_before = change.before as f64 / 1_000_000_000.0;
+        let sol_after = change.after as f64 / 1_000_000_000.0;
+        let sign = if change.change >= 0 { "+" } else { "" };
+        let color = if change.change >= 0 { (0, 255, 0) } else { (255, 0, 0) };
+
+        println!(
+            "{} {:.9} | {:.9} | {}",
+            change.account,
+            sol_before,
+            sol_after,
+            format!("{}{:.9}", sign, change.change_sol).custom_color(color)
+        );
+    }
+
+    // Empty line between SOL and Token changes
+    if !sol_changes.is_empty() && !token_changes.is_empty() {
+        println!();
+    }
+
+    // Token balance changes
+    for change in token_changes {
+        let divisor = 10f64.powi(change.decimals as i32);
+        let ui_before = change.before as f64 / divisor;
+        let ui_after = change.after as f64 / divisor;
+        let sign = if change.change >= 0 { "+" } else { "" };
+        let color = if change.change >= 0 { (0, 255, 0) } else { (255, 0, 0) };
+
+        println!(
+            "{} ({}) {:.prec$} | {:.prec$} | {}",
+            change.account,
+            change.mint,
+            ui_before,
+            ui_after,
+            format!("{}{:.prec$}", sign, change.ui_change, prec = change.decimals as usize)
+                .custom_color(color),
+            prec = change.decimals as usize
+        );
+    }
 }
 
 fn render_transaction_section_text(
@@ -282,21 +479,30 @@ fn render_transaction_section_text(
     _parser_registry: &mut ParserRegistry,
     show_ix_data: bool,
 ) {
+    // For parse-only mode, show full transaction info including account list
     render_transaction_overview_text(transaction);
     render_lookup_tables_text(transaction);
     render_account_list_text(transaction, resolved);
+    println!(); // Empty line before instructions
     render_instruction_details_text(transaction, resolved, show_ix_data);
 }
 
 fn render_transaction_overview_text(transaction: &TransactionSection) {
-    println!("=== Transaction Overview ===");
-    println!("Encoding: {}", transaction.encoding);
-    println!("Version: {}", transaction.version);
-    println!("Recent Blockhash: {}", transaction.recent_blockhash);
-    println!("Signatures:");
-    for sig in &transaction.signatures {
-        println!("  {}", sig);
-    }
+    // Compact format for parse-only mode
+    println!("=== Transaction ===");
+    let sig_display =
+        transaction
+            .signatures
+            .first()
+            .map(|s| {
+                if s.len() > 20 {
+                    format!("{}...{}", &s[..8], &s[s.len() - 8..])
+                } else {
+                    s.clone()
+                }
+            })
+            .unwrap_or_else(|| "<no-sig>".to_string());
+    println!("{} | Sig: {}", transaction.version, sig_display);
 }
 
 fn render_lookup_tables_text(transaction: &TransactionSection) {
@@ -361,12 +567,12 @@ fn render_account_entry_text(
     index + 1
 }
 
+/// Render instruction details section with centered header.
 fn render_instruction_details_text(
     transaction: &TransactionSection,
     resolved: &ResolvedAccounts,
     show_ix_data: bool,
 ) {
-    println!("\nInstruction Details:");
     for ix in &transaction.instructions {
         let program_pubkey_with_link = format_solscan_link(&ix.program.pubkey);
         // Display outer instruction with 1-based indexing (#1, #2, #3, etc.)
@@ -375,7 +581,7 @@ fn render_instruction_details_text(
         // Try to parse the instruction
         if let Some(parsed) = &ix.parsed {
             println!(
-                "  #{} {} [{}]",
+                "#{} {} [{}]",
                 outer_number.to_string().custom_color((255, 165, 0)),
                 program_pubkey_with_link.custom_color((62, 132, 230)),
                 parsed.name.custom_color((124, 252, 0))
@@ -393,14 +599,14 @@ fn render_instruction_details_text(
 
             // Display raw instruction data only when requested
             if show_ix_data {
-                println!("     🔢 0x{} | {} byte(s)", hex::encode(&ix.data), ix.data.len());
+                println!("  🔢 0x{} | {} byte(s)", hex::encode(&ix.data), ix.data.len());
             }
 
             // Then render parsed fields as formatted JSON, preserving original order
             render_parsed_fields(&parsed.fields);
         } else {
             println!(
-                "  #{} {}",
+                "#{} {}",
                 outer_number.to_string().custom_color((255, 165, 0)),
                 program_pubkey_with_link.custom_color((62, 132, 230))
             );
@@ -408,7 +614,7 @@ fn render_instruction_details_text(
             for account in &ix.accounts {
                 render_instruction_account_text(account, resolved);
             }
-            println!("     🔢 0x{} | {} byte(s)", hex::encode(&ix.data), ix.data.len());
+            println!("  🔢 0x{} | {} byte(s)", hex::encode(&ix.data), ix.data.len());
         }
 
         // Display inner instructions if any
@@ -417,7 +623,7 @@ fn render_instruction_details_text(
                 // Try to parse inner instruction
                 if let Some(parsed_inner) = &inner_ix.parsed {
                     println!(
-                        "    {} {} [{}]",
+                        "  {} {} [{}]",
                         format!("#{}", inner_ix.label).custom_color((255, 165, 0)),
                         format_solscan_link(&inner_ix.program.pubkey).custom_color((62, 132, 230)),
                         parsed_inner.name.custom_color((124, 252, 0))
@@ -430,32 +636,36 @@ fn render_instruction_details_text(
                         } else {
                             format!("account_{}", i)
                         };
-                        render_instruction_account_text_with_name(account, resolved, &account_name);
+                        render_inner_instruction_account_text_with_name(
+                            account,
+                            resolved,
+                            &account_name,
+                        );
                     }
 
                     // Display raw instruction data only when requested
                     if show_ix_data {
                         println!(
-                            "     🔢 0x{} | {} byte(s)",
+                            "    🔢 0x{} | {} byte(s)",
                             hex::encode(&inner_ix.data),
                             inner_ix.data.len()
                         );
                     }
 
                     // Then render parsed fields as formatted JSON, preserving original order
-                    render_parsed_fields(&parsed_inner.fields);
+                    render_inner_parsed_fields(&parsed_inner.fields);
                 } else {
                     println!(
-                        "    {} {}",
+                        "  {} {}",
                         format!("#{}", inner_ix.label).custom_color((255, 165, 0)),
                         format_solscan_link(&inner_ix.program.pubkey).custom_color((62, 132, 230))
                     );
 
                     for account in &inner_ix.accounts {
-                        render_instruction_account_text(account, resolved);
+                        render_inner_instruction_account_text(account, resolved);
                     }
                     println!(
-                        "     🔢 0x{} | {} byte(s)",
+                        "    🔢 0x{} | {} byte(s)",
                         hex::encode(&inner_ix.data),
                         inner_ix.data.len()
                     );
@@ -473,7 +683,7 @@ fn render_instruction_account_text(account: &InstructionAccountEntry, resolved: 
         false
     };
     println!(
-        "     {} [{}] {} {}",
+        "  {} [{}] {} {}",
         account.source,
         account.index,
         solscan_linked_pubkey,
@@ -493,7 +703,47 @@ fn render_instruction_account_text_with_name(
         false
     };
     println!(
-        "     {} [{}] {} {} ({})",
+        "  {} [{}] {} {} ({})",
+        account.source,
+        account.index,
+        solscan_linked_pubkey,
+        account_privilege_emoji(account.signer, account.writable, executable),
+        name.custom_color((135, 206, 235))
+    );
+}
+
+fn render_inner_instruction_account_text(
+    account: &InstructionAccountEntry,
+    resolved: &ResolvedAccounts,
+) {
+    let solscan_linked_pubkey = format_solscan_link(&account.pubkey);
+    let executable = if let Ok(pubkey) = Pubkey::from_str(&account.pubkey) {
+        resolved.accounts.get(&pubkey).map(|acc| acc.executable).unwrap_or(false)
+    } else {
+        false
+    };
+    println!(
+        "    {} [{}] {} {}",
+        account.source,
+        account.index,
+        solscan_linked_pubkey,
+        account_privilege_emoji(account.signer, account.writable, executable)
+    );
+}
+
+fn render_inner_instruction_account_text_with_name(
+    account: &InstructionAccountEntry,
+    resolved: &ResolvedAccounts,
+    name: &str,
+) {
+    let solscan_linked_pubkey = format_solscan_link(&account.pubkey);
+    let executable = if let Ok(pubkey) = Pubkey::from_str(&account.pubkey) {
+        resolved.accounts.get(&pubkey).map(|acc| acc.executable).unwrap_or(false)
+    } else {
+        false
+    };
+    println!(
+        "    {} [{}] {} {} ({})",
         account.source,
         account.index,
         solscan_linked_pubkey,
@@ -535,94 +785,6 @@ fn render_replacements_text(replacements: &[ReplacementSection]) {
     println!("\nProgram Replacements:");
     for replacement in replacements {
         println!("  {} <= {}", replacement.program_id, replacement.path);
-    }
-}
-
-fn render_sol_balance_changes_text(changes: &[SolBalanceChangeSection]) {
-    if changes.is_empty() {
-        return;
-    }
-
-    println!("\n=== SOL Balance Changes ===");
-    for change in changes {
-        let sol_before = change.before as f64 / 1_000_000_000.0;
-        let sol_after = change.after as f64 / 1_000_000_000.0;
-        let sign = if change.change >= 0 { "+" } else { "" };
-        let color = if change.change >= 0 { (0, 255, 0) } else { (255, 0, 0) };
-
-        println!(
-            "  {} {:.9} | {:.9} | {}",
-            change.account,
-            sol_before,
-            sol_after,
-            format!("{}{:.9}", sign, change.change_sol).custom_color(color)
-        );
-    }
-}
-
-fn render_token_balance_changes_text(changes: &[TokenBalanceChangeSection]) {
-    if changes.is_empty() {
-        return;
-    }
-
-    println!("\n=== Token Balance Changes ===");
-    for change in changes {
-        let divisor = 10f64.powi(change.decimals as i32);
-        let ui_before = change.before as f64 / divisor;
-        let ui_after = change.after as f64 / divisor;
-        let sign = if change.change >= 0 { "+" } else { "" };
-        let color = if change.change >= 0 { (0, 255, 0) } else { (255, 0, 0) };
-
-        println!(
-            "  {} ({}) {:.prec$} | {:.prec$} | {}",
-            change.account,
-            change.mint,
-            ui_before,
-            ui_after,
-            format!("{}{:.prec$}", sign, change.ui_change, prec = change.decimals as usize)
-                .custom_color(color),
-            prec = change.decimals as usize
-        );
-    }
-}
-
-fn render_simulation_text(simulation: &SimulationSection, log_opts: LogDisplayOptions) {
-    println!("\n=== Simulation Result ===");
-    match &simulation.status {
-        SimulationStatusReport::Succeeded => {
-            println!("🟢");
-        }
-        SimulationStatusReport::Failed { error } => {
-            println!("🔴 ({})", error);
-        }
-    }
-    println!("Compute Units Consumed: {}", simulation.compute_units_consumed);
-
-    if let Some(return_data) = &simulation.return_data {
-        println!(
-            "Return Data: Program {} ({} bytes, base64: {})",
-            return_data.program_id,
-            return_data.size,
-            truncate_display(&return_data.data_base64, 120)
-        );
-    }
-
-    println!("Returned Account Count: {}", simulation.post_account_count);
-
-    // Render logs based on options
-    if !simulation.logs.is_empty() {
-        if log_opts.raw_program_logs {
-            // Raw logs output
-            println!("\n=== Program Logs ===");
-            println!("Log Entries: {}", simulation.logs.len());
-            for line in &simulation.logs {
-                println!("  {}", line);
-            }
-        } else {
-            // Structured execution trace
-            println!("\n=== Execution Trace ===");
-            render_logs_structured(&simulation.logs);
-        }
     }
 }
 
@@ -1530,9 +1692,36 @@ fn truncate_display(value: &str, limit: usize) -> String {
     if value.len() <= limit { value.to_string() } else { format!("{}…", &value[..limit]) }
 }
 
+/// Check if the terminal supports OSC 8 hyperlinks.
+fn supports_hyperlinks() -> bool {
+    // iTerm2, WezTerm, VSCode integrated terminal
+    if let Ok(term) = std::env::var("TERM_PROGRAM") {
+        if term.contains("iTerm")
+            || term.contains("WezTerm")
+            || term.contains("vscode")
+            || term.contains("Apple_Terminal")
+        {
+            return true;
+        }
+    }
+    // Windows Terminal
+    if std::env::var("WT_SESSION").is_ok() {
+        return true;
+    }
+    // VTE-based terminals (GNOME Terminal, etc.)
+    if std::env::var("VTE_VERSION").is_ok() {
+        return true;
+    }
+    false
+}
+
 fn format_solscan_link(account_pubkey: &str) -> String {
-    let solscan_url = format!("https://solscan.io/account/{}", account_pubkey);
-    format!("\x1b]8;;{}\x1b\\{}\x1b]8;;\x1b\\", solscan_url, account_pubkey)
+    if supports_hyperlinks() {
+        let solscan_url = format!("https://solscan.io/account/{}", account_pubkey);
+        format!("\x1b]8;;{}\x1b\\{}\x1b]8;;\x1b\\", solscan_url, account_pubkey)
+    } else {
+        account_pubkey.to_string()
+    }
 }
 
 fn account_privilege_emoji(signer: bool, writable: bool, executable: bool) -> &'static str {
@@ -1574,6 +1763,36 @@ fn render_parsed_fields(fields: &[ParsedField]) {
     let pretty = serde_json::to_string_pretty(&ordered).unwrap_or_else(|_| "{}".to_string());
 
     for line in pretty.lines() {
-        println!("{}", format!("       {}", line).custom_color((255, 255, 224)));
+        println!("{}", format!("    {}", line).custom_color((255, 255, 224)));
+    }
+}
+
+fn render_inner_parsed_fields(fields: &[ParsedField]) {
+    if fields.is_empty() {
+        return;
+    }
+
+    struct OrderedFields<'a>(&'a [ParsedField]);
+
+    impl Serialize for OrderedFields<'_> {
+        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: serde::Serializer,
+        {
+            use serde::ser::SerializeMap;
+
+            let mut map = serializer.serialize_map(Some(self.0.len()))?;
+            for field in self.0 {
+                map.serialize_entry(&field.name, &field.value)?;
+            }
+            map.end()
+        }
+    }
+
+    let ordered = OrderedFields(fields);
+    let pretty = serde_json::to_string_pretty(&ordered).unwrap_or_else(|_| "{}".to_string());
+
+    for line in pretty.lines() {
+        println!("{}", format!("      {}", line).custom_color((255, 255, 224)));
     }
 }

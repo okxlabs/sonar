@@ -45,12 +45,18 @@ pub struct SimulateArgs {
     /// Directory containing Anchor IDLs; omit to disable IDL parsing
     #[arg(long = "idl-path", value_name = "PATH")]
     pub idl_path: Option<PathBuf>,
-    /// Show SOL and token balance changes after simulation
-    #[arg(long = "balance-change")]
+    /// Show SOL and token balance changes after simulation (enabled by default)
+    #[arg(long = "balance-change", default_value_t = true, action = clap::ArgAction::Set)]
     pub balance_change: bool,
+    /// Disable balance change display
+    #[arg(long = "no-balance-change", action = clap::ArgAction::SetTrue)]
+    pub no_balance_change: bool,
     /// Print raw program logs instead of structured execution trace
     #[arg(long = "raw-program-logs")]
     pub raw_program_logs: bool,
+    /// Show Address Lookup Tables and Account List (hidden by default)
+    #[arg(long = "show-account-list")]
+    pub show_account_list: bool,
 }
 
 #[derive(Args, Debug, Clone)]

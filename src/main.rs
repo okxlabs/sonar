@@ -493,11 +493,16 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
         verify_signatures,
         idl_path: _,
         balance_change,
+        no_balance_change,
         raw_program_logs,
+        show_account_list,
     } = args;
 
-    let balance_opts = output::BalanceChangeOptions { show_balance_change: balance_change };
+    // Balance change is enabled by default, but can be disabled with --no-balance-change
+    let show_balance = balance_change && !no_balance_change;
+    let balance_opts = output::BalanceChangeOptions { show_balance_change: show_balance };
     let log_opts = output::LogDisplayOptions { raw_program_logs };
+    let account_list_opts = output::AccountListOptions { show_account_list };
     let TransactionInputArgs { tx, tx_file, output } = transaction;
 
     let replacements = if parse_only {
@@ -623,6 +628,7 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
                     verify_signatures,
                     balance_opts,
                     log_opts,
+                    account_list_opts,
                 )?;
             }
             return Ok(());
@@ -697,6 +703,7 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
             verify_signatures,
             balance_opts,
             log_opts,
+            account_list_opts,
         )?;
     }
     Ok(())
