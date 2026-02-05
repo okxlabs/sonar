@@ -48,6 +48,9 @@ pub struct SimulateArgs {
     /// Show SOL and token balance changes after simulation
     #[arg(long = "balance-change")]
     pub balance_change: bool,
+    /// Print raw program logs instead of structured execution trace
+    #[arg(long = "raw-program-logs")]
+    pub raw_program_logs: bool,
 }
 
 #[derive(Args, Debug, Clone)]

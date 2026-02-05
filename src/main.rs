@@ -4,6 +4,7 @@ mod cli;
 mod executor;
 mod funding;
 mod instruction_parsers;
+mod log_parser;
 mod output;
 mod token_account_decoder;
 mod transaction;
@@ -492,9 +493,11 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
         verify_signatures,
         idl_path: _,
         balance_change,
+        raw_program_logs,
     } = args;
 
     let balance_opts = output::BalanceChangeOptions { show_balance_change: balance_change };
+    let log_opts = output::LogDisplayOptions { raw_program_logs };
     let TransactionInputArgs { tx, tx_file, output } = transaction;
 
     let replacements = if parse_only {
@@ -619,6 +622,7 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
                     ix_data,
                     verify_signatures,
                     balance_opts,
+                    log_opts,
                 )?;
             }
             return Ok(());
@@ -692,6 +696,7 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
             ix_data,
             verify_signatures,
             balance_opts,
+            log_opts,
         )?;
     }
     Ok(())

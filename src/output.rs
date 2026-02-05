@@ -17,6 +17,7 @@ use crate::{
     funding::PreparedTokenFunding,
     instruction_parsers::anchor_idl::is_anchor_cpi_event,
     instruction_parsers::{ParsedField, ParsedInstruction, ParserRegistry},
+    log_parser::{LogEntry, LogEntryWithDepth, parse_logs_by_instruction},
     transaction::{AccountReferenceSummary, AccountSourceSummary, ParsedTransaction},
 };
 use litesvm::types::TransactionMetadata;
@@ -25,6 +26,13 @@ use litesvm::types::TransactionMetadata;
 #[derive(Debug, Clone, Copy, Default)]
 pub struct BalanceChangeOptions {
     pub show_balance_change: bool,
+}
+
+/// Log display options.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct LogDisplayOptions {
+    /// If true, print raw logs; otherwise print structured execution trace.
+    pub raw_program_logs: bool,
 }
 
 pub fn render(
@@ -39,6 +47,7 @@ pub fn render(
     show_ix_data: bool,
     verify_signatures: bool,
     balance_opts: BalanceChangeOptions,
+    log_opts: LogDisplayOptions,
 ) -> Result<()> {
     let report = Report::from_sources(
         parsed,
@@ -52,7 +61,9 @@ pub fn render(
         balance_opts,
     );
     match format {
-        OutputFormat::Text => render_text(&report, resolved, parser_registry, show_ix_data),
+        OutputFormat::Text => {
+            render_text(&report, resolved, parser_registry, show_ix_data, log_opts)
+        }
         OutputFormat::Json => render_json(&report),
     }
 }
@@ -253,12 +264,13 @@ fn render_text(
     resolved: &ResolvedAccounts,
     parser_registry: &mut ParserRegistry,
     show_ix_data: bool,
+    log_opts: LogDisplayOptions,
 ) -> Result<()> {
     render_transaction_section_text(&report.transaction, resolved, parser_registry, show_ix_data);
     render_fundings_text(&report.fundings);
     render_token_fundings_text(&report.token_fundings);
     render_replacements_text(&report.replacements);
-    render_simulation_text(&report.simulation);
+    render_simulation_text(&report.simulation, log_opts);
     render_sol_balance_changes_text(&report.sol_balance_changes);
     render_token_balance_changes_text(&report.token_balance_changes);
     Ok(())
@@ -574,7 +586,7 @@ fn render_token_balance_changes_text(changes: &[TokenBalanceChangeSection]) {
     }
 }
 
-fn render_simulation_text(simulation: &SimulationSection) {
+fn render_simulation_text(simulation: &SimulationSection, log_opts: LogDisplayOptions) {
     println!("\n=== Simulation Result ===");
     match &simulation.status {
         SimulationStatusReport::Succeeded => {
@@ -585,13 +597,6 @@ fn render_simulation_text(simulation: &SimulationSection) {
         }
     }
     println!("Compute Units Consumed: {}", simulation.compute_units_consumed);
-    println!("Log Entries: {}", simulation.logs.len());
-    if !simulation.logs.is_empty() {
-        println!("Log Content:");
-        for line in &simulation.logs {
-            println!("  {}", line);
-        }
-    }
 
     if let Some(return_data) = &simulation.return_data {
         println!(
@@ -603,6 +608,116 @@ fn render_simulation_text(simulation: &SimulationSection) {
     }
 
     println!("Returned Account Count: {}", simulation.post_account_count);
+
+    // Render logs based on options
+    if !simulation.logs.is_empty() {
+        if log_opts.raw_program_logs {
+            // Raw logs output
+            println!("\n=== Program Logs ===");
+            println!("Log Entries: {}", simulation.logs.len());
+            for line in &simulation.logs {
+                println!("  {}", line);
+            }
+        } else {
+            // Structured execution trace
+            println!("\n=== Execution Trace ===");
+            render_logs_structured(&simulation.logs);
+        }
+    }
+}
+
+/// Render logs in a structured format, grouped by instruction with proper indentation.
+fn render_logs_structured(logs: &[String]) {
+    let instruction_logs = parse_logs_by_instruction(logs);
+
+    for inst_logs in &instruction_logs {
+        // Print instruction header
+        let program_name = get_program_display_name(&inst_logs.program);
+        println!(
+            "\n{} {} instruction",
+            format!("#{}", inst_logs.instruction_index + 1).bold(),
+            program_name.bold()
+        );
+
+        // Print log entries with proper indentation
+        for entry_with_depth in &inst_logs.entries {
+            render_log_entry(entry_with_depth);
+        }
+    }
+}
+
+/// Get a display name for a program (friendly name or address).
+fn get_program_display_name(pubkey: &str) -> &str {
+    // Return the address as-is (known_programs feature not implemented)
+    pubkey
+}
+
+/// Render a single log entry with appropriate formatting and color.
+fn render_log_entry(entry_with_depth: &LogEntryWithDepth) {
+    let depth = entry_with_depth.depth as usize;
+    // Base indent for logs under instruction header, plus additional for CPI depth
+    let indent = "  ".repeat(depth);
+
+    match &entry_with_depth.entry {
+        LogEntry::Invoke { program, depth: invoke_depth } => {
+            // Only show "Invoking" for CPI calls (depth > 1)
+            if *invoke_depth > 1 {
+                let program_name = get_program_display_name(program);
+                println!("{}{} {}", indent, "> Invoking".cyan(), program_name.cyan());
+            }
+        }
+        LogEntry::Log { message } => {
+            println!(
+                "{}{} {}",
+                indent,
+                ">".custom_color((128, 128, 128)),
+                format!("Program log: {}", message).custom_color((128, 128, 128))
+            );
+        }
+        LogEntry::Data { data } => {
+            println!(
+                "{}{} {}",
+                indent,
+                ">".custom_color((128, 128, 128)),
+                format!("Program data: {}", truncate_display(data, 60))
+                    .custom_color((128, 128, 128))
+            );
+        }
+        LogEntry::Consumed { program: _, used, total } => {
+            println!(
+                "{}{} {}",
+                indent,
+                ">".custom_color((128, 128, 128)),
+                format!("Program consumed: {} of {} compute units", used, total)
+                    .custom_color((128, 128, 128))
+            );
+        }
+        LogEntry::Success { program: _ } => {
+            println!("{}{} {}", indent, ">".green(), "Program returned success".green());
+        }
+        LogEntry::Failed { program: _, error } => {
+            println!("{}{} {}", indent, ">".red(), format!("Program failed: {}", error).red());
+        }
+        LogEntry::Return { program: _, data } => {
+            println!(
+                "{}{} {}",
+                indent,
+                ">".custom_color((128, 128, 128)),
+                format!("Program return: {}", truncate_display(data, 60))
+                    .custom_color((128, 128, 128))
+            );
+        }
+        LogEntry::Other(msg) => {
+            if !msg.is_empty() {
+                println!(
+                    "{}{} {}",
+                    indent,
+                    ">".custom_color((128, 128, 128)),
+                    msg.custom_color((128, 128, 128))
+                );
+            }
+        }
+    }
 }
 
 fn render_json(report: &Report) -> Result<()> {
