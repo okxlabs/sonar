@@ -492,15 +492,12 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
         ix_data,
         verify_signatures,
         idl_path: _,
-        balance_change,
-        no_balance_change,
+        show_balance_change,
         raw_program_logs,
         show_account_list,
     } = args;
 
-    // Balance change is enabled by default, but can be disabled with --no-balance-change
-    let show_balance = balance_change && !no_balance_change;
-    let balance_opts = output::BalanceChangeOptions { show_balance_change: show_balance };
+    let balance_opts = output::BalanceChangeOptions { show_balance_change };
     let log_opts = output::LogDisplayOptions { raw_program_logs };
     let account_list_opts = output::AccountListOptions { show_account_list };
     let TransactionInputArgs { tx, tx_file, output } = transaction;

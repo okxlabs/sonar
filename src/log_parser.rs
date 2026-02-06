@@ -13,13 +13,13 @@ pub enum LogEntry {
     /// Program data (base64): `Program data: <base64>`
     Data { data: String },
     /// Compute units consumed: `Program <pubkey> consumed X of Y compute units`
-    Consumed { program: String, used: u64, total: u64 },
+    Consumed { _program: String, used: u64, total: u64 },
     /// Program success: `Program <pubkey> success`
-    Success { program: String },
+    Success { _program: String },
     /// Program failure: `Program <pubkey> failed: <error>`
-    Failed { program: String, error: String },
+    Failed { _program: String, error: String },
     /// Return data: `Program return: <pubkey> <data>`
-    Return { program: String, data: String },
+    Return { _program: String, data: String },
     /// Unrecognized log line
     Other(String),
 }
@@ -51,7 +51,7 @@ pub fn parse_log_line(line: &str) -> LogEntry {
                     if let Some(cu_pos) = after_of.find(" compute units") {
                         if let Ok(total) = after_of[..cu_pos].parse::<u64>() {
                             return LogEntry::Consumed {
-                                program: program.to_string(),
+                                _program: program.to_string(),
                                 used,
                                 total,
                             };
@@ -67,7 +67,7 @@ pub fn parse_log_line(line: &str) -> LogEntry {
             let after_success = &rest[success_pos + 8..];
             if after_success.is_empty() || after_success.chars().all(|c| c.is_whitespace()) {
                 let program = &rest[..success_pos];
-                return LogEntry::Success { program: program.to_string() };
+                return LogEntry::Success { _program: program.to_string() };
             }
         }
 
@@ -75,7 +75,7 @@ pub fn parse_log_line(line: &str) -> LogEntry {
         if let Some(failed_pos) = rest.find(" failed: ") {
             let program = &rest[..failed_pos];
             let error = &rest[failed_pos + 9..];
-            return LogEntry::Failed { program: program.to_string(), error: error.to_string() };
+            return LogEntry::Failed { _program: program.to_string(), error: error.to_string() };
         }
 
         // Program log: <message>
@@ -93,7 +93,7 @@ pub fn parse_log_line(line: &str) -> LogEntry {
             if let Some(space_pos) = return_rest.find(' ') {
                 let program = &return_rest[..space_pos];
                 let data = &return_rest[space_pos + 1..];
-                return LogEntry::Return { program: program.to_string(), data: data.to_string() };
+                return LogEntry::Return { _program: program.to_string(), data: data.to_string() };
             }
         }
     }
@@ -162,7 +162,7 @@ pub fn parse_logs_by_instruction(logs: &[String]) -> Vec<InstructionLogs> {
                     }
                 }
             }
-            LogEntry::Success { program: _ } | LogEntry::Failed { program: _, error: _ } => {
+            LogEntry::Success { _program: _ } | LogEntry::Failed { _program: _, error: _ } => {
                 // Add to current instruction before popping
                 if let Some(idx) = current_instruction {
                     if let Some(inst_logs) = result.get_mut(idx) {

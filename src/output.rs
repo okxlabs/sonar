@@ -278,40 +278,41 @@ fn render_bundle_json(bundle: &BundleReport) -> Result<()> {
 fn render_text(
     report: &Report,
     resolved: &ResolvedAccounts,
-    parser_registry: &mut ParserRegistry,
+    _parser_registry: &mut ParserRegistry,
     show_ix_data: bool,
     log_opts: LogDisplayOptions,
     account_list_opts: AccountListOptions,
 ) -> Result<()> {
-    // 1. Account list and lookup tables (only if --show-account-list is specified)
-    if account_list_opts.show_account_list {
-        render_lookup_tables_text(&report.transaction);
-        render_account_list_text(&report.transaction, resolved);
-        println!();
-    }
-
-    // 2. Fundings and replacements (if any)
+    // 1. Fundings and replacements (if any)
     render_fundings_text(&report.fundings);
     render_token_fundings_text(&report.token_fundings);
     render_replacements_text(&report.replacements);
 
-    // 3. Summary header (status + CU) - displayed first
+    // 2. Summary header (status + CU) - displayed first
     render_summary_header(&report.simulation, &report.transaction);
 
-    // 4. Execution Trace (no title)
+    // 3. Execution Trace (no title)
     render_execution_trace_section(&report.simulation, log_opts);
 
-    // 5. Wave separator with empty lines
+    // 4. Wave separator with empty lines
     render_wave_separator();
 
-    // 6. Instruction details (no title)
+    // 5. Instruction details (no title)
     render_instruction_details_text(&report.transaction, resolved, show_ix_data);
 
-    // 7. Wave separator with empty lines
+    // 6. Wave separator with empty lines
     render_wave_separator();
 
-    // 8. Balance Changes (no title)
+    // 7. Balance Changes (no title)
     render_balance_changes_text(&report.sol_balance_changes, &report.token_balance_changes);
+
+    // 8. Account list and lookup tables (only if --show-account-list is specified) - at the end
+    if account_list_opts.show_account_list {
+        println!();
+        render_lookup_tables_text(&report.transaction);
+        println!();
+        render_account_list_text(&report.transaction, resolved);
+    }
 
     // 9. Final empty line
     println!();
@@ -481,10 +482,11 @@ fn render_transaction_section_text(
 ) {
     // For parse-only mode, show full transaction info including account list
     render_transaction_overview_text(transaction);
-    render_lookup_tables_text(transaction);
-    render_account_list_text(transaction, resolved);
     println!(); // Empty line before instructions
     render_instruction_details_text(transaction, resolved, show_ix_data);
+    // Account list at the end
+    render_lookup_tables_text(transaction);
+    render_account_list_text(transaction, resolved);
 }
 
 fn render_transaction_overview_text(transaction: &TransactionSection) {
@@ -510,7 +512,6 @@ fn render_lookup_tables_text(transaction: &TransactionSection) {
         return;
     }
 
-    println!("Address Lookup Tables");
     for (idx, lookup) in transaction.lookups.iter().enumerate() {
         let solscan_linked_key = format_solscan_link(&lookup.account_key);
         println!("  [{}] {}", idx, solscan_linked_key);
@@ -518,7 +519,7 @@ fn render_lookup_tables_text(transaction: &TransactionSection) {
 }
 
 fn render_account_list_text(transaction: &TransactionSection, resolved: &ResolvedAccounts) {
-    println!("\nAccount List:");
+    println!();
     let mut account_index = 0;
 
     // Render static accounts
@@ -845,7 +846,7 @@ fn render_log_entry(entry_with_depth: &LogEntryWithDepth) {
                     .custom_color((128, 128, 128))
             );
         }
-        LogEntry::Consumed { program: _, used, total } => {
+        LogEntry::Consumed { _program: _, used, total } => {
             println!(
                 "{}{} {}",
                 indent,
@@ -854,13 +855,13 @@ fn render_log_entry(entry_with_depth: &LogEntryWithDepth) {
                     .custom_color((128, 128, 128))
             );
         }
-        LogEntry::Success { program: _ } => {
+        LogEntry::Success { _program: _ } => {
             println!("{}{} {}", indent, ">".green(), "Program returned success".green());
         }
-        LogEntry::Failed { program: _, error } => {
+        LogEntry::Failed { _program: _, error } => {
             println!("{}{} {}", indent, ">".red(), format!("Program failed: {}", error).red());
         }
-        LogEntry::Return { program: _, data } => {
+        LogEntry::Return { _program: _, data } => {
             println!(
                 "{}{} {}",
                 indent,
