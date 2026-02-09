@@ -530,31 +530,30 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
             .collect::<Result<Vec<_>>>()?
     };
 
-    // Check if this is a bundle (multiple transactions separated by comma)
-    if let Some(ref tx_str) = tx {
-        let tx_inputs = cli::parse_multi_tx(tx_str);
-        if tx_inputs.len() > 1 {
-            // Bundle simulation mode
-            return handle_bundle_simulate(
-                tx_inputs,
-                &rpc_url,
-                replacements,
-                fundings,
-                token_funding_requests,
-                parse_only,
-                ix_data,
-                verify_signatures,
-                output,
-                &mut parser_registry,
-                balance_opts,
-            );
-        }
+    // Check if this is a bundle (multiple positional TX arguments)
+    if tx.len() > 1 {
+        // Bundle simulation mode
+        return handle_bundle_simulate(
+            tx,
+            &rpc_url,
+            replacements,
+            fundings,
+            token_funding_requests,
+            parse_only,
+            ix_data,
+            verify_signatures,
+            output,
+            &mut parser_registry,
+            balance_opts,
+        );
     }
 
-    let raw_input = transaction::read_raw_transaction(tx.clone(), tx_file.as_deref())?;
+    // Single tx: take the first positional arg, or fall back to --tx-file
+    let tx_single = tx.into_iter().next();
+    let raw_input = transaction::read_raw_transaction(tx_single.clone(), tx_file.as_deref())?;
 
     // Check if input looks like a transaction signature first
-    if let Some(ref tx_str) = tx {
+    if let Some(ref tx_str) = tx_single {
         if transaction::is_transaction_signature(tx_str) {
             log::info!(
                 "Input appears to be a transaction signature, attempting to fetch from RPC..."

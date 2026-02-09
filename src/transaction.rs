@@ -127,8 +127,10 @@ pub fn read_raw_transaction(inline: Option<String>, tx_file: Option<&Path>) -> R
                 Ok(trimmed.to_owned())
             }
         }
-        (Some(_), Some(_)) => Err(anyhow!("Please specify only one of --tx or --tx-file")),
-        (None, None) => Err(anyhow!("No raw transaction provided, please use --tx or --tx-file")),
+        (Some(_), Some(_)) => Err(anyhow!("Please specify only one of positional TX or --tx-file")),
+        (None, None) => Err(anyhow!(
+            "No raw transaction provided. Provide TX as a positional argument or use --tx-file"
+        )),
     }
 }
 

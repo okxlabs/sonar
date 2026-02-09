@@ -9,7 +9,6 @@ const V0_RAW_TX: &str = "GPdrKqMbYtzsysuEJhYG4bpUB9xQFpdQ8ps9s8XorbfD5SA5FrFfMAL
 fn simulate_real_transaction_via_cli() -> Result<(), Box<dyn std::error::Error>> {
     let mut cmd = cargo_bin_cmd!("solsim");
     cmd.arg("simulate")
-        .arg("--tx")
         .arg(V0_RAW_TX)
         .arg("--rpc-url")
         .arg("https://api.mainnet-beta.solana.com")
@@ -33,7 +32,6 @@ fn simulate_real_transaction_via_cli() -> Result<(), Box<dyn std::error::Error>>
 fn parse_real_transaction_via_cli() -> Result<(), Box<dyn std::error::Error>> {
     let mut cmd = cargo_bin_cmd!("solsim");
     cmd.arg("simulate")
-        .arg("--tx")
         .arg(V0_RAW_TX)
         .arg("--rpc-url")
         .arg("https://api.mainnet-beta.solana.com")
@@ -56,7 +54,6 @@ fn parse_real_transaction_via_cli() -> Result<(), Box<dyn std::error::Error>> {
 fn simulate_real_transaction_replace_multiple_program() -> Result<(), Box<dyn std::error::Error>> {
     let mut cmd = cargo_bin_cmd!("solsim");
     cmd.arg("simulate")
-        .arg("--tx")
         .arg(V0_RAW_TX)
         .arg("--replace")
         .arg("proVF4pMXVaYqmy4NjniPh4pqKNfMmsihgd4wdkCX3u=tests/fixtures/dex_solana_v3.so")

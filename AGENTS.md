@@ -36,9 +36,10 @@ cargo test --test e2e_simulation -- --ignored --nocapture
 cargo test <test_name>
 
 # Run
-cargo run -- simulate --tx <BASE58_OR_BASE64_STRING> --rpc-url <RPC_URL>
-cargo run -- simulate --tx <TRANSACTION> --rpc-url <RPC_URL> --parse-only
-cargo run -- simulate --tx <TRANSACTION> --rpc-url <RPC_URL> --replace <PROGRAM_ID>=<PATH_TO_SO_FILE>
+cargo run -- simulate <BASE58_OR_BASE64_STRING> --rpc-url <RPC_URL>
+cargo run -- simulate <TRANSACTION> --rpc-url <RPC_URL> --parse-only
+cargo run -- simulate <TRANSACTION> --rpc-url <RPC_URL> --replace <PROGRAM_ID>=<PATH_TO_SO_FILE>
+cargo run -- simulate <TX1> <TX2> <TX3> --rpc-url <RPC_URL>  # bundle simulation
 ```
 
 ## Code Style
