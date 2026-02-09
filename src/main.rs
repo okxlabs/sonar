@@ -258,10 +258,11 @@ fn try_load_idl_from_path(idl_path: &Option<PathBuf>, owner: &Pubkey) -> Option<
 /// Print account data in Solana JSON RPC format.
 /// Field order follows Solana Account struct: lamports, data, owner, executable, rent_epoch
 fn print_raw_account_data(account: &solana_account::Account) {
-    let data_hex = hex::encode(&account.data);
+    use base64::{Engine as _, engine::general_purpose};
+    let data_b64 = general_purpose::STANDARD.encode(&account.data);
     let output = serde_json::json!({
         "lamports": account.lamports,
-        "data": data_hex,
+        "data": data_b64,
         "owner": account.owner.to_string(),
         "executable": account.executable,
         "rentEpoch": account.rent_epoch,
