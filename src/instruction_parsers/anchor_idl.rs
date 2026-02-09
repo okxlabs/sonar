@@ -87,11 +87,11 @@ impl LegacyIdl {
             .instructions
             .into_iter()
             .map(|mut inst| {
-                if inst.discriminator.is_empty() {
+                if inst.discriminator.is_none() {
                     // Anchor discriminators for instructions are based on the snake_case Rust function name
                     // IDL usually has camelCase names, so we convert them
                     let snake_name = to_snake_case(&inst.name);
-                    inst.discriminator = sighash("global", &snake_name).to_vec();
+                    inst.discriminator = Some(sighash("global", &snake_name).to_vec());
                 }
                 inst
             })
@@ -102,8 +102,8 @@ impl LegacyIdl {
             events
                 .into_iter()
                 .map(|mut event| {
-                    if event.discriminator.is_empty() {
-                        event.discriminator = sighash("event", &event.name).to_vec();
+                    if event.discriminator.is_none() {
+                        event.discriminator = Some(sighash("event", &event.name).to_vec());
                     }
                     event
                 })
@@ -152,7 +152,7 @@ pub struct IdlMetadata {
 pub struct IdlInstruction {
     pub name: String,
     #[serde(default)]
-    pub discriminator: Vec<u8>,
+    pub discriminator: Option<Vec<u8>>,
     pub accounts: Vec<IdlAccountItem>,
     pub args: Vec<IdlArg>,
 }
@@ -161,7 +161,7 @@ pub struct IdlInstruction {
 pub struct IdlEvent {
     pub name: String,
     #[serde(default)]
-    pub discriminator: Vec<u8>,
+    pub discriminator: Option<Vec<u8>>,
     #[serde(default)]
     pub fields: Option<Vec<IdlField>>,
 }
@@ -379,7 +379,7 @@ impl InstructionParser for AnchorIdlParser {
         if let Some(idl_instruction) =
             find_instruction_by_discriminator(&self.idl, &instruction.data)
         {
-            let mut offset = idl_instruction.discriminator.len();
+            let mut offset = idl_instruction.discriminator.as_ref().map_or(0, |d| d.len());
             let data = parse_instruction_data(
                 &instruction.data,
                 &mut offset,
@@ -412,10 +412,16 @@ impl InstructionParser for AnchorIdlParser {
 }
 
 fn find_instruction_by_discriminator<'a>(idl: &'a Idl, data: &[u8]) -> Option<&'a IdlInstruction> {
-    idl.instructions.iter().find(|inst| {
-        let disc_len = inst.discriminator.len();
-        data.len() >= disc_len && &data[..disc_len] == inst.discriminator.as_slice()
-    })
+    // Find all matching instructions, then pick the one with the longest discriminator.
+    // This ensures that a more specific match (e.g. [1]) wins over an empty discriminator ([]).
+    idl.instructions
+        .iter()
+        .filter(|inst| {
+            let disc = inst.discriminator.as_deref().unwrap_or(&[]);
+            let disc_len = disc.len();
+            data.len() >= disc_len && &data[..disc_len] == disc
+        })
+        .max_by_key(|inst| inst.discriminator.as_ref().map_or(0, |d| d.len()))
 }
 
 fn extract_account_names(accounts: &[IdlAccountItem]) -> Vec<String> {
@@ -846,7 +852,10 @@ fn check_data_len(data: &[u8], offset: usize, required: usize) -> Result<()> {
 pub fn find_event_by_discriminator<'a>(idl: &'a Idl, discriminator: &[u8]) -> Option<&'a IdlEvent> {
     if let Some(events) = &idl.events {
         events.iter().find(|event| {
-            event.discriminator.len() == 8 && &event.discriminator[..8] == discriminator
+            event
+                .discriminator
+                .as_ref()
+                .is_some_and(|d| d.len() == 8 && d.as_slice() == discriminator)
         })
     } else {
         None
