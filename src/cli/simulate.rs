@@ -34,9 +34,6 @@ pub struct SimulateArgs {
         value_parser = clap::builder::NonEmptyStringValueParser::new()
     )]
     pub token_fundings: Vec<String>,
-    /// Parse transaction only, skip simulation
-    #[arg(long = "parse-only")]
-    pub parse_only: bool,
     /// Always print raw instruction data, even when parser succeeds
     #[arg(long = "ix-data")]
     pub ix_data: bool,

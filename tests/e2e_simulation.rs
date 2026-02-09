@@ -31,11 +31,10 @@ fn simulate_real_transaction_via_cli() -> Result<(), Box<dyn std::error::Error>>
 #[ignore]
 fn parse_real_transaction_via_cli() -> Result<(), Box<dyn std::error::Error>> {
     let mut cmd = cargo_bin_cmd!("solsim");
-    cmd.arg("simulate")
+    cmd.arg("decode")
         .arg(V0_RAW_TX)
         .arg("--rpc-url")
         .arg("https://api.mainnet-beta.solana.com")
-        .arg("--parse-only")
         .arg("--output")
         .arg("text");
 

@@ -470,31 +470,12 @@ fn render_transaction_section_text(
     _parser_registry: &mut ParserRegistry,
     show_ix_data: bool,
 ) {
-    // For parse-only mode, show full transaction info including account list
-    render_transaction_overview_text(transaction);
     println!(); // Empty line before instructions
     render_instruction_details_text(transaction, resolved, show_ix_data);
+    println!();
     // Account list at the end
     render_lookup_tables_text(transaction);
     render_account_list_text(transaction, resolved);
-}
-
-fn render_transaction_overview_text(transaction: &TransactionSection) {
-    // Compact format for parse-only mode
-    println!("=== Transaction ===");
-    let sig_display =
-        transaction
-            .signatures
-            .first()
-            .map(|s| {
-                if s.len() > 20 {
-                    format!("{}...{}", &s[..8], &s[s.len() - 8..])
-                } else {
-                    s.clone()
-                }
-            })
-            .unwrap_or_else(|| "<no-sig>".to_string());
-    println!("{} | Sig: {}", transaction.version, sig_display);
 }
 
 fn render_lookup_tables_text(transaction: &TransactionSection) {

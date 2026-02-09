@@ -2,6 +2,7 @@
 
 mod account;
 mod convert;
+mod decode;
 mod fetch_idl;
 mod pda;
 mod program_data;
@@ -11,6 +12,7 @@ mod simulate;
 // Re-export all public types from submodules
 pub use account::*;
 pub use convert::*;
+pub use decode::*;
 pub use fetch_idl::*;
 pub use pda::*;
 pub use program_data::*;
@@ -58,6 +60,8 @@ pub struct Cli {
 pub enum Commands {
     /// Simulate a specified raw transaction
     Simulate(SimulateArgs),
+    /// Decode and display a raw transaction without simulation
+    Decode(DecodeArgs),
     /// Fetch Anchor IDL from on-chain program accounts
     FetchIdl(FetchIdlArgs),
     /// Fetch and decode Solana account data if IDL is available onchain or locally

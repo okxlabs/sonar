@@ -20,8 +20,8 @@ use std::io::IsTerminal;
 use anyhow::{Context, Result};
 use clap::Parser;
 use cli::{
-    AccountArgs, Cli, ColorMode, Commands, ConvertArgs, FetchIdlArgs, PdaArgs, ProgramDataArgs,
-    SendArgs, SimulateArgs, TransactionInputArgs,
+    AccountArgs, Cli, ColorMode, Commands, ConvertArgs, DecodeArgs, FetchIdlArgs, PdaArgs,
+    ProgramDataArgs, SendArgs, SimulateArgs, TransactionInputArgs,
 };
 use instruction_parsers::ParserRegistry;
 use solana_pubkey::Pubkey;
@@ -53,6 +53,7 @@ fn run() -> Result<()> {
 
     match cli.command {
         Commands::Simulate(args) => handle_simulate(args)?,
+        Commands::Decode(args) => handle_decode(args)?,
         Commands::FetchIdl(args) => handle_fetch_idl(args)?,
         Commands::Account(args) => handle_account(args)?,
         Commands::Convert(args) => handle_convert(args)?,
@@ -494,6 +495,105 @@ fn scan_idl_directory(dir: &Path) -> Result<Vec<Pubkey>> {
     Ok(program_ids)
 }
 
+fn handle_decode(args: DecodeArgs) -> Result<()> {
+    let idl_path = args.idl_path.clone();
+    let mut parser_registry = ParserRegistry::new(idl_path);
+
+    let DecodeArgs { transaction, rpc, ix_data, idl_path: _ } = args;
+    let rpc_url = rpc.rpc_url;
+    let TransactionInputArgs { tx, tx_file, output } = transaction;
+
+    // Check if this is a bundle (multiple positional TX arguments)
+    if tx.len() > 1 {
+        return handle_bundle_decode(tx, &rpc_url, ix_data, output, &mut parser_registry);
+    }
+
+    // Single tx: take the first positional arg, or fall back to --tx-file
+    let tx_single = tx.into_iter().next();
+    let raw_input = transaction::read_raw_transaction(tx_single.clone(), tx_file.as_deref())?;
+
+    // Check if input looks like a transaction signature first
+    let raw_tx = if let Some(ref tx_str) = tx_single {
+        if transaction::is_transaction_signature(tx_str) {
+            log::info!(
+                "Input appears to be a transaction signature, attempting to fetch from RPC..."
+            );
+            transaction::fetch_transaction_from_rpc(&rpc_url, tx_str)?
+        } else {
+            raw_input
+        }
+    } else {
+        raw_input
+    };
+
+    let parsed_tx = transaction::parse_raw_transaction(&raw_tx)?;
+
+    let account_loader = account_loader::AccountLoader::new(rpc_url)?;
+    let resolved_accounts = account_loader.load_for_transaction(&parsed_tx.transaction, &[])?;
+
+    let program_ids = collect_program_ids(&resolved_accounts);
+    if program_ids.is_empty() {
+        log::error!("No executable accounts found after RPC load; skipping IDL parsing");
+    } else {
+        match parser_registry.load_idl_parsers_for_programs(program_ids) {
+            Ok(count) if count > 0 => log::info!("Lazy-loaded {} IDL parsers", count),
+            Ok(_) => {}
+            Err(err) => log::warn!("Failed to load IDL parsers: {:?}", err),
+        }
+    }
+
+    output::render_transaction_only(
+        &parsed_tx,
+        &resolved_accounts,
+        &mut parser_registry,
+        output,
+        ix_data,
+    )?;
+
+    Ok(())
+}
+
+/// Handle bundle decode (multiple transactions decoded without simulation).
+fn handle_bundle_decode(
+    tx_inputs: Vec<String>,
+    rpc_url: &str,
+    ix_data: bool,
+    output_format: cli::OutputFormat,
+    parser_registry: &mut instruction_parsers::ParserRegistry,
+) -> Result<()> {
+    log::info!("Bundle decode mode: {} transactions", tx_inputs.len());
+
+    let parsed_txs = transaction::parse_multi_raw_transactions(&tx_inputs, rpc_url)?;
+    log::info!("Successfully parsed {} transactions", parsed_txs.len());
+
+    let tx_refs: Vec<_> = parsed_txs.iter().map(|p| &p.transaction).collect();
+
+    let account_loader = account_loader::AccountLoader::new(rpc_url.to_string())?;
+    let resolved_accounts = account_loader.load_for_transactions(&tx_refs, &[])?;
+
+    let program_ids = collect_program_ids(&resolved_accounts);
+    if !program_ids.is_empty() {
+        match parser_registry.load_idl_parsers_for_programs(program_ids) {
+            Ok(count) if count > 0 => log::info!("Lazy-loaded {} IDL parsers", count),
+            Ok(_) => {}
+            Err(err) => log::warn!("Failed to load IDL parsers: {:?}", err),
+        }
+    }
+
+    for (i, parsed_tx) in parsed_txs.iter().enumerate() {
+        println!("\n=== Transaction {} of {} ===", i + 1, parsed_txs.len());
+        output::render_transaction_only(
+            parsed_tx,
+            &resolved_accounts,
+            parser_registry,
+            output_format,
+            ix_data,
+        )?;
+    }
+
+    Ok(())
+}
+
 fn handle_simulate(args: SimulateArgs) -> Result<()> {
     // Only attempt IDL-based parsing when the user explicitly supplies a directory
     let idl_path = args.idl_path.clone();
@@ -506,7 +606,6 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
         replacements: replacement_args,
         fundings: funding_args,
         token_fundings: token_funding_args,
-        parse_only,
         ix_data,
         verify_signatures,
         idl_path: _,
@@ -521,32 +620,20 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
     let account_list_opts = output::AccountListOptions { show_account_list };
     let TransactionInputArgs { tx, tx_file, output } = transaction;
 
-    let replacements = if parse_only {
-        vec![]
-    } else {
-        replacement_args
-            .into_iter()
-            .map(|raw| cli::parse_program_replacement(&raw).map_err(anyhow::Error::msg))
-            .collect::<Result<Vec<_>>>()?
-    };
+    let replacements = replacement_args
+        .into_iter()
+        .map(|raw| cli::parse_program_replacement(&raw).map_err(anyhow::Error::msg))
+        .collect::<Result<Vec<_>>>()?;
 
-    let fundings = if parse_only {
-        vec![]
-    } else {
-        funding_args
-            .into_iter()
-            .map(|raw| cli::parse_funding(&raw).map_err(anyhow::Error::msg))
-            .collect::<Result<Vec<_>>>()?
-    };
+    let fundings = funding_args
+        .into_iter()
+        .map(|raw| cli::parse_funding(&raw).map_err(anyhow::Error::msg))
+        .collect::<Result<Vec<_>>>()?;
 
-    let token_funding_requests = if parse_only {
-        vec![]
-    } else {
-        token_funding_args
-            .into_iter()
-            .map(|raw| cli::parse_token_funding(&raw).map_err(anyhow::Error::msg))
-            .collect::<Result<Vec<_>>>()?
-    };
+    let token_funding_requests = token_funding_args
+        .into_iter()
+        .map(|raw| cli::parse_token_funding(&raw).map_err(anyhow::Error::msg))
+        .collect::<Result<Vec<_>>>()?;
 
     // Check if this is a bundle (multiple positional TX arguments)
     if tx.len() > 1 {
@@ -557,7 +644,6 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
             replacements,
             fundings,
             token_funding_requests,
-            parse_only,
             ix_data,
             verify_signatures,
             output,
@@ -604,48 +690,39 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
                 }
             }
 
-            if parse_only {
-                output::render_transaction_only(
-                    &parsed_tx,
-                    &resolved_accounts,
-                    &mut parser_registry,
-                    output,
-                    ix_data,
-                )?;
-            } else {
-                let mut executor = executor::TransactionExecutor::prepare(
-                    resolved_accounts,
-                    replacements,
-                    fundings,
-                    prepared_token_fundings,
-                    verify_signatures,
-                )?;
-                let simulation = executor.simulate(&parsed_tx.transaction)?;
+            let mut executor = executor::TransactionExecutor::prepare(
+                resolved_accounts,
+                replacements,
+                fundings,
+                prepared_token_fundings,
+                verify_signatures,
+            )?;
+            let simulation = executor.simulate(&parsed_tx.transaction)?;
 
-                // Update transaction summary with inner instructions from simulation
-                let mut updated_tx = parsed_tx;
-                updated_tx.summary = transaction::TransactionSummary::from_transaction(
-                    &updated_tx.transaction,
-                    &updated_tx.account_plan,
-                    simulation.meta.inner_instructions.clone(),
-                );
+            // Update transaction summary with inner instructions from simulation
+            let mut updated_tx = parsed_tx;
+            updated_tx.summary = transaction::TransactionSummary::from_transaction(
+                &updated_tx.transaction,
+                &updated_tx.account_plan,
+                simulation.meta.inner_instructions.clone(),
+            );
 
-                output::render(
-                    &updated_tx,
-                    executor.resolved_accounts(),
-                    &simulation,
-                    executor.replacements(),
-                    executor.fundings(),
-                    executor.token_fundings(),
-                    &mut parser_registry,
-                    output,
-                    ix_data,
-                    verify_signatures,
-                    balance_opts,
-                    log_opts,
-                    account_list_opts,
-                )?;
-            }
+            output::render(
+                &updated_tx,
+                executor.resolved_accounts(),
+                &simulation,
+                executor.replacements(),
+                executor.fundings(),
+                executor.token_fundings(),
+                &mut parser_registry,
+                output,
+                ix_data,
+                verify_signatures,
+                balance_opts,
+                log_opts,
+                account_list_opts,
+            )?;
+
             return Ok(());
         }
     }
@@ -679,48 +756,39 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
         }
     }
 
-    if parse_only {
-        output::render_transaction_only(
-            &parsed_tx,
-            &resolved_accounts,
-            &mut parser_registry,
-            output,
-            ix_data,
-        )?;
-    } else {
-        let mut executor = executor::TransactionExecutor::prepare(
-            resolved_accounts,
-            replacements,
-            fundings,
-            prepared_token_fundings,
-            verify_signatures,
-        )?;
-        let simulation = executor.simulate(&parsed_tx.transaction)?;
+    let mut executor = executor::TransactionExecutor::prepare(
+        resolved_accounts,
+        replacements,
+        fundings,
+        prepared_token_fundings,
+        verify_signatures,
+    )?;
+    let simulation = executor.simulate(&parsed_tx.transaction)?;
 
-        // Update transaction summary with inner instructions from simulation
-        let mut updated_tx = parsed_tx;
-        updated_tx.summary = transaction::TransactionSummary::from_transaction(
-            &updated_tx.transaction,
-            &updated_tx.account_plan,
-            simulation.meta.inner_instructions.clone(),
-        );
+    // Update transaction summary with inner instructions from simulation
+    let mut updated_tx = parsed_tx;
+    updated_tx.summary = transaction::TransactionSummary::from_transaction(
+        &updated_tx.transaction,
+        &updated_tx.account_plan,
+        simulation.meta.inner_instructions.clone(),
+    );
 
-        output::render(
-            &updated_tx,
-            executor.resolved_accounts(),
-            &simulation,
-            executor.replacements(),
-            executor.fundings(),
-            executor.token_fundings(),
-            &mut parser_registry,
-            output,
-            ix_data,
-            verify_signatures,
-            balance_opts,
-            log_opts,
-            account_list_opts,
-        )?;
-    }
+    output::render(
+        &updated_tx,
+        executor.resolved_accounts(),
+        &simulation,
+        executor.replacements(),
+        executor.fundings(),
+        executor.token_fundings(),
+        &mut parser_registry,
+        output,
+        ix_data,
+        verify_signatures,
+        balance_opts,
+        log_opts,
+        account_list_opts,
+    )?;
+
     Ok(())
 }
 
@@ -731,7 +799,6 @@ fn handle_bundle_simulate(
     replacements: Vec<cli::ProgramReplacement>,
     fundings: Vec<cli::Funding>,
     token_funding_requests: Vec<cli::TokenFunding>,
-    parse_only: bool,
     ix_data: bool,
     verify_signatures: bool,
     output_format: cli::OutputFormat,
@@ -770,21 +837,6 @@ fn handle_bundle_simulate(
             Ok(_) => {}
             Err(err) => log::warn!("Failed to load IDL parsers: {:?}", err),
         }
-    }
-
-    if parse_only {
-        // For parse-only mode, just render all transactions without simulation
-        for (i, parsed_tx) in parsed_txs.iter().enumerate() {
-            println!("\n=== Transaction {} of {} ===", i + 1, parsed_txs.len());
-            output::render_transaction_only(
-                parsed_tx,
-                &resolved_accounts,
-                parser_registry,
-                output_format,
-                ix_data,
-            )?;
-        }
-        return Ok(());
     }
 
     // Execute bundle simulation
