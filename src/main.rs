@@ -15,18 +15,22 @@ use std::{
     str::FromStr,
 };
 
+use std::io::IsTerminal;
+
 use anyhow::{Context, Result};
 use clap::Parser;
 use cli::{
-    AccountArgs, Cli, Commands, ConvertArgs, FetchIdlArgs, PdaArgs, ProgramDataArgs, SendArgs,
-    SimulateArgs, TransactionInputArgs,
+    AccountArgs, Cli, ColorMode, Commands, ConvertArgs, FetchIdlArgs, PdaArgs, ProgramDataArgs,
+    SendArgs, SimulateArgs, TransactionInputArgs,
 };
 use instruction_parsers::ParserRegistry;
 use solana_pubkey::Pubkey;
 
 fn main() {
     if let Err(err) = run() {
-        eprintln!("Execution failed: {err:?}");
+        // Use alternate Display format ({:#}) for user-friendly single-line error chain
+        // instead of Debug format ({:?}) which outputs the full anyhow backtrace
+        eprintln!("Error: {err:#}");
         std::process::exit(1);
     }
 }
@@ -34,6 +38,19 @@ fn main() {
 fn run() -> Result<()> {
     env_logger::init();
     let cli = Cli::parse();
+
+    // Initialize color control based on --color flag, NO_COLOR env var, and TTY detection
+    // Reference: https://no-color.org
+    match cli.color {
+        ColorMode::Never => colored::control::set_override(false),
+        ColorMode::Always => colored::control::set_override(true),
+        ColorMode::Auto => {
+            if std::env::var_os("NO_COLOR").is_some() || !std::io::stdout().is_terminal() {
+                colored::control::set_override(false);
+            }
+        }
+    }
+
     match cli.command {
         Commands::Simulate(args) => handle_simulate(args)?,
         Commands::FetchIdl(args) => handle_fetch_idl(args)?,
