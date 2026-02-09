@@ -1,0 +1,12 @@
+tests/e2e_simulation.rs
+src/cli/mod.rs
+src/output.rs
+src/main.rs
+src/cli/decode.rs
+---
+{
+  "metadata": {
+    "base_commit_sha": "0501101bf5b1684a4fb2fe65a2b389328a62529c",
+    "prompts": {}
+  }
+}
