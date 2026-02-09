@@ -143,9 +143,6 @@ pub fn render_bundle(
 fn render_bundle_text(bundle: &BundleReport, total_count: usize) -> Result<()> {
     println!("=== Bundle Simulation ({} transactions) ===", total_count);
 
-    // Render shared config first
-    render_replacements_text(&bundle.replacements);
-
     // Render executed transactions with compact format
     for (i, tx_report) in bundle.transactions.iter().enumerate() {
         render_bundle_transaction_compact(i + 1, total_count, tx_report);
@@ -281,10 +278,7 @@ fn render_text(
     log_opts: LogDisplayOptions,
     account_list_opts: AccountListOptions,
 ) -> Result<()> {
-    // 1. Replacements (if any)
-    render_replacements_text(&report.replacements);
-
-    // 2. Summary header (status + CU) - displayed first
+    // 1. Summary header (status + CU) - displayed first
     render_summary_header(&report.simulation, &report.transaction);
 
     // 3. Execution Trace (no title)
@@ -747,17 +741,6 @@ fn render_inner_instruction_account_text_with_name(
         account_privilege_emoji(account.signer, account.writable, executable),
         name.custom_color((135, 206, 235))
     );
-}
-
-fn render_replacements_text(replacements: &[ReplacementSection]) {
-    if replacements.is_empty() {
-        return;
-    }
-
-    println!("\nProgram Replacements:");
-    for replacement in replacements {
-        println!("  {} <= {}", replacement.program_id, replacement.path);
-    }
 }
 
 /// Render logs in a structured format, grouped by instruction with proper indentation.
