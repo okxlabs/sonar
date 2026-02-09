@@ -77,7 +77,7 @@ fn handle_fetch_idl(args: FetchIdlArgs) -> Result<()> {
         .with_context(|| format!("Failed to create output directory: {}", output_dir.display()))?;
 
     // Create account loader and fetch IDLs
-    let loader = account_loader::AccountLoader::new(args.rpc_url)?;
+    let loader = account_loader::AccountLoader::new(args.rpc.rpc_url)?;
 
     let mut success_count = 0;
     let mut not_found_count = 0;
@@ -120,7 +120,7 @@ fn handle_account(args: AccountArgs) -> Result<()> {
         .with_context(|| format!("Invalid account pubkey: {}", args.account))?;
 
     // Create RPC client and fetch the account
-    let client = RpcClient::new(&args.rpc_url);
+    let client = RpcClient::new(&args.rpc.rpc_url);
     let account = client
         .get_account(&account_pubkey)
         .with_context(|| format!("Failed to fetch account: {}", account_pubkey))?;
@@ -151,7 +151,7 @@ fn handle_account(args: AccountArgs) -> Result<()> {
 
     // Try to find IDL: first from local path, then from chain
     let idl_json = try_load_idl_from_path(&args.idl_path, &owner).or_else(|| {
-        let loader = account_loader::AccountLoader::new(args.rpc_url.clone()).ok()?;
+        let loader = account_loader::AccountLoader::new(args.rpc.rpc_url.clone()).ok()?;
         loader.fetch_idl(&owner).ok().flatten()
     });
 
@@ -303,7 +303,7 @@ fn handle_send(args: SendArgs) -> Result<()> {
     use solana_client::rpc_config::RpcSendTransactionConfig;
 
     let parsed = transaction::parse_raw_transaction(&args.tx)?;
-    let client = RpcClient::new(&args.rpc_url);
+    let client = RpcClient::new(&args.rpc.rpc_url);
 
     let config =
         RpcSendTransactionConfig { skip_preflight: args.skip_preflight, ..Default::default() };
@@ -330,7 +330,7 @@ fn handle_program_data(args: ProgramDataArgs) -> Result<()> {
     let address = Pubkey::from_str(&args.address)
         .with_context(|| format!("Invalid address: {}", args.address))?;
 
-    let client = RpcClient::new(&args.rpc_url);
+    let client = RpcClient::new(&args.rpc.rpc_url);
 
     let elf_data = if args.buffer {
         // Buffer mode: fetch buffer account directly
@@ -485,7 +485,7 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
     log::debug!("Created parser registry with lazy IDL loading support");
     let SimulateArgs {
         transaction,
-        rpc_url,
+        rpc,
         replacements: replacement_args,
         fundings: funding_args,
         token_fundings: token_funding_args,
@@ -497,6 +497,7 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
         raw_program_logs,
         show_account_list,
     } = args;
+    let rpc_url = rpc.rpc_url;
 
     let balance_opts = output::BalanceChangeOptions { show_balance_change };
     let log_opts = output::LogDisplayOptions { raw_program_logs };

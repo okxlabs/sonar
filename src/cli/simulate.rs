@@ -5,13 +5,14 @@ use std::{path::PathBuf, str::FromStr};
 use clap::{Args, ValueEnum};
 use solana_pubkey::Pubkey;
 
+use super::RpcArgs;
+
 #[derive(Args, Debug)]
 pub struct SimulateArgs {
     #[command(flatten)]
     pub transaction: TransactionInputArgs,
-    /// Solana RPC node URL
-    #[arg(long = "rpc-url", default_value = "https://api.mainnet-beta.solana.com")]
-    pub rpc_url: String,
+    #[command(flatten)]
+    pub rpc: RpcArgs,
     /// Custom program replacement, format: <PROGRAM_ID>=<PATH_TO_ELF_OR_SO>
     #[arg(
         long = "replace",

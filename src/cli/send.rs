@@ -2,15 +2,16 @@
 
 use clap::Args;
 
+use super::RpcArgs;
+
 #[derive(Args, Debug)]
 pub struct SendArgs {
     /// Raw transaction string (Base58/Base64 encoded, must be signed)
     #[arg(value_name = "TX")]
     pub tx: String,
 
-    /// Solana RPC node URL
-    #[arg(long = "rpc-url", default_value = "https://api.mainnet-beta.solana.com")]
-    pub rpc_url: String,
+    #[command(flatten)]
+    pub rpc: RpcArgs,
 
     /// Skip preflight transaction checks
     #[arg(long = "skip-preflight")]

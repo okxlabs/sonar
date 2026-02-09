@@ -4,14 +4,15 @@ use std::path::PathBuf;
 
 use clap::Args;
 
+use super::RpcArgs;
+
 #[derive(Args, Debug)]
 pub struct AccountArgs {
     /// Solana account address (base58 pubkey)
     pub account: String,
 
-    /// RPC endpoint for fetching account data
-    #[arg(long = "rpc-url", default_value = "https://api.mainnet-beta.solana.com")]
-    pub rpc_url: String,
+    #[command(flatten)]
+    pub rpc: RpcArgs,
 
     /// Local IDL directory. Falls back to fetching from chain if not found.
     #[arg(long = "idl-path")]

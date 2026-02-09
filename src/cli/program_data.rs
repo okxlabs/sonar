@@ -4,14 +4,15 @@ use std::path::PathBuf;
 
 use clap::Args;
 
+use super::RpcArgs;
+
 #[derive(Args, Debug)]
 pub struct ProgramDataArgs {
     /// Program ID or Buffer address to fetch data for
     pub address: String,
 
-    /// Solana RPC node URL
-    #[arg(long = "rpc-url", default_value = "https://api.mainnet-beta.solana.com")]
-    pub rpc_url: String,
+    #[command(flatten)]
+    pub rpc: RpcArgs,
 
     /// Treat the address as a Buffer account instead of a Program
     #[arg(long)]

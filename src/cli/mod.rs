@@ -17,7 +17,19 @@ pub use program_data::*;
 pub use send::*;
 pub use simulate::*;
 
-use clap::{Parser, Subcommand};
+use clap::{Args, Parser, Subcommand};
+
+/// Shared RPC connection arguments for all subcommands that need RPC access.
+#[derive(Args, Debug, Clone)]
+pub struct RpcArgs {
+    /// Solana RPC node URL
+    #[arg(
+        long = "rpc-url",
+        env = "RPC_URL",
+        default_value = "https://api.mainnet-beta.solana.com"
+    )]
+    pub rpc_url: String,
+}
 
 #[derive(Parser, Debug)]
 #[command(name = "solsim", version, about = "Solana Transaction Simulator based on LiteSVM")]
