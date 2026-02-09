@@ -144,8 +144,6 @@ fn render_bundle_text(bundle: &BundleReport, total_count: usize) -> Result<()> {
     println!("=== Bundle Simulation ({} transactions) ===", total_count);
 
     // Render shared config first
-    render_fundings_text(&bundle.fundings);
-    render_token_fundings_text(&bundle.token_fundings);
     render_replacements_text(&bundle.replacements);
 
     // Render executed transactions with compact format
@@ -283,9 +281,7 @@ fn render_text(
     log_opts: LogDisplayOptions,
     account_list_opts: AccountListOptions,
 ) -> Result<()> {
-    // 1. Fundings and replacements (if any)
-    render_fundings_text(&report.fundings);
-    render_token_fundings_text(&report.token_fundings);
+    // 1. Replacements (if any)
     render_replacements_text(&report.replacements);
 
     // 2. Summary header (status + CU) - displayed first
@@ -751,31 +747,6 @@ fn render_inner_instruction_account_text_with_name(
         account_privilege_emoji(account.signer, account.writable, executable),
         name.custom_color((135, 206, 235))
     );
-}
-
-fn render_fundings_text(fundings: &[FundingSection]) {
-    if fundings.is_empty() {
-        return;
-    }
-
-    println!("\nAccount Funding:");
-    for funding in fundings {
-        println!("  {} <= {} SOL", funding.pubkey, funding.amount_sol);
-    }
-}
-
-fn render_token_fundings_text(fundings: &[TokenFundingSection]) {
-    if fundings.is_empty() {
-        return;
-    }
-
-    println!("\nToken Funding:");
-    for funding in fundings {
-        println!(
-            "  account {} mint {} | decimals {} | UI {} | raw {}",
-            funding.account, funding.mint, funding.decimals, funding.ui_amount, funding.amount_raw
-        );
-    }
 }
 
 fn render_replacements_text(replacements: &[ReplacementSection]) {
