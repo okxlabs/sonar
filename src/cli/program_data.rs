@@ -20,7 +20,7 @@ pub struct ProgramDataArgs {
 
     /// Verify the program data matches the expected SHA256 hash (hex string)
     #[arg(long)]
-    pub verify: Option<String>,
+    pub verify_sha256: Option<String>,
 
     /// Output file path (writes to stdout if not specified)
     #[arg(short, long)]

@@ -425,7 +425,7 @@ fn handle_program_data(args: ProgramDataArgs) -> Result<()> {
     };
 
     // Handle verification or output
-    if let Some(expected_hash) = args.verify {
+    if let Some(expected_hash) = args.verify_sha256 {
         // Compute SHA256 hash
         let mut hasher = Sha256::new();
         hasher.update(&elf_data);
