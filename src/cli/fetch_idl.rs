@@ -6,9 +6,9 @@ use clap::Args;
 
 #[derive(Args, Debug)]
 pub struct FetchIdlArgs {
-    /// Comma-separated list of program IDs to fetch IDLs for
-    #[arg(long = "programs", value_name = "PROGRAM_IDS", conflicts_with = "sync_dir")]
-    pub programs: Option<String>,
+    /// Program IDs to fetch IDLs for
+    #[arg(conflicts_with = "sync_dir")]
+    pub programs: Vec<String>,
     /// Directory containing existing IDL files to sync (output defaults to this directory)
     #[arg(long = "sync-dir", value_name = "PATH", conflicts_with = "programs")]
     pub sync_dir: Option<PathBuf>,

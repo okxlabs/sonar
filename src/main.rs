@@ -47,11 +47,11 @@ fn run() -> Result<()> {
 }
 
 fn handle_fetch_idl(args: FetchIdlArgs) -> Result<()> {
-    // Determine program IDs from either --programs or --sync-dir
-    let program_ids: Vec<Pubkey> = if let Some(ref programs) = args.programs {
-        // Parse comma-separated program IDs
-        programs
-            .split(',')
+    // Determine program IDs from positional args or --sync-dir
+    let program_ids: Vec<Pubkey> = if !args.programs.is_empty() {
+        // Parse positional program IDs
+        args.programs
+            .iter()
             .map(|s| {
                 Pubkey::from_str(s.trim())
                     .with_context(|| format!("Invalid program ID: {}", s.trim()))
@@ -61,7 +61,7 @@ fn handle_fetch_idl(args: FetchIdlArgs) -> Result<()> {
         // Scan directory for existing IDL files
         scan_idl_directory(sync_dir)?
     } else {
-        return Err(anyhow::anyhow!("Must provide either --programs or --sync-dir"));
+        return Err(anyhow::anyhow!("Must provide program IDs or --sync-dir"));
     };
 
     if program_ids.is_empty() {
