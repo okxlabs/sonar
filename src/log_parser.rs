@@ -230,8 +230,8 @@ mod tests {
     fn test_parse_consumed() {
         let line = "Program 11111111111111111111111111111111 consumed 150 of 200000 compute units";
         match parse_log_line(line) {
-            LogEntry::Consumed { program, used, total } => {
-                assert_eq!(program, "11111111111111111111111111111111");
+            LogEntry::Consumed { _program, used, total } => {
+                assert_eq!(_program, "11111111111111111111111111111111");
                 assert_eq!(used, 150);
                 assert_eq!(total, 200000);
             }
@@ -243,8 +243,8 @@ mod tests {
     fn test_parse_success() {
         let line = "Program 11111111111111111111111111111111 success";
         match parse_log_line(line) {
-            LogEntry::Success { program } => {
-                assert_eq!(program, "11111111111111111111111111111111");
+            LogEntry::Success { _program } => {
+                assert_eq!(_program, "11111111111111111111111111111111");
             }
             _ => panic!("Expected Success"),
         }
@@ -254,8 +254,8 @@ mod tests {
     fn test_parse_failed() {
         let line = "Program ABC123 failed: custom program error: 0x1";
         match parse_log_line(line) {
-            LogEntry::Failed { program, error } => {
-                assert_eq!(program, "ABC123");
+            LogEntry::Failed { _program, error } => {
+                assert_eq!(_program, "ABC123");
                 assert_eq!(error, "custom program error: 0x1");
             }
             _ => panic!("Expected Failed"),
@@ -277,8 +277,8 @@ mod tests {
     fn test_parse_return() {
         let line = "Program return: ABC123 SGVsbG8=";
         match parse_log_line(line) {
-            LogEntry::Return { program, data } => {
-                assert_eq!(program, "ABC123");
+            LogEntry::Return { _program, data } => {
+                assert_eq!(_program, "ABC123");
                 assert_eq!(data, "SGVsbG8=");
             }
             _ => panic!("Expected Return"),

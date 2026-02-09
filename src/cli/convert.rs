@@ -154,6 +154,17 @@ pub fn parse_bytes_input(input: &str, format_hint: Option<ByteFormat>) -> Result
         return Ok(bytes);
     }
 
+    // When format hint explicitly says Hex, try parsing as raw hex string without 0x prefix
+    if matches!(format_hint, Some(ByteFormat::Hex)) {
+        let hex_str: String = input.chars().filter(|c| !c.is_whitespace()).collect();
+        if hex_str.is_empty() {
+            return Err("Hex string cannot be empty".to_string());
+        }
+        let hex_str = if hex_str.len() % 2 != 0 { format!("0{}", hex_str) } else { hex_str };
+        let bytes = hex::decode(&hex_str).map_err(|e| format!("Invalid hex string: {}", e))?;
+        return Ok(bytes);
+    }
+
     Err("Invalid input format. Expected hex string (0x...) or byte array ([...])".to_string())
 }
 
@@ -346,6 +357,33 @@ mod tests {
     fn parse_bytes_input_rejects_value_over_255() {
         let err = parse_bytes_input("[256]", None).unwrap_err();
         assert!(err.contains("exceeds 255"));
+    }
+
+    #[test]
+    fn parse_bytes_input_raw_hex_with_format_hint() {
+        // Raw hex string without 0x prefix, with explicit Hex format hint
+        let result = parse_bytes_input("48656c6c6f", Some(ByteFormat::Hex)).unwrap();
+        assert_eq!(result, vec![0x48, 0x65, 0x6c, 0x6c, 0x6f]);
+    }
+
+    #[test]
+    fn parse_bytes_input_raw_hex_odd_length() {
+        // Odd-length raw hex should be padded with leading zero
+        let result = parse_bytes_input("123", Some(ByteFormat::Hex)).unwrap();
+        assert_eq!(result, vec![0x01, 0x23]);
+    }
+
+    #[test]
+    fn parse_bytes_input_raw_hex_with_whitespace() {
+        let result = parse_bytes_input("  48 65 6c  ", Some(ByteFormat::Hex)).unwrap();
+        assert_eq!(result, vec![0x48, 0x65, 0x6c]);
+    }
+
+    #[test]
+    fn parse_bytes_input_raw_hex_still_works_with_0x_prefix() {
+        // 0x-prefixed hex should still work when format hint is Hex
+        let result = parse_bytes_input("0x48656c6c6f", Some(ByteFormat::Hex)).unwrap();
+        assert_eq!(result, vec![0x48, 0x65, 0x6c, 0x6c, 0x6f]);
     }
 
     #[test]
@@ -718,6 +756,22 @@ mod tests {
         let args = ConvertArgs {
             input: "0x48656c6c6f".to_string(),
             from: None, // auto-detect
+            to: ConvertFormat::Utf8,
+            be: false,
+            space: false,
+            prefix: false,
+            escape: false,
+        };
+        let result = convert(&args).unwrap();
+        assert_eq!(result, "Hello");
+    }
+
+    #[test]
+    fn convert_raw_hex_to_utf8() {
+        // Raw hex without 0x prefix, with explicit --from hex
+        let args = ConvertArgs {
+            input: "48656c6c6f".to_string(),
+            from: Some(ConvertFormat::Hex),
             to: ConvertFormat::Utf8,
             be: false,
             space: false,
