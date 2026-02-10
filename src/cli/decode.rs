@@ -15,7 +15,7 @@ pub struct DecodeArgs {
     #[command(flatten)]
     pub rpc: RpcArgs,
     /// Always print raw instruction data, even when parser succeeds
-    #[arg(long = "ix-data")]
+    #[arg(long = "raw-ix-data")]
     pub ix_data: bool,
     /// Directory containing Anchor IDLs; omit to disable IDL parsing
     #[arg(long = "idl-path", value_name = "PATH")]

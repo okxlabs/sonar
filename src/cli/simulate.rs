@@ -35,7 +35,7 @@ pub struct SimulateArgs {
     )]
     pub token_fundings: Vec<String>,
     /// Always print raw instruction data, even when parser succeeds
-    #[arg(long = "ix-data")]
+    #[arg(long = "raw-ix-data")]
     pub ix_data: bool,
     /// Verify transaction signatures during simulation
     #[arg(long = "check-sig")]
@@ -49,9 +49,6 @@ pub struct SimulateArgs {
     /// Print raw program logs instead of structured execution trace
     #[arg(long = "raw-program-logs")]
     pub raw_program_logs: bool,
-    /// Show Address Lookup Tables and Account List (hidden by default)
-    #[arg(long = "show-account-list")]
-    pub show_account_list: bool,
     /// Show detailed instruction information (accounts, parsed fields, inner instructions)
     #[arg(long = "show-ix-details")]
     pub show_ix_details: bool,

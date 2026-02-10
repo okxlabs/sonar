@@ -38,13 +38,6 @@ pub struct LogDisplayOptions {
     pub raw_program_logs: bool,
 }
 
-/// Account list display options.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct AccountListOptions {
-    /// If true, print Address Lookup Tables and Account List.
-    pub show_account_list: bool,
-}
-
 pub fn render(
     parsed: &ParsedTransaction,
     resolved: &ResolvedAccounts,
@@ -59,7 +52,6 @@ pub fn render(
     verify_signatures: bool,
     balance_opts: BalanceChangeOptions,
     log_opts: LogDisplayOptions,
-    account_list_opts: AccountListOptions,
 ) -> Result<()> {
     let report = Report::from_sources(
         parsed,
@@ -73,15 +65,9 @@ pub fn render(
         balance_opts,
     );
     match format {
-        OutputFormat::Text => render_text(
-            &report,
-            resolved,
-            parser_registry,
-            show_ix_data,
-            show_ix_details,
-            log_opts,
-            account_list_opts,
-        ),
+        OutputFormat::Text => {
+            render_text(&report, resolved, parser_registry, show_ix_data, show_ix_details, log_opts)
+        }
         OutputFormat::Json => render_json(&report),
     }
 }
@@ -279,7 +265,6 @@ fn render_text(
     show_ix_data: bool,
     show_ix_details: bool,
     log_opts: LogDisplayOptions,
-    account_list_opts: AccountListOptions,
 ) -> Result<()> {
     // 1. Summary header (status + CU) - displayed first
     render_summary_header(&report.simulation, &report.transaction);
@@ -301,15 +286,7 @@ fn render_text(
     // 7. Balance Changes (no title)
     render_balance_changes_text(&report.sol_balance_changes, &report.token_balance_changes);
 
-    // 8. Account list and lookup tables (only if --show-account-list is specified) - at the end
-    if account_list_opts.show_account_list {
-        println!();
-        render_lookup_tables_text(&report.transaction);
-        println!();
-        render_account_list_text(&report.transaction, resolved);
-    }
-
-    // 9. Final empty line
+    // 8. Final empty line
     println!();
 
     Ok(())
