@@ -178,13 +178,6 @@ impl ParserRegistry {
         registry
     }
 
-    /// Registers a new instruction parser
-    #[allow(dead_code)]
-    pub fn register(&mut self, parser: Box<dyn InstructionParser>) {
-        let program_id = *parser.program_id();
-        self.parsers.insert(program_id, parser);
-    }
-
     /// Attempts to parse an instruction using the parser registered for the given program ID
     /// Returns the parsed instruction if successful, None otherwise
     pub fn parse_instruction(

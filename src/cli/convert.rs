@@ -67,7 +67,7 @@ pub struct ConvertArgs {
 
 /// Internal byte format enum for parsing/formatting helpers
 #[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum, Default)]
-pub enum ByteFormat {
+enum ByteFormat {
     #[default]
     Hex,
     HexArray,
@@ -86,7 +86,7 @@ pub enum ByteFormat {
 /// - Some(HexArray): interpret as hex
 /// - Some(DecArray): interpret as decimal
 /// - Some(Hex): ignored for arrays, only affects hex string interpretation
-pub fn parse_bytes_input(input: &str, format_hint: Option<ByteFormat>) -> Result<Vec<u8>, String> {
+fn parse_bytes_input(input: &str, format_hint: Option<ByteFormat>) -> Result<Vec<u8>, String> {
     let input = input.trim();
 
     if input.is_empty() {
@@ -169,7 +169,7 @@ pub fn parse_bytes_input(input: &str, format_hint: Option<ByteFormat>) -> Result
 }
 
 /// Parse a number from string (decimal or 0x hex format).
-pub fn parse_number(input: &str) -> Result<num_bigint::BigUint, String> {
+fn parse_number(input: &str) -> Result<num_bigint::BigUint, String> {
     use num_bigint::BigUint;
 
     let input = input.trim();
@@ -194,7 +194,7 @@ pub fn parse_number(input: &str) -> Result<num_bigint::BigUint, String> {
 /// Format bytes according to the specified format.
 /// - `use_space`: use space instead of comma as separator for arrays
 /// - `use_prefix`: add 0x prefix to each element in hex-array output
-pub fn format_bytes(bytes: &[u8], format: ByteFormat, use_space: bool, use_prefix: bool) -> String {
+fn format_bytes(bytes: &[u8], format: ByteFormat, use_space: bool, use_prefix: bool) -> String {
     let separator = if use_space { " " } else { "," };
     match format {
         ByteFormat::Hex => {
@@ -222,7 +222,7 @@ pub fn format_bytes(bytes: &[u8], format: ByteFormat, use_space: bool, use_prefi
 /// Convert bytes to UTF-8 string.
 /// - Valid UTF-8 sequences are decoded normally (supports Chinese, emoji, etc.).
 /// - Invalid bytes are replaced with U+FFFD or '\xNN' escape sequences.
-pub fn bytes_to_utf8(bytes: &[u8], escape_invalid: bool) -> String {
+fn bytes_to_utf8(bytes: &[u8], escape_invalid: bool) -> String {
     if !escape_invalid {
         // Use lossy conversion: invalid bytes become U+FFFD (replacement character)
         return String::from_utf8_lossy(bytes).into_owned();
@@ -963,7 +963,7 @@ mod tests {
 }
 
 /// Auto-detect input format based on content patterns.
-pub fn detect_format(input: &str) -> ConvertFormat {
+fn detect_format(input: &str) -> ConvertFormat {
     let input = input.trim();
 
     // Check for hex string (0x...)
@@ -992,7 +992,7 @@ pub fn detect_format(input: &str) -> ConvertFormat {
 }
 
 /// Intermediate representation for conversions
-pub enum ConvertValue {
+enum ConvertValue {
     Bytes(Vec<u8>),
     Number(num_bigint::BigUint),
     /// Lamports amount (for SOL/lamports conversion)
@@ -1003,7 +1003,7 @@ pub enum ConvertValue {
 const LAMPORTS_PER_SOL: u64 = 1_000_000_000;
 
 /// Parse input string according to the specified format into intermediate representation.
-pub fn parse_input(input: &str, format: ConvertFormat) -> Result<ConvertValue, String> {
+fn parse_input(input: &str, format: ConvertFormat) -> Result<ConvertValue, String> {
     match format {
         ConvertFormat::Number => {
             let num = parse_number(input)?;
@@ -1058,7 +1058,7 @@ pub fn parse_input(input: &str, format: ConvertFormat) -> Result<ConvertValue, S
 }
 
 /// Convert intermediate value to bytes, considering endianness for numbers.
-pub fn value_to_bytes(value: ConvertValue, big_endian: bool) -> Vec<u8> {
+fn value_to_bytes(value: ConvertValue, big_endian: bool) -> Vec<u8> {
     match value {
         ConvertValue::Bytes(bytes) => bytes,
         ConvertValue::Number(num) => {
@@ -1079,7 +1079,7 @@ pub fn value_to_bytes(value: ConvertValue, big_endian: bool) -> Vec<u8> {
 }
 
 /// Format bytes according to the target format.
-pub fn format_output(
+fn format_output(
     bytes: &[u8],
     format: ConvertFormat,
     big_endian: bool,

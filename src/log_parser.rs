@@ -25,7 +25,7 @@ pub enum LogEntry {
 }
 
 /// Parse a single log line into a structured LogEntry.
-pub fn parse_log_line(line: &str) -> LogEntry {
+fn parse_log_line(line: &str) -> LogEntry {
     let trimmed = line.trim();
 
     // Program <pubkey> invoke [N]

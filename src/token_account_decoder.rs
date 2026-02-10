@@ -35,14 +35,6 @@ impl TokenProgramKind {
             None
         }
     }
-
-    #[allow(dead_code)]
-    fn program_name(&self) -> &'static str {
-        match self {
-            TokenProgramKind::Legacy => "token",
-            TokenProgramKind::Token2022 => "token_2022",
-        }
-    }
 }
 
 /// Decode a token account (mint or token account) if the owner is SPL Token or Token-2022.
