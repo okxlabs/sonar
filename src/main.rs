@@ -648,6 +648,7 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
             output,
             &mut parser_registry,
             balance_opts,
+            log_opts,
         );
     }
 
@@ -667,6 +668,13 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
             let account_loader = account_loader::AccountLoader::new(rpc_url.clone())?;
             let mut resolved_accounts =
                 account_loader.load_for_transaction(&parsed_tx.transaction, &replacements)?;
+            warn_unmatched_funding_addresses(
+                &fundings,
+                &token_funding_requests,
+                &[&parsed_tx],
+                &resolved_accounts,
+            );
+
             let prepared_token_fundings = if token_funding_requests.is_empty() {
                 Vec::new()
             } else {
@@ -732,6 +740,14 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
     let account_loader = account_loader::AccountLoader::new(rpc_url)?;
     let mut resolved_accounts =
         account_loader.load_for_transaction(&parsed_tx.transaction, &replacements)?;
+
+    warn_unmatched_funding_addresses(
+        &fundings,
+        &token_funding_requests,
+        &[&parsed_tx],
+        &resolved_accounts,
+    );
+
     let prepared_token_fundings = if token_funding_requests.is_empty() {
         Vec::new()
     } else {
@@ -803,6 +819,7 @@ fn handle_bundle_simulate(
     output_format: cli::OutputFormat,
     parser_registry: &mut instruction_parsers::ParserRegistry,
     balance_opts: output::BalanceChangeOptions,
+    log_opts: output::LogDisplayOptions,
 ) -> Result<()> {
     log::info!("Bundle simulation mode: {} transactions", tx_inputs.len());
 
@@ -816,6 +833,14 @@ fn handle_bundle_simulate(
     // Load accounts for all transactions
     let account_loader = account_loader::AccountLoader::new(rpc_url.to_string())?;
     let mut resolved_accounts = account_loader.load_for_transactions(&tx_refs, &replacements)?;
+
+    let parsed_tx_refs: Vec<_> = parsed_txs.iter().collect();
+    warn_unmatched_funding_addresses(
+        &fundings,
+        &token_funding_requests,
+        &parsed_tx_refs,
+        &resolved_accounts,
+    );
 
     // Prepare token fundings
     let prepared_token_fundings = if token_funding_requests.is_empty() {
@@ -880,9 +905,88 @@ fn handle_bundle_simulate(
         ix_data,
         verify_signatures,
         balance_opts,
+        log_opts,
     )?;
 
     Ok(())
+}
+
+/// Builds a set of all account keys referenced by the parsed transactions and their
+/// resolved address lookup tables.
+fn collect_transaction_account_keys(
+    parsed_txs: &[&transaction::ParsedTransaction],
+    resolved_accounts: &account_loader::ResolvedAccounts,
+) -> std::collections::HashSet<Pubkey> {
+    use std::collections::HashSet;
+
+    let mut tx_keys: HashSet<Pubkey> = HashSet::new();
+    for parsed_tx in parsed_txs {
+        tx_keys.extend(parsed_tx.account_plan.static_accounts.iter());
+    }
+    for lookup in &resolved_accounts.lookups {
+        tx_keys.extend(lookup.writable_addresses.iter());
+        tx_keys.extend(lookup.readonly_addresses.iter());
+    }
+    tx_keys
+}
+
+/// Finds --fund-sol pubkeys that are not present in the given transaction account key set.
+fn find_unmatched_sol_fundings(
+    fundings: &[cli::Funding],
+    tx_keys: &std::collections::HashSet<Pubkey>,
+) -> Vec<Pubkey> {
+    fundings.iter().filter(|f| !tx_keys.contains(&f.pubkey)).map(|f| f.pubkey).collect()
+}
+
+/// Finds --fund-token pubkeys (account and mint) that are not present in the given
+/// transaction account key set.
+fn find_unmatched_token_fundings(
+    token_fundings: &[cli::TokenFunding],
+    tx_keys: &std::collections::HashSet<Pubkey>,
+) -> Vec<Pubkey> {
+    let mut unmatched = Vec::new();
+    for tf in token_fundings {
+        if !tx_keys.contains(&tf.account) {
+            unmatched.push(tf.account);
+        }
+        if !tx_keys.contains(&tf.mint) {
+            unmatched.push(tf.mint);
+        }
+    }
+    unmatched
+}
+
+/// Warns the user when --fund-sol or --fund-token addresses are not found
+/// in the transaction's account keys, which likely indicates a typo.
+fn warn_unmatched_funding_addresses(
+    fundings: &[cli::Funding],
+    token_fundings: &[cli::TokenFunding],
+    parsed_txs: &[&transaction::ParsedTransaction],
+    resolved_accounts: &account_loader::ResolvedAccounts,
+) {
+    use colored::Colorize;
+
+    if fundings.is_empty() && token_fundings.is_empty() {
+        return;
+    }
+
+    let tx_keys = collect_transaction_account_keys(parsed_txs, resolved_accounts);
+
+    for pubkey in find_unmatched_sol_fundings(fundings, &tx_keys) {
+        eprintln!(
+            "{} --fund-sol address {} is not referenced in the transaction's account keys. Did you mean a different address?",
+            "Warning:".yellow().bold(),
+            pubkey,
+        );
+    }
+
+    for pubkey in find_unmatched_token_fundings(token_fundings, &tx_keys) {
+        eprintln!(
+            "{} --fund-token address {} is not referenced in the transaction's account keys. Did you mean a different address?",
+            "Warning:".yellow().bold(),
+            pubkey,
+        );
+    }
 }
 
 /// Collects executable program IDs from resolved accounts for IDL loading.
@@ -906,12 +1010,13 @@ fn collect_program_ids(resolved_accounts: &account_loader::ResolvedAccounts) -> 
 
 #[cfg(test)]
 mod tests {
-    use super::collect_program_ids;
+    use super::{collect_program_ids, find_unmatched_sol_fundings, find_unmatched_token_fundings};
     use crate::account_loader;
+    use crate::cli;
     use solana_account::Account;
     use solana_pubkey::Pubkey;
     use solana_sdk_ids::system_program;
-    use std::collections::HashMap;
+    use std::collections::{HashMap, HashSet};
 
     fn executable_account() -> Account {
         Account {
@@ -964,5 +1069,74 @@ mod tests {
         let program_ids = collect_program_ids(&resolved);
 
         assert!(program_ids.is_empty());
+    }
+
+    #[test]
+    fn find_unmatched_sol_fundings_returns_empty_when_all_match() {
+        let key_a = Pubkey::new_unique();
+        let key_b = Pubkey::new_unique();
+        let tx_keys: HashSet<Pubkey> = [key_a, key_b].into_iter().collect();
+
+        let fundings = vec![
+            cli::Funding { pubkey: key_a, amount_lamports: 1_000_000_000 },
+            cli::Funding { pubkey: key_b, amount_lamports: 2_000_000_000 },
+        ];
+
+        let unmatched = find_unmatched_sol_fundings(&fundings, &tx_keys);
+        assert!(unmatched.is_empty());
+    }
+
+    #[test]
+    fn find_unmatched_sol_fundings_detects_missing_address() {
+        let key_in_tx = Pubkey::new_unique();
+        let key_not_in_tx = Pubkey::new_unique();
+        let tx_keys: HashSet<Pubkey> = [key_in_tx].into_iter().collect();
+
+        let fundings = vec![
+            cli::Funding { pubkey: key_in_tx, amount_lamports: 1_000_000_000 },
+            cli::Funding { pubkey: key_not_in_tx, amount_lamports: 2_000_000_000 },
+        ];
+
+        let unmatched = find_unmatched_sol_fundings(&fundings, &tx_keys);
+        assert_eq!(unmatched.len(), 1);
+        assert_eq!(unmatched[0], key_not_in_tx);
+    }
+
+    #[test]
+    fn find_unmatched_sol_fundings_returns_empty_for_no_fundings() {
+        let tx_keys: HashSet<Pubkey> = [Pubkey::new_unique()].into_iter().collect();
+        let unmatched = find_unmatched_sol_fundings(&[], &tx_keys);
+        assert!(unmatched.is_empty());
+    }
+
+    #[test]
+    fn find_unmatched_token_fundings_detects_missing_account_and_mint() {
+        let account_in_tx = Pubkey::new_unique();
+        let mint_in_tx = Pubkey::new_unique();
+        let account_not_in_tx = Pubkey::new_unique();
+        let mint_not_in_tx = Pubkey::new_unique();
+        let tx_keys: HashSet<Pubkey> = [account_in_tx, mint_in_tx].into_iter().collect();
+
+        let token_fundings = vec![
+            cli::TokenFunding { account: account_in_tx, mint: mint_in_tx, amount_raw: 100 },
+            cli::TokenFunding { account: account_not_in_tx, mint: mint_not_in_tx, amount_raw: 200 },
+        ];
+
+        let unmatched = find_unmatched_token_fundings(&token_fundings, &tx_keys);
+        assert_eq!(unmatched.len(), 2);
+        assert!(unmatched.contains(&account_not_in_tx));
+        assert!(unmatched.contains(&mint_not_in_tx));
+    }
+
+    #[test]
+    fn find_unmatched_token_fundings_returns_empty_when_all_match() {
+        let account = Pubkey::new_unique();
+        let mint = Pubkey::new_unique();
+        let tx_keys: HashSet<Pubkey> = [account, mint].into_iter().collect();
+
+        let token_fundings = vec![cli::TokenFunding { account, mint, amount_raw: 100 }];
+
+        let unmatched = find_unmatched_token_fundings(&token_fundings, &tx_keys);
+        assert!(unmatched.is_empty());
     }
 }

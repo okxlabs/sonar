@@ -109,6 +109,7 @@ pub fn render_bundle(
     _show_ix_data: bool,
     verify_signatures: bool,
     balance_opts: BalanceChangeOptions,
+    log_opts: LogDisplayOptions,
 ) -> Result<()> {
     let bundle_report = BundleReport::from_sources(
         parsed_txs,
@@ -123,17 +124,21 @@ pub fn render_bundle(
     );
 
     match format {
-        OutputFormat::Text => render_bundle_text(&bundle_report, total_tx_count),
+        OutputFormat::Text => render_bundle_text(&bundle_report, total_tx_count, log_opts),
         OutputFormat::Json => render_bundle_json(&bundle_report),
     }
 }
 
-fn render_bundle_text(bundle: &BundleReport, total_count: usize) -> Result<()> {
+fn render_bundle_text(
+    bundle: &BundleReport,
+    total_count: usize,
+    log_opts: LogDisplayOptions,
+) -> Result<()> {
     println!("=== Bundle Simulation ({} transactions) ===", total_count);
 
     // Render executed transactions with compact format
     for (i, tx_report) in bundle.transactions.iter().enumerate() {
-        render_bundle_transaction_compact(i + 1, total_count, tx_report);
+        render_bundle_transaction_compact(i + 1, total_count, tx_report, log_opts);
     }
 
     // Render skipped transactions (due to fail-fast)
@@ -154,6 +159,7 @@ fn render_bundle_transaction_compact(
     index: usize,
     total: usize,
     tx_report: &BundleTransactionReport,
+    log_opts: LogDisplayOptions,
 ) {
     let sig = tx_report
         .transaction
@@ -170,12 +176,7 @@ fn render_bundle_transaction_compact(
     }
     println!("  Compute Units: {}", tx_report.simulation.compute_units_consumed);
 
-    if !tx_report.simulation.logs.is_empty() {
-        println!("  Logs:");
-        for log in &tx_report.simulation.logs {
-            println!("    {}", log);
-        }
-    }
+    render_execution_trace_section(&tx_report.simulation, log_opts);
 }
 
 /// Render overall bundle balance changes (first tx pre -> last successful tx post)
