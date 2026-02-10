@@ -966,6 +966,16 @@ impl Report {
                 path: entry.so_path.display().to_string(),
             })
             .collect();
+        // Compute balance changes before fundings is shadowed below
+        let (sol_balance_changes, token_balance_changes) =
+            if matches!(simulation.status, ExecutionStatus::Succeeded)
+                && balance_opts.show_balance_change
+            {
+                compute_balance_changes_for_single_tx(resolved, simulation, fundings, balance_opts)
+            } else {
+                (Vec::new(), Vec::new())
+            };
+
         let fundings = fundings
             .iter()
             .map(|entry| FundingSection {
@@ -984,16 +994,6 @@ impl Report {
             })
             .collect();
 
-        // Compute balance changes if requested and simulation succeeded
-        let (sol_balance_changes, token_balance_changes) =
-            if matches!(simulation.status, ExecutionStatus::Succeeded)
-                && balance_opts.show_balance_change
-            {
-                compute_balance_changes_for_single_tx(resolved, simulation, balance_opts)
-            } else {
-                (Vec::new(), Vec::new())
-            };
-
         Self {
             transaction,
             simulation: simulation_section,
@@ -1008,16 +1008,45 @@ impl Report {
 
 /// Compute balance changes for single transaction mode.
 /// Uses resolved.accounts as pre-state and simulation.post_accounts as post-state.
+/// When SOL fundings are present, applies them to the pre-state so that the
+/// balance change only reflects the transaction's effect, not the funding itself.
 fn compute_balance_changes_for_single_tx(
     resolved: &ResolvedAccounts,
     simulation: &SimulationResult,
+    fundings: &[Funding],
     balance_opts: BalanceChangeOptions,
 ) -> (Vec<SolBalanceChangeSection>, Vec<TokenBalanceChangeSection>) {
     let mut sol_changes = Vec::new();
     let mut token_changes = Vec::new();
 
     if balance_opts.show_balance_change {
-        let changes = compute_sol_changes(&resolved.accounts, &simulation.post_accounts);
+        // Build pre_accounts with SOL fundings applied so pre/post baselines match.
+        let funded_accounts;
+        let pre_accounts = if fundings.is_empty() {
+            &resolved.accounts
+        } else {
+            let mut accounts = resolved.accounts.clone();
+            for funding in fundings {
+                let lamports = (funding.amount_sol * 1_000_000_000.0) as u64;
+                if let Some(account) = accounts.get_mut(&funding.pubkey) {
+                    account.lamports = lamports;
+                } else {
+                    let system_program_id = solana_sdk_ids::system_program::id();
+                    accounts.insert(
+                        funding.pubkey,
+                        solana_account::Account {
+                            lamports,
+                            owner: system_program_id,
+                            ..Default::default()
+                        },
+                    );
+                }
+            }
+            funded_accounts = accounts;
+            &funded_accounts
+        };
+
+        let changes = compute_sol_changes(&pre_accounts, &simulation.post_accounts);
         sol_changes = changes
             .into_iter()
             .map(|c| SolBalanceChangeSection {
@@ -1030,9 +1059,9 @@ fn compute_balance_changes_for_single_tx(
             .collect();
 
         let mint_decimals =
-            extract_mint_decimals_combined(&resolved.accounts, &simulation.post_accounts);
+            extract_mint_decimals_combined(&pre_accounts, &simulation.post_accounts);
         let changes =
-            compute_token_changes(&resolved.accounts, &simulation.post_accounts, &mint_decimals);
+            compute_token_changes(&pre_accounts, &simulation.post_accounts, &mint_decimals);
         token_changes = changes
             .into_iter()
             .map(|c| {
