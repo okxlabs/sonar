@@ -28,7 +28,9 @@ pub struct SimulateArgs {
         value_parser = clap::builder::NonEmptyStringValueParser::new()
     )]
     pub fundings: Vec<String>,
-    /// Fund a token account with raw token amount, format: <TOKEN_ACCOUNT>:<MINT>=<AMOUNT_RAW>
+    /// Fund a token account with raw token amount.
+    /// Format: <TOKEN_ACCOUNT>=<AMOUNT_RAW> (mint auto-detected from on-chain data)
+    /// or <TOKEN_ACCOUNT>:<MINT>=<AMOUNT_RAW> (mint required if account does not exist on-chain)
     #[arg(
         long = "fund-token",
         value_name = "FUNDING",
@@ -93,7 +95,7 @@ pub struct Funding {
 #[derive(Clone, Debug)]
 pub struct TokenFunding {
     pub account: Pubkey,
-    pub mint: Pubkey,
+    pub mint: Option<Pubkey>,
     pub amount_raw: u64,
 }
 
@@ -138,22 +140,27 @@ pub fn parse_funding(raw: &str) -> Result<Funding, String> {
 }
 
 pub fn parse_token_funding(raw: &str) -> Result<TokenFunding, String> {
-    let (target, amount_str) = raw
-        .split_once('=')
-        .ok_or_else(|| "Token funding must be in <ACCOUNT>:<MINT>=<AMOUNT> format".to_string())?;
+    let (target, amount_str) = raw.split_once('=').ok_or_else(|| {
+        "Token funding must be in <ACCOUNT>=<AMOUNT> or <ACCOUNT>:<MINT>=<AMOUNT> format"
+            .to_string()
+    })?;
 
-    let (token_str, mint_str) = target
-        .split_once(':')
-        .ok_or_else(|| "Token funding must be in <ACCOUNT>:<MINT>=<AMOUNT> format".to_string())?;
-
-    if mint_str.contains(':') {
-        return Err("Token funding must be in <ACCOUNT>:<MINT>=<AMOUNT> format".to_string());
-    }
+    let (token_str, mint) = if let Some((token_part, mint_str)) = target.split_once(':') {
+        if mint_str.contains(':') {
+            return Err(
+                "Token funding must be in <ACCOUNT>=<AMOUNT> or <ACCOUNT>:<MINT>=<AMOUNT> format"
+                    .to_string(),
+            );
+        }
+        let mint = Pubkey::from_str(mint_str)
+            .map_err(|err| format!("Failed to parse mint account `{mint_str}`: {err}"))?;
+        (token_part, Some(mint))
+    } else {
+        (target, None)
+    };
 
     let account = Pubkey::from_str(token_str)
         .map_err(|err| format!("Failed to parse token account `{token_str}`: {err}"))?;
-    let mint = Pubkey::from_str(mint_str)
-        .map_err(|err| format!("Failed to parse mint account `{mint_str}`: {err}"))?;
     let amount_raw = amount_str
         .trim()
         .parse::<u64>()
@@ -167,27 +174,30 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parse_token_funding_accepts_valid_input() {
+    fn parse_token_funding_accepts_valid_input_with_mint() {
         let token = Pubkey::new_unique();
         let mint = Pubkey::new_unique();
         let input = format!("{token}:{mint}=12345");
         let parsed = parse_token_funding(&input).expect("parses");
         assert_eq!(parsed.account, token);
-        assert_eq!(parsed.mint, mint);
+        assert_eq!(parsed.mint, Some(mint));
         assert_eq!(parsed.amount_raw, 12_345);
+    }
+
+    #[test]
+    fn parse_token_funding_accepts_valid_input_without_mint() {
+        let token = Pubkey::new_unique();
+        let input = format!("{token}=99999");
+        let parsed = parse_token_funding(&input).expect("parses");
+        assert_eq!(parsed.account, token);
+        assert_eq!(parsed.mint, None);
+        assert_eq!(parsed.amount_raw, 99_999);
     }
 
     #[test]
     fn parse_token_funding_rejects_missing_equals() {
         let err = parse_token_funding("invalid").unwrap_err();
-        assert!(err.contains("<ACCOUNT>:<MINT>=<AMOUNT>"));
-    }
-
-    #[test]
-    fn parse_token_funding_rejects_missing_colon() {
-        let key = Pubkey::new_unique();
-        let err = parse_token_funding(&format!("{key}=100")).unwrap_err();
-        assert!(err.contains("<ACCOUNT>:<MINT>=<AMOUNT>"));
+        assert!(err.contains("<ACCOUNT>"));
     }
 
     #[test]
@@ -195,7 +205,7 @@ mod tests {
         let key = Pubkey::new_unique();
         let mint = Pubkey::new_unique();
         let err = parse_token_funding(&format!("{key}:{mint}:extra=100")).unwrap_err();
-        assert!(err.contains("<ACCOUNT>:<MINT>=<AMOUNT>"));
+        assert!(err.contains("<ACCOUNT>"));
     }
 
     #[test]
@@ -203,6 +213,13 @@ mod tests {
         let key = Pubkey::new_unique();
         let mint = Pubkey::new_unique();
         let err = parse_token_funding(&format!("{key}:{mint}=-1")).unwrap_err();
+        assert!(err.contains("Failed to parse token amount"));
+    }
+
+    #[test]
+    fn parse_token_funding_rejects_negative_amount_without_mint() {
+        let key = Pubkey::new_unique();
+        let err = parse_token_funding(&format!("{key}=-1")).unwrap_err();
         assert!(err.contains("Failed to parse token amount"));
     }
 

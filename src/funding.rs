@@ -71,18 +71,52 @@ fn process_single(
     resolved: &mut ResolvedAccounts,
     request: &TokenFunding,
 ) -> Result<PreparedTokenFunding> {
-    ensure_account_loaded(loader, resolved, &request.mint)
-        .with_context(|| format!("Failed to load mint account {}", request.mint))?;
+    // 1. Load the token account first (may or may not exist on-chain)
+    ensure_account_loaded(loader, resolved, &request.account).with_context(|| {
+        format!("Failed to load token account {} required for funding", request.account)
+    })?;
+
+    // 2. Determine the mint: auto-detect from on-chain data or use CLI-provided value
+    let mint = if let Some(account) = resolved.accounts.get(&request.account) {
+        // Token account exists — read mint from its data
+        let detected_mint = detect_mint_from_token_account(account).with_context(|| {
+            format!("Failed to detect mint from existing token account {}", request.account)
+        })?;
+        if let Some(requested_mint) = request.mint {
+            if detected_mint != requested_mint {
+                return Err(anyhow!(
+                    "Token account {} is associated with mint {}, but CLI requested mint {}",
+                    request.account,
+                    detected_mint,
+                    requested_mint
+                ));
+            }
+        }
+        detected_mint
+    } else {
+        // Token account does not exist — mint must be specified
+        request.mint.ok_or_else(|| {
+            anyhow!(
+                "Token account {} does not exist on-chain; \
+                 you must specify the mint using <ACCOUNT>:<MINT>=<AMOUNT> format",
+                request.account
+            )
+        })?
+    };
+
+    // 3. Load and validate the mint account
+    ensure_account_loaded(loader, resolved, &mint)
+        .with_context(|| format!("Failed to load mint account {}", mint))?;
     let mint_account = resolved
         .accounts
-        .get(&request.mint)
-        .ok_or_else(|| anyhow!("Mint account {} missing after load", request.mint))?
+        .get(&mint)
+        .ok_or_else(|| anyhow!("Mint account {} missing after load", mint))?
         .clone();
 
     let program_kind = TokenProgramKind::from_owner(&mint_account.owner).ok_or_else(|| {
         anyhow!(
             "Mint account {} is not owned by the SPL Token programs; cannot prepare funding",
-            request.mint
+            mint
         )
     })?;
 
@@ -91,18 +125,55 @@ fn process_single(
         TokenProgramKind::Token2022 => read_token2022_mint_decimals(&mint_account)?,
     };
 
-    ensure_account_loaded(loader, resolved, &request.account).with_context(|| {
-        format!("Failed to load token account {} required for funding", request.account)
-    })?;
-
+    // 4. Create the token account if it does not exist
     if !resolved.accounts.contains_key(&request.account) {
-        create_missing_token_account(resolved, request, program_kind, &mint_account)?;
+        create_missing_token_account(
+            resolved,
+            &request.account,
+            &mint,
+            program_kind,
+            &mint_account,
+        )?;
     }
 
+    // 5. Update the token account amount
     match program_kind {
-        TokenProgramKind::Legacy => update_legacy_account(resolved, request, decimals),
-        TokenProgramKind::Token2022 => update_token2022_account(resolved, request, decimals),
+        TokenProgramKind::Legacy => {
+            update_legacy_account(resolved, &request.account, &mint, request.amount_raw, decimals)
+        }
+        TokenProgramKind::Token2022 => update_token2022_account(
+            resolved,
+            &request.account,
+            &mint,
+            request.amount_raw,
+            decimals,
+        ),
     }
+}
+
+/// Detect the mint pubkey from an existing token account's data.
+/// Both legacy SPL Token and Token-2022 share the same base layout — mint is the first 32 bytes.
+fn detect_mint_from_token_account(account: &Account) -> Result<Pubkey> {
+    const MINT_OFFSET: usize = 0;
+    const MINT_LEN: usize = 32;
+
+    if TokenProgramKind::from_owner(&account.owner).is_none() {
+        return Err(anyhow!(
+            "Token account is not owned by any known SPL Token program (owner: {})",
+            account.owner
+        ));
+    }
+    if account.data.len() < MINT_OFFSET + MINT_LEN {
+        return Err(anyhow!(
+            "Token account data too small to read mint: {} < {}",
+            account.data.len(),
+            MINT_OFFSET + MINT_LEN
+        ));
+    }
+    let mint_bytes: [u8; 32] = account.data[MINT_OFFSET..MINT_OFFSET + MINT_LEN]
+        .try_into()
+        .expect("slice length is 32");
+    Ok(Pubkey::new_from_array(mint_bytes))
 }
 
 fn read_legacy_mint_decimals(account: &solana_account::Account) -> Result<u8> {
@@ -137,7 +208,8 @@ fn read_token2022_mint_decimals(account: &solana_account::Account) -> Result<u8>
 
 fn create_missing_token_account(
     resolved: &mut ResolvedAccounts,
-    request: &TokenFunding,
+    account_pubkey: &Pubkey,
+    mint: &Pubkey,
     kind: TokenProgramKind,
     mint_account: &Account,
 ) -> Result<()> {
@@ -150,9 +222,9 @@ fn create_missing_token_account(
 
             let mut data = vec![0u8; SplAccount::LEN];
             let state = SplAccount {
-                mint: ProgramPubkey::new_from_array(request.mint.to_bytes()),
-                owner: ProgramPubkey::new_from_array(request.account.to_bytes()),
-                amount: request.amount_raw,
+                mint: ProgramPubkey::new_from_array(mint.to_bytes()),
+                owner: ProgramPubkey::new_from_array(account_pubkey.to_bytes()),
+                amount: 0,
                 delegate: COption::None,
                 state: AccountState::Initialized,
                 is_native: COption::None,
@@ -162,7 +234,7 @@ fn create_missing_token_account(
             SplAccount::pack(state, &mut data)
                 .map_err(|err| anyhow!("Failed to pack new SPL token account: {err}"))?;
             resolved.accounts.insert(
-                request.account,
+                *account_pubkey,
                 Account {
                     lamports: 0,
                     data,
@@ -173,7 +245,7 @@ fn create_missing_token_account(
             );
         }
         TokenProgramKind::Token2022 => {
-            create_token2022_account_with_extensions(resolved, request, mint_account)?;
+            create_token2022_account_with_extensions(resolved, account_pubkey, mint, mint_account)?;
         }
     }
 
@@ -183,7 +255,8 @@ fn create_missing_token_account(
 /// Creates a new Token-2022 token account, inferring required extensions from the mint.
 fn create_token2022_account_with_extensions(
     resolved: &mut ResolvedAccounts,
-    request: &TokenFunding,
+    account_pubkey: &Pubkey,
+    mint: &Pubkey,
     mint_account: &Account,
 ) -> Result<()> {
     use spl_token::solana_program::{program_option::COption, pubkey::Pubkey as ProgramPubkey};
@@ -191,7 +264,7 @@ fn create_token2022_account_with_extensions(
     use spl_token_2022::state::{Account as Token2022Account, AccountState, Mint as Token2022Mint};
 
     let mint_state = StateWithExtensions::<Token2022Mint>::unpack(&mint_account.data)
-        .map_err(|e| anyhow!("Failed to unpack token-2022 mint {}: {}", request.mint, e))?;
+        .map_err(|e| anyhow!("Failed to unpack token-2022 mint {}: {}", mint, e))?;
     let mint_extension_types = mint_state
         .get_extension_types()
         .map_err(|e| anyhow!("Failed to get mint extension types: {}", e))?;
@@ -207,9 +280,9 @@ fn create_token2022_account_with_extensions(
         .map_err(|e| anyhow!("Failed to unpack uninitialized token-2022 account buffer: {}", e))?;
 
     state.base = Token2022Account {
-        mint: ProgramPubkey::new_from_array(request.mint.to_bytes()),
-        owner: ProgramPubkey::new_from_array(request.account.to_bytes()),
-        amount: request.amount_raw,
+        mint: ProgramPubkey::new_from_array(mint.to_bytes()),
+        owner: ProgramPubkey::new_from_array(account_pubkey.to_bytes()),
+        amount: 0,
         delegate: COption::None,
         state: AccountState::Initialized,
         is_native: COption::None,
@@ -226,7 +299,7 @@ fn create_token2022_account_with_extensions(
     }
 
     resolved.accounts.insert(
-        request.account,
+        *account_pubkey,
         Account {
             lamports: 0,
             data,
@@ -240,15 +313,17 @@ fn create_token2022_account_with_extensions(
 
 fn update_legacy_account(
     resolved: &mut ResolvedAccounts,
-    request: &TokenFunding,
+    account_pubkey: &Pubkey,
+    mint: &Pubkey,
+    amount_raw: u64,
     decimals: u8,
 ) -> Result<PreparedTokenFunding> {
     use spl_token::state::Account as SplAccount;
 
     let account = resolved
         .accounts
-        .get_mut(&request.account)
-        .ok_or_else(|| anyhow!("Token account {} missing for mutation", request.account))?;
+        .get_mut(account_pubkey)
+        .ok_or_else(|| anyhow!("Token account {} missing for mutation", account_pubkey))?;
     ensure_same_program(TokenProgramKind::Legacy, &account.owner, "token account")?;
     if account.data.len() < SplAccount::LEN {
         return Err(anyhow!(
@@ -260,39 +335,32 @@ fn update_legacy_account(
     let (account_bytes, _) = account.data.split_at_mut(SplAccount::LEN);
     let mut parsed = SplAccount::unpack(account_bytes)
         .map_err(|err| anyhow!("Failed to unpack SPL token account: {err}"))?;
-    let stored_mint = Pubkey::new_from_array(parsed.mint.to_bytes());
-    if stored_mint != request.mint {
-        return Err(anyhow!(
-            "Token account {} is associated with mint {}, but CLI requested mint {}",
-            request.account,
-            stored_mint,
-            request.mint
-        ));
-    }
-    parsed.amount = request.amount_raw;
+    parsed.amount = amount_raw;
     SplAccount::pack(parsed, account_bytes)
         .map_err(|err| anyhow!("Failed to update SPL token account: {err}"))?;
 
     Ok(PreparedTokenFunding {
-        account: request.account,
-        mint: request.mint,
+        account: *account_pubkey,
+        mint: *mint,
         decimals,
-        amount_raw: request.amount_raw,
-        ui_amount: raw_to_ui_amount(request.amount_raw, decimals),
+        amount_raw,
+        ui_amount: raw_to_ui_amount(amount_raw, decimals),
     })
 }
 
 fn update_token2022_account(
     resolved: &mut ResolvedAccounts,
-    request: &TokenFunding,
+    account_pubkey: &Pubkey,
+    mint: &Pubkey,
+    amount_raw: u64,
     decimals: u8,
 ) -> Result<PreparedTokenFunding> {
     use spl_token_2022::state::Account as Token2022Account;
 
     let account = resolved
         .accounts
-        .get_mut(&request.account)
-        .ok_or_else(|| anyhow!("Token account {} missing for mutation", request.account))?;
+        .get_mut(account_pubkey)
+        .ok_or_else(|| anyhow!("Token account {} missing for mutation", account_pubkey))?;
     ensure_same_program(TokenProgramKind::Token2022, &account.owner, "token account")?;
     if account.data.len() < Token2022Account::LEN {
         return Err(anyhow!(
@@ -304,25 +372,16 @@ fn update_token2022_account(
     let (account_bytes, _) = account.data.split_at_mut(Token2022Account::LEN);
     let mut parsed = Token2022Account::unpack(account_bytes)
         .map_err(|err| anyhow!("Failed to unpack token-2022 account: {err}"))?;
-    let stored_mint = Pubkey::new_from_array(parsed.mint.to_bytes());
-    if stored_mint != request.mint {
-        return Err(anyhow!(
-            "Token account {} is associated with mint {}, but CLI requested mint {}",
-            request.account,
-            stored_mint,
-            request.mint
-        ));
-    }
-    parsed.amount = request.amount_raw;
+    parsed.amount = amount_raw;
     Token2022Account::pack(parsed, account_bytes)
-        .map_err(|err| anyhow!("Failed to update token-2022 account {}: {err}", request.account))?;
+        .map_err(|err| anyhow!("Failed to update token-2022 account {}: {err}", account_pubkey))?;
 
     Ok(PreparedTokenFunding {
-        account: request.account,
-        mint: request.mint,
+        account: *account_pubkey,
+        mint: *mint,
         decimals,
-        amount_raw: request.amount_raw,
-        ui_amount: raw_to_ui_amount(request.amount_raw, decimals),
+        amount_raw,
+        ui_amount: raw_to_ui_amount(amount_raw, decimals),
     })
 }
 
@@ -418,7 +477,7 @@ mod tests {
         resolved.accounts.insert(token, token_account);
         resolved.accounts.insert(mint, mint_account);
 
-        let funding = TokenFunding { account: token, mint, amount_raw: 1_500_000 };
+        let funding = TokenFunding { account: token, mint: Some(mint), amount_raw: 1_500_000 };
         let prepared =
             prepare_token_fundings(&loader, &mut resolved, &[funding]).expect("prepares funding");
         assert_eq!(prepared.len(), 1);
@@ -441,10 +500,10 @@ mod tests {
         let mut resolved = ResolvedAccounts { accounts: HashMap::new(), lookups: vec![] };
 
         let (_, mint_account) = spl_token_account_and_mint(&mint, &token);
-        let request = TokenFunding { account: token, mint, amount_raw: 42 };
         create_missing_token_account(
             &mut resolved,
-            &request,
+            &token,
+            &mint,
             TokenProgramKind::Legacy,
             &mint_account,
         )
@@ -455,7 +514,7 @@ mod tests {
         use spl_token::state::Account as SplAccount;
         let parsed = SplAccount::unpack(&account.data[..SplAccount::LEN]).unwrap();
         assert_eq!(Pubkey::new_from_array(parsed.mint.to_bytes()), mint);
-        assert_eq!(parsed.amount, 42);
+        assert_eq!(parsed.amount, 0);
     }
 
     #[test]
@@ -465,10 +524,10 @@ mod tests {
         let mut resolved = ResolvedAccounts { accounts: HashMap::new(), lookups: vec![] };
 
         let mint_account = token2022_mint_account_base_only();
-        let request = TokenFunding { account: token, mint, amount_raw: 100 };
         create_missing_token_account(
             &mut resolved,
-            &request,
+            &token,
+            &mint,
             TokenProgramKind::Token2022,
             &mint_account,
         )
@@ -482,7 +541,7 @@ mod tests {
             "base Token2022 account has no extensions"
         );
         let state = StateWithExtensions::<Token2022Account>::unpack(&account.data).expect("unpack");
-        assert_eq!(state.base.amount, 100);
+        assert_eq!(state.base.amount, 0);
         assert!(state.get_extension_types().unwrap().is_empty());
     }
 
@@ -493,10 +552,10 @@ mod tests {
         let mut resolved = ResolvedAccounts { accounts: HashMap::new(), lookups: vec![] };
 
         let mint_account = token2022_mint_account_with_transfer_fee_config();
-        let request = TokenFunding { account: token, mint, amount_raw: 200 };
         create_missing_token_account(
             &mut resolved,
-            &request,
+            &token,
+            &mint,
             TokenProgramKind::Token2022,
             &mint_account,
         )
@@ -509,7 +568,7 @@ mod tests {
             "account with TransferFeeAmount extension must be larger than base"
         );
         let state = StateWithExtensions::<Token2022Account>::unpack(&account.data).expect("unpack");
-        assert_eq!(state.base.amount, 200);
+        assert_eq!(state.base.amount, 0);
         let ext_types = state.get_extension_types().unwrap();
         assert!(
             ext_types.contains(&ExtensionType::TransferFeeAmount),

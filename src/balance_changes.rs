@@ -67,7 +67,8 @@ pub fn compute_token_changes(
     for (pubkey, post_account) in post_accounts {
         let post_owner = post_account.owner();
         // Try to decode as token account
-        if let Some((mint, after_amount)) = try_decode_token_account(post_account.data(), &post_owner)
+        if let Some((mint, after_amount)) =
+            try_decode_token_account(post_account.data(), &post_owner)
         {
             let before_amount = pre_accounts
                 .get(pubkey)
