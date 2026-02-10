@@ -20,6 +20,7 @@ use solana_sdk_ids::bpf_loader_upgradeable;
 use solana_slot_hashes::SlotHashes;
 use solana_sysvar_id::SysvarId;
 use solana_transaction::versioned::VersionedTransaction;
+use spl_token::solana_program::program_pack::Pack;
 use std::sync::Mutex;
 
 use crate::{
@@ -95,6 +96,9 @@ impl AccountLoader {
             )?;
         }
 
+        self.ensure_token_mint_accounts(&mut accounts)
+            .context("Failed to load token mint accounts for transaction")?;
+
         Ok(ResolvedAccounts { accounts, lookups })
     }
 
@@ -165,6 +169,9 @@ impl AccountLoader {
             self.ensure_upgradeable_dependencies(&mut accounts)
                 .context("Failed to load upgradeable program dependencies for lookup accounts")?;
         }
+
+        self.ensure_token_mint_accounts(&mut accounts)
+            .context("Failed to load token mint accounts for bundle")?;
 
         Ok(ResolvedAccounts { accounts, lookups: all_lookups })
     }
@@ -331,6 +338,27 @@ impl AccountLoader {
         Ok(())
     }
 
+    fn ensure_token_mint_accounts(&self, accounts: &mut HashMap<Pubkey, Account>) -> Result<()> {
+        let mut missing_mints = HashSet::new();
+        for account in accounts.values() {
+            if let Some(mint) = token_account_mint(account) {
+                if !accounts.contains_key(&mint) {
+                    missing_mints.insert(mint);
+                }
+            }
+        }
+
+        if missing_mints.is_empty() {
+            return Ok(());
+        }
+
+        let mint_pubkeys: Vec<Pubkey> = missing_mints.into_iter().collect();
+        self.fetch_accounts(&mint_pubkeys, accounts).with_context(|| {
+            format!("Failed to fetch token mint accounts: [{}]", format_pubkeys(&mint_pubkeys))
+        })?;
+        Ok(())
+    }
+
     pub fn fetch_transaction_by_signature(&self, signature: &str) -> Result<VersionedTransaction> {
         use solana_client::rpc_config::RpcTransactionConfig;
         use solana_transaction_status_client_types::UiTransactionEncoding;
@@ -359,6 +387,21 @@ impl AccountLoader {
             None => Err(anyhow!("Failed to decode transaction from RPC response")),
         }
     }
+}
+
+fn token_account_mint(account: &Account) -> Option<Pubkey> {
+    let owner = account.owner;
+    if owner == spl_token::ID {
+        let token_account = spl_token::state::Account::unpack(account.data()).ok()?;
+        return Some(Pubkey::new_from_array(token_account.mint.to_bytes()));
+    }
+    if owner == spl_token_2022::ID {
+        use spl_token_2022::extension::StateWithExtensions;
+        use spl_token_2022::state::Account as Token2022Account;
+        let token_account = StateWithExtensions::<Token2022Account>::unpack(account.data()).ok()?;
+        return Some(Pubkey::new_from_array(token_account.base.mint.to_bytes()));
+    }
+    None
 }
 
 #[derive(Debug, Clone)]

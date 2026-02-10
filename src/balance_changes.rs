@@ -65,11 +65,13 @@ pub fn compute_token_changes(
     let mut changes = Vec::new();
 
     for (pubkey, post_account) in post_accounts {
+        let post_owner = post_account.owner();
         // Try to decode as token account
-        if let Some((mint, after_amount)) = try_decode_token_account(post_account.data()) {
+        if let Some((mint, after_amount)) = try_decode_token_account(post_account.data(), &post_owner)
+        {
             let before_amount = pre_accounts
                 .get(pubkey)
-                .and_then(|acc| try_decode_token_account(&acc.data))
+                .and_then(|acc| try_decode_token_account(&acc.data, &acc.owner))
                 .map(|(_, amount)| amount)
                 .unwrap_or(0);
 
@@ -186,26 +188,27 @@ fn extract_mint_decimals_from_shared_accounts(
 }
 
 /// Try to decode account data as a token account, returning (mint, amount) if successful.
-fn try_decode_token_account(data: &[u8]) -> Option<(Pubkey, u64)> {
+fn try_decode_token_account(data: &[u8], owner: &Pubkey) -> Option<(Pubkey, u64)> {
     use spl_token::solana_program::program_pack::Pack;
     use spl_token::state::Account as TokenAccount;
 
-    if data.len() < TokenAccount::LEN {
-        return None;
-    }
-
-    // Try legacy token account
-    if let Ok(token_account) = TokenAccount::unpack(data) {
-        let mint = Pubkey::new_from_array(token_account.mint.to_bytes());
-        return Some((mint, token_account.amount));
-    }
-
-    // Try Token-2022 account
-    use spl_token_2022::extension::StateWithExtensions;
-    use spl_token_2022::state::Account as Token2022Account;
-    if let Ok(state) = StateWithExtensions::<Token2022Account>::unpack(data) {
-        let mint = Pubkey::new_from_array(state.base.mint.to_bytes());
-        return Some((mint, state.base.amount));
+    if *owner == spl_token::ID {
+        // Legacy token account
+        if data.len() < TokenAccount::LEN {
+            return None;
+        }
+        if let Ok(token_account) = TokenAccount::unpack(data) {
+            let mint = Pubkey::new_from_array(token_account.mint.to_bytes());
+            return Some((mint, token_account.amount));
+        }
+    } else if *owner == spl_token_2022::ID {
+        // Token-2022 account
+        use spl_token_2022::extension::StateWithExtensions;
+        use spl_token_2022::state::Account as Token2022Account;
+        if let Ok(state) = StateWithExtensions::<Token2022Account>::unpack(data) {
+            let mint = Pubkey::new_from_array(state.base.mint.to_bytes());
+            return Some((mint, state.base.amount));
+        }
     }
 
     None
