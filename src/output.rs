@@ -904,7 +904,7 @@ impl BundleReport {
             .iter()
             .map(|entry| FundingSection {
                 pubkey: entry.pubkey.to_string(),
-                amount_sol: entry.amount_sol,
+                amount_lamports: entry.amount_lamports,
             })
             .collect();
 
@@ -980,7 +980,7 @@ impl Report {
             .iter()
             .map(|entry| FundingSection {
                 pubkey: entry.pubkey.to_string(),
-                amount_sol: entry.amount_sol,
+                amount_lamports: entry.amount_lamports,
             })
             .collect();
         let token_fundings = token_fundings
@@ -1027,7 +1027,7 @@ fn compute_balance_changes_for_single_tx(
         } else {
             let mut accounts = resolved.accounts.clone();
             for funding in fundings {
-                let lamports = (funding.amount_sol * 1_000_000_000.0) as u64;
+                let lamports = funding.amount_lamports;
                 if let Some(account) = accounts.get_mut(&funding.pubkey) {
                     account.lamports = lamports;
                 } else {
@@ -1592,7 +1592,7 @@ impl ReturnDataReport {
 #[derive(Serialize)]
 struct FundingSection {
     pubkey: String,
-    amount_sol: f64,
+    amount_lamports: u64,
 }
 
 #[derive(Serialize)]

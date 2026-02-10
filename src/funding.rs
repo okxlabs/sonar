@@ -11,7 +11,7 @@ use crate::{
     cli::{Funding, TokenFunding},
 };
 
-const LAMPORTS_PER_SOL: f64 = 1_000_000_000.0;
+const LAMPORTS_PER_SOL: u64 = 1_000_000_000;
 
 #[derive(Clone, Debug)]
 pub struct PreparedTokenFunding {
@@ -30,11 +30,9 @@ pub fn apply_sol_fundings(svm: &mut LiteSVM, fundings: &[Funding]) -> Result<()>
 }
 
 fn apply_single_sol_funding(svm: &mut LiteSVM, funding: &Funding) -> Result<()> {
-    let lamports = sol_to_lamports(funding.amount_sol);
-    info!(
-        "Funding account {} with {} SOL ({} lamports)",
-        funding.pubkey, funding.amount_sol, lamports
-    );
+    let lamports = funding.amount_lamports;
+    let sol = lamports as f64 / LAMPORTS_PER_SOL as f64;
+    info!("Funding account {} with {} lamports ({:.9} SOL)", funding.pubkey, lamports, sol);
 
     if let Some(existing_account) = svm.get_account(&funding.pubkey) {
         let mut updated = existing_account.clone();
@@ -47,10 +45,6 @@ fn apply_single_sol_funding(svm: &mut LiteSVM, funding: &Funding) -> Result<()> 
     }
 
     Ok(())
-}
-
-fn sol_to_lamports(amount_sol: f64) -> u64 {
-    (amount_sol * LAMPORTS_PER_SOL) as u64
 }
 
 pub fn prepare_token_fundings(
@@ -532,7 +526,7 @@ mod tests {
         let template = AccountSharedData::new(0, 0, &owner);
         svm.set_account(key, template.into()).unwrap();
 
-        let funding = Funding { pubkey: key, amount_sol: 1.25 };
+        let funding = Funding { pubkey: key, amount_lamports: 1_250_000_000 };
         apply_sol_fundings(&mut svm, &[funding]).expect("funding succeeds");
 
         let updated = svm.get_account(&key).expect("account exists");
@@ -544,7 +538,7 @@ mod tests {
         let mut svm = LiteSVM::new();
         let key = Pubkey::new_unique();
 
-        let funding = Funding { pubkey: key, amount_sol: 0.5 };
+        let funding = Funding { pubkey: key, amount_lamports: 500_000_000 };
         apply_sol_fundings(&mut svm, &[funding]).expect("funding succeeds");
 
         let created = svm.get_account(&key).expect("account created");

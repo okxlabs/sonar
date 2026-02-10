@@ -20,7 +20,7 @@ pub struct SimulateArgs {
         value_parser = clap::builder::NonEmptyStringValueParser::new()
     )]
     pub replacements: Vec<String>,
-    /// Fund a system account with SOL, format: <PUBKEY>=<AMOUNT_IN_SOL>
+    /// Fund a system account, format: <PUBKEY>=<LAMPORTS> or <PUBKEY>=<AMOUNT>sol
     #[arg(
         long = "fund-sol",
         value_name = "FUNDING",
@@ -85,7 +85,7 @@ pub struct ProgramReplacement {
 #[derive(Clone, Debug)]
 pub struct Funding {
     pub pubkey: Pubkey,
-    pub amount_sol: f64,
+    pub amount_lamports: u64,
 }
 
 #[derive(Clone, Debug)]
@@ -108,22 +108,31 @@ pub fn parse_program_replacement(raw: &str) -> Result<ProgramReplacement, String
     Ok(ProgramReplacement { program_id, so_path })
 }
 
+const LAMPORTS_PER_SOL: u64 = 1_000_000_000;
+
 pub fn parse_funding(raw: &str) -> Result<Funding, String> {
     let (pubkey_str, amount_str) = raw
         .split_once('=')
         .ok_or_else(|| "Funding must be in <PUBKEY>=<AMOUNT> format".to_string())?;
     let pubkey = Pubkey::from_str(pubkey_str)
         .map_err(|err| format!("Failed to parse pubkey `{pubkey_str}`: {err}"))?;
-    let amount_sol = amount_str
-        .trim()
-        .parse::<f64>()
-        .map_err(|err| format!("Failed to parse amount `{amount_str}`: {err}"))?;
+    let trimmed = amount_str.trim();
+    let amount_lamports = if trimmed.to_ascii_lowercase().ends_with("sol") {
+        let sol_str = &trimmed[..trimmed.len() - 3];
+        let sol: f64 = sol_str
+            .parse()
+            .map_err(|err| format!("Failed to parse SOL amount `{sol_str}`: {err}"))?;
+        if sol < 0.0 {
+            return Err("Funding amount must be non-negative".to_string());
+        }
+        (sol * LAMPORTS_PER_SOL as f64).round() as u64
+    } else {
+        trimmed
+            .parse::<u64>()
+            .map_err(|err| format!("Failed to parse lamports amount `{trimmed}`: {err}"))?
+    };
 
-    if amount_sol < 0.0 {
-        return Err("Funding amount must be non-negative".to_string());
-    }
-
-    Ok(Funding { pubkey, amount_sol })
+    Ok(Funding { pubkey, amount_lamports })
 }
 
 pub fn parse_token_funding(raw: &str) -> Result<TokenFunding, String> {
@@ -193,5 +202,77 @@ mod tests {
         let mint = Pubkey::new_unique();
         let err = parse_token_funding(&format!("{key}:{mint}=-1")).unwrap_err();
         assert!(err.contains("Failed to parse token amount"));
+    }
+
+    #[test]
+    fn parse_funding_lamports_default() {
+        let key = Pubkey::new_unique();
+        let input = format!("{key}=1000000000");
+        let parsed = parse_funding(&input).expect("parses");
+        assert_eq!(parsed.pubkey, key);
+        assert_eq!(parsed.amount_lamports, 1_000_000_000);
+    }
+
+    #[test]
+    fn parse_funding_sol_suffix_lowercase() {
+        let key = Pubkey::new_unique();
+        let input = format!("{key}=1.5sol");
+        let parsed = parse_funding(&input).expect("parses");
+        assert_eq!(parsed.pubkey, key);
+        assert_eq!(parsed.amount_lamports, 1_500_000_000);
+    }
+
+    #[test]
+    fn parse_funding_sol_suffix_uppercase() {
+        let key = Pubkey::new_unique();
+        let input = format!("{key}=0.1SOL");
+        let parsed = parse_funding(&input).expect("parses");
+        assert_eq!(parsed.pubkey, key);
+        assert_eq!(parsed.amount_lamports, 100_000_000);
+    }
+
+    #[test]
+    fn parse_funding_sol_suffix_mixed_case() {
+        let key = Pubkey::new_unique();
+        let input = format!("{key}=2Sol");
+        let parsed = parse_funding(&input).expect("parses");
+        assert_eq!(parsed.pubkey, key);
+        assert_eq!(parsed.amount_lamports, 2_000_000_000);
+    }
+
+    #[test]
+    fn parse_funding_rejects_missing_equals() {
+        let err = parse_funding("invalid").unwrap_err();
+        assert!(err.contains("<PUBKEY>=<AMOUNT>"));
+    }
+
+    #[test]
+    fn parse_funding_rejects_negative_sol() {
+        let key = Pubkey::new_unique();
+        let err = parse_funding(&format!("{key}=-1sol")).unwrap_err();
+        assert!(err.contains("non-negative"));
+    }
+
+    #[test]
+    fn parse_funding_rejects_invalid_lamports() {
+        let key = Pubkey::new_unique();
+        let err = parse_funding(&format!("{key}=abc")).unwrap_err();
+        assert!(err.contains("Failed to parse lamports amount"));
+    }
+
+    #[test]
+    fn parse_funding_zero_lamports() {
+        let key = Pubkey::new_unique();
+        let input = format!("{key}=0");
+        let parsed = parse_funding(&input).expect("parses");
+        assert_eq!(parsed.amount_lamports, 0);
+    }
+
+    #[test]
+    fn parse_funding_zero_sol() {
+        let key = Pubkey::new_unique();
+        let input = format!("{key}=0sol");
+        let parsed = parse_funding(&input).expect("parses");
+        assert_eq!(parsed.amount_lamports, 0);
     }
 }
