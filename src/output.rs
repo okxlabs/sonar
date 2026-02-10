@@ -35,7 +35,7 @@ pub struct BalanceChangeOptions {
 #[derive(Debug, Clone, Copy, Default)]
 pub struct LogDisplayOptions {
     /// If true, print raw logs; otherwise print structured execution trace.
-    pub raw_program_logs: bool,
+    pub show_raw_log: bool,
 }
 
 pub fn render(
@@ -48,7 +48,7 @@ pub fn render(
     parser_registry: &mut ParserRegistry,
     format: OutputFormat,
     show_ix_data: bool,
-    show_ix_details: bool,
+    show_ix_detail: bool,
     verify_signatures: bool,
     balance_opts: BalanceChangeOptions,
     log_opts: LogDisplayOptions,
@@ -66,7 +66,7 @@ pub fn render(
     );
     match format {
         OutputFormat::Text => {
-            render_text(&report, resolved, parser_registry, show_ix_data, show_ix_details, log_opts)
+            render_text(&report, resolved, parser_registry, show_ix_data, show_ix_detail, log_opts)
         }
         OutputFormat::Json => render_json(&report),
     }
@@ -263,7 +263,7 @@ fn render_text(
     resolved: &ResolvedAccounts,
     _parser_registry: &mut ParserRegistry,
     show_ix_data: bool,
-    show_ix_details: bool,
+    show_ix_detail: bool,
     log_opts: LogDisplayOptions,
 ) -> Result<()> {
     // 1. Summary header (status + CU) - displayed first
@@ -272,7 +272,7 @@ fn render_text(
     // 3. Execution Trace (no title)
     render_execution_trace_section(&report.simulation, log_opts);
 
-    if show_ix_details {
+    if show_ix_detail {
         // 4. Section separator with empty lines
         render_section_separator();
 
@@ -384,7 +384,7 @@ fn render_execution_trace_section(simulation: &SimulationSection, log_opts: LogD
         return;
     }
 
-    if log_opts.raw_program_logs {
+    if log_opts.show_raw_log {
         println!("Log Entries: {}", simulation.logs.len());
         for line in &simulation.logs {
             println!("  {}", line);

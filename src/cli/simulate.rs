@@ -47,11 +47,11 @@ pub struct SimulateArgs {
     #[arg(long = "show-balance-change")]
     pub show_balance_change: bool,
     /// Print raw program logs instead of structured execution trace
-    #[arg(long = "raw-program-logs")]
-    pub raw_program_logs: bool,
+    #[arg(long = "show-raw-log")]
+    pub show_raw_log: bool,
     /// Show detailed instruction information (accounts, parsed fields, inner instructions)
-    #[arg(long = "show-ix-details")]
-    pub show_ix_details: bool,
+    #[arg(long = "show-ix-detail")]
+    pub show_ix_detail: bool,
 }
 
 #[derive(Args, Debug, Clone)]

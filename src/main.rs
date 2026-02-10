@@ -610,13 +610,13 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
         verify_signatures,
         idl_path: _,
         show_balance_change,
-        raw_program_logs,
-        show_ix_details,
+        show_raw_log,
+        show_ix_detail,
     } = args;
     let rpc_url = rpc.rpc_url;
 
     let balance_opts = output::BalanceChangeOptions { show_balance_change };
-    let log_opts = output::LogDisplayOptions { raw_program_logs };
+    let log_opts = output::LogDisplayOptions { show_raw_log };
     let TransactionInputArgs { tx, tx_file, output } = transaction;
 
     let replacements = replacement_args
@@ -716,7 +716,7 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
                 &mut parser_registry,
                 output,
                 ix_data,
-                show_ix_details,
+                show_ix_detail,
                 verify_signatures,
                 balance_opts,
                 log_opts,
@@ -782,7 +782,7 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
         &mut parser_registry,
         output,
         ix_data,
-        show_ix_details,
+        show_ix_detail,
         verify_signatures,
         balance_opts,
         log_opts,
