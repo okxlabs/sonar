@@ -1085,13 +1085,15 @@ fn compute_balance_changes_for_single_tx(
 
 /// Compute overall balance changes for the entire bundle.
 /// Only computes when ALL transactions in the bundle succeeded.
-/// Uses the first transaction's pre_accounts and the last transaction's post_accounts.
+/// Merges pre/post accounts from all transactions to capture the complete picture:
+/// - pre_accounts: earliest state for each account (first occurrence across all txs)
+/// - post_accounts: latest state for each account (last occurrence across all txs)
 fn compute_bundle_overall_balance_changes(
     resolved: &ResolvedAccounts,
     simulations: &[SimulationResult],
     balance_opts: BalanceChangeOptions,
 ) -> (Vec<SolBalanceChangeSection>, Vec<TokenBalanceChangeSection>) {
-    use solana_account::Account;
+    use solana_account::{Account, AccountSharedData};
 
     if !balance_opts.show_balance_change || simulations.is_empty() {
         return (Vec::new(), Vec::new());
@@ -1104,18 +1106,29 @@ fn compute_bundle_overall_balance_changes(
         return (Vec::new(), Vec::new());
     }
 
-    // Get pre_accounts from the first transaction
-    let first_simulation = &simulations[0];
-    let pre_accounts: HashMap<Pubkey, Account> =
-        first_simulation.pre_accounts.iter().map(|(k, v)| (*k, Account::from(v.clone()))).collect();
+    // Merge pre_accounts from all simulations: keep the earliest state for each account.
+    // Iterating in order means the first time we see an account is its true initial state
+    // before the bundle started.
+    let mut pre_accounts: HashMap<Pubkey, Account> = HashMap::new();
+    for sim in simulations {
+        for (k, v) in &sim.pre_accounts {
+            pre_accounts.entry(*k).or_insert_with(|| Account::from(v.clone()));
+        }
+    }
 
-    // Get post_accounts from the last transaction (all succeeded, so use the last one)
-    let last_simulation = simulations.last().unwrap();
-    let post_accounts = &last_simulation.post_accounts;
+    // Merge post_accounts from all simulations: keep the latest state for each account.
+    // Always overwrite so the last transaction's state wins, reflecting the final
+    // state after the entire bundle.
+    let mut post_accounts: HashMap<Pubkey, AccountSharedData> = HashMap::new();
+    for sim in simulations {
+        for (k, v) in &sim.post_accounts {
+            post_accounts.insert(*k, v.clone());
+        }
+    }
 
     // Compute SOL balance changes
     let sol_changes: Vec<SolBalanceChangeSection> =
-        compute_sol_changes(&pre_accounts, post_accounts)
+        compute_sol_changes(&pre_accounts, &post_accounts)
             .into_iter()
             .map(|c| SolBalanceChangeSection {
                 account: c.account.to_string(),
@@ -1126,10 +1139,10 @@ fn compute_bundle_overall_balance_changes(
             })
             .collect();
 
-    // Extract mint decimals from both resolved accounts and post accounts
-    let mint_decimals = extract_mint_decimals_combined(&resolved.accounts, post_accounts);
+    // Extract mint decimals from both resolved accounts and merged post accounts
+    let mint_decimals = extract_mint_decimals_combined(&resolved.accounts, &post_accounts);
     let token_changes: Vec<TokenBalanceChangeSection> =
-        compute_token_changes(&pre_accounts, post_accounts, &mint_decimals)
+        compute_token_changes(&pre_accounts, &post_accounts, &mint_decimals)
             .into_iter()
             .map(|c| {
                 let divisor = 10f64.powi(c.decimals as i32);
