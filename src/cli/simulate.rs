@@ -52,6 +52,9 @@ pub struct SimulateArgs {
     /// Show Address Lookup Tables and Account List (hidden by default)
     #[arg(long = "show-account-list")]
     pub show_account_list: bool,
+    /// Show detailed instruction information (accounts, parsed fields, inner instructions)
+    #[arg(long = "show-ix-details")]
+    pub show_ix_details: bool,
 }
 
 #[derive(Args, Debug, Clone)]

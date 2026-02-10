@@ -55,6 +55,7 @@ pub fn render(
     parser_registry: &mut ParserRegistry,
     format: OutputFormat,
     show_ix_data: bool,
+    show_ix_details: bool,
     verify_signatures: bool,
     balance_opts: BalanceChangeOptions,
     log_opts: LogDisplayOptions,
@@ -77,6 +78,7 @@ pub fn render(
             resolved,
             parser_registry,
             show_ix_data,
+            show_ix_details,
             log_opts,
             account_list_opts,
         ),
@@ -275,6 +277,7 @@ fn render_text(
     resolved: &ResolvedAccounts,
     _parser_registry: &mut ParserRegistry,
     show_ix_data: bool,
+    show_ix_details: bool,
     log_opts: LogDisplayOptions,
     account_list_opts: AccountListOptions,
 ) -> Result<()> {
@@ -284,14 +287,16 @@ fn render_text(
     // 3. Execution Trace (no title)
     render_execution_trace_section(&report.simulation, log_opts);
 
-    // 4. Wave separator with empty lines
-    render_wave_separator();
+    if show_ix_details {
+        // 4. Section separator with empty lines
+        render_section_separator();
 
-    // 5. Instruction details (no title)
-    render_instruction_details_text(&report.transaction, resolved, show_ix_data);
+        // 5. Instruction details (no title)
+        render_instruction_details_text(&report.transaction, resolved, show_ix_data);
 
-    // 6. Wave separator with empty lines
-    render_wave_separator();
+        // 6. Section separator with empty lines
+        render_section_separator();
+    }
 
     // 7. Balance Changes (no title)
     render_balance_changes_text(&report.sol_balance_changes, &report.token_balance_changes);
@@ -315,8 +320,8 @@ fn render_separator() {
     println!("{}", "═".repeat(SEPARATOR_WIDTH));
 }
 
-/// Render a wave separator with empty lines before and after.
-fn render_wave_separator() {
+/// Render a section separator with empty lines before and after.
+fn render_section_separator() {
     println!();
     println!();
 }

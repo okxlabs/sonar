@@ -612,6 +612,7 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
         show_balance_change,
         raw_program_logs,
         show_account_list,
+        show_ix_details,
     } = args;
     let rpc_url = rpc.rpc_url;
 
@@ -717,6 +718,7 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
                 &mut parser_registry,
                 output,
                 ix_data,
+                show_ix_details,
                 verify_signatures,
                 balance_opts,
                 log_opts,
@@ -783,6 +785,7 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
         &mut parser_registry,
         output,
         ix_data,
+        show_ix_details,
         verify_signatures,
         balance_opts,
         log_opts,
