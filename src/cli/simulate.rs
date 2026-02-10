@@ -24,6 +24,7 @@ pub struct SimulateArgs {
     #[arg(
         long = "fund-sol",
         value_name = "FUNDING",
+        num_args = 1..,
         value_parser = clap::builder::NonEmptyStringValueParser::new()
     )]
     pub fundings: Vec<String>,
@@ -31,6 +32,7 @@ pub struct SimulateArgs {
     #[arg(
         long = "fund-token",
         value_name = "FUNDING",
+        num_args = 1..,
         value_parser = clap::builder::NonEmptyStringValueParser::new()
     )]
     pub token_fundings: Vec<String>,
