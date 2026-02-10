@@ -668,7 +668,8 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
             let account_loader = account_loader::AccountLoader::new(rpc_url.clone())?;
             let mut resolved_accounts =
                 account_loader.load_for_transaction(&parsed_tx.transaction, &replacements)?;
-            warn_unmatched_funding_addresses(
+            warn_unmatched_addresses(
+                &replacements,
                 &fundings,
                 &token_funding_requests,
                 &[&parsed_tx],
@@ -741,7 +742,8 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
     let mut resolved_accounts =
         account_loader.load_for_transaction(&parsed_tx.transaction, &replacements)?;
 
-    warn_unmatched_funding_addresses(
+    warn_unmatched_addresses(
+        &replacements,
         &fundings,
         &token_funding_requests,
         &[&parsed_tx],
@@ -835,7 +837,8 @@ fn handle_bundle_simulate(
     let mut resolved_accounts = account_loader.load_for_transactions(&tx_refs, &replacements)?;
 
     let parsed_tx_refs: Vec<_> = parsed_txs.iter().collect();
-    warn_unmatched_funding_addresses(
+    warn_unmatched_addresses(
+        &replacements,
         &fundings,
         &token_funding_requests,
         &parsed_tx_refs,
@@ -930,6 +933,14 @@ fn collect_transaction_account_keys(
     tx_keys
 }
 
+/// Finds --replace program IDs that are not present in the given transaction account key set.
+fn find_unmatched_replacements(
+    replacements: &[cli::ProgramReplacement],
+    tx_keys: &std::collections::HashSet<Pubkey>,
+) -> Vec<Pubkey> {
+    replacements.iter().filter(|r| !tx_keys.contains(&r.program_id)).map(|r| r.program_id).collect()
+}
+
 /// Finds --fund-sol pubkeys that are not present in the given transaction account key set.
 fn find_unmatched_sol_fundings(
     fundings: &[cli::Funding],
@@ -956,9 +967,10 @@ fn find_unmatched_token_fundings(
     unmatched
 }
 
-/// Warns the user when --fund-sol or --fund-token addresses are not found
+/// Warns the user when --replace, --fund-sol, or --fund-token addresses are not found
 /// in the transaction's account keys, which likely indicates a typo.
-fn warn_unmatched_funding_addresses(
+fn warn_unmatched_addresses(
+    replacements: &[cli::ProgramReplacement],
     fundings: &[cli::Funding],
     token_fundings: &[cli::TokenFunding],
     parsed_txs: &[&transaction::ParsedTransaction],
@@ -966,11 +978,19 @@ fn warn_unmatched_funding_addresses(
 ) {
     use colored::Colorize;
 
-    if fundings.is_empty() && token_fundings.is_empty() {
+    if replacements.is_empty() && fundings.is_empty() && token_fundings.is_empty() {
         return;
     }
 
     let tx_keys = collect_transaction_account_keys(parsed_txs, resolved_accounts);
+
+    for pubkey in find_unmatched_replacements(replacements, &tx_keys) {
+        eprintln!(
+            "{} --replace program ID {} is not referenced in the transaction's account keys. Did you mean a different address?",
+            "Warning:".yellow().bold(),
+            pubkey,
+        );
+    }
 
     for pubkey in find_unmatched_sol_fundings(fundings, &tx_keys) {
         eprintln!(
@@ -1010,7 +1030,10 @@ fn collect_program_ids(resolved_accounts: &account_loader::ResolvedAccounts) -> 
 
 #[cfg(test)]
 mod tests {
-    use super::{collect_program_ids, find_unmatched_sol_fundings, find_unmatched_token_fundings};
+    use super::{
+        collect_program_ids, find_unmatched_replacements, find_unmatched_sol_fundings,
+        find_unmatched_token_fundings,
+    };
     use crate::account_loader;
     use crate::cli;
     use solana_account::Account;
@@ -1137,6 +1160,49 @@ mod tests {
         let token_fundings = vec![cli::TokenFunding { account, mint, amount_raw: 100 }];
 
         let unmatched = find_unmatched_token_fundings(&token_fundings, &tx_keys);
+        assert!(unmatched.is_empty());
+    }
+
+    #[test]
+    fn find_unmatched_replacements_detects_missing_program_id() {
+        let prog_in_tx = Pubkey::new_unique();
+        let prog_not_in_tx = Pubkey::new_unique();
+        let tx_keys: HashSet<Pubkey> = [prog_in_tx].into_iter().collect();
+
+        let replacements = vec![
+            cli::ProgramReplacement {
+                program_id: prog_in_tx,
+                so_path: std::path::PathBuf::from("/tmp/a.so"),
+            },
+            cli::ProgramReplacement {
+                program_id: prog_not_in_tx,
+                so_path: std::path::PathBuf::from("/tmp/b.so"),
+            },
+        ];
+
+        let unmatched = find_unmatched_replacements(&replacements, &tx_keys);
+        assert_eq!(unmatched.len(), 1);
+        assert_eq!(unmatched[0], prog_not_in_tx);
+    }
+
+    #[test]
+    fn find_unmatched_replacements_returns_empty_when_all_match() {
+        let prog_a = Pubkey::new_unique();
+        let prog_b = Pubkey::new_unique();
+        let tx_keys: HashSet<Pubkey> = [prog_a, prog_b].into_iter().collect();
+
+        let replacements = vec![
+            cli::ProgramReplacement {
+                program_id: prog_a,
+                so_path: std::path::PathBuf::from("/tmp/a.so"),
+            },
+            cli::ProgramReplacement {
+                program_id: prog_b,
+                so_path: std::path::PathBuf::from("/tmp/b.so"),
+            },
+        ];
+
+        let unmatched = find_unmatched_replacements(&replacements, &tx_keys);
         assert!(unmatched.is_empty());
     }
 }
