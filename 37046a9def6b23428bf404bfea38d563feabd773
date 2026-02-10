@@ -1,0 +1,10 @@
+src/cli/simulate.rs
+src/output.rs
+src/main.rs
+---
+{
+  "metadata": {
+    "base_commit_sha": "37046a9def6b23428bf404bfea38d563feabd773",
+    "prompts": {}
+  }
+}
