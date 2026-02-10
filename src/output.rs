@@ -385,9 +385,8 @@ fn render_execution_trace_section(simulation: &SimulationSection, log_opts: LogD
     }
 
     if log_opts.show_raw_log {
-        println!("Log Entries: {}", simulation.logs.len());
         for line in &simulation.logs {
-            println!("  {}", line);
+            println!("{}", line);
         }
     } else {
         render_logs_structured(&simulation.logs);
