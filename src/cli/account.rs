@@ -23,6 +23,6 @@ pub struct AccountArgs {
     pub raw: bool,
 
     /// Skip account metadata, only print parsed data
-    #[arg(long)]
+    #[arg(long = "no-account-meta")]
     pub no_account_meta: bool,
 }
