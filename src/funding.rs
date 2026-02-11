@@ -170,9 +170,8 @@ fn detect_mint_from_token_account(account: &Account) -> Result<Pubkey> {
             MINT_OFFSET + MINT_LEN
         ));
     }
-    let mint_bytes: [u8; 32] = account.data[MINT_OFFSET..MINT_OFFSET + MINT_LEN]
-        .try_into()
-        .expect("slice length is 32");
+    let mint_bytes: [u8; 32] =
+        account.data[MINT_OFFSET..MINT_OFFSET + MINT_LEN].try_into().expect("slice length is 32");
     Ok(Pubkey::new_from_array(mint_bytes))
 }
 

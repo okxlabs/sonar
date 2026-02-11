@@ -24,7 +24,7 @@ use spl_token::solana_program::program_pack::Pack;
 use std::sync::Mutex;
 
 use crate::{
-    cli::ProgramReplacement,
+    cli::Replacement,
     transaction::{AddressLookupPlan, collect_account_plan},
 };
 
@@ -46,7 +46,7 @@ impl AccountLoader {
     pub fn load_for_transaction(
         &self,
         tx: &VersionedTransaction,
-        _replacements: &[ProgramReplacement],
+        _replacements: &[Replacement],
     ) -> Result<ResolvedAccounts> {
         let plan = collect_account_plan(tx);
         let mut accounts = HashMap::new();
@@ -107,7 +107,7 @@ impl AccountLoader {
     pub fn load_for_transactions(
         &self,
         txs: &[&VersionedTransaction],
-        _replacements: &[ProgramReplacement],
+        _replacements: &[Replacement],
     ) -> Result<ResolvedAccounts> {
         if txs.is_empty() {
             return Ok(ResolvedAccounts { accounts: HashMap::new(), lookups: Vec::new() });

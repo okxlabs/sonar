@@ -14,14 +14,14 @@ use solana_transaction::versioned::VersionedTransaction as LiteVersionedTransact
 
 use crate::{
     account_loader::{ResolvedAccounts, ResolvedLookup},
-    cli::{Funding, ProgramReplacement},
+    cli::{Funding, Replacement},
     funding::{PreparedTokenFunding, apply_sol_fundings},
 };
 
 pub struct TransactionExecutor {
     svm: LiteSVM,
     resolved: ResolvedAccounts,
-    replacements: Vec<ProgramReplacement>,
+    replacements: Vec<Replacement>,
     fundings: Vec<Funding>,
     token_fundings: Vec<PreparedTokenFunding>,
 }
@@ -29,7 +29,7 @@ pub struct TransactionExecutor {
 impl TransactionExecutor {
     pub fn prepare(
         resolved: ResolvedAccounts,
-        replacements: Vec<ProgramReplacement>,
+        replacements: Vec<Replacement>,
         fundings: Vec<Funding>,
         token_fundings: Vec<PreparedTokenFunding>,
         verify_signatures: bool,
@@ -47,20 +47,46 @@ impl TransactionExecutor {
         }
 
         for replacement in &replacements {
-            info!(
-                "Loading custom program {} => {}",
-                replacement.program_id,
-                replacement.so_path.display()
-            );
-            svm.add_program_from_file(replacement.program_id, &replacement.so_path).with_context(
-                || {
-                    format!(
-                        "Failed to load replacement program `{}`, path: {}",
-                        replacement.program_id,
-                        replacement.so_path.display()
-                    )
-                },
-            )?;
+            match replacement {
+                Replacement::Program { program_id, so_path } => {
+                    // Warn if the on-chain account does not appear to be a program
+                    if let Some(existing) = resolved.accounts.get(program_id) {
+                        if !existing.executable {
+                            eprintln!(
+                                "Warning: --replace target {} does not appear to be a program on-chain. Loading .so file anyway.",
+                                program_id
+                            );
+                        }
+                    }
+                    info!("Loading custom program {} => {}", program_id, so_path.display());
+                    svm.add_program_from_file(*program_id, so_path).with_context(|| {
+                        format!(
+                            "Failed to load replacement program `{}`, path: {}",
+                            program_id,
+                            so_path.display()
+                        )
+                    })?;
+                }
+                Replacement::Account { pubkey, account, source_path } => {
+                    // Warn if the on-chain account appears to be a program
+                    if let Some(existing) = resolved.accounts.get(pubkey) {
+                        if existing.executable {
+                            eprintln!(
+                                "Warning: --replace target {} appears to be a program on-chain, but replacing as a regular account from JSON file.",
+                                pubkey
+                            );
+                        }
+                    }
+                    info!("Loading custom account {} => {}", pubkey, source_path.display());
+                    svm.set_account(*pubkey, account.clone()).with_context(|| {
+                        format!(
+                            "Failed to set replacement account `{}`, path: {}",
+                            pubkey,
+                            source_path.display()
+                        )
+                    })?;
+                }
+            }
         }
 
         apply_sol_fundings(&mut svm, &fundings)?;
@@ -187,7 +213,7 @@ impl TransactionExecutor {
         &self.resolved
     }
 
-    pub fn replacements(&self) -> &[ProgramReplacement] {
+    pub fn replacements(&self) -> &[Replacement] {
         &self.replacements
     }
 

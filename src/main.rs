@@ -727,7 +727,7 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
 
     let replacements = replacement_args
         .into_iter()
-        .map(|raw| cli::parse_program_replacement(&raw).map_err(anyhow::Error::msg))
+        .map(|raw| cli::parse_replacement(&raw).map_err(anyhow::Error::msg))
         .collect::<Result<Vec<_>>>()?;
 
     let fundings = funding_args
@@ -919,7 +919,7 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
 fn handle_bundle_simulate(
     tx_inputs: Vec<String>,
     rpc_url: &str,
-    replacements: Vec<cli::ProgramReplacement>,
+    replacements: Vec<cli::Replacement>,
     fundings: Vec<cli::Funding>,
     token_funding_requests: Vec<cli::TokenFunding>,
     ix_data: bool,
@@ -1039,12 +1039,12 @@ fn collect_transaction_account_keys(
     tx_keys
 }
 
-/// Finds --replace program IDs that are not present in the given transaction account key set.
+/// Finds --replace pubkeys that are not present in the given transaction account key set.
 fn find_unmatched_replacements(
-    replacements: &[cli::ProgramReplacement],
+    replacements: &[cli::Replacement],
     tx_keys: &std::collections::HashSet<Pubkey>,
 ) -> Vec<Pubkey> {
-    replacements.iter().filter(|r| !tx_keys.contains(&r.program_id)).map(|r| r.program_id).collect()
+    replacements.iter().filter(|r| !tx_keys.contains(&r.pubkey())).map(|r| r.pubkey()).collect()
 }
 
 /// Finds --fund-sol pubkeys that are not present in the given transaction account key set.
@@ -1078,7 +1078,7 @@ fn find_unmatched_token_fundings(
 /// Warns the user when --replace, --fund-sol, or --fund-token addresses are not found
 /// in the transaction's account keys, which likely indicates a typo.
 fn warn_unmatched_addresses(
-    replacements: &[cli::ProgramReplacement],
+    replacements: &[cli::Replacement],
     fundings: &[cli::Funding],
     token_fundings: &[cli::TokenFunding],
     parsed_txs: &[&transaction::ParsedTransaction],
@@ -1094,7 +1094,7 @@ fn warn_unmatched_addresses(
 
     for pubkey in find_unmatched_replacements(replacements, &tx_keys) {
         eprintln!(
-            "{} --replace program ID {} is not referenced in the transaction's account keys. Did you mean a different address?",
+            "{} --replace target {} is not referenced in the transaction's account keys. Did you mean a different address?",
             "Warning:".yellow().bold(),
             pubkey,
         );
@@ -1282,11 +1282,11 @@ mod tests {
         let tx_keys: HashSet<Pubkey> = [prog_in_tx].into_iter().collect();
 
         let replacements = vec![
-            cli::ProgramReplacement {
+            cli::Replacement::Program {
                 program_id: prog_in_tx,
                 so_path: std::path::PathBuf::from("/tmp/a.so"),
             },
-            cli::ProgramReplacement {
+            cli::Replacement::Program {
                 program_id: prog_not_in_tx,
                 so_path: std::path::PathBuf::from("/tmp/b.so"),
             },
@@ -1304,11 +1304,11 @@ mod tests {
         let tx_keys: HashSet<Pubkey> = [prog_a, prog_b].into_iter().collect();
 
         let replacements = vec![
-            cli::ProgramReplacement {
+            cli::Replacement::Program {
                 program_id: prog_a,
                 so_path: std::path::PathBuf::from("/tmp/a.so"),
             },
-            cli::ProgramReplacement {
+            cli::Replacement::Program {
                 program_id: prog_b,
                 so_path: std::path::PathBuf::from("/tmp/b.so"),
             },

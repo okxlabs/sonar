@@ -3,6 +3,8 @@
 use std::{path::PathBuf, str::FromStr};
 
 use clap::{Args, ValueEnum};
+use serde::Deserialize;
+use solana_account::Account;
 use solana_pubkey::Pubkey;
 
 use super::RpcArgs;
@@ -13,10 +15,13 @@ pub struct SimulateArgs {
     pub transaction: TransactionInputArgs,
     #[command(flatten)]
     pub rpc: RpcArgs,
-    /// Custom program replacement, format: <PROGRAM_ID>=<PATH_TO_ELF_OR_SO>
+    /// Replace an on-chain account for simulation.
+    /// Format: <PUBKEY>=<PATH>
+    /// .so/.elf files are loaded as programs; .json files are loaded as account data.
     #[arg(
         long = "replace",
         value_name = "MAPPING",
+        num_args = 1..,
         value_parser = clap::builder::NonEmptyStringValueParser::new()
     )]
     pub replacements: Vec<String>,
@@ -81,9 +86,19 @@ pub enum OutputFormat {
 }
 
 #[derive(Clone, Debug)]
-pub struct ProgramReplacement {
-    pub program_id: Pubkey,
-    pub so_path: PathBuf,
+pub enum Replacement {
+    Program { program_id: Pubkey, so_path: PathBuf },
+    Account { pubkey: Pubkey, account: Account, source_path: PathBuf },
+}
+
+impl Replacement {
+    /// Returns the pubkey being replaced, regardless of replacement type.
+    pub fn pubkey(&self) -> Pubkey {
+        match self {
+            Replacement::Program { program_id, .. } => *program_id,
+            Replacement::Account { pubkey, .. } => *pubkey,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -99,17 +114,86 @@ pub struct TokenFunding {
     pub amount_raw: u64,
 }
 
-pub fn parse_program_replacement(raw: &str) -> Result<ProgramReplacement, String> {
-    let (program_str, path_str) = raw
+pub fn parse_replacement(raw: &str) -> Result<Replacement, String> {
+    let (pubkey_str, path_str) = raw
         .split_once('=')
-        .ok_or_else(|| "Replacement must be in <PROGRAM_ID>=<PATH> format".to_string())?;
-    let program_id = Pubkey::from_str(program_str)
-        .map_err(|err| format!("Failed to parse program address `{program_str}`: {err}"))?;
-    let so_path = PathBuf::from(path_str.trim());
-    if !so_path.exists() {
-        return Err(format!("Specified program file `{}` does not exist", so_path.display()));
+        .ok_or_else(|| "Replacement must be in <PUBKEY>=<PATH> format".to_string())?;
+    let pubkey = Pubkey::from_str(pubkey_str)
+        .map_err(|err| format!("Failed to parse address `{pubkey_str}`: {err}"))?;
+    let path = PathBuf::from(path_str.trim());
+    if !path.exists() {
+        return Err(format!("Specified file `{}` does not exist", path.display()));
     }
-    Ok(ProgramReplacement { program_id, so_path })
+
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase())
+        .unwrap_or_default();
+
+    match ext.as_str() {
+        "so" | "elf" => Ok(Replacement::Program { program_id: pubkey, so_path: path }),
+        "json" => {
+            let account = parse_account_json(&path)?;
+            Ok(Replacement::Account { pubkey, account, source_path: path })
+        }
+        _ => Err(format!(
+            "Unsupported file extension `.{ext}` for replacement file `{}`. \
+             Use .so/.elf for program replacement or .json for account replacement.",
+            path.display()
+        )),
+    }
+}
+
+/// JSON structure for deserializing an account file.
+/// Supports Solana CLI compatible format.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AccountJson {
+    lamports: u64,
+    data: AccountDataJson,
+    owner: String,
+    #[serde(default)]
+    executable: bool,
+    #[serde(default)]
+    rent_epoch: u64,
+}
+
+/// Account data can be either a plain base64 string or a tuple `["base64data", "base64"]`.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum AccountDataJson {
+    Plain(String),
+    Tuple(String, String),
+}
+
+fn parse_account_json(path: &PathBuf) -> Result<Account, String> {
+    use base64::Engine;
+
+    let contents = std::fs::read_to_string(path)
+        .map_err(|err| format!("Failed to read account file `{}`: {err}", path.display()))?;
+    let json: AccountJson = serde_json::from_str(&contents)
+        .map_err(|err| format!("Failed to parse account JSON `{}`: {err}", path.display()))?;
+
+    let data_b64 = match &json.data {
+        AccountDataJson::Plain(s) => s.clone(),
+        AccountDataJson::Tuple(data, _encoding) => data.clone(),
+    };
+
+    let data = base64::engine::general_purpose::STANDARD
+        .decode(&data_b64)
+        .map_err(|err| format!("Failed to decode base64 data in `{}`: {err}", path.display()))?;
+
+    let owner = Pubkey::from_str(&json.owner)
+        .map_err(|err| format!("Failed to parse owner `{}`: {err}", json.owner))?;
+
+    Ok(Account {
+        lamports: json.lamports,
+        data,
+        owner,
+        executable: json.executable,
+        rent_epoch: json.rent_epoch,
+    })
 }
 
 const LAMPORTS_PER_SOL: u64 = 1_000_000_000;

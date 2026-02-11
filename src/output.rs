@@ -12,7 +12,7 @@ use solana_transaction::versioned::TransactionVersion;
 use crate::{
     account_loader::{ResolvedAccounts, ResolvedLookup},
     balance_changes::{compute_sol_changes, compute_token_changes, extract_mint_decimals_combined},
-    cli::{Funding, OutputFormat, ProgramReplacement},
+    cli::{Funding, OutputFormat, Replacement},
     executor::{ExecutionStatus, SimulationResult},
     funding::PreparedTokenFunding,
     instruction_parsers::anchor_idl::is_anchor_cpi_event,
@@ -42,7 +42,7 @@ pub fn render(
     parsed: &ParsedTransaction,
     resolved: &ResolvedAccounts,
     simulation: &SimulationResult,
-    replacements: &[ProgramReplacement],
+    replacements: &[Replacement],
     fundings: &[Funding],
     token_fundings: &[PreparedTokenFunding],
     parser_registry: &mut ParserRegistry,
@@ -101,7 +101,7 @@ pub fn render_bundle(
     total_tx_count: usize,
     resolved: &ResolvedAccounts,
     simulations: &[SimulationResult],
-    replacements: &[ProgramReplacement],
+    replacements: &[Replacement],
     fundings: &[Funding],
     token_fundings: &[PreparedTokenFunding],
     parser_registry: &mut ParserRegistry,
@@ -866,7 +866,7 @@ impl BundleReport {
         parsed_txs: &[ParsedTransaction],
         resolved: &ResolvedAccounts,
         simulations: &[SimulationResult],
-        replacements: &[ProgramReplacement],
+        replacements: &[Replacement],
         fundings: &[Funding],
         token_fundings: &[PreparedTokenFunding],
         parser_registry: &mut ParserRegistry,
@@ -893,13 +893,7 @@ impl BundleReport {
             })
             .collect();
 
-        let replacements = replacements
-            .iter()
-            .map(|entry| ReplacementSection {
-                program_id: entry.program_id.to_string(),
-                path: entry.so_path.display().to_string(),
-            })
-            .collect();
+        let replacements = replacements.iter().map(|entry| replacement_to_section(entry)).collect();
 
         let fundings = fundings
             .iter()
@@ -944,7 +938,7 @@ impl Report {
         parsed: &ParsedTransaction,
         resolved: &ResolvedAccounts,
         simulation: &SimulationResult,
-        replacements: &[ProgramReplacement],
+        replacements: &[Replacement],
         fundings: &[Funding],
         token_fundings: &[PreparedTokenFunding],
         parser_registry: &mut ParserRegistry,
@@ -960,13 +954,7 @@ impl Report {
             verify_signatures,
         );
         let simulation_section = SimulationSection::from_result(simulation);
-        let replacements = replacements
-            .iter()
-            .map(|entry| ReplacementSection {
-                program_id: entry.program_id.to_string(),
-                path: entry.so_path.display().to_string(),
-            })
-            .collect();
+        let replacements = replacements.iter().map(|entry| replacement_to_section(entry)).collect();
         // Compute balance changes before fundings is shadowed below
         let (sol_balance_changes, token_balance_changes) =
             if matches!(simulation.status, ExecutionStatus::Succeeded)
@@ -1620,8 +1608,25 @@ struct TokenFundingSection {
 
 #[derive(Serialize)]
 struct ReplacementSection {
-    program_id: String,
+    #[serde(rename = "type")]
+    replacement_type: String,
+    pubkey: String,
     path: String,
+}
+
+fn replacement_to_section(entry: &Replacement) -> ReplacementSection {
+    match entry {
+        Replacement::Program { program_id, so_path } => ReplacementSection {
+            replacement_type: "program".to_string(),
+            pubkey: program_id.to_string(),
+            path: so_path.display().to_string(),
+        },
+        Replacement::Account { pubkey, source_path, .. } => ReplacementSection {
+            replacement_type: "account".to_string(),
+            pubkey: pubkey.to_string(),
+            path: source_path.display().to_string(),
+        },
+    }
 }
 
 struct LookupResolver {
