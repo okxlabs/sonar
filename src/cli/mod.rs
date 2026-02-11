@@ -58,13 +58,13 @@ pub struct Cli {
 
 #[derive(Subcommand, Debug)]
 pub enum Commands {
-    /// Simulate a specified raw transaction
+    /// Simulate a Solana transaction locally using LiteSVM
     Simulate(SimulateArgs),
     /// Decode and display a raw transaction without simulation
     Decode(DecodeArgs),
     /// Fetch Anchor IDL from on-chain program accounts
     FetchIdl(FetchIdlArgs),
-    /// Fetch and decode Solana account data if IDL is available onchain or locally
+    /// Fetch and decode a Solana account
     #[command(name = "account")]
     Account(AccountArgs),
     /// Convert between data formats (number, hex, arrays, utf8, base64, base58, lamports, sol)

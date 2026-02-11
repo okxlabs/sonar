@@ -15,9 +15,8 @@ pub struct SimulateArgs {
     pub transaction: TransactionInputArgs,
     #[command(flatten)]
     pub rpc: RpcArgs,
-    /// Replace an on-chain account for simulation.
-    /// Format: <PUBKEY>=<PATH>
-    /// .so/.elf files are loaded as programs; .json files are loaded as account data.
+    /// Replace an on-chain program or account.
+    /// Format: <PUBKEY>=<PATH> (.so/.elf for programs, .json for accounts)
     #[arg(
         long = "replace",
         value_name = "MAPPING",
@@ -25,7 +24,7 @@ pub struct SimulateArgs {
         value_parser = clap::builder::NonEmptyStringValueParser::new()
     )]
     pub replacements: Vec<String>,
-    /// Fund a system account, format: <PUBKEY>=<LAMPORTS> or <PUBKEY>=<AMOUNT>sol
+    /// Fund a system account with SOL. Format: <PUBKEY>=<LAMPORTS> or <PUBKEY>=<AMOUNT>sol
     #[arg(
         long = "fund-sol",
         value_name = "FUNDING",
@@ -33,9 +32,8 @@ pub struct SimulateArgs {
         value_parser = clap::builder::NonEmptyStringValueParser::new()
     )]
     pub fundings: Vec<String>,
-    /// Fund a token account with raw token amount.
-    /// Format: <TOKEN_ACCOUNT>=<AMOUNT_RAW> (mint auto-detected from on-chain data)
-    /// or <TOKEN_ACCOUNT>:<MINT>=<AMOUNT_RAW> (mint required if account does not exist on-chain)
+    /// Fund a token account.
+    /// Format: <ACCOUNT>=<AMOUNT> or <ACCOUNT>:<MINT>=<AMOUNT> (mint auto-detected if account exists on-chain)
     #[arg(
         long = "fund-token",
         value_name = "FUNDING",
@@ -49,7 +47,7 @@ pub struct SimulateArgs {
     /// Verify transaction signatures during simulation
     #[arg(long = "check-sig")]
     pub verify_signatures: bool,
-    /// Directory containing Anchor IDLs; omit to disable IDL parsing
+    /// Directory containing Anchor IDL JSON files
     #[arg(long = "idl-dir", value_name = "DIR")]
     pub idl_dir: Option<PathBuf>,
     /// Show SOL and token balance changes after simulation
@@ -64,7 +62,7 @@ pub struct SimulateArgs {
     /// Override the Clock sysvar's unix_timestamp for simulation
     #[arg(long = "timestamp", value_name = "UNIX_TIMESTAMP")]
     pub timestamp: Option<i64>,
-    /// Override the simulation slot (warp SVM clock to this slot)
+    /// Override the simulation slot
     #[arg(long = "slot", value_name = "SLOT")]
     pub slot: Option<u64>,
     /// Patch bytes in an account's data field before simulation.
@@ -77,31 +75,25 @@ pub struct SimulateArgs {
         value_parser = clap::builder::NonEmptyStringValueParser::new()
     )]
     pub data_patches: Vec<String>,
-    /// Dump original on-chain account data to a directory (before --replace / --patch-data).
-    /// Each account is saved as <PUBKEY>.json in Solana CLI compatible format.
-    /// Native programs and non-existent accounts are excluded.
+    /// Save fetched account data to a directory as <PUBKEY>.json before applying patches
     #[arg(long = "dump-accounts", value_name = "DIR")]
     pub dump_accounts: Option<PathBuf>,
-    /// Load account data from a local directory before fetching from RPC.
-    /// Files should be named <PUBKEY>.json in Solana CLI JSON format.
-    /// By default, missing accounts fall back to RPC (local-first mode).
-    /// Use --offline to disable RPC fallback entirely.
+    /// Load account data from a local directory (<PUBKEY>.json).
+    /// Missing accounts fall back to RPC unless --offline is set
     #[arg(long = "load-accounts", value_name = "DIR")]
     pub load_accounts: Option<PathBuf>,
-    /// Offline mode: only load accounts from local directory (--load-accounts),
-    /// never fetch from RPC. Errors if any required account is missing locally.
+    /// Disable RPC fallback; error if any account is missing from --load-accounts directory
     #[arg(long = "offline", requires = "load_accounts")]
     pub offline: bool,
 }
 
 #[derive(Args, Debug, Clone)]
 pub struct TransactionInputArgs {
-    /// Raw transaction string (Base58/Base64) or transaction signature.
-    /// Multiple transactions for bundle simulation can be provided as separate arguments.
-    /// Mutually exclusive with --tx-file
+    /// Raw transaction (Base58/Base64) or transaction signature.
+    /// Pass multiple values for bundle mode
     #[arg(value_name = "TX", conflicts_with = "tx_file")]
     pub tx: Vec<String>,
-    /// File path containing raw transaction, mutually exclusive with positional TX args
+    /// Read raw transaction from file
     #[arg(long = "tx-file", value_name = "PATH")]
     pub tx_file: Option<PathBuf>,
     /// Output format

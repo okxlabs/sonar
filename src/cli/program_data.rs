@@ -14,12 +14,12 @@ pub struct ProgramDataArgs {
     #[command(flatten)]
     pub rpc: RpcArgs,
 
-    /// Treat the address as a Buffer account instead of a Program
+    /// Treat address as a buffer account instead of a program
     #[arg(long)]
     pub buffer: bool,
 
     /// Verify the program data matches the expected SHA256 hash (hex string)
-    #[arg(long)]
+    #[arg(long, value_name = "HASH")]
     pub verify_sha256: Option<String>,
 
     /// Output file path (writes to stdout if not specified)

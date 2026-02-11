@@ -17,7 +17,7 @@ pub struct DecodeArgs {
     /// Always print raw instruction data, even when parser succeeds
     #[arg(long = "raw-ix-data")]
     pub ix_data: bool,
-    /// Directory containing Anchor IDLs; omit to disable IDL parsing
+    /// Directory containing Anchor IDL JSON files
     #[arg(long = "idl-dir", value_name = "DIR")]
     pub idl_dir: Option<PathBuf>,
 }

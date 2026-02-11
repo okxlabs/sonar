@@ -18,7 +18,7 @@ pub struct AccountArgs {
     #[arg(long = "idl-dir")]
     pub idl_dir: Option<PathBuf>,
 
-    /// Output raw account data in JSON format, skip IDL parsing
+    /// Output raw account data as base64 JSON, skip decoding
     #[arg(long)]
     pub raw: bool,
 
