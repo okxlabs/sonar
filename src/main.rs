@@ -232,8 +232,8 @@ fn handle_account(args: AccountArgs) -> Result<()> {
         return Ok(());
     }
 
-    // Try to find IDL: first from local path, then from chain
-    let idl_json = try_load_idl_from_path(&args.idl_path, &owner).or_else(|| {
+    // Try to find IDL: first from local directory, then from chain
+    let idl_json = try_load_idl_from_dir(&args.idl_dir, &owner).or_else(|| {
         let loader =
             account_loader::AccountLoader::new(args.rpc.rpc_url.clone(), None, false).ok()?;
         loader.fetch_idl(&owner).ok().flatten()
@@ -316,10 +316,10 @@ fn handle_account(args: AccountArgs) -> Result<()> {
     Ok(())
 }
 
-/// Try to load IDL from local path (if specified).
+/// Try to load IDL from local directory (if specified).
 /// IDL files are expected to be named `<PROGRAM_ID>.json`.
-fn try_load_idl_from_path(idl_path: &Option<PathBuf>, owner: &Pubkey) -> Option<String> {
-    let path = idl_path.as_ref()?;
+fn try_load_idl_from_dir(idl_dir: &Option<PathBuf>, owner: &Pubkey) -> Option<String> {
+    let path = idl_dir.as_ref()?;
     let idl_file = path.join(format!("{}.json", owner));
 
     if idl_file.exists() {
@@ -603,10 +603,10 @@ fn scan_idl_directory(dir: &Path) -> Result<Vec<Pubkey>> {
 }
 
 fn handle_decode(args: DecodeArgs) -> Result<()> {
-    let idl_path = args.idl_path.clone();
-    let mut parser_registry = ParserRegistry::new(idl_path);
+    let idl_dir = args.idl_dir.clone();
+    let mut parser_registry = ParserRegistry::new(idl_dir);
 
-    let DecodeArgs { transaction, rpc, ix_data, idl_path: _ } = args;
+    let DecodeArgs { transaction, rpc, ix_data, idl_dir: _ } = args;
     let rpc_url = rpc.rpc_url;
     let TransactionInputArgs { tx, tx_file, output } = transaction;
 
@@ -705,8 +705,8 @@ fn handle_bundle_decode(
 
 fn handle_simulate(args: SimulateArgs) -> Result<()> {
     // Only attempt IDL-based parsing when the user explicitly supplies a directory
-    let idl_path = args.idl_path.clone();
-    let mut parser_registry = ParserRegistry::new(idl_path);
+    let idl_dir = args.idl_dir.clone();
+    let mut parser_registry = ParserRegistry::new(idl_dir);
 
     log::debug!("Created parser registry with lazy IDL loading support");
     let SimulateArgs {
@@ -717,7 +717,7 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
         token_fundings: token_funding_args,
         ix_data,
         verify_signatures,
-        idl_path: _,
+        idl_dir: _,
         show_balance_change,
         raw_log,
         show_ix_detail,

@@ -50,8 +50,8 @@ pub struct SimulateArgs {
     #[arg(long = "check-sig")]
     pub verify_signatures: bool,
     /// Directory containing Anchor IDLs; omit to disable IDL parsing
-    #[arg(long = "idl-path", value_name = "PATH")]
-    pub idl_path: Option<PathBuf>,
+    #[arg(long = "idl-dir", value_name = "DIR")]
+    pub idl_dir: Option<PathBuf>,
     /// Show SOL and token balance changes after simulation
     #[arg(short = 'b', long = "show-balance-change")]
     pub show_balance_change: bool,

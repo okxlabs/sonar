@@ -15,8 +15,8 @@ pub struct AccountArgs {
     pub rpc: RpcArgs,
 
     /// Local IDL directory. Falls back to fetching from chain if not found.
-    #[arg(long = "idl-path")]
-    pub idl_path: Option<PathBuf>,
+    #[arg(long = "idl-dir")]
+    pub idl_dir: Option<PathBuf>,
 
     /// Output raw account data in JSON format, skip IDL parsing
     #[arg(long)]

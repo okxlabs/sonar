@@ -18,6 +18,6 @@ pub struct DecodeArgs {
     #[arg(long = "raw-ix-data")]
     pub ix_data: bool,
     /// Directory containing Anchor IDLs; omit to disable IDL parsing
-    #[arg(long = "idl-path", value_name = "PATH")]
-    pub idl_path: Option<PathBuf>,
+    #[arg(long = "idl-dir", value_name = "DIR")]
+    pub idl_dir: Option<PathBuf>,
 }

@@ -92,7 +92,7 @@ Load IDL files from a custom directory for Anchor program instruction parsing:
 ```bash
 solsim simulate --tx <TRANSACTION_SIGNATURE> \
   --rpc-url https://api.mainnet-beta.solana.com \
-  --idl-path /path/to/idl/files/
+  --idl-dir /path/to/idl/files/
 ```
 
 ### Combined Options
