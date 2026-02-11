@@ -59,15 +59,18 @@ pub struct Cli {
 #[derive(Subcommand, Debug)]
 pub enum Commands {
     /// Simulate a Solana transaction locally using LiteSVM
+    #[command(alias = "sim")]
     Simulate(SimulateArgs),
     /// Decode and display a raw transaction without simulation
+    #[command(alias = "dec")]
     Decode(DecodeArgs),
     /// Fetch Anchor IDL from on-chain program accounts
     FetchIdl(FetchIdlArgs),
     /// Fetch and decode a Solana account
-    #[command(name = "account")]
+    #[command(name = "account", alias = "acc")]
     Account(AccountArgs),
     /// Convert between data formats (number, hex, arrays, utf8, base64, base58, lamports, sol)
+    #[command(alias = "conv")]
     Convert(ConvertArgs),
     /// Derive a PDA (Program Derived Address) from seeds
     Pda(PdaArgs),
