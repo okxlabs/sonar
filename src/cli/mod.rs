@@ -46,7 +46,7 @@ pub enum ColorMode {
 }
 
 #[derive(Parser, Debug)]
-#[command(name = "solsim", version, about = "Solana Transaction Simulator based on LiteSVM")]
+#[command(name = "sonar", version, about = "Solana Developer Toolkit powered by LiteSVM")]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,
@@ -69,7 +69,7 @@ pub enum Commands {
     Account(AccountArgs),
     /// Convert between data formats (number, hex, arrays, utf8, base64, base58, lamports, sol)
     #[command(
-        after_help = "EXAMPLES:\n  solsim convert 0x48656c6c6f -t utf8          # hex to UTF-8 -> Hello\n  solsim convert 1000000000 -f lam -t sol       # lamports to SOL -> 1\n  solsim convert 255 -t hex                    # number to hex (LE) -> 0xff\n  solsim convert SGVsbG8= -f base64 -t utf8    # base64 to UTF-8 -> Hello\n  solsim convert 0x12345678 -t dec-array       # hex to decimal byte array"
+        after_help = "EXAMPLES:\n  sonar convert 0x48656c6c6f -t utf8          # hex to UTF-8 -> Hello\n  sonar convert 1000000000 -f lam -t sol       # lamports to SOL -> 1\n  sonar convert 255 -t hex                    # number to hex (LE) -> 0xff\n  sonar convert SGVsbG8= -f base64 -t utf8    # base64 to UTF-8 -> Hello\n  sonar convert 0x12345678 -t dec-array       # hex to decimal byte array"
     )]
     Convert(ConvertArgs),
     /// Derive a PDA (Program Derived Address) from seeds

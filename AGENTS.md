@@ -1,4 +1,4 @@
-# Solsim Development Guide
+# Sonar Development Guide
 
 CLI tool for simulating Solana transactions locally using LiteSVM.
 

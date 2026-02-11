@@ -1,6 +1,6 @@
-# Solsim - Solana Transaction Simulator
+# Sonar - Solana Developer Toolkit
 
-A command-line tool for simulating Solana transactions locally using LiteSVM. Test and debug Solana transactions without deploying to a live network.
+A command-line Solana developer toolkit powered by LiteSVM. Simulate, decode, and inspect Solana transactions and accounts locally without deploying to a live network.
 
 ## Features
 
@@ -19,13 +19,13 @@ A command-line tool for simulating Solana transactions locally using LiteSVM. Te
 
 ```bash
 # Clone the repository
-git clone https://github.com/user/solsim.git
-cd solsim
+git clone https://github.com/user/sonar.git
+cd sonar
 
 # Build release version
 cargo build --release
 
-# The binary will be at target/release/solsim
+# The binary will be at target/release/sonar
 ```
 
 ## Usage
@@ -34,21 +34,21 @@ cargo build --release
 
 ```bash
 # Simulate a transaction with raw Base58/Base64 data
-solsim simulate --tx <BASE58_STRING> --rpc-url https://api.mainnet-beta.solana.com
+sonar simulate --tx <BASE58_STRING> --rpc-url https://api.mainnet-beta.solana.com
 
 # Simulate using transaction signature (auto-detected)
-solsim simulate --tx 2gTzNX3zLNhhmJaY44LycEgF8UMadrKeDLHz8rgcQVbXWVU4bs8fLBzWKhvAqKBeo2ttqyXsCeqUW47dfW6775Wu \
+sonar simulate --tx 2gTzNX3zLNhhmJaY44LycEgF8UMadrKeDLHz8rgcQVbXWVU4bs8fLBzWKhvAqKBeo2ttqyXsCeqUW47dfW6775Wu \
   --rpc-url https://api.mainnet-beta.solana.com
 
 # Read transaction from file
-solsim simulate --tx-file ./transaction.txt --rpc-url <RPC_URL>
+sonar simulate --tx-file ./transaction.txt --rpc-url <RPC_URL>
 ```
 
 ### Parse-Only Mode
 
 ```bash
 # Parse transaction without simulation
-solsim simulate --tx 2gTzNX3zLNhhmJaY44LycEgF8UMadrKeDLHz8rgcQVbXWVU4bs8fLBzWKhvAqKBeo2ttqyXsCeqUW47dfW6775Wu \
+sonar simulate --tx 2gTzNX3zLNhhmJaY44LycEgF8UMadrKeDLHz8rgcQVbXWVU4bs8fLBzWKhvAqKBeo2ttqyXsCeqUW47dfW6775Wu \
   --rpc-url https://api.mainnet-beta.solana.com \
   --parse-only
 ```
@@ -58,7 +58,7 @@ solsim simulate --tx 2gTzNX3zLNhhmJaY44LycEgF8UMadrKeDLHz8rgcQVbXWVU4bs8fLBzWKhv
 Replace on-chain programs with local .so files for testing:
 
 ```bash
-solsim simulate \
+sonar simulate \
   --tx <BASE58_STRING> \
   --rpc-url https://api.mainnet-beta.solana.com \
   --replace TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA=./custom_token.so \
@@ -71,13 +71,13 @@ Fund system accounts with SOL for testing:
 
 ```bash
 # Fund a single account
-solsim simulate \
+sonar simulate \
   --tx <TRANSACTION_SIGNATURE> \
   --rpc-url https://api.mainnet-beta.solana.com \
   --fund-sol 11111111111111111111111111111111=10.5
 
 # Fund multiple accounts
-solsim simulate \
+sonar simulate \
   --tx <TRANSACTION_SIGNATURE> \
   --rpc-url https://api.mainnet-beta.solana.com \
   --fund-sol DPLezAkFZ5sFaBXMWt3J2StQwYtcqecUipWSP7YfrLth=100.0 \
@@ -90,7 +90,7 @@ solsim simulate \
 Load IDL files from a custom directory for Anchor program instruction parsing:
 
 ```bash
-solsim simulate --tx <TRANSACTION_SIGNATURE> \
+sonar simulate --tx <TRANSACTION_SIGNATURE> \
   --rpc-url https://api.mainnet-beta.solana.com \
   --idl-dir /path/to/idl/files/
 ```
@@ -98,7 +98,7 @@ solsim simulate --tx <TRANSACTION_SIGNATURE> \
 ### Combined Options
 
 ```bash
-solsim simulate \
+sonar simulate \
   --tx <TRANSACTION> \
   --rpc-url https://api.mainnet-beta.solana.com \
   --replace TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA=./custom_token.so \

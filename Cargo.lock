@@ -5714,7 +5714,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "solsim"
+name = "sonar"
 version = "0.1.3"
 dependencies = [
  "anyhow",

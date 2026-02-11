@@ -7,7 +7,7 @@ const V0_RAW_TX: &str = "GPdrKqMbYtzsysuEJhYG4bpUB9xQFpdQ8ps9s8XorbfD5SA5FrFfMAL
 #[test]
 #[ignore]
 fn simulate_real_transaction_via_cli() -> Result<(), Box<dyn std::error::Error>> {
-    let mut cmd = cargo_bin_cmd!("solsim");
+    let mut cmd = cargo_bin_cmd!("sonar");
     cmd.arg("simulate")
         .arg(V0_RAW_TX)
         .arg("--rpc-url")
@@ -30,7 +30,7 @@ fn simulate_real_transaction_via_cli() -> Result<(), Box<dyn std::error::Error>>
 #[test]
 #[ignore]
 fn parse_real_transaction_via_cli() -> Result<(), Box<dyn std::error::Error>> {
-    let mut cmd = cargo_bin_cmd!("solsim");
+    let mut cmd = cargo_bin_cmd!("sonar");
     cmd.arg("decode")
         .arg(V0_RAW_TX)
         .arg("--rpc-url")
@@ -51,7 +51,7 @@ fn parse_real_transaction_via_cli() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 #[ignore]
 fn simulate_real_transaction_replace_multiple_program() -> Result<(), Box<dyn std::error::Error>> {
-    let mut cmd = cargo_bin_cmd!("solsim");
+    let mut cmd = cargo_bin_cmd!("sonar");
     cmd.arg("simulate")
         .arg(V0_RAW_TX)
         .arg("--replace")
