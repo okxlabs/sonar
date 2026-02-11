@@ -661,7 +661,7 @@ fn render_instruction_details_text(
                 let account_name = if i < parsed.account_names.len() {
                     parsed.account_names[i].clone()
                 } else {
-                    format!("account_{}", i)
+                    format!("account_{}", i + 1)
                 };
                 render_instruction_account_text_with_name(account, resolved, &account_name);
             }
@@ -703,7 +703,7 @@ fn render_instruction_details_text(
                         let account_name = if i < parsed_inner.account_names.len() {
                             parsed_inner.account_names[i].clone()
                         } else {
-                            format!("account_{}", i)
+                            format!("account_{}", i + 1)
                         };
                         render_inner_instruction_account_text_with_name(
                             account,

@@ -1255,7 +1255,7 @@ fn read_u64_le(data: &[u8]) -> Option<(u64, &[u8])> {
 }
 
 fn generate_generic_account_names(len: usize) -> Vec<String> {
-    (0..len).map(|i| format!("account_{}", i)).collect()
+    (0..len).map(|i| format!("account_{}", i + 1)).collect()
 }
 
 #[cfg(test)]
