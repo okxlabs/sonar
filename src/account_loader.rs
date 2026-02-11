@@ -202,15 +202,13 @@ impl AccountLoader {
                 if account.owner != bpf_loader_upgradeable::id() {
                     continue;
                 }
-                if let Ok(state) =
+                if let Ok(UpgradeableLoaderState::Program { programdata_address }) =
                     bincode::deserialize::<UpgradeableLoaderState>(account.data.as_slice())
                 {
-                    if let UpgradeableLoaderState::Program { programdata_address } = state {
-                        let programdata_key =
-                            Pubkey::new_from_array(programdata_address.to_bytes());
-                        if !accounts.contains_key(&programdata_key) {
-                            missing.push(programdata_key);
-                        }
+                    let programdata_key =
+                        Pubkey::new_from_array(programdata_address.to_bytes());
+                    if !accounts.contains_key(&programdata_key) {
+                        missing.push(programdata_key);
                     }
                 }
             }
@@ -371,7 +369,6 @@ impl AccountLoader {
             encoding: Some(UiTransactionEncoding::Base64),
             commitment: Some(CommitmentConfig::confirmed()),
             max_supported_transaction_version: Some(0),
-            ..Default::default()
         };
 
         let response =

@@ -38,6 +38,7 @@ pub struct LogDisplayOptions {
     pub show_raw_log: bool,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn render(
     parsed: &ParsedTransaction,
     resolved: &ResolvedAccounts,
@@ -96,6 +97,7 @@ pub fn render_transaction_only(
 }
 
 /// Render multiple transaction simulation results (bundle simulation).
+#[allow(clippy::too_many_arguments)]
 pub fn render_bundle(
     parsed_txs: &[ParsedTransaction],
     total_tx_count: usize,
@@ -862,6 +864,7 @@ struct BundleTransactionReport {
 }
 
 impl BundleReport {
+    #[allow(clippy::too_many_arguments)]
     fn from_sources(
         parsed_txs: &[ParsedTransaction],
         resolved: &ResolvedAccounts,
@@ -934,6 +937,7 @@ impl BundleReport {
 }
 
 impl Report {
+    #[allow(clippy::too_many_arguments)]
     fn from_sources(
         parsed: &ParsedTransaction,
         resolved: &ResolvedAccounts,

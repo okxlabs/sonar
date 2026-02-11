@@ -26,9 +26,10 @@ cargo build
 cargo build --release
 cargo check
 
-# Format (run before committing)
+# Format and lint (run before committing)
 cargo fmt
 cargo fmt --check
+cargo clippy -- -D warnings
 
 # Test
 cargo test
@@ -59,7 +60,8 @@ cargo run -- simulate <TX1> <TX2> <TX3> --rpc-url <RPC_URL>  # bundle simulation
 - Use `pub(crate)` for internal visibility when appropriate
 
 ## Commit Conventions
-Follow the **Conventional Commits** standard
+- Follow the **Conventional Commits** standard
+- Before every commit, ensure **zero `cargo clippy` warnings** — treat all clippy warnings as errors (`cargo clippy -- -D warnings`)
 
 ## Key Patterns
 
@@ -78,4 +80,5 @@ Follow the **Conventional Commits** standard
 4. For integration tests, ensure RPC access or use mocks
 5. Test CLI manually with sample transactions
 6. Follow existing code style and English error message convention
-7. Run `cargo fmt` before committing changes
+7. Run `cargo clippy -- -D warnings` and fix all warnings before committing
+8. Run `cargo fmt` before committing changes

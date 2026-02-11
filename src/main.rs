@@ -916,6 +916,7 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
 }
 
 /// Handle bundle simulation (multiple transactions executed sequentially).
+#[allow(clippy::too_many_arguments)]
 fn handle_bundle_simulate(
     tx_inputs: Vec<String>,
     rpc_url: &str,
