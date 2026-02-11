@@ -4,10 +4,12 @@ use anyhow::{Context, Result, anyhow};
 use litesvm::{LiteSVM, types::TransactionMetadata};
 use log::info;
 use solana_account::{Account, AccountSharedData};
+use solana_clock::Clock;
 
 use solana_loader_v3_interface::state::UpgradeableLoaderState;
 use solana_pubkey::Pubkey;
 use solana_sdk_ids::bpf_loader_upgradeable;
+use solana_sysvar_id::SysvarId;
 use solana_transaction::versioned::VersionedTransaction;
 use solana_transaction::versioned::VersionedTransaction as LiteVersionedTransaction;
 
@@ -32,6 +34,8 @@ impl TransactionExecutor {
         fundings: Vec<Funding>,
         token_fundings: Vec<PreparedTokenFunding>,
         verify_signatures: bool,
+        slot: Option<u64>,
+        timestamp: Option<i64>,
     ) -> Result<Self> {
         let mut svm = LiteSVM::new()
             .with_log_bytes_limit(Some(1024 * 1024 * 10)) // 10M
@@ -89,6 +93,29 @@ impl TransactionExecutor {
         }
 
         apply_sol_fundings(&mut svm, &fundings)?;
+
+        // Apply slot override (warp SVM clock to specified slot)
+        if let Some(slot) = slot {
+            info!("Warping SVM clock to slot {}", slot);
+            svm.warp_to_slot(slot);
+        }
+
+        // Apply timestamp override (modify Clock sysvar's unix_timestamp)
+        if let Some(ts) = timestamp {
+            let clock_id = Clock::id();
+            let clock_account = svm
+                .get_account(&clock_id)
+                .ok_or_else(|| anyhow!("Clock sysvar account not found in SVM"))?;
+            let mut clock: Clock = bincode::deserialize(&clock_account.data)
+                .context("Failed to deserialize Clock sysvar")?;
+            info!("Overriding Clock unix_timestamp: {} -> {}", clock.unix_timestamp, ts);
+            clock.unix_timestamp = ts;
+            let data =
+                bincode::serialize(&clock).context("Failed to serialize modified Clock sysvar")?;
+            let updated_account = Account { data, ..clock_account };
+            svm.set_account(clock_id, updated_account)
+                .context("Failed to set modified Clock sysvar")?;
+        }
 
         Ok(Self { svm, resolved, replacements, fundings, token_fundings })
     }
@@ -324,6 +351,8 @@ mod tests {
             vec![],
             vec![],
             false, // don't verify signatures for test
+            None,  // slot
+            None,  // timestamp
         )
         .expect("Failed to prepare executor");
 

@@ -61,6 +61,12 @@ pub struct SimulateArgs {
     /// Show detailed instruction information (accounts, parsed fields, inner instructions)
     #[arg(long = "show-ix-detail")]
     pub show_ix_detail: bool,
+    /// Override the Clock sysvar's unix_timestamp for simulation
+    #[arg(long = "timestamp", value_name = "UNIX_TIMESTAMP")]
+    pub timestamp: Option<i64>,
+    /// Override the simulation slot (warp SVM clock to this slot)
+    #[arg(long = "slot", value_name = "SLOT")]
+    pub slot: Option<u64>,
 }
 
 #[derive(Args, Debug, Clone)]

@@ -718,6 +718,8 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
         show_balance_change,
         show_raw_log,
         show_ix_detail,
+        timestamp,
+        slot,
     } = args;
     let rpc_url = rpc.rpc_url;
 
@@ -756,6 +758,8 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
             balance_opts,
             log_opts,
             show_ix_detail,
+            slot,
+            timestamp,
         );
     }
 
@@ -811,6 +815,8 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
                 fundings,
                 prepared_token_fundings,
                 verify_signatures,
+                slot,
+                timestamp,
             )?;
             let simulation = executor.simulate(&parsed_tx.transaction)?;
 
@@ -886,6 +892,8 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
         fundings,
         prepared_token_fundings,
         verify_signatures,
+        slot,
+        timestamp,
     )?;
     let simulation = executor.simulate(&parsed_tx.transaction)?;
 
@@ -931,6 +939,8 @@ fn handle_bundle_simulate(
     balance_opts: output::BalanceChangeOptions,
     log_opts: output::LogDisplayOptions,
     show_ix_detail: bool,
+    slot: Option<u64>,
+    timestamp: Option<i64>,
 ) -> Result<()> {
     log::info!("Bundle simulation mode: {} transactions", tx_inputs.len());
 
@@ -983,6 +993,8 @@ fn handle_bundle_simulate(
         fundings,
         prepared_token_fundings,
         verify_signatures,
+        slot,
+        timestamp,
     )?;
 
     let simulations = executor.execute_bundle(&tx_refs);
