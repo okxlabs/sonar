@@ -48,7 +48,7 @@ pub struct SimulateArgs {
     #[arg(long = "check-sig")]
     pub verify_signatures: bool,
     /// Directory containing Anchor IDL JSON files
-    #[arg(long = "idl-dir", value_name = "DIR")]
+    #[arg(long = "idl-dir", value_name = "DIR", env = "SONAR_IDL_DIR")]
     pub idl_dir: Option<PathBuf>,
     /// Show SOL and token balance changes after simulation
     #[arg(short = 'b', long = "show-balance-change")]

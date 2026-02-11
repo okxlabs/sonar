@@ -1,6 +1,7 @@
 mod account_loader;
 mod balance_changes;
 mod cli;
+mod config;
 mod executor;
 mod funding;
 mod instruction_parsers;
@@ -37,6 +38,11 @@ fn main() {
 
 fn run() -> Result<()> {
     env_logger::init();
+
+    // Load ~/.config/sonar/config.toml and inject values into env vars
+    // before clap parses, so that CLI arg > env var > config file > default.
+    config::load_and_apply();
+
     let cli = Cli::parse();
 
     // Initialize color control based on --color flag, NO_COLOR env var, and TTY detection

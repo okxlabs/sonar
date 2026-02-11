@@ -15,7 +15,7 @@ pub struct AccountArgs {
     pub rpc: RpcArgs,
 
     /// Local IDL directory. Falls back to fetching from chain if not found.
-    #[arg(long = "idl-dir")]
+    #[arg(long = "idl-dir", env = "SONAR_IDL_DIR")]
     pub idl_dir: Option<PathBuf>,
 
     /// Output raw account data as base64 JSON, skip decoding

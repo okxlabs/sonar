@@ -52,7 +52,7 @@ pub struct Cli {
     pub command: Commands,
 
     /// Control color output (auto, always, never)
-    #[arg(long, global = true, value_enum, default_value_t = ColorMode::Auto)]
+    #[arg(long, global = true, value_enum, default_value_t = ColorMode::Auto, env = "SONAR_COLOR")]
     pub color: ColorMode,
 }
 
