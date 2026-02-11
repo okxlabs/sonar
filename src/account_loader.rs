@@ -205,8 +205,7 @@ impl AccountLoader {
                 if let Ok(UpgradeableLoaderState::Program { programdata_address }) =
                     bincode::deserialize::<UpgradeableLoaderState>(account.data.as_slice())
                 {
-                    let programdata_key =
-                        Pubkey::new_from_array(programdata_address.to_bytes());
+                    let programdata_key = Pubkey::new_from_array(programdata_address.to_bytes());
                     if !accounts.contains_key(&programdata_key) {
                         missing.push(programdata_key);
                     }

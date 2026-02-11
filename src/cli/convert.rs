@@ -101,7 +101,8 @@ fn parse_bytes_input(input: &str, format_hint: Option<ByteFormat>) -> Result<Vec
             return Err("Hex string cannot be empty after 0x prefix".to_string());
         }
         // Pad with leading zero if odd length
-        let hex_str = if !hex_str.len().is_multiple_of(2) { format!("0{}", hex_str) } else { hex_str };
+        let hex_str =
+            if !hex_str.len().is_multiple_of(2) { format!("0{}", hex_str) } else { hex_str };
         let bytes = hex::decode(&hex_str).map_err(|e| format!("Invalid hex string: {}", e))?;
         return Ok(bytes);
     }
@@ -160,7 +161,8 @@ fn parse_bytes_input(input: &str, format_hint: Option<ByteFormat>) -> Result<Vec
         if hex_str.is_empty() {
             return Err("Hex string cannot be empty".to_string());
         }
-        let hex_str = if !hex_str.len().is_multiple_of(2) { format!("0{}", hex_str) } else { hex_str };
+        let hex_str =
+            if !hex_str.len().is_multiple_of(2) { format!("0{}", hex_str) } else { hex_str };
         let bytes = hex::decode(&hex_str).map_err(|e| format!("Invalid hex string: {}", e))?;
         return Ok(bytes);
     }
