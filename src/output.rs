@@ -131,33 +131,119 @@ pub fn render_bundle(
     }
 }
 
+/// Render the bundle summary header showing overall status and per-transaction compact rows.
+fn render_bundle_summary_header(bundle: &BundleReport, total_count: usize) {
+    render_separator();
+
+    // Determine overall bundle status
+    let succeeded = bundle
+        .transactions
+        .iter()
+        .filter(|t| matches!(t.simulation.status, SimulationStatusReport::Succeeded))
+        .count();
+    let failed_at = bundle
+        .transactions
+        .iter()
+        .position(|t| matches!(t.simulation.status, SimulationStatusReport::Failed { .. }))
+        .map(|i| i + 1);
+
+    let status_str = if succeeded == total_count {
+        "🟢 ALL SUCCEEDED".to_string()
+    } else if let Some(idx) = failed_at {
+        format!("🔴 FAILED (TX {})", idx)
+    } else {
+        "⚠️  PARTIAL".to_string()
+    };
+
+    // Total CU consumed across all transactions
+    let total_cu: u64 =
+        bundle.transactions.iter().map(|t| t.simulation.compute_units_consumed).sum();
+
+    let summary_text = format!(
+        "Bundle: {} | TX: {}/{} | CU: {}",
+        status_str,
+        bundle.transactions.len(),
+        total_count,
+        format_with_commas(total_cu)
+    );
+
+    // Center the summary text
+    let text_len = summary_text.chars().count();
+    let padding = (SEPARATOR_WIDTH.saturating_sub(text_len)) / 2;
+    println!("{:>width$}", summary_text, width = padding + text_len);
+
+    println!();
+
+    let tx_col_width = total_count.to_string().len().max(2);
+    const CU_COL_WIDTH: usize = 12;
+
+    // Per-transaction compact rows
+    for (i, tx_report) in bundle.transactions.iter().enumerate() {
+        let idx = i + 1;
+        let status_icon = match &tx_report.simulation.status {
+            SimulationStatusReport::Succeeded => "🟢",
+            SimulationStatusReport::Failed { .. } => "🔴",
+        };
+        let cu_used = tx_report.simulation.compute_units_consumed;
+        let cu_limit = extract_compute_unit_limit(&tx_report.transaction).unwrap_or(200_000);
+        let percentage =
+            if cu_limit > 0 { (cu_used as f64 / cu_limit as f64 * 100.0) as u32 } else { 0 };
+        let sig = tx_report
+            .transaction
+            .signatures
+            .first()
+            .map(|s| truncate_sig(s, 6))
+            .unwrap_or_else(|| "<no-sig>".to_string());
+
+        println!(
+            "  TX {:>tx_w$}/{:<tx_w$}  {}  CU: {:>cu_w$} / {:>cu_w$} ({:>3}%)  {}",
+            idx, total_count,
+            status_icon,
+            format_with_commas(cu_used),
+            format_with_commas(cu_limit),
+            percentage,
+            sig,
+            tx_w = tx_col_width,
+            cu_w = CU_COL_WIDTH
+        );
+    }
+
+    // Render skipped transactions
+    for i in bundle.transactions.len()..total_count {
+        println!(
+            "  TX {:>tx_w$}/{:<tx_w$}  ⏭️  SKIPPED",
+            i + 1,
+            total_count,
+            tx_w = tx_col_width
+        );
+    }
+
+    render_separator();
+    println!(); // Empty line after header
+}
+
 fn render_bundle_text(
     bundle: &BundleReport,
     total_count: usize,
     log_opts: LogDisplayOptions,
 ) -> Result<()> {
-    println!("=== Bundle Simulation ({} transactions) ===", total_count);
+    // Bundle summary header (status + per-TX overview)
+    render_bundle_summary_header(bundle, total_count);
 
-    // Render executed transactions with compact format
+    // Render each transaction's execution trace
     for (i, tx_report) in bundle.transactions.iter().enumerate() {
-        render_bundle_transaction_compact(i + 1, total_count, tx_report, log_opts);
-    }
-
-    // Render skipped transactions (due to fail-fast)
-    for i in bundle.transactions.len()..total_count {
-        println!("\nTransaction {}/{}: (skipped)", i + 1, total_count);
+        render_bundle_transaction_trace(i + 1, total_count, tx_report, log_opts);
     }
 
     // Render overall bundle balance changes
     render_bundle_balance_changes(bundle);
 
-    // Summary
-    render_bundle_summary(bundle, total_count);
+    println!();
 
     Ok(())
 }
 
-fn render_bundle_transaction_compact(
+fn render_bundle_transaction_trace(
     index: usize,
     total: usize,
     tx_report: &BundleTransactionReport,
@@ -169,16 +255,12 @@ fn render_bundle_transaction_compact(
         .first()
         .map(|s| truncate_sig(s, 12))
         .unwrap_or_else(|| "<no-sig>".to_string());
-
-    println!("\nTransaction {}/{}: {}", index, total, sig);
-
-    match &tx_report.simulation.status {
-        SimulationStatusReport::Succeeded => println!("  Status: 🟢 SUCCESS"),
-        SimulationStatusReport::Failed { error } => println!("  Status: 🔴 FAILED ({})", error),
+    println!("── TX {}/{}: {} ──", index, total, sig);
+    if let SimulationStatusReport::Failed { error } = &tx_report.simulation.status {
+        println!("   ↳ Error: {}", error);
     }
-    println!("  Compute Units: {}", tx_report.simulation.compute_units_consumed);
-
     render_execution_trace_section(&tx_report.simulation, log_opts);
+    println!();
 }
 
 /// Render overall bundle balance changes (first tx pre -> last successful tx post)
@@ -228,31 +310,6 @@ fn truncate_sig(sig: &str, prefix_len: usize) -> String {
     } else {
         format!("{}...{}", &sig[..prefix_len], &sig[sig.len() - prefix_len..])
     }
-}
-
-fn render_bundle_summary(bundle: &BundleReport, total_count: usize) {
-    let succeeded = bundle
-        .transactions
-        .iter()
-        .filter(|t| matches!(t.simulation.status, SimulationStatusReport::Succeeded))
-        .count();
-
-    println!("\n{}", "═".repeat(50));
-    if succeeded == total_count {
-        println!("Bundle Summary: {}/{} succeeded", succeeded, total_count);
-    } else {
-        let failed_at = bundle
-            .transactions
-            .iter()
-            .position(|t| matches!(t.simulation.status, SimulationStatusReport::Failed { .. }))
-            .map(|i| i + 1);
-        if let Some(idx) = failed_at {
-            println!("Bundle Summary: FAILED at transaction {}", idx);
-        } else {
-            println!("Bundle Summary: {}/{} executed", bundle.transactions.len(), total_count);
-        }
-    }
-    println!("{}", "═".repeat(50));
 }
 
 fn render_bundle_json(bundle: &BundleReport) -> Result<()> {
@@ -1051,8 +1108,7 @@ fn compute_balance_changes_for_single_tx(
             })
             .collect();
 
-        let mint_decimals =
-            extract_mint_decimals_combined(pre_accounts, &simulation.post_accounts);
+        let mint_decimals = extract_mint_decimals_combined(pre_accounts, &simulation.post_accounts);
         let changes =
             compute_token_changes(pre_accounts, &simulation.post_accounts, &mint_decimals);
         token_changes = changes
