@@ -128,9 +128,25 @@ pub fn read_raw_transaction(inline: Option<String>, tx_file: Option<&Path>) -> R
             }
         }
         (Some(_), Some(_)) => Err(anyhow!("Please specify only one of positional TX or --tx-file")),
-        (None, None) => Err(anyhow!(
-            "No raw transaction provided. Provide TX as a positional argument or use --tx-file"
-        )),
+        (None, None) => {
+            use std::io::{IsTerminal, Read};
+            if !std::io::stdin().is_terminal() {
+                let mut buf = String::new();
+                std::io::stdin()
+                    .read_to_string(&mut buf)
+                    .context("Failed to read transaction from stdin")?;
+                let trimmed = buf.trim();
+                if trimmed.is_empty() {
+                    Err(anyhow!("No transaction data received from stdin"))
+                } else {
+                    Ok(trimmed.to_owned())
+                }
+            } else {
+                Err(anyhow!(
+                    "No transaction provided. Pass TX as a positional argument, use --tx-file, or pipe via stdin"
+                ))
+            }
+        }
     }
 }
 

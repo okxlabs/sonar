@@ -615,20 +615,14 @@ fn handle_decode(args: DecodeArgs) -> Result<()> {
         return handle_bundle_decode(tx, &rpc_url, ix_data, output, &mut parser_registry);
     }
 
-    // Single tx: take the first positional arg, or fall back to --tx-file
+    // Single tx: take the first positional arg, or fall back to --tx-file / stdin
     let tx_single = tx.into_iter().next();
-    let raw_input = transaction::read_raw_transaction(tx_single.clone(), tx_file.as_deref())?;
+    let raw_input = transaction::read_raw_transaction(tx_single, tx_file.as_deref())?;
 
-    // Check if input looks like a transaction signature first
-    let raw_tx = if let Some(ref tx_str) = tx_single {
-        if transaction::is_transaction_signature(tx_str) {
-            log::info!(
-                "Input appears to be a transaction signature, attempting to fetch from RPC..."
-            );
-            transaction::fetch_transaction_from_rpc(&rpc_url, tx_str)?
-        } else {
-            raw_input
-        }
+    // Check if input looks like a transaction signature (works for all input methods)
+    let raw_tx = if transaction::is_transaction_signature(&raw_input) {
+        log::info!("Input appears to be a transaction signature, attempting to fetch from RPC...");
+        transaction::fetch_transaction_from_rpc(&rpc_url, &raw_input)?
     } else {
         raw_input
     };
@@ -779,101 +773,94 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
         );
     }
 
-    // Single tx: take the first positional arg, or fall back to --tx-file
+    // Single tx: take the first positional arg, or fall back to --tx-file / stdin
     let tx_single = tx.into_iter().next();
-    let raw_input = transaction::read_raw_transaction(tx_single.clone(), tx_file.as_deref())?;
+    let raw_input = transaction::read_raw_transaction(tx_single, tx_file.as_deref())?;
 
-    // Check if input looks like a transaction signature first
-    if let Some(ref tx_str) = tx_single {
-        if transaction::is_transaction_signature(tx_str) {
-            log::info!(
-                "Input appears to be a transaction signature, attempting to fetch from RPC..."
-            );
-            let fetched_tx = transaction::fetch_transaction_from_rpc(&rpc_url, tx_str)?;
-            let parsed_tx = transaction::parse_raw_transaction(&fetched_tx)?;
+    // Check if input looks like a transaction signature (works for all input methods)
+    if transaction::is_transaction_signature(&raw_input) {
+        log::info!("Input appears to be a transaction signature, attempting to fetch from RPC...");
+        let fetched_tx = transaction::fetch_transaction_from_rpc(&rpc_url, &raw_input)?;
+        let parsed_tx = transaction::parse_raw_transaction(&fetched_tx)?;
 
-            let account_loader = account_loader::AccountLoader::new(
-                rpc_url.clone(),
-                load_accounts.clone(),
-                offline,
-            )?;
-            let mut resolved_accounts =
-                account_loader.load_for_transaction(&parsed_tx.transaction, &replacements)?;
-            warn_unmatched_addresses(
-                &replacements,
-                &fundings,
+        let account_loader =
+            account_loader::AccountLoader::new(rpc_url.clone(), load_accounts.clone(), offline)?;
+        let mut resolved_accounts =
+            account_loader.load_for_transaction(&parsed_tx.transaction, &replacements)?;
+        warn_unmatched_addresses(
+            &replacements,
+            &fundings,
+            &token_funding_requests,
+            &[&parsed_tx],
+            &resolved_accounts,
+        );
+
+        let prepared_token_fundings = if token_funding_requests.is_empty() {
+            Vec::new()
+        } else {
+            funding::prepare_token_fundings(
+                &account_loader,
+                &mut resolved_accounts,
                 &token_funding_requests,
-                &[&parsed_tx],
-                &resolved_accounts,
-            );
+            )?
+        };
 
-            let prepared_token_fundings = if token_funding_requests.is_empty() {
-                Vec::new()
-            } else {
-                funding::prepare_token_fundings(
-                    &account_loader,
-                    &mut resolved_accounts,
-                    &token_funding_requests,
-                )?
-            };
+        let program_ids = collect_program_ids(&resolved_accounts);
 
-            let program_ids = collect_program_ids(&resolved_accounts);
-
-            if program_ids.is_empty() {
-                log::error!("No executable accounts found after RPC load; skipping IDL parsing");
-            } else {
-                match parser_registry.load_idl_parsers_for_programs(program_ids) {
-                    Ok(count) if count > 0 => log::info!("Lazy-loaded {} IDL parsers", count),
-                    Ok(_) => {}
-                    Err(err) => log::warn!("Failed to load IDL parsers: {:?}", err),
-                }
+        if program_ids.is_empty() {
+            log::error!("No executable accounts found after RPC load; skipping IDL parsing");
+        } else {
+            match parser_registry.load_idl_parsers_for_programs(program_ids) {
+                Ok(count) if count > 0 => log::info!("Lazy-loaded {} IDL parsers", count),
+                Ok(_) => {}
+                Err(err) => log::warn!("Failed to load IDL parsers: {:?}", err),
             }
-
-            // Dump original RPC account data before --replace / --patch-data
-            if let Some(ref dump_dir) = dump_accounts {
-                executor::dump_accounts_to_dir(&resolved_accounts.accounts, dump_dir)
-                    .context("Failed to dump accounts")?;
-            }
-
-            let mut executor = executor::TransactionExecutor::prepare(
-                resolved_accounts,
-                replacements,
-                fundings,
-                prepared_token_fundings,
-                data_patches,
-                verify_signatures,
-                slot,
-                timestamp,
-            )?;
-
-            let simulation = executor.simulate(&parsed_tx.transaction)?;
-
-            // Update transaction summary with inner instructions from simulation
-            let mut updated_tx = parsed_tx;
-            updated_tx.summary = transaction::TransactionSummary::from_transaction(
-                &updated_tx.transaction,
-                &updated_tx.account_plan,
-                simulation.meta.inner_instructions.clone(),
-            );
-
-            output::render(
-                &updated_tx,
-                executor.resolved_accounts(),
-                &simulation,
-                executor.replacements(),
-                executor.fundings(),
-                executor.token_fundings(),
-                &mut parser_registry,
-                output,
-                ix_data,
-                show_ix_detail,
-                verify_signatures,
-                balance_opts,
-                log_opts,
-            )?;
-
-            return Ok(());
         }
+
+        // Dump original RPC account data before --replace / --patch-data
+        if let Some(ref dump_dir) = dump_accounts {
+            executor::dump_accounts_to_dir(&resolved_accounts.accounts, dump_dir)
+                .context("Failed to dump accounts")?;
+        }
+
+        let mut executor = executor::TransactionExecutor::prepare(
+            resolved_accounts,
+            replacements,
+            fundings,
+            prepared_token_fundings,
+            data_patches,
+            verify_signatures,
+            slot,
+            timestamp,
+        )?;
+
+        let simulation = executor.simulate(&parsed_tx.transaction)?;
+
+        // Update transaction summary with inner instructions from simulation
+        let mut updated_tx = parsed_tx;
+        updated_tx.summary = transaction::TransactionSummary::from_transaction(
+            &updated_tx.transaction,
+            &updated_tx.account_plan,
+            simulation.meta.inner_instructions.clone(),
+        );
+
+        output::render(
+            &updated_tx,
+            executor.resolved_accounts(),
+            &simulation,
+            executor.replacements(),
+            executor.fundings(),
+            executor.token_fundings(),
+            &mut parser_registry,
+            output,
+            ix_data,
+            show_ix_detail,
+            verify_signatures,
+            balance_opts,
+            log_opts,
+        )?;
+
+        return Ok(());
     }
 
     // If not a signature, parse as raw transaction
