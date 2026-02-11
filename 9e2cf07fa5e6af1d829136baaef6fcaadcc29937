@@ -1,0 +1,69 @@
+src/main.rs
+src/funding.rs
+src/transaction.rs
+src/executor.rs
+src/account_loader.rs
+src/cli/simulate.rs
+---
+{
+  "metadata": {
+    "base_commit_sha": "9e2cf07fa5e6af1d829136baaef6fcaadcc29937",
+    "prompts": {}
+  },
+  "agent_line_stats": {
+    "src/account_loader.rs": {
+      "Human": {
+        "file_path": "src/account_loader.rs",
+        "agent_type": "Human",
+        "additions": 0,
+        "deletions": 4,
+        "ai_accepted": 0
+      }
+    },
+    "src/cli/simulate.rs": {
+      "Human": {
+        "file_path": "src/cli/simulate.rs",
+        "agent_type": "Human",
+        "additions": 0,
+        "deletions": 6,
+        "ai_accepted": 0
+      }
+    },
+    "src/executor.rs": {
+      "Human": {
+        "file_path": "src/executor.rs",
+        "agent_type": "Human",
+        "additions": 0,
+        "deletions": 1,
+        "ai_accepted": 0
+      }
+    },
+    "src/funding.rs": {
+      "Human": {
+        "file_path": "src/funding.rs",
+        "agent_type": "Human",
+        "additions": 0,
+        "deletions": 1,
+        "ai_accepted": 0
+      }
+    },
+    "src/main.rs": {
+      "Human": {
+        "file_path": "src/main.rs",
+        "agent_type": "Human",
+        "additions": 0,
+        "deletions": 7,
+        "ai_accepted": 0
+      }
+    },
+    "src/transaction.rs": {
+      "Human": {
+        "file_path": "src/transaction.rs",
+        "agent_type": "Human",
+        "additions": 0,
+        "deletions": 1,
+        "ai_accepted": 0
+      }
+    }
+  }
+}
