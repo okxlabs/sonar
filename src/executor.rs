@@ -15,7 +15,7 @@ use solana_transaction::versioned::VersionedTransaction as LiteVersionedTransact
 
 use crate::{
     account_loader::{ResolvedAccounts, ResolvedLookup},
-    cli::{Funding, Replacement},
+    cli::{AccountDataPatch, Funding, Replacement},
     funding::{PreparedTokenFunding, apply_sol_fundings},
 };
 
@@ -25,14 +25,18 @@ pub struct TransactionExecutor {
     replacements: Vec<Replacement>,
     fundings: Vec<Funding>,
     token_fundings: Vec<PreparedTokenFunding>,
+    #[allow(dead_code)]
+    data_patches: Vec<AccountDataPatch>,
 }
 
 impl TransactionExecutor {
+    #[allow(clippy::too_many_arguments)]
     pub fn prepare(
         resolved: ResolvedAccounts,
         replacements: Vec<Replacement>,
         fundings: Vec<Funding>,
         token_fundings: Vec<PreparedTokenFunding>,
+        data_patches: Vec<AccountDataPatch>,
         verify_signatures: bool,
         slot: Option<u64>,
         timestamp: Option<i64>,
@@ -94,6 +98,33 @@ impl TransactionExecutor {
 
         apply_sol_fundings(&mut svm, &fundings)?;
 
+        // Apply data patches (byte-level writes to account data)
+        for patch in &data_patches {
+            let mut account = svm
+                .get_account(&patch.pubkey)
+                .ok_or_else(|| anyhow!("--patch-data target {} not found in SVM", patch.pubkey))?;
+            let end = patch.offset + patch.data.len();
+            if end > account.data.len() {
+                return Err(anyhow!(
+                    "Patch range [{}..{}) exceeds account data length {} for {}",
+                    patch.offset,
+                    end,
+                    account.data.len(),
+                    patch.pubkey
+                ));
+            }
+            info!(
+                "Patching account {} data[{}..{}] ({} bytes)",
+                patch.pubkey,
+                patch.offset,
+                end,
+                patch.data.len()
+            );
+            account.data[patch.offset..end].copy_from_slice(&patch.data);
+            svm.set_account(patch.pubkey, account)
+                .with_context(|| format!("Failed to set patched account `{}`", patch.pubkey))?;
+        }
+
         // Apply slot override (warp SVM clock to specified slot)
         if let Some(slot) = slot {
             info!("Warping SVM clock to slot {}", slot);
@@ -117,7 +148,7 @@ impl TransactionExecutor {
                 .context("Failed to set modified Clock sysvar")?;
         }
 
-        Ok(Self { svm, resolved, replacements, fundings, token_fundings })
+        Ok(Self { svm, resolved, replacements, fundings, token_fundings, data_patches })
     }
 
     pub fn simulate(&mut self, tx: &VersionedTransaction) -> Result<SimulationResult> {
@@ -250,6 +281,11 @@ impl TransactionExecutor {
     pub fn token_fundings(&self) -> &[PreparedTokenFunding] {
         &self.token_fundings
     }
+
+    #[allow(dead_code)]
+    pub fn data_patches(&self) -> &[AccountDataPatch] {
+        &self.data_patches
+    }
 }
 
 #[derive(Debug)]
@@ -347,6 +383,7 @@ mod tests {
 
         let mut executor = TransactionExecutor::prepare(
             resolved,
+            vec![],
             vec![],
             vec![],
             vec![],

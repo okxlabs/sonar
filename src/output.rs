@@ -248,11 +248,7 @@ fn render_bundle_text(
     let has_logs = bundle.transactions.iter().any(|t| !t.simulation.logs.is_empty());
     if has_logs {
         for (i, tx_report) in bundle.transactions.iter().enumerate() {
-            render_section_title(&format!(
-                "Execution Trace: TX {}/{}",
-                i + 1,
-                total_count
-            ));
+            render_section_title(&format!("Execution Trace: TX {}/{}", i + 1, total_count));
             render_bundle_transaction_trace(tx_report, log_opts);
         }
     }
@@ -260,11 +256,7 @@ fn render_bundle_text(
     // Instruction Details (per-TX)
     if show_ix_detail {
         for (i, tx_report) in bundle.transactions.iter().enumerate() {
-            render_section_title(&format!(
-                "Instruction Details: TX {}/{}",
-                i + 1,
-                total_count
-            ));
+            render_section_title(&format!("Instruction Details: TX {}/{}", i + 1, total_count));
             render_bundle_transaction_ix_detail(tx_report, resolved, show_ix_data);
         }
     }
@@ -280,7 +272,10 @@ fn render_bundle_text(
     Ok(())
 }
 
-fn render_bundle_transaction_trace(tx_report: &BundleTransactionReport, log_opts: LogDisplayOptions) {
+fn render_bundle_transaction_trace(
+    tx_report: &BundleTransactionReport,
+    log_opts: LogDisplayOptions,
+) {
     if let SimulationStatusReport::Failed { error } = &tx_report.simulation.status {
         println!("   ↳ Error: {}", error);
     }
@@ -302,11 +297,7 @@ fn render_bundle_balance_changes(bundle: &BundleReport) {
             let sol_before = change.before as f64 / 1_000_000_000.0;
             let sol_after = change.after as f64 / 1_000_000_000.0;
             let sign = if change.change >= 0 { "+" } else { "" };
-            let color = if change.change >= 0 {
-                (152, 195, 121)
-            } else {
-                (224, 108, 117)
-            };
+            let color = if change.change >= 0 { (152, 195, 121) } else { (224, 108, 117) };
             println!(
                 "  {} {} | {} | {}",
                 change.account.cyan(),
@@ -325,11 +316,7 @@ fn render_bundle_balance_changes(bundle: &BundleReport) {
             let ui_before = change.before as f64 / divisor;
             let ui_after = change.after as f64 / divisor;
             let sign = if change.change >= 0 { "+" } else { "" };
-            let color = if change.change >= 0 {
-                (152, 195, 121)
-            } else {
-                (224, 108, 117)
-            };
+            let color = if change.change >= 0 { (152, 195, 121) } else { (224, 108, 117) };
             println!(
                 "  {} ({}) {} | {} | {}",
                 change.account.cyan(),
@@ -367,7 +354,6 @@ fn render_text(
     show_ix_detail: bool,
     log_opts: LogDisplayOptions,
 ) -> Result<()> {
-
     // Summary header (status + CU)
     render_summary_header(&report.simulation, &report.transaction);
 
@@ -522,11 +508,7 @@ fn render_balance_changes_text(
         let sol_before = change.before as f64 / 1_000_000_000.0;
         let sol_after = change.after as f64 / 1_000_000_000.0;
         let sign = if change.change >= 0 { "+" } else { "" };
-        let color = if change.change >= 0 {
-            (152, 195, 121)
-        } else {
-            (224, 108, 117)
-        };
+        let color = if change.change >= 0 { (152, 195, 121) } else { (224, 108, 117) };
 
         println!(
             "{} {} | {} | {}",
@@ -548,11 +530,7 @@ fn render_balance_changes_text(
         let ui_before = change.before as f64 / divisor;
         let ui_after = change.after as f64 / divisor;
         let sign = if change.change >= 0 { "+" } else { "" };
-        let color = if change.change >= 0 {
-            (152, 195, 121)
-        } else {
-            (224, 108, 117)
-        };
+        let color = if change.change >= 0 { (152, 195, 121) } else { (224, 108, 117) };
 
         println!(
             "{} ({}) {} | {} | {}",

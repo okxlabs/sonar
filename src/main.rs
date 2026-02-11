@@ -722,6 +722,7 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
         show_ix_detail,
         timestamp,
         slot,
+        data_patches: data_patch_args,
     } = args;
     let rpc_url = rpc.rpc_url;
 
@@ -744,6 +745,11 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
         .map(|raw| cli::parse_token_funding(&raw).map_err(anyhow::Error::msg))
         .collect::<Result<Vec<_>>>()?;
 
+    let data_patches = data_patch_args
+        .into_iter()
+        .map(|raw| cli::parse_data_patch(&raw).map_err(anyhow::Error::msg))
+        .collect::<Result<Vec<_>>>()?;
+
     // Check if this is a bundle (multiple positional TX arguments)
     if tx.len() > 1 {
         // Bundle simulation mode
@@ -753,6 +759,7 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
             replacements,
             fundings,
             token_funding_requests,
+            data_patches,
             ix_data,
             verify_signatures,
             output,
@@ -816,6 +823,7 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
                 replacements,
                 fundings,
                 prepared_token_fundings,
+                data_patches,
                 verify_signatures,
                 slot,
                 timestamp,
@@ -893,6 +901,7 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
         replacements,
         fundings,
         prepared_token_fundings,
+        data_patches,
         verify_signatures,
         slot,
         timestamp,
@@ -934,6 +943,7 @@ fn handle_bundle_simulate(
     replacements: Vec<cli::Replacement>,
     fundings: Vec<cli::Funding>,
     token_funding_requests: Vec<cli::TokenFunding>,
+    data_patches: Vec<cli::AccountDataPatch>,
     ix_data: bool,
     verify_signatures: bool,
     output_format: cli::OutputFormat,
@@ -994,6 +1004,7 @@ fn handle_bundle_simulate(
         replacements,
         fundings,
         prepared_token_fundings,
+        data_patches,
         verify_signatures,
         slot,
         timestamp,

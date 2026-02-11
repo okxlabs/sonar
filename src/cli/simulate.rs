@@ -67,6 +67,16 @@ pub struct SimulateArgs {
     /// Override the simulation slot (warp SVM clock to this slot)
     #[arg(long = "slot", value_name = "SLOT")]
     pub slot: Option<u64>,
+    /// Patch bytes in an account's data field before simulation.
+    /// Format: <PUBKEY>=<OFFSET>:<HEX_DATA>
+    /// HEX_DATA may optionally start with 0x.
+    #[arg(
+        long = "patch-data",
+        value_name = "PATCH",
+        num_args = 1..,
+        value_parser = clap::builder::NonEmptyStringValueParser::new()
+    )]
+    pub data_patches: Vec<String>,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -118,6 +128,13 @@ pub struct TokenFunding {
     pub account: Pubkey,
     pub mint: Option<Pubkey>,
     pub amount_raw: u64,
+}
+
+#[derive(Clone, Debug)]
+pub struct AccountDataPatch {
+    pub pubkey: Pubkey,
+    pub offset: usize,
+    pub data: Vec<u8>,
 }
 
 pub fn parse_replacement(raw: &str) -> Result<Replacement, String> {
@@ -259,6 +276,47 @@ pub fn parse_token_funding(raw: &str) -> Result<TokenFunding, String> {
     Ok(TokenFunding { account, mint, amount_raw })
 }
 
+pub fn parse_data_patch(raw: &str) -> Result<AccountDataPatch, String> {
+    let (pubkey_str, rest) = raw
+        .split_once('=')
+        .ok_or_else(|| "Data patch must be in <PUBKEY>=<OFFSET>:<HEX_DATA> format".to_string())?;
+    let pubkey = Pubkey::from_str(pubkey_str)
+        .map_err(|err| format!("Failed to parse address `{pubkey_str}`: {err}"))?;
+
+    let (offset_str, hex_str) = rest.split_once(':').ok_or_else(|| {
+        "Data patch value must be in <OFFSET>:<HEX_DATA> format (missing `:`)".to_string()
+    })?;
+
+    let offset: usize = offset_str
+        .trim()
+        .parse()
+        .map_err(|err| format!("Failed to parse offset `{offset_str}`: {err}"))?;
+
+    let hex_str = hex_str.trim();
+    let hex_str =
+        hex_str.strip_prefix("0x").or_else(|| hex_str.strip_prefix("0X")).unwrap_or(hex_str);
+
+    if hex_str.is_empty() {
+        return Err("HEX_DATA must not be empty".to_string());
+    }
+    if hex_str.len() % 2 != 0 {
+        return Err(format!(
+            "HEX_DATA has odd length {}; expected an even number of hex characters",
+            hex_str.len()
+        ));
+    }
+
+    let data = (0..hex_str.len())
+        .step_by(2)
+        .map(|i| {
+            u8::from_str_radix(&hex_str[i..i + 2], 16)
+                .map_err(|err| format!("Invalid hex at position {i}: {err}"))
+        })
+        .collect::<Result<Vec<u8>, _>>()?;
+
+    Ok(AccountDataPatch { pubkey, offset, data })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -383,5 +441,67 @@ mod tests {
         let input = format!("{key}=0sol");
         let parsed = parse_funding(&input).expect("parses");
         assert_eq!(parsed.amount_lamports, 0);
+    }
+
+    #[test]
+    fn parse_data_patch_basic() {
+        let key = Pubkey::new_unique();
+        let input = format!("{key}=16:deadbeef");
+        let parsed = parse_data_patch(&input).expect("parses");
+        assert_eq!(parsed.pubkey, key);
+        assert_eq!(parsed.offset, 16);
+        assert_eq!(parsed.data, vec![0xde, 0xad, 0xbe, 0xef]);
+    }
+
+    #[test]
+    fn parse_data_patch_with_0x_prefix() {
+        let key = Pubkey::new_unique();
+        let input = format!("{key}=0:0xaabb");
+        let parsed = parse_data_patch(&input).expect("parses");
+        assert_eq!(parsed.offset, 0);
+        assert_eq!(parsed.data, vec![0xaa, 0xbb]);
+    }
+
+    #[test]
+    fn parse_data_patch_with_0x_uppercase_prefix() {
+        let key = Pubkey::new_unique();
+        let input = format!("{key}=8:0Xff00");
+        let parsed = parse_data_patch(&input).expect("parses");
+        assert_eq!(parsed.offset, 8);
+        assert_eq!(parsed.data, vec![0xff, 0x00]);
+    }
+
+    #[test]
+    fn parse_data_patch_rejects_missing_equals() {
+        let err = parse_data_patch("invalid").unwrap_err();
+        assert!(err.contains("<PUBKEY>=<OFFSET>:<HEX_DATA>"));
+    }
+
+    #[test]
+    fn parse_data_patch_rejects_missing_colon() {
+        let key = Pubkey::new_unique();
+        let err = parse_data_patch(&format!("{key}=16deadbeef")).unwrap_err();
+        assert!(err.contains("missing `:`"));
+    }
+
+    #[test]
+    fn parse_data_patch_rejects_empty_hex() {
+        let key = Pubkey::new_unique();
+        let err = parse_data_patch(&format!("{key}=0:")).unwrap_err();
+        assert!(err.contains("empty"));
+    }
+
+    #[test]
+    fn parse_data_patch_rejects_odd_hex() {
+        let key = Pubkey::new_unique();
+        let err = parse_data_patch(&format!("{key}=0:abc")).unwrap_err();
+        assert!(err.contains("odd length"));
+    }
+
+    #[test]
+    fn parse_data_patch_rejects_invalid_hex() {
+        let key = Pubkey::new_unique();
+        let err = parse_data_patch(&format!("{key}=0:zzzz")).unwrap_err();
+        assert!(err.contains("Invalid hex"));
     }
 }
