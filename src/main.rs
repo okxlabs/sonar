@@ -132,6 +132,8 @@ fn handle_fetch_idl(args: FetchIdlArgs) -> Result<()> {
 fn handle_account(args: AccountArgs) -> Result<()> {
     use instruction_parsers::anchor_idl::{IdlRegistry, RawAnchorIdl, parse_account_data};
     use solana_client::rpc_client::RpcClient;
+    use solana_loader_v3_interface::state::UpgradeableLoaderState;
+    use solana_sdk_ids::bpf_loader_upgradeable;
 
     // Parse the account pubkey
     let account_pubkey = Pubkey::from_str(&args.account)
@@ -149,6 +151,69 @@ fn handle_account(args: AccountArgs) -> Result<()> {
     if args.raw {
         print_raw_account_data(&account);
         return Ok(());
+    }
+
+    // Detect BPF Loader Upgradeable accounts (Program, ProgramData, Buffer)
+    if account.owner == bpf_loader_upgradeable::id() {
+        if let Ok(state) = bincode::deserialize::<UpgradeableLoaderState>(account.data.as_slice()) {
+            match state {
+                UpgradeableLoaderState::Program { programdata_address } => {
+                    let programdata_pubkey = Pubkey::new_from_array(programdata_address.to_bytes());
+
+                    // Build Program account JSON
+                    let program_data_json = serde_json::json!({
+                        "programdataAddress": programdata_pubkey.to_string()
+                    });
+
+                    if args.no_account_meta {
+                        println!("{}", serde_json::to_string_pretty(&program_data_json)?);
+                    } else {
+                        let output = serde_json::json!({
+                            "lamports": account.lamports,
+                            "space": account.data.len(),
+                            "owner": account.owner.to_string(),
+                            "executable": account.executable,
+                            "rentEpoch": account.rent_epoch,
+                            "data": program_data_json
+                        });
+                        println!("{}", serde_json::to_string_pretty(&output)?);
+                    }
+
+                    return Ok(());
+                }
+                UpgradeableLoaderState::ProgramData { .. } => {
+                    print_programdata_json(&account, args.no_account_meta)?;
+                    return Ok(());
+                }
+                UpgradeableLoaderState::Buffer { authority_address, .. } => {
+                    const BUFFER_HEADER_SIZE: usize = 37;
+                    let data_size = account.data.len().saturating_sub(BUFFER_HEADER_SIZE);
+
+                    let buffer_data_json = serde_json::json!({
+                        "authority": authority_address
+                            .map(|a| Pubkey::new_from_array(a.to_bytes()).to_string()),
+                        "dataSize": data_size
+                    });
+
+                    if args.no_account_meta {
+                        println!("{}", serde_json::to_string_pretty(&buffer_data_json)?);
+                    } else {
+                        let output = serde_json::json!({
+                            "lamports": account.lamports,
+                            "space": account.data.len(),
+                            "owner": account.owner.to_string(),
+                            "executable": account.executable,
+                            "rentEpoch": account.rent_epoch,
+                            "data": buffer_data_json
+                        });
+                        println!("{}", serde_json::to_string_pretty(&output)?);
+                    }
+
+                    return Ok(());
+                }
+                _ => {} // Uninitialized, fall through to other decoders
+            }
+        }
     }
 
     // Try to decode as SPL Token or Token-2022 account (mint or token account)
@@ -271,6 +336,47 @@ fn try_load_idl_from_path(idl_path: &Option<PathBuf>, owner: &Pubkey) -> Option<
         log::debug!("IDL file not found: {}", idl_file.display());
         None
     }
+}
+
+/// Print ProgramData account info as JSON.
+/// Deserializes the UpgradeableLoaderState::ProgramData to extract upgrade authority and slot.
+fn print_programdata_json(account: &solana_account::Account, no_account_meta: bool) -> Result<()> {
+    use solana_loader_v3_interface::state::UpgradeableLoaderState;
+
+    const PROGRAM_DATA_HEADER_SIZE: usize = 45;
+
+    let state: UpgradeableLoaderState = bincode::deserialize(account.data.as_slice())
+        .with_context(|| "Failed to deserialize ProgramData account")?;
+
+    if let UpgradeableLoaderState::ProgramData { slot, upgrade_authority_address } = state {
+        let authority =
+            upgrade_authority_address.map(|a| Pubkey::new_from_array(a.to_bytes()).to_string());
+        let elf_size = account.data.len().saturating_sub(PROGRAM_DATA_HEADER_SIZE);
+
+        let data_json = serde_json::json!({
+            "upgradeAuthority": authority,
+            "lastDeployedSlot": slot,
+            "elfSize": elf_size
+        });
+
+        if no_account_meta {
+            println!("{}", serde_json::to_string_pretty(&data_json)?);
+        } else {
+            let output = serde_json::json!({
+                "lamports": account.lamports,
+                "space": account.data.len(),
+                "owner": account.owner.to_string(),
+                "executable": account.executable,
+                "rentEpoch": account.rent_epoch,
+                "data": data_json
+            });
+            println!("{}", serde_json::to_string_pretty(&output)?);
+        }
+    } else {
+        anyhow::bail!("Account is not a ProgramData account");
+    }
+
+    Ok(())
 }
 
 /// Print account data in Solana JSON RPC format.
