@@ -237,79 +237,60 @@ fn render_bundle_text(
     // Bundle summary header (status + per-TX overview)
     render_bundle_summary_header(bundle, total_count);
 
-    // Render each transaction's execution trace (logs)
-    for (i, tx_report) in bundle.transactions.iter().enumerate() {
-        render_bundle_transaction_trace(i + 1, total_count, tx_report, log_opts);
-    }
-
-    // Render instruction details for all transactions after all traces
-    if show_ix_detail {
-        render_section_separator();
+    // Execution Trace (per-TX)
+    let has_logs = bundle.transactions.iter().any(|t| !t.simulation.logs.is_empty());
+    if has_logs {
         for (i, tx_report) in bundle.transactions.iter().enumerate() {
-            render_bundle_transaction_ix_detail(
+            render_section_title(&format!(
+                "Execution Trace: TX {}/{}",
                 i + 1,
-                total_count,
-                tx_report,
-                resolved,
-                show_ix_data,
-            );
+                total_count
+            ));
+            render_bundle_transaction_trace(tx_report, log_opts);
         }
-        render_section_separator();
     }
 
-    // Render overall bundle balance changes
-    render_bundle_balance_changes(bundle);
+    // Instruction Details (per-TX)
+    if show_ix_detail {
+        for (i, tx_report) in bundle.transactions.iter().enumerate() {
+            render_section_title(&format!(
+                "Instruction Details: TX {}/{}",
+                i + 1,
+                total_count
+            ));
+            render_bundle_transaction_ix_detail(tx_report, resolved, show_ix_data);
+        }
+    }
+
+    // Balance Changes
+    if !bundle.sol_balance_changes.is_empty() || !bundle.token_balance_changes.is_empty() {
+        render_section_title("Balance Changes");
+        render_bundle_balance_changes(bundle);
+    }
 
     println!();
 
     Ok(())
 }
 
-fn render_bundle_transaction_trace(
-    index: usize,
-    total: usize,
-    tx_report: &BundleTransactionReport,
-    log_opts: LogDisplayOptions,
-) {
-    let sig = tx_report
-        .transaction
-        .signatures
-        .first()
-        .map(|s| truncate_sig(s, 12))
-        .unwrap_or_else(|| "<no-sig>".to_string());
-    println!("── TX {}/{}: {} ──", index, total, sig);
+fn render_bundle_transaction_trace(tx_report: &BundleTransactionReport, log_opts: LogDisplayOptions) {
     if let SimulationStatusReport::Failed { error } = &tx_report.simulation.status {
         println!("   ↳ Error: {}", error);
     }
     render_execution_trace_section(&tx_report.simulation, log_opts);
-    println!();
 }
 
 fn render_bundle_transaction_ix_detail(
-    index: usize,
-    total: usize,
     tx_report: &BundleTransactionReport,
     resolved: &ResolvedAccounts,
     show_ix_data: bool,
 ) {
-    let sig = tx_report
-        .transaction
-        .signatures
-        .first()
-        .map(|s| truncate_sig(s, 12))
-        .unwrap_or_else(|| "<no-sig>".to_string());
-    println!("── TX {}/{}: {} ──", index, total, sig);
     render_instruction_details_text(&tx_report.transaction, resolved, show_ix_data);
-    println!();
 }
 
 /// Render overall bundle balance changes (first tx pre -> last successful tx post)
 fn render_bundle_balance_changes(bundle: &BundleReport) {
     if !bundle.sol_balance_changes.is_empty() {
-        println!(
-            "\n{}",
-            "=== SOL Balance Changes ===".custom_color((229, 192, 123))
-        );
         for change in &bundle.sol_balance_changes {
             let sol_before = change.before as f64 / 1_000_000_000.0;
             let sol_after = change.after as f64 / 1_000_000_000.0;
@@ -329,11 +310,9 @@ fn render_bundle_balance_changes(bundle: &BundleReport) {
         }
     }
 
+    println!();
+
     if !bundle.token_balance_changes.is_empty() {
-        println!(
-            "\n{}",
-            "=== Token Balance Changes ===".custom_color((229, 192, 123))
-        );
         for change in &bundle.token_balance_changes {
             let divisor = 10f64.powi(change.decimals as i32);
             let ui_before = change.before as f64 / divisor;
@@ -381,27 +360,29 @@ fn render_text(
     show_ix_detail: bool,
     log_opts: LogDisplayOptions,
 ) -> Result<()> {
-    // 1. Summary header (status + CU) - displayed first
+
+    // Summary header (status + CU)
     render_summary_header(&report.simulation, &report.transaction);
 
-    // 3. Execution Trace (no title)
-    render_execution_trace_section(&report.simulation, log_opts);
-
-    if show_ix_detail {
-        // 4. Section separator with empty lines
-        render_section_separator();
-
-        // 5. Instruction details (no title)
-        render_instruction_details_text(&report.transaction, resolved, show_ix_data);
-
-        // 6. Section separator with empty lines
-        render_section_separator();
+    // Execution Trace
+    if !report.simulation.logs.is_empty() {
+        render_section_title("Execution Trace");
+        render_execution_trace_section(&report.simulation, log_opts);
     }
 
-    // 7. Balance Changes (no title)
-    render_balance_changes_text(&report.sol_balance_changes, &report.token_balance_changes);
+    // Instruction Details
+    if show_ix_detail {
+        render_section_title("Instruction Details");
+        render_instruction_details_text(&report.transaction, resolved, show_ix_data);
+    }
 
-    // 8. Final empty line
+    // Balance Changes
+    if !report.sol_balance_changes.is_empty() || !report.token_balance_changes.is_empty() {
+        render_section_title("Balance Changes");
+        render_balance_changes_text(&report.sol_balance_changes, &report.token_balance_changes);
+    }
+
+    // Final empty line
     println!();
 
     Ok(())
@@ -412,9 +393,20 @@ fn render_separator() {
     println!("{}", "═".repeat(SEPARATOR_WIDTH));
 }
 
-/// Render a section separator with empty lines before and after.
-fn render_section_separator() {
+/// Render a section title with centered text flanked by `─` lines.
+fn render_section_title(title: &str) {
+    let title_with_padding = format!(" {} ", title);
+    let title_len = title_with_padding.chars().count();
+    let remaining = SEPARATOR_WIDTH.saturating_sub(title_len);
+    let left = remaining / 2;
+    let right = remaining - left;
     println!();
+    println!(
+        "{}{}{}",
+        "─".repeat(left).dimmed(),
+        title_with_padding.dimmed(),
+        "─".repeat(right).dimmed(),
+    );
     println!();
 }
 
