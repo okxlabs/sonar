@@ -35,7 +35,7 @@ pub struct BalanceChangeOptions {
 #[derive(Debug, Clone, Copy, Default)]
 pub struct LogDisplayOptions {
     /// If true, print raw logs; otherwise print structured execution trace.
-    pub show_raw_log: bool,
+    pub raw_log: bool,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -484,7 +484,7 @@ fn render_execution_trace_section(simulation: &SimulationSection, log_opts: LogD
         return;
     }
 
-    if log_opts.show_raw_log {
+    if log_opts.raw_log {
         for line in &simulation.logs {
             println!("{}", line);
         }

@@ -53,13 +53,13 @@ pub struct SimulateArgs {
     #[arg(long = "idl-path", value_name = "PATH")]
     pub idl_path: Option<PathBuf>,
     /// Show SOL and token balance changes after simulation
-    #[arg(long = "show-balance-change")]
+    #[arg(short = 'b', long = "show-balance-change")]
     pub show_balance_change: bool,
     /// Print raw program logs instead of structured execution trace
-    #[arg(long = "show-raw-log")]
-    pub show_raw_log: bool,
+    #[arg(long = "raw-log")]
+    pub raw_log: bool,
     /// Show detailed instruction information (accounts, parsed fields, inner instructions)
-    #[arg(long = "show-ix-detail")]
+    #[arg(short = 'd', long = "show-ix-detail")]
     pub show_ix_detail: bool,
     /// Override the Clock sysvar's unix_timestamp for simulation
     #[arg(long = "timestamp", value_name = "UNIX_TIMESTAMP")]
