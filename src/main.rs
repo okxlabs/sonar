@@ -654,6 +654,7 @@ fn handle_decode(args: DecodeArgs) -> Result<()> {
         &mut parser_registry,
         output,
         ix_data,
+        None,
     )?;
 
     Ok(())
@@ -686,14 +687,15 @@ fn handle_bundle_decode(
         }
     }
 
+    let total = parsed_txs.len();
     for (i, parsed_tx) in parsed_txs.iter().enumerate() {
-        println!("\n=== Transaction {} of {} ===", i + 1, parsed_txs.len());
         output::render_transaction_only(
             parsed_tx,
             &resolved_accounts,
             parser_registry,
             output_format,
             ix_data,
+            Some((i + 1, total)),
         )?;
     }
 

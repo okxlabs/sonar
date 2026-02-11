@@ -79,13 +79,20 @@ pub fn render_transaction_only(
     parser_registry: &mut ParserRegistry,
     format: OutputFormat,
     show_ix_data: bool,
+    bundle_info: Option<(usize, usize)>,
 ) -> Result<()> {
     let resolver = LookupResolver::new(resolved.lookup_details());
     let transaction =
         TransactionSection::from_sources(parsed, resolved, &resolver, parser_registry, false);
     match format {
         OutputFormat::Text => {
-            render_transaction_section_text(&transaction, resolved, parser_registry, show_ix_data);
+            render_transaction_section_text(
+                &transaction,
+                resolved,
+                parser_registry,
+                show_ix_data,
+                bundle_info,
+            );
             Ok(())
         }
         OutputFormat::Json => {
@@ -566,12 +573,25 @@ fn render_transaction_section_text(
     resolved: &ResolvedAccounts,
     _parser_registry: &mut ParserRegistry,
     show_ix_data: bool,
+    bundle_info: Option<(usize, usize)>,
 ) {
-    println!(); // Empty line before instructions
+    // Build TX suffix for bundle mode, e.g. ": TX 1/3"
+    let tx_suffix = match bundle_info {
+        Some((index, total)) => format!(": TX {}/{}", index, total),
+        None => String::new(),
+    };
+
+    render_section_title(&format!("Decoded Instructions{}", tx_suffix));
     render_instruction_details_text(transaction, resolved, show_ix_data);
-    println!();
+
+    // Address Lookup Tables (only if present)
+    if !transaction.lookups.is_empty() {
+        render_section_title(&format!("Address Lookup Tables{}", tx_suffix));
+        render_lookup_tables_text(transaction);
+    }
+
     // Account list at the end
-    render_lookup_tables_text(transaction);
+    render_section_title(&format!("Account List{}", tx_suffix));
     render_account_list_text(transaction, resolved);
 }
 
@@ -587,7 +607,6 @@ fn render_lookup_tables_text(transaction: &TransactionSection) {
 }
 
 fn render_account_list_text(transaction: &TransactionSection, resolved: &ResolvedAccounts) {
-    println!();
     let mut account_index = 0;
 
     // Render static accounts
