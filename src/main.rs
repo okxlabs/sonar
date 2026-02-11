@@ -115,7 +115,7 @@ fn handle_fetch_idl(args: FetchIdlArgs) -> Result<()> {
                 not_found_count += 1;
             }
             Err(e) => {
-                eprintln!("Error fetching IDL for {}: {:?}", program_id, e);
+                eprintln!("Error fetching IDL for {}: {:#}", program_id, e);
                 error_count += 1;
             }
         }
