@@ -306,39 +306,54 @@ fn render_bundle_transaction_ix_detail(
 /// Render overall bundle balance changes (first tx pre -> last successful tx post)
 fn render_bundle_balance_changes(bundle: &BundleReport) {
     if !bundle.sol_balance_changes.is_empty() {
-        println!("\n=== SOL Balance Changes (Bundle Total) ===");
+        println!(
+            "\n{}",
+            "=== SOL Balance Changes ===".custom_color((229, 192, 123))
+        );
         for change in &bundle.sol_balance_changes {
             let sol_before = change.before as f64 / 1_000_000_000.0;
             let sol_after = change.after as f64 / 1_000_000_000.0;
             let sign = if change.change >= 0 { "+" } else { "" };
-            let color = if change.change >= 0 { (0, 255, 0) } else { (255, 0, 0) };
+            let color = if change.change >= 0 {
+                (152, 195, 121)
+            } else {
+                (224, 108, 117)
+            };
             println!(
-                "  {} {:.9} | {:.9} | {}",
-                change.account,
-                sol_before,
-                sol_after,
+                "  {} {} | {} | {}",
+                change.account.cyan(),
+                format!("{:.9}", sol_before).custom_color((171, 178, 191)),
+                format!("{:.9}", sol_after).custom_color((171, 178, 191)),
                 format!("{}{:.9}", sign, change.change_sol).custom_color(color)
             );
         }
     }
 
     if !bundle.token_balance_changes.is_empty() {
-        println!("\n=== Token Balance Changes (Bundle Total) ===");
+        println!(
+            "\n{}",
+            "=== Token Balance Changes ===".custom_color((229, 192, 123))
+        );
         for change in &bundle.token_balance_changes {
             let divisor = 10f64.powi(change.decimals as i32);
             let ui_before = change.before as f64 / divisor;
             let ui_after = change.after as f64 / divisor;
             let sign = if change.change >= 0 { "+" } else { "" };
-            let color = if change.change >= 0 { (0, 255, 0) } else { (255, 0, 0) };
+            let color = if change.change >= 0 {
+                (152, 195, 121)
+            } else {
+                (224, 108, 117)
+            };
             println!(
-                "  {} ({}) {:.prec$} | {:.prec$} | {}",
-                change.account,
-                change.mint,
-                ui_before,
-                ui_after,
+                "  {} ({}) {} | {} | {}",
+                change.account.cyan(),
+                change.mint.custom_color((139, 170, 214)),
+                format!("{:.prec$}", ui_before, prec = change.decimals as usize)
+                    .custom_color((171, 178, 191)),
+                format!("{:.prec$}", ui_after, prec = change.decimals as usize)
+                    .custom_color((171, 178, 191)),
                 format!("{}{:.prec$}", sign, change.ui_change, prec = change.decimals as usize)
                     .custom_color(color),
-                prec = change.decimals as usize
             );
         }
     }
@@ -508,13 +523,17 @@ fn render_balance_changes_text(
         let sol_before = change.before as f64 / 1_000_000_000.0;
         let sol_after = change.after as f64 / 1_000_000_000.0;
         let sign = if change.change >= 0 { "+" } else { "" };
-        let color = if change.change >= 0 { (0, 255, 0) } else { (255, 0, 0) };
+        let color = if change.change >= 0 {
+            (152, 195, 121)
+        } else {
+            (224, 108, 117)
+        };
 
         println!(
-            "{} {:.9} | {:.9} | {}",
-            change.account,
-            sol_before,
-            sol_after,
+            "{} {} | {} | {}",
+            change.account.cyan(),
+            format!("{:.9}", sol_before).custom_color((171, 178, 191)),
+            format!("{:.9}", sol_after).custom_color((171, 178, 191)),
             format!("{}{:.9}", sign, change.change_sol).custom_color(color)
         );
     }
@@ -530,17 +549,22 @@ fn render_balance_changes_text(
         let ui_before = change.before as f64 / divisor;
         let ui_after = change.after as f64 / divisor;
         let sign = if change.change >= 0 { "+" } else { "" };
-        let color = if change.change >= 0 { (0, 255, 0) } else { (255, 0, 0) };
+        let color = if change.change >= 0 {
+            (152, 195, 121)
+        } else {
+            (224, 108, 117)
+        };
 
         println!(
-            "{} ({}) {:.prec$} | {:.prec$} | {}",
-            change.account,
-            change.mint,
-            ui_before,
-            ui_after,
+            "{} ({}) {} | {} | {}",
+            change.account.cyan(),
+            change.mint.custom_color((139, 170, 214)),
+            format!("{:.prec$}", ui_before, prec = change.decimals as usize)
+                .custom_color((171, 178, 191)),
+            format!("{:.prec$}", ui_after, prec = change.decimals as usize)
+                .custom_color((171, 178, 191)),
             format!("{}{:.prec$}", sign, change.ui_change, prec = change.decimals as usize)
                 .custom_color(color),
-            prec = change.decimals as usize
         );
     }
 }
@@ -635,9 +659,9 @@ fn render_instruction_details_text(
         if let Some(parsed) = &ix.parsed {
             println!(
                 "#{} {} [{}]",
-                outer_number.to_string().custom_color((255, 165, 0)),
-                program_pubkey_with_link.custom_color((62, 132, 230)),
-                parsed.name.custom_color((124, 252, 0))
+                outer_number.to_string().custom_color((229, 192, 123)),
+                program_pubkey_with_link.cyan(),
+                parsed.name.custom_color((152, 195, 121))
             );
 
             // Render accounts with parsed names
@@ -660,8 +684,8 @@ fn render_instruction_details_text(
         } else {
             println!(
                 "#{} {}",
-                outer_number.to_string().custom_color((255, 165, 0)),
-                program_pubkey_with_link.custom_color((62, 132, 230))
+                outer_number.to_string().custom_color((229, 192, 123)),
+                program_pubkey_with_link.cyan()
             );
 
             for account in &ix.accounts {
@@ -677,9 +701,9 @@ fn render_instruction_details_text(
                 if let Some(parsed_inner) = &inner_ix.parsed {
                     println!(
                         "  {} {} [{}]",
-                        format!("#{}", inner_ix.label).custom_color((255, 165, 0)),
-                        format_solscan_link(&inner_ix.program.pubkey).custom_color((62, 132, 230)),
-                        parsed_inner.name.custom_color((124, 252, 0))
+                        format!("#{}", inner_ix.label).custom_color((229, 192, 123)),
+                        format_solscan_link(&inner_ix.program.pubkey).cyan(),
+                        parsed_inner.name.custom_color((152, 195, 121))
                     );
 
                     // Render accounts with parsed names
@@ -710,8 +734,8 @@ fn render_instruction_details_text(
                 } else {
                     println!(
                         "  {} {}",
-                        format!("#{}", inner_ix.label).custom_color((255, 165, 0)),
-                        format_solscan_link(&inner_ix.program.pubkey).custom_color((62, 132, 230))
+                        format!("#{}", inner_ix.label).custom_color((229, 192, 123)),
+                        format_solscan_link(&inner_ix.program.pubkey).cyan()
                     );
 
                     for account in &inner_ix.accounts {
@@ -761,7 +785,7 @@ fn render_instruction_account_text_with_name(
         account.index,
         solscan_linked_pubkey,
         account_privilege_emoji(account.signer, account.writable, executable),
-        name.custom_color((135, 206, 235))
+        name.custom_color((139, 170, 214))
     );
 }
 
@@ -801,7 +825,7 @@ fn render_inner_instruction_account_text_with_name(
         account.index,
         solscan_linked_pubkey,
         account_privilege_emoji(account.signer, account.writable, executable),
-        name.custom_color((135, 206, 235))
+        name.custom_color((139, 170, 214))
     );
 }
 
@@ -1828,7 +1852,7 @@ fn render_parsed_fields(fields: &[ParsedField]) {
     let pretty = serde_json::to_string_pretty(&ordered).unwrap_or_else(|_| "{}".to_string());
 
     for line in pretty.lines() {
-        println!("{}", format!("    {}", line).custom_color((255, 255, 224)));
+        println!("{}", format!("    {}", line).custom_color((171, 178, 191)));
     }
 }
 
@@ -1858,6 +1882,6 @@ fn render_inner_parsed_fields(fields: &[ParsedField]) {
     let pretty = serde_json::to_string_pretty(&ordered).unwrap_or_else(|_| "{}".to_string());
 
     for line in pretty.lines() {
-        println!("{}", format!("      {}", line).custom_color((255, 255, 224)));
+        println!("{}", format!("      {}", line).custom_color((171, 178, 191)));
     }
 }
