@@ -108,10 +108,11 @@ pub fn render_bundle(
     token_fundings: &[PreparedTokenFunding],
     parser_registry: &mut ParserRegistry,
     format: OutputFormat,
-    _show_ix_data: bool,
+    show_ix_data: bool,
     verify_signatures: bool,
     balance_opts: BalanceChangeOptions,
     log_opts: LogDisplayOptions,
+    show_ix_detail: bool,
 ) -> Result<()> {
     let bundle_report = BundleReport::from_sources(
         parsed_txs,
@@ -126,7 +127,14 @@ pub fn render_bundle(
     );
 
     match format {
-        OutputFormat::Text => render_bundle_text(&bundle_report, total_tx_count, log_opts),
+        OutputFormat::Text => render_bundle_text(
+            &bundle_report,
+            total_tx_count,
+            resolved,
+            show_ix_data,
+            show_ix_detail,
+            log_opts,
+        ),
         OutputFormat::Json => render_bundle_json(&bundle_report),
     }
 }
@@ -197,7 +205,8 @@ fn render_bundle_summary_header(bundle: &BundleReport, total_count: usize) {
 
         println!(
             "  TX {:>tx_w$}/{:<tx_w$}  {}  CU: {:>cu_w$} / {:>cu_w$} ({:>3}%)  {}",
-            idx, total_count,
+            idx,
+            total_count,
             status_icon,
             format_with_commas(cu_used),
             format_with_commas(cu_limit),
@@ -210,12 +219,7 @@ fn render_bundle_summary_header(bundle: &BundleReport, total_count: usize) {
 
     // Render skipped transactions
     for i in bundle.transactions.len()..total_count {
-        println!(
-            "  TX {:>tx_w$}/{:<tx_w$}  ⏭️  SKIPPED",
-            i + 1,
-            total_count,
-            tx_w = tx_col_width
-        );
+        println!("  TX {:>tx_w$}/{:<tx_w$}  ⏭️  SKIPPED", i + 1, total_count, tx_w = tx_col_width);
     }
 
     render_separator();
@@ -225,14 +229,32 @@ fn render_bundle_summary_header(bundle: &BundleReport, total_count: usize) {
 fn render_bundle_text(
     bundle: &BundleReport,
     total_count: usize,
+    resolved: &ResolvedAccounts,
+    show_ix_data: bool,
+    show_ix_detail: bool,
     log_opts: LogDisplayOptions,
 ) -> Result<()> {
     // Bundle summary header (status + per-TX overview)
     render_bundle_summary_header(bundle, total_count);
 
-    // Render each transaction's execution trace
+    // Render each transaction's execution trace (logs)
     for (i, tx_report) in bundle.transactions.iter().enumerate() {
         render_bundle_transaction_trace(i + 1, total_count, tx_report, log_opts);
+    }
+
+    // Render instruction details for all transactions after all traces
+    if show_ix_detail {
+        render_section_separator();
+        for (i, tx_report) in bundle.transactions.iter().enumerate() {
+            render_bundle_transaction_ix_detail(
+                i + 1,
+                total_count,
+                tx_report,
+                resolved,
+                show_ix_data,
+            );
+        }
+        render_section_separator();
     }
 
     // Render overall bundle balance changes
@@ -260,6 +282,24 @@ fn render_bundle_transaction_trace(
         println!("   ↳ Error: {}", error);
     }
     render_execution_trace_section(&tx_report.simulation, log_opts);
+    println!();
+}
+
+fn render_bundle_transaction_ix_detail(
+    index: usize,
+    total: usize,
+    tx_report: &BundleTransactionReport,
+    resolved: &ResolvedAccounts,
+    show_ix_data: bool,
+) {
+    let sig = tx_report
+        .transaction
+        .signatures
+        .first()
+        .map(|s| truncate_sig(s, 12))
+        .unwrap_or_else(|| "<no-sig>".to_string());
+    println!("── TX {}/{}: {} ──", index, total, sig);
+    render_instruction_details_text(&tx_report.transaction, resolved, show_ix_data);
     println!();
 }
 

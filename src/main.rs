@@ -755,6 +755,7 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
             &mut parser_registry,
             balance_opts,
             log_opts,
+            show_ix_detail,
         );
     }
 
@@ -929,6 +930,7 @@ fn handle_bundle_simulate(
     parser_registry: &mut instruction_parsers::ParserRegistry,
     balance_opts: output::BalanceChangeOptions,
     log_opts: output::LogDisplayOptions,
+    show_ix_detail: bool,
 ) -> Result<()> {
     log::info!("Bundle simulation mode: {} transactions", tx_inputs.len());
 
@@ -1016,6 +1018,7 @@ fn handle_bundle_simulate(
         verify_signatures,
         balance_opts,
         log_opts,
+        show_ix_detail,
     )?;
 
     Ok(())
