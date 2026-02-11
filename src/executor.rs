@@ -1,8 +1,12 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::path::Path;
+use std::sync::LazyLock;
 
 use anyhow::{Context, Result, anyhow};
+use base64::Engine;
 use litesvm::{LiteSVM, types::TransactionMetadata};
 use log::info;
+use serde::Serialize;
 use solana_account::{Account, AccountSharedData};
 use solana_clock::Clock;
 
@@ -328,6 +332,130 @@ fn account_priority(account: &Account) -> u8 {
         }
     }
     1
+}
+
+// ---------------------------------------------------------------------------
+// Account dump logic (Solana CLI compatible JSON format)
+// ---------------------------------------------------------------------------
+
+/// JSON structure matching `solana account <PUBKEY> --output json`.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DumpAccount {
+    pubkey: String,
+    account: DumpAccountInner,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DumpAccountInner {
+    lamports: u64,
+    data: (String, String),
+    owner: String,
+    executable: bool,
+    rent_epoch: u64,
+    space: usize,
+}
+
+/// Well-known native program IDs that should be skipped during dump.
+static NATIVE_PROGRAM_IDS: LazyLock<HashSet<Pubkey>> = LazyLock::new(|| {
+    use solana_sdk_ids::*;
+    HashSet::from([
+        system_program::id(),
+        bpf_loader::id(),
+        bpf_loader_deprecated::id(),
+        bpf_loader_upgradeable::id(),
+        vote::id(),
+        stake::id(),
+        config::id(),
+        compute_budget::id(),
+        address_lookup_table::id(),
+        ed25519_program::id(),
+        secp256k1_program::id(),
+        // sysvar accounts
+        solana_sdk_ids::sysvar::clock::id(),
+        solana_sdk_ids::sysvar::rent::id(),
+        solana_sdk_ids::sysvar::slot_hashes::id(),
+        solana_sdk_ids::sysvar::epoch_schedule::id(),
+        solana_sdk_ids::sysvar::instructions::id(),
+        solana_sdk_ids::sysvar::recent_blockhashes::id(),
+    ])
+});
+
+/// The NativeLoader program ID (owner of all native programs).
+static NATIVE_LOADER_ID: LazyLock<Pubkey> = LazyLock::new(|| {
+    "NativeLoader1111111111111111111111111111111".parse().expect("invalid NativeLoader pubkey")
+});
+
+/// Returns `true` if the pubkey is a well-known native/system program.
+fn is_native_program(pubkey: &Pubkey) -> bool {
+    NATIVE_PROGRAM_IDS.contains(pubkey)
+}
+
+/// Returns `true` if the account is owned by the NativeLoader (native program executable marker).
+fn is_native_owner(account: &Account) -> bool {
+    account.owner == *NATIVE_LOADER_ID
+}
+
+/// Dump accounts to a directory in Solana CLI compatible JSON format.
+///
+/// Writes the original RPC-loaded account data (before --replace / --patch-data).
+/// Each account is written to `<pubkey>.json`. Native/system programs and
+/// accounts that don't exist on-chain (lamports=0, empty data) are skipped.
+pub fn dump_accounts_to_dir(accounts: &HashMap<Pubkey, Account>, dir: &Path) -> Result<()> {
+    std::fs::create_dir_all(dir)
+        .with_context(|| format!("Failed to create dump directory: {}", dir.display()))?;
+
+    let mut dumped = 0usize;
+    let mut skipped = 0usize;
+
+    for (pubkey, account) in accounts {
+        if is_native_program(pubkey) {
+            skipped += 1;
+            continue;
+        }
+
+        // Skip accounts that are effectively non-existent (empty default state)
+        if account.lamports == 0 && account.data.is_empty() {
+            continue;
+        }
+
+        if is_native_owner(account) {
+            skipped += 1;
+            continue;
+        }
+
+        let dump = DumpAccount {
+            pubkey: pubkey.to_string(),
+            account: DumpAccountInner {
+                lamports: account.lamports,
+                data: (
+                    base64::engine::general_purpose::STANDARD.encode(&account.data),
+                    "base64".to_string(),
+                ),
+                owner: account.owner.to_string(),
+                executable: account.executable,
+                rent_epoch: account.rent_epoch,
+                space: account.data.len(),
+            },
+        };
+
+        let json = serde_json::to_string_pretty(&dump)
+            .with_context(|| format!("Failed to serialize account {pubkey}"))?;
+        let path = dir.join(format!("{pubkey}.json"));
+        std::fs::write(&path, json)
+            .with_context(|| format!("Failed to write account file: {}", path.display()))?;
+
+        dumped += 1;
+    }
+
+    eprintln!(
+        "Dumped {} accounts to {} ({} native accounts skipped)",
+        dumped,
+        dir.display(),
+        skipped
+    );
+    Ok(())
 }
 
 #[cfg(test)]

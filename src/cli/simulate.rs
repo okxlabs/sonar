@@ -77,6 +77,21 @@ pub struct SimulateArgs {
         value_parser = clap::builder::NonEmptyStringValueParser::new()
     )]
     pub data_patches: Vec<String>,
+    /// Dump original on-chain account data to a directory (before --replace / --patch-data).
+    /// Each account is saved as <PUBKEY>.json in Solana CLI compatible format.
+    /// Native programs and non-existent accounts are excluded.
+    #[arg(long = "dump-accounts", value_name = "DIR")]
+    pub dump_accounts: Option<PathBuf>,
+    /// Load account data from a local directory before fetching from RPC.
+    /// Files should be named <PUBKEY>.json in Solana CLI JSON format.
+    /// By default, missing accounts fall back to RPC (local-first mode).
+    /// Use --offline to disable RPC fallback entirely.
+    #[arg(long = "load-accounts", value_name = "DIR")]
+    pub load_accounts: Option<PathBuf>,
+    /// Offline mode: only load accounts from local directory (--load-accounts),
+    /// never fetch from RPC. Errors if any required account is missing locally.
+    #[arg(long = "offline", requires = "load_accounts")]
+    pub offline: bool,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -168,11 +183,11 @@ pub fn parse_replacement(raw: &str) -> Result<Replacement, String> {
     }
 }
 
-/// JSON structure for deserializing an account file.
-/// Supports Solana CLI compatible format.
+/// JSON structure for deserializing an account file (flat format).
+/// Supports the simple `{ "lamports": ..., "data": ... }` format.
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct AccountJson {
+struct AccountJsonFlat {
     lamports: u64,
     data: AccountDataJson,
     owner: String,
@@ -180,6 +195,16 @@ struct AccountJson {
     executable: bool,
     #[serde(default)]
     rent_epoch: u64,
+}
+
+/// JSON structure for deserializing a Solana CLI style account file (nested format).
+/// Supports `{ "pubkey": "...", "account": { "lamports": ..., "data": ... } }`.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AccountJsonNested {
+    #[allow(dead_code)]
+    pubkey: String,
+    account: AccountJsonFlat,
 }
 
 /// Account data can be either a plain base64 string or a tuple `["base64data", "base64"]`.
@@ -190,13 +215,22 @@ enum AccountDataJson {
     Tuple(String, String),
 }
 
-fn parse_account_json(path: &PathBuf) -> Result<Account, String> {
+pub(crate) fn parse_account_json(path: &PathBuf) -> Result<Account, String> {
     use base64::Engine;
 
     let contents = std::fs::read_to_string(path)
         .map_err(|err| format!("Failed to read account file `{}`: {err}", path.display()))?;
-    let json: AccountJson = serde_json::from_str(&contents)
-        .map_err(|err| format!("Failed to parse account JSON `{}`: {err}", path.display()))?;
+
+    // Try nested format first (Solana CLI style: { "pubkey": ..., "account": { ... } })
+    // then fall back to flat format ({ "lamports": ..., "data": ... })
+    let json: AccountJsonFlat = if let Ok(nested) =
+        serde_json::from_str::<AccountJsonNested>(&contents)
+    {
+        nested.account
+    } else {
+        serde_json::from_str(&contents)
+            .map_err(|err| format!("Failed to parse account JSON `{}`: {err}", path.display()))?
+    };
 
     let data_b64 = match &json.data {
         AccountDataJson::Plain(s) => s.clone(),

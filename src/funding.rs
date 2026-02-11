@@ -465,7 +465,7 @@ mod tests {
 
     #[test]
     fn prepares_spl_token_funding_and_updates_account_data() {
-        let loader = AccountLoader::new("http://localhost:8899".into()).unwrap();
+        let loader = AccountLoader::new("http://localhost:8899".into(), None, false).unwrap();
         let mint = Pubkey::new_unique();
         let token = Pubkey::new_unique();
         let owner = Pubkey::new_unique();

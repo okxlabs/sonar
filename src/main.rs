@@ -95,7 +95,7 @@ fn handle_fetch_idl(args: FetchIdlArgs) -> Result<()> {
         .with_context(|| format!("Failed to create output directory: {}", output_dir.display()))?;
 
     // Create account loader and fetch IDLs
-    let loader = account_loader::AccountLoader::new(args.rpc.rpc_url)?;
+    let loader = account_loader::AccountLoader::new(args.rpc.rpc_url, None, false)?;
 
     let mut success_count = 0;
     let mut not_found_count = 0;
@@ -234,7 +234,8 @@ fn handle_account(args: AccountArgs) -> Result<()> {
 
     // Try to find IDL: first from local path, then from chain
     let idl_json = try_load_idl_from_path(&args.idl_path, &owner).or_else(|| {
-        let loader = account_loader::AccountLoader::new(args.rpc.rpc_url.clone()).ok()?;
+        let loader =
+            account_loader::AccountLoader::new(args.rpc.rpc_url.clone(), None, false).ok()?;
         loader.fetch_idl(&owner).ok().flatten()
     });
 
@@ -634,7 +635,7 @@ fn handle_decode(args: DecodeArgs) -> Result<()> {
 
     let parsed_tx = transaction::parse_raw_transaction(&raw_tx)?;
 
-    let account_loader = account_loader::AccountLoader::new(rpc_url)?;
+    let account_loader = account_loader::AccountLoader::new(rpc_url, None, false)?;
     let resolved_accounts = account_loader.load_for_transaction(&parsed_tx.transaction, &[])?;
 
     let program_ids = collect_program_ids(&resolved_accounts);
@@ -675,7 +676,7 @@ fn handle_bundle_decode(
 
     let tx_refs: Vec<_> = parsed_txs.iter().map(|p| &p.transaction).collect();
 
-    let account_loader = account_loader::AccountLoader::new(rpc_url.to_string())?;
+    let account_loader = account_loader::AccountLoader::new(rpc_url.to_string(), None, false)?;
     let resolved_accounts = account_loader.load_for_transactions(&tx_refs, &[])?;
 
     let program_ids = collect_program_ids(&resolved_accounts);
@@ -723,6 +724,9 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
         timestamp,
         slot,
         data_patches: data_patch_args,
+        dump_accounts,
+        load_accounts,
+        offline,
     } = args;
     let rpc_url = rpc.rpc_url;
 
@@ -769,6 +773,9 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
             show_ix_detail,
             slot,
             timestamp,
+            dump_accounts,
+            load_accounts,
+            offline,
         );
     }
 
@@ -785,7 +792,11 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
             let fetched_tx = transaction::fetch_transaction_from_rpc(&rpc_url, tx_str)?;
             let parsed_tx = transaction::parse_raw_transaction(&fetched_tx)?;
 
-            let account_loader = account_loader::AccountLoader::new(rpc_url.clone())?;
+            let account_loader = account_loader::AccountLoader::new(
+                rpc_url.clone(),
+                load_accounts.clone(),
+                offline,
+            )?;
             let mut resolved_accounts =
                 account_loader.load_for_transaction(&parsed_tx.transaction, &replacements)?;
             warn_unmatched_addresses(
@@ -818,6 +829,12 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
                 }
             }
 
+            // Dump original RPC account data before --replace / --patch-data
+            if let Some(ref dump_dir) = dump_accounts {
+                executor::dump_accounts_to_dir(&resolved_accounts.accounts, dump_dir)
+                    .context("Failed to dump accounts")?;
+            }
+
             let mut executor = executor::TransactionExecutor::prepare(
                 resolved_accounts,
                 replacements,
@@ -828,6 +845,7 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
                 slot,
                 timestamp,
             )?;
+
             let simulation = executor.simulate(&parsed_tx.transaction)?;
 
             // Update transaction summary with inner instructions from simulation
@@ -861,7 +879,7 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
     // If not a signature, parse as raw transaction
     let parsed_tx = transaction::parse_raw_transaction(&raw_input)?;
 
-    let account_loader = account_loader::AccountLoader::new(rpc_url)?;
+    let account_loader = account_loader::AccountLoader::new(rpc_url, load_accounts, offline)?;
     let mut resolved_accounts =
         account_loader.load_for_transaction(&parsed_tx.transaction, &replacements)?;
 
@@ -896,6 +914,12 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
         }
     }
 
+    // Dump original RPC account data before --replace / --patch-data
+    if let Some(ref dump_dir) = dump_accounts {
+        executor::dump_accounts_to_dir(&resolved_accounts.accounts, dump_dir)
+            .context("Failed to dump accounts")?;
+    }
+
     let mut executor = executor::TransactionExecutor::prepare(
         resolved_accounts,
         replacements,
@@ -906,6 +930,7 @@ fn handle_simulate(args: SimulateArgs) -> Result<()> {
         slot,
         timestamp,
     )?;
+
     let simulation = executor.simulate(&parsed_tx.transaction)?;
 
     // Update transaction summary with inner instructions from simulation
@@ -953,6 +978,9 @@ fn handle_bundle_simulate(
     show_ix_detail: bool,
     slot: Option<u64>,
     timestamp: Option<i64>,
+    dump_accounts: Option<PathBuf>,
+    load_accounts: Option<PathBuf>,
+    offline: bool,
 ) -> Result<()> {
     log::info!("Bundle simulation mode: {} transactions", tx_inputs.len());
 
@@ -964,7 +992,8 @@ fn handle_bundle_simulate(
     let tx_refs: Vec<_> = parsed_txs.iter().map(|p| &p.transaction).collect();
 
     // Load accounts for all transactions
-    let account_loader = account_loader::AccountLoader::new(rpc_url.to_string())?;
+    let account_loader =
+        account_loader::AccountLoader::new(rpc_url.to_string(), load_accounts, offline)?;
     let mut resolved_accounts = account_loader.load_for_transactions(&tx_refs, &replacements)?;
 
     let parsed_tx_refs: Vec<_> = parsed_txs.iter().collect();
@@ -995,6 +1024,12 @@ fn handle_bundle_simulate(
             Ok(_) => {}
             Err(err) => log::warn!("Failed to load IDL parsers: {:?}", err),
         }
+    }
+
+    // Dump original RPC account data before --replace / --patch-data
+    if let Some(ref dump_dir) = dump_accounts {
+        executor::dump_accounts_to_dir(&resolved_accounts.accounts, dump_dir)
+            .context("Failed to dump accounts")?;
     }
 
     // Execute bundle simulation

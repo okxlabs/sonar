@@ -1,6 +1,7 @@
 use std::{
     collections::{HashMap, HashSet},
     io::Read,
+    path::PathBuf,
     sync::Arc,
 };
 
@@ -33,14 +34,28 @@ const MAX_ACCOUNTS_PER_REQUEST: usize = 100;
 pub struct AccountLoader {
     client: Arc<RpcClient>,
     cache: Mutex<HashMap<Pubkey, Account>>,
+    /// Optional local directory to load account JSON files from.
+    local_dir: Option<PathBuf>,
+    /// When true, never fetch from RPC; error if account not found locally.
+    offline: bool,
 }
 
 impl AccountLoader {
-    pub fn new(rpc_url: String) -> Result<Self> {
-        if rpc_url.is_empty() {
-            return Err(anyhow!("RPC URL cannot be empty"));
+    pub fn new(rpc_url: String, local_dir: Option<PathBuf>, offline: bool) -> Result<Self> {
+        // In offline mode, rpc_url may be empty
+        if rpc_url.is_empty() && !offline {
+            return Err(anyhow!(
+                "RPC URL cannot be empty (use --offline with --load-accounts for local-only mode)"
+            ));
         }
-        Ok(Self { client: Arc::new(RpcClient::new(rpc_url)), cache: Mutex::new(HashMap::new()) })
+        // Create RpcClient even in offline mode (placeholder URL, won't be called)
+        let url = if rpc_url.is_empty() { "http://localhost:8899".to_string() } else { rpc_url };
+        Ok(Self {
+            client: Arc::new(RpcClient::new(url)),
+            cache: Mutex::new(HashMap::new()),
+            local_dir,
+            offline,
+        })
     }
 
     pub fn load_for_transaction(
@@ -290,6 +305,7 @@ impl AccountLoader {
 
         trace!("Preparing to fetch {} accounts: [{}]", unique.len(), format_pubkeys(&unique));
 
+        // Layer 1: Check in-memory cache
         let mut to_fetch = Vec::new();
         {
             let cache = self.cache.lock().unwrap();
@@ -306,6 +322,46 @@ impl AccountLoader {
             return Ok(());
         }
 
+        // Layer 2: Try loading from local directory (if configured)
+        if let Some(ref dir) = self.local_dir {
+            let mut still_missing = Vec::new();
+            for key in to_fetch {
+                let path = dir.join(format!("{key}.json"));
+                if path.exists() {
+                    let account = crate::cli::parse_account_json(&path).map_err(|e| anyhow!(e))?;
+                    destination.insert(key, account.clone());
+                    self.cache.lock().unwrap().insert(key, account);
+                    debug!("Loaded account {} from local file: {}", key, path.display());
+                } else {
+                    still_missing.push(key);
+                }
+            }
+            to_fetch = still_missing;
+        }
+
+        if to_fetch.is_empty() {
+            return Ok(());
+        }
+
+        // Layer 3: Offline mode — skip RPC, treat missing accounts as non-existent
+        // (just like RPC returning null). This is correct because:
+        // - Native programs/sysvars are built into LiteSVM, no need to load them
+        // - Accounts not found are treated as non-existent (same as on-chain behavior)
+        if self.offline {
+            // Warn about non-native missing accounts so the user knows their dump may be incomplete
+            let non_native_missing: Vec<_> =
+                to_fetch.iter().filter(|k| !is_native_or_sysvar(k)).collect();
+            if !non_native_missing.is_empty() {
+                eprintln!(
+                    "Warning: offline mode — {} account(s) not found in local directory: [{}]",
+                    non_native_missing.len(),
+                    non_native_missing.iter().map(|k| k.to_string()).collect::<Vec<_>>().join(", ")
+                );
+            }
+            return Ok(());
+        }
+
+        // Layer 4: Fetch remaining accounts from RPC
         for chunk in to_fetch.chunks(MAX_ACCOUNTS_PER_REQUEST) {
             let response = self.client.get_multiple_accounts(chunk).with_context(|| {
                 format!(
@@ -436,6 +492,36 @@ fn format_pubkeys(pubkeys: &[Pubkey]) -> String {
         pubkeys.iter().take(MAX_DISPLAY).map(ToString::to_string).collect::<Vec<_>>();
     rendered.push(format!("... total {}", pubkeys.len()));
     rendered.join(", ")
+}
+
+/// Returns `true` if the pubkey is a well-known native program or sysvar
+/// that is built into LiteSVM and does not need to be loaded from disk.
+fn is_native_or_sysvar(pubkey: &Pubkey) -> bool {
+    use std::sync::LazyLock;
+
+    static NATIVE_IDS: LazyLock<HashSet<Pubkey>> = LazyLock::new(|| {
+        use solana_sdk_ids::*;
+        HashSet::from([
+            system_program::id(),
+            bpf_loader::id(),
+            bpf_loader_deprecated::id(),
+            bpf_loader_upgradeable::id(),
+            vote::id(),
+            stake::id(),
+            config::id(),
+            compute_budget::id(),
+            address_lookup_table::id(),
+            ed25519_program::id(),
+            secp256k1_program::id(),
+            solana_sdk_ids::sysvar::clock::id(),
+            solana_sdk_ids::sysvar::rent::id(),
+            solana_sdk_ids::sysvar::slot_hashes::id(),
+            solana_sdk_ids::sysvar::epoch_schedule::id(),
+            solana_sdk_ids::sysvar::instructions::id(),
+            solana_sdk_ids::sysvar::recent_blockhashes::id(),
+        ])
+    });
+    NATIVE_IDS.contains(pubkey)
 }
 
 /// Computes the Anchor IDL account address for a given program ID.
