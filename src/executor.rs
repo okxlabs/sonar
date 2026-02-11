@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 
 use anyhow::{Context, Result, anyhow};
-use bincode;
 use litesvm::{LiteSVM, types::TransactionMetadata};
 use log::info;
 use solana_account::{Account, AccountSharedData};

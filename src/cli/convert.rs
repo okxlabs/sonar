@@ -101,7 +101,7 @@ fn parse_bytes_input(input: &str, format_hint: Option<ByteFormat>) -> Result<Vec
             return Err("Hex string cannot be empty after 0x prefix".to_string());
         }
         // Pad with leading zero if odd length
-        let hex_str = if hex_str.len() % 2 != 0 { format!("0{}", hex_str) } else { hex_str };
+        let hex_str = if !hex_str.len().is_multiple_of(2) { format!("0{}", hex_str) } else { hex_str };
         let bytes = hex::decode(&hex_str).map_err(|e| format!("Invalid hex string: {}", e))?;
         return Ok(bytes);
     }
@@ -160,7 +160,7 @@ fn parse_bytes_input(input: &str, format_hint: Option<ByteFormat>) -> Result<Vec
         if hex_str.is_empty() {
             return Err("Hex string cannot be empty".to_string());
         }
-        let hex_str = if hex_str.len() % 2 != 0 { format!("0{}", hex_str) } else { hex_str };
+        let hex_str = if !hex_str.len().is_multiple_of(2) { format!("0{}", hex_str) } else { hex_str };
         let bytes = hex::decode(&hex_str).map_err(|e| format!("Invalid hex string: {}", e))?;
         return Ok(bytes);
     }
@@ -1144,13 +1144,13 @@ fn format_sol(lamports: u64) -> String {
     // Use appropriate precision based on the amount
     if lamports == 0 {
         "0".to_string()
-    } else if lamports % LAMPORTS_PER_SOL == 0 {
+    } else if lamports.is_multiple_of(LAMPORTS_PER_SOL) {
         // Whole SOL amount
         format!("{}", lamports / LAMPORTS_PER_SOL)
-    } else if lamports % 1_000_000 == 0 {
+    } else if lamports.is_multiple_of(1_000_000) {
         // Millis precision (3 decimals)
         format!("{:.3}", sol)
-    } else if lamports % 1_000 == 0 {
+    } else if lamports.is_multiple_of(1_000) {
         // Micros precision (6 decimals)
         format!("{:.6}", sol)
     } else {

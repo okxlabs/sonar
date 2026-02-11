@@ -893,7 +893,7 @@ impl BundleReport {
             })
             .collect();
 
-        let replacements = replacements.iter().map(|entry| replacement_to_section(entry)).collect();
+        let replacements = replacements.iter().map(replacement_to_section).collect();
 
         let fundings = fundings
             .iter()
@@ -954,7 +954,7 @@ impl Report {
             verify_signatures,
         );
         let simulation_section = SimulationSection::from_result(simulation);
-        let replacements = replacements.iter().map(|entry| replacement_to_section(entry)).collect();
+        let replacements = replacements.iter().map(replacement_to_section).collect();
         // Compute balance changes before fundings is shadowed below
         let (sol_balance_changes, token_balance_changes) =
             if matches!(simulation.status, ExecutionStatus::Succeeded)
@@ -1035,7 +1035,7 @@ fn compute_balance_changes_for_single_tx(
             &funded_accounts
         };
 
-        let changes = compute_sol_changes(&pre_accounts, &simulation.post_accounts);
+        let changes = compute_sol_changes(pre_accounts, &simulation.post_accounts);
         sol_changes = changes
             .into_iter()
             .map(|c| SolBalanceChangeSection {
@@ -1048,9 +1048,9 @@ fn compute_balance_changes_for_single_tx(
             .collect();
 
         let mint_decimals =
-            extract_mint_decimals_combined(&pre_accounts, &simulation.post_accounts);
+            extract_mint_decimals_combined(pre_accounts, &simulation.post_accounts);
         let changes =
-            compute_token_changes(&pre_accounts, &simulation.post_accounts, &mint_decimals);
+            compute_token_changes(pre_accounts, &simulation.post_accounts, &mint_decimals);
         token_changes = changes
             .into_iter()
             .map(|c| {
@@ -1454,7 +1454,7 @@ impl InnerInstructionSection {
                     log::debug!("Failed to load IDL parser for {}: {}", program_id, err);
                 }
                 parse_inner_instruction_as_regular(
-                    &inner_ix,
+                    inner_ix,
                     message,
                     &parsed.account_plan,
                     &lookup_locations,

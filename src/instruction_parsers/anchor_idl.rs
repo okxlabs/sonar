@@ -869,7 +869,7 @@ pub fn is_anchor_cpi_event(instruction: &crate::transaction::InstructionSummary)
     if instruction.data.len() >= 16 {
         // First 8 bytes: emit_cpi discriminator
         // Next 8 bytes: event discriminator
-        &instruction.data[..8] == EMIT_CPI_DISCRIMINATOR
+        instruction.data[..8] == EMIT_CPI_DISCRIMINATOR
     } else {
         false
     }
@@ -886,7 +886,7 @@ pub fn parse_anchor_cpi_event(
     }
 
     // Check if this is an emit_cpi instruction
-    if &instruction.data[..8] != EMIT_CPI_DISCRIMINATOR {
+    if instruction.data[..8] != EMIT_CPI_DISCRIMINATOR {
         return Ok(None);
     }
 

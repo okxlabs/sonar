@@ -578,7 +578,7 @@ fn scan_idl_directory(dir: &Path) -> Result<Vec<Pubkey>> {
         let path = entry.path();
 
         // Only process .json files
-        if path.extension().map_or(false, |ext| ext == "json") {
+        if path.extension().is_some_and(|ext| ext == "json") {
             if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
                 match Pubkey::from_str(stem) {
                     Ok(pubkey) => {

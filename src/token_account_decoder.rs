@@ -292,7 +292,7 @@ fn parse_mint_extensions(
                 json!({ "delegate": pod_option_pubkey_to_string(&e.delegate) })
             }),
             ExtensionType::DefaultAccountState => ext_json!(state, "DefaultAccountState", DefaultAccountState, |e| {
-                let state_str = match u8::from(e.state) {
+                let state_str = match e.state {
                     0 => "Uninitialized", 1 => "Initialized", 2 => "Frozen", _ => "Unknown"
                 };
                 json!({ "state": state_str })

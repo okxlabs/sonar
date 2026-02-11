@@ -976,7 +976,7 @@ fn parse_transfer_fee_withdraw_from_mint_instruction(
     }
 
     let mut account_names = Vec::new();
-    if instruction.accounts.len() >= 1 {
+    if !instruction.accounts.is_empty() {
         account_names.push("mint".to_string());
     }
     if instruction.accounts.len() >= 2 {
@@ -1048,7 +1048,7 @@ fn parse_transfer_fee_set_fee_instruction(
     data: &[u8],
     instruction: &InstructionSummary,
 ) -> Result<Option<ParsedInstruction>> {
-    if instruction.accounts.len() < 1 {
+    if instruction.accounts.is_empty() {
         return Ok(None);
     }
 
@@ -1062,7 +1062,7 @@ fn parse_transfer_fee_set_fee_instruction(
     };
 
     let mut account_names = Vec::new();
-    if instruction.accounts.len() >= 1 {
+    if !instruction.accounts.is_empty() {
         account_names.push("mint".to_string());
     }
     if instruction.accounts.len() >= 2 {
@@ -1086,7 +1086,7 @@ fn parse_reallocate_instruction(
     data: &[u8],
     instruction: &InstructionSummary,
 ) -> Result<Option<ParsedInstruction>> {
-    if data.len() % 2 != 0 {
+    if !data.len().is_multiple_of(2) {
         return Ok(None);
     }
 
@@ -1098,7 +1098,7 @@ fn parse_reallocate_instruction(
     }
 
     let mut account_names = Vec::new();
-    if instruction.accounts.len() >= 1 {
+    if !instruction.accounts.is_empty() {
         account_names.push("account".to_string());
     }
     if instruction.accounts.len() >= 2 {
