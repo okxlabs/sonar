@@ -7,13 +7,20 @@ A command-line Solana developer toolkit powered by LiteSVM. Simulate, decode, an
 - Parse and analyze Solana transactions from raw encoding (Base58/Base64)
 - Fetch and parse transactions directly from Solana RPC using transaction signatures
 - Simulate transactions in a local SVM environment
+- Decode transactions without simulation via dedicated `decode` subcommand
 - Support for address lookup tables (ALT)
-- Program replacement for testing custom program behavior
+- Program and account replacement for testing custom behavior
 - Fund system accounts with arbitrary SOL amounts for testing
+- Fund token accounts for testing token transfers
 - Multiple output formats (text and JSON)
-- Account loading from Solana RPC nodes
+- Account fetching and decoding (SPL Token, Token-2022, Anchor IDL, BPF Upgradeable)
+- Data format conversion (hex, base58, base64, arrays, UTF-8, lamports, SOL)
+- PDA (Program Derived Address) derivation
+- Program data (ELF bytecode) extraction
+- Send signed transactions to the network
+- Anchor IDL fetching from on-chain accounts
 - Load IDL files from custom directories for Anchor program instruction parsing
-- Parse-only mode for transaction analysis without simulation
+- Shell completion scripts generation (bash, zsh, fish, elvish, powershell)
 
 ## Installation
 
@@ -30,93 +37,222 @@ cargo build --release
 
 ## Usage
 
-### Basic Simulation
+### Simulate
+
+Simulate a Solana transaction locally using LiteSVM.
 
 ```bash
 # Simulate a transaction with raw Base58/Base64 data
-sonar simulate --tx <BASE58_STRING> --rpc-url https://api.mainnet-beta.solana.com
+sonar simulate <BASE58_OR_BASE64_STRING> --rpc-url https://api.mainnet-beta.solana.com
 
 # Simulate using transaction signature (auto-detected)
-sonar simulate --tx 2gTzNX3zLNhhmJaY44LycEgF8UMadrKeDLHz8rgcQVbXWVU4bs8fLBzWKhvAqKBeo2ttqyXsCeqUW47dfW6775Wu \
+sonar simulate 2gTzNX3zLNhhmJaY44LycEgF8UMadrKeDLHz8rgcQVbXWVU4bs8fLBzWKhvAqKBeo2ttqyXsCeqUW47dfW6775Wu \
   --rpc-url https://api.mainnet-beta.solana.com
+
+# Bundle simulation (multiple transactions)
+sonar simulate <TX1> <TX2> <TX3> --rpc-url https://api.mainnet-beta.solana.com
 
 # Read transaction from file via stdin
 cat ./transaction.txt | sonar simulate --rpc-url <RPC_URL>
+
+# Show balance changes and instruction details
+sonar simulate <TX> --rpc-url <RPC_URL> -b -d
+
+# JSON output
+sonar simulate <TX> --rpc-url <RPC_URL> --output json
 ```
 
-### Parse-Only Mode
+#### Program & Account Replacement
+
+Replace on-chain programs or accounts with local files for testing:
 
 ```bash
-# Parse transaction without simulation
-sonar simulate --tx 2gTzNX3zLNhhmJaY44LycEgF8UMadrKeDLHz8rgcQVbXWVU4bs8fLBzWKhvAqKBeo2ttqyXsCeqUW47dfW6775Wu \
+# Replace a program with a local .so file
+sonar simulate <TX> \
   --rpc-url https://api.mainnet-beta.solana.com \
-  --parse-only
+  --replace TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA=./custom_token.so
+
+# Replace an account with a local .json file
+sonar simulate <TX> \
+  --rpc-url https://api.mainnet-beta.solana.com \
+  --replace <PUBKEY>=./account.json
 ```
 
-### Program Replacement
+#### Account Funding
 
-Replace on-chain programs with local .so files for testing:
-
-```bash
-sonar simulate \
-  --tx <BASE58_STRING> \
-  --rpc-url https://api.mainnet-beta.solana.com \
-  --replace TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA=./custom_token.so \
-  --output json
-```
-
-### Account Funding
-
-Fund system accounts with SOL for testing:
+Fund system accounts with SOL or token accounts for testing:
 
 ```bash
-# Fund a single account
-sonar simulate \
-  --tx <TRANSACTION_SIGNATURE> \
+# Fund a single account with SOL
+sonar simulate <TX> \
   --rpc-url https://api.mainnet-beta.solana.com \
-  --fund-sol 11111111111111111111111111111111=10.5
+  --fund-sol DPLezAkFZ5sFaBXMWt3J2StQwYtcqecUipWSP7YfrLth=10.5sol
 
 # Fund multiple accounts
-sonar simulate \
-  --tx <TRANSACTION_SIGNATURE> \
+sonar simulate <TX> \
   --rpc-url https://api.mainnet-beta.solana.com \
-  --fund-sol DPLezAkFZ5sFaBXMWt3J2StQwYtcqecUipWSP7YfrLth=100.0 \
-  --fund-sol 7xP9jZBWvmpqE2J8V3jfgjuktJ2cFJJ3pU7Q5iQj1kJQ=2.75 \
-  --output json
+  --fund-sol <PUBKEY1>=100.0sol \
+  --fund-sol <PUBKEY2>=2.75sol
+
+# Fund a token account (raw amount)
+sonar simulate <TX> \
+  --rpc-url https://api.mainnet-beta.solana.com \
+  --fund-token <TOKEN_ACCOUNT>=1000000
 ```
 
-### IDL Loading
-
-Load IDL files from a custom directory for Anchor program instruction parsing:
+#### Advanced Options
 
 ```bash
-sonar simulate --tx <TRANSACTION_SIGNATURE> \
-  --rpc-url https://api.mainnet-beta.solana.com \
-  --idl-dir /path/to/idl/files/
+# Patch account data before simulation
+sonar simulate <TX> --rpc-url <RPC_URL> \
+  --patch-data <PUBKEY>=<OFFSET>:<HEX_DATA>
+
+# Override clock timestamp and slot
+sonar simulate <TX> --rpc-url <RPC_URL> \
+  --timestamp 1700000000 --slot 250000000
+
+# Dump/load accounts for offline simulation
+sonar simulate <TX> --rpc-url <RPC_URL> --dump-accounts ./accounts/
+sonar simulate <TX> --load-accounts ./accounts/ --offline
+
+# Verify transaction signatures during simulation
+sonar simulate <TX> --rpc-url <RPC_URL> --check-sig
+
+# Load Anchor IDL files from a custom directory
+sonar simulate <TX> --rpc-url <RPC_URL> --idl-dir /path/to/idl/files/
 ```
 
-### Combined Options
+### Decode
+
+Decode and display a raw transaction without simulation:
 
 ```bash
-sonar simulate \
-  --tx <TRANSACTION> \
-  --rpc-url https://api.mainnet-beta.solana.com \
-  --replace TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA=./custom_token.so \
-  --fund-sol SomeAccountPubkey=50.0 \
-  --output json
+sonar decode <TX> --rpc-url https://api.mainnet-beta.solana.com
+sonar decode <TX> --rpc-url <RPC_URL> --output json
 ```
+
+### Account
+
+Fetch and decode a Solana account:
+
+```bash
+sonar account <PUBKEY> --rpc-url https://api.mainnet-beta.solana.com
+
+# Output raw account data as base64 JSON
+sonar account <PUBKEY> --rpc-url <RPC_URL> --raw
+
+# Skip account metadata
+sonar account <PUBKEY> --rpc-url <RPC_URL> --no-account-meta
+```
+
+### Convert
+
+Convert between data formats:
+
+```bash
+# Hex to decimal array
+sonar convert 0x48656c6c6f -t dec-array
+
+# Number to hex (little-endian by default)
+sonar convert 255 -t hex
+
+# Base64 to base58
+sonar convert SGVsbG8= -f base64 -t base58
+
+# Lamports to SOL
+sonar convert 1500000000 -f lamports -t sol
+
+# SOL to lamports
+sonar convert 1.5 -f sol -t lamports
+
+# Hex to UTF-8
+sonar convert 0x48656c6c6f -t utf8
+```
+
+### PDA
+
+Derive a Program Derived Address from seeds:
+
+```bash
+sonar pda <PROGRAM_ID> "hello:string,<PUBKEY>:pubkey"
+```
+
+### Program Data
+
+Get raw program data (ELF bytecode) from an upgradeable program or buffer:
+
+```bash
+sonar program-data <PROGRAM_ID> --rpc-url <RPC_URL>
+
+# Save to file
+sonar program-data <PROGRAM_ID> --rpc-url <RPC_URL> -o program.so
+
+# Verify SHA256 hash
+sonar program-data <PROGRAM_ID> --rpc-url <RPC_URL> --verify-sha256 <HEX_HASH>
+
+# Fetch from a buffer account
+sonar program-data <BUFFER_ADDRESS> --rpc-url <RPC_URL> --buffer
+```
+
+### Fetch IDL
+
+Fetch Anchor IDL from on-chain program accounts:
+
+```bash
+sonar fetch-idl <PROGRAM_ID> --rpc-url <RPC_URL>
+
+# Fetch multiple IDLs
+sonar fetch-idl <PROGRAM_ID_1> <PROGRAM_ID_2> --rpc-url <RPC_URL> --output-dir ./idls/
+
+# Sync existing IDL directory
+sonar fetch-idl --sync-dir ./idls/ --rpc-url <RPC_URL>
+```
+
+### Send
+
+Send a signed transaction to the network:
+
+```bash
+sonar send <SIGNED_TX> --rpc-url <RPC_URL>
+
+# Skip preflight checks
+sonar send <SIGNED_TX> --rpc-url <RPC_URL> --skip-preflight
+```
+
+### Completions
+
+Generate shell completion scripts:
+
+```bash
+sonar completions bash > ~/.local/share/bash-completion/completions/sonar
+sonar completions zsh > ~/.zsh/completions/_sonar
+sonar completions fish > ~/.config/fish/completions/sonar.fish
+```
+
+## Configuration
+
+Sonar reads configuration from `~/.config/sonar/config.toml`:
+
+```toml
+rpc_url = "https://api.mainnet-beta.solana.com"
+idl_dir = "~/.sonar/idls"
+color = "auto"  # auto, always, never
+```
+
+Priority: CLI arguments > environment variables > config file > defaults.
 
 ## Technology Stack
 
 - **Language**: Rust (Edition 2021)
 - **Core Dependencies**:
   - `litesvm` - Local Solana Virtual Machine for transaction simulation
-  - `solana-sdk` / `solana-client` - Solana blockchain interaction
-  - `solana-rpc-client-types` / `solana-transaction-status-client-types` - RPC configuration and transaction encoding types
+  - Fine-grained Solana crates (`solana-pubkey`, `solana-transaction`, `solana-account`, etc.) for better compile times
+  - `solana-rpc-client` / `solana-rpc-client-api` - RPC interaction
   - `clap` - Command-line interface parsing
   - `serde` / `serde_json` - Serialization support
   - `anyhow` - Error handling
-  - `base64` / `bs58` - Transaction encoding/decoding
+  - `base64` / `bs58` - Encoding/decoding
+  - `colored` - Terminal color output
 
 ## Testing
 
