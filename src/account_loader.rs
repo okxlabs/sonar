@@ -26,6 +26,7 @@ use std::sync::Mutex;
 
 use crate::{
     cli::Replacement,
+    progress::Progress,
     transaction::{AddressLookupPlan, collect_account_plan},
 };
 
@@ -34,6 +35,7 @@ const MAX_ACCOUNTS_PER_REQUEST: usize = 100;
 pub struct AccountLoader {
     client: Arc<RpcClient>,
     cache: Mutex<HashMap<Pubkey, Account>>,
+    progress: Option<Progress>,
     /// Optional local directory to load account JSON files from.
     local_dir: Option<PathBuf>,
     /// When true, never fetch from RPC; error if account not found locally.
@@ -41,7 +43,12 @@ pub struct AccountLoader {
 }
 
 impl AccountLoader {
-    pub fn new(rpc_url: String, local_dir: Option<PathBuf>, offline: bool) -> Result<Self> {
+    pub fn new(
+        rpc_url: String,
+        local_dir: Option<PathBuf>,
+        offline: bool,
+        progress: Option<Progress>,
+    ) -> Result<Self> {
         // In offline mode, rpc_url may be empty
         if rpc_url.is_empty() && !offline {
             return Err(anyhow!(
@@ -53,6 +60,7 @@ impl AccountLoader {
         Ok(Self {
             client: Arc::new(RpcClient::new(url)),
             cache: Mutex::new(HashMap::new()),
+            progress,
             local_dir,
             offline,
         })
@@ -362,7 +370,17 @@ impl AccountLoader {
         }
 
         // Layer 4: Fetch remaining accounts from RPC
+        let total_count = to_fetch.len();
+        let mut requested_count = 0usize;
         for chunk in to_fetch.chunks(MAX_ACCOUNTS_PER_REQUEST) {
+            if let Some(account) = chunk.first() {
+                self.set_progress_message(format!(
+                    "loading account {} ({}/{})",
+                    account,
+                    requested_count + 1,
+                    total_count
+                ));
+            }
             let response = self.client.get_multiple_accounts(chunk).with_context(|| {
                 format!(
                     "getMultipleAccounts call failed, account list: [{}]",
@@ -385,6 +403,7 @@ impl AccountLoader {
                     cache.insert(*pubkey, account);
                 }
             }
+            requested_count += chunk.len();
         }
 
         debug!("Successfully fetched accounts: [{}]", format_pubkeys(pubkeys));
@@ -437,6 +456,12 @@ impl AccountLoader {
         match transaction.transaction.decode() {
             Some(tx) => Ok(tx),
             None => Err(anyhow!("Failed to decode transaction from RPC response")),
+        }
+    }
+
+    fn set_progress_message(&self, message: impl Into<std::borrow::Cow<'static, str>>) {
+        if let Some(progress) = &self.progress {
+            progress.set_message(message);
         }
     }
 }

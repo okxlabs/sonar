@@ -9,6 +9,7 @@ mod instruction_parsers;
 mod log_parser;
 mod native_ids;
 mod output;
+mod progress;
 mod token_account_decoder;
 mod transaction;
 

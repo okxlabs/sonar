@@ -4,6 +4,7 @@ use anyhow::{Context, Result};
 
 use crate::cli::{self, SimulateArgs, TransactionInputArgs};
 use crate::instruction_parsers::ParserRegistry;
+use crate::progress::Progress;
 use crate::{account_loader, executor, funding, output, transaction};
 
 use super::{collect_program_ids, warn_unmatched_addresses};
@@ -14,6 +15,7 @@ pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
     let mut parser_registry = ParserRegistry::new(idl_dir);
 
     log::debug!("Created parser registry with lazy IDL loading support");
+    let progress = Progress::new();
     let SimulateArgs {
         transaction,
         rpc,
@@ -89,6 +91,7 @@ pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
             dump_accounts,
             load_accounts,
             offline,
+            &progress,
         );
     }
 
@@ -99,13 +102,18 @@ pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
     // Check if input looks like a transaction signature (works for all input methods)
     let tx_data = if transaction::is_transaction_signature(&raw_input) {
         log::info!("Input appears to be a transaction signature, attempting to fetch from RPC...");
-        transaction::fetch_transaction_from_rpc(&rpc_url, &raw_input)?
+        transaction::fetch_transaction_from_rpc(&rpc_url, &raw_input, Some(&progress))?
     } else {
         raw_input
     };
     let parsed_tx = transaction::parse_raw_transaction(&tx_data)?;
 
-    let account_loader = account_loader::AccountLoader::new(rpc_url, load_accounts, offline)?;
+    let account_loader = account_loader::AccountLoader::new(
+        rpc_url,
+        load_accounts,
+        offline,
+        Some(progress.clone()),
+    )?;
     let mut resolved_accounts =
         account_loader.load_for_transaction(&parsed_tx.transaction, &replacements)?;
 
@@ -124,6 +132,7 @@ pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
             &account_loader,
             &mut resolved_accounts,
             &token_funding_requests,
+            Some(&progress),
         )?
     };
 
@@ -167,6 +176,7 @@ pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
         simulation.meta.inner_instructions.clone(),
     );
 
+    progress.finish();
     output::render(
         &updated_tx,
         executor.resolved_accounts(),
@@ -193,19 +203,25 @@ fn handle_bundle(
     dump_accounts: Option<PathBuf>,
     load_accounts: Option<PathBuf>,
     offline: bool,
+    progress: &Progress,
 ) -> Result<()> {
     log::info!("Bundle simulation mode: {} transactions", tx_inputs.len());
 
     // Parse all transactions
-    let parsed_txs = transaction::parse_multi_raw_transactions(&tx_inputs, rpc_url)?;
+    let parsed_txs =
+        transaction::parse_multi_raw_transactions(&tx_inputs, rpc_url, Some(progress))?;
     log::info!("Successfully parsed {} transactions", parsed_txs.len());
 
     // Collect transaction references for account loading
     let tx_refs: Vec<_> = parsed_txs.iter().map(|p| &p.transaction).collect();
 
     // Load accounts for all transactions
-    let account_loader =
-        account_loader::AccountLoader::new(rpc_url.to_string(), load_accounts, offline)?;
+    let account_loader = account_loader::AccountLoader::new(
+        rpc_url.to_string(),
+        load_accounts,
+        offline,
+        Some(progress.clone()),
+    )?;
     let mut resolved_accounts =
         account_loader.load_for_transactions(&tx_refs, &sim_opts.replacements)?;
 
@@ -226,6 +242,7 @@ fn handle_bundle(
             &account_loader,
             &mut resolved_accounts,
             &token_funding_requests,
+            Some(progress),
         )?
     };
     sim_opts.token_fundings = prepared_token_fundings;
@@ -269,6 +286,7 @@ fn handle_bundle(
         })
         .collect();
 
+    progress.finish();
     output::render_bundle(
         &updated_txs,
         total_tx_count,

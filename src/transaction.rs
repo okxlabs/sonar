@@ -8,6 +8,8 @@ use solana_message::inner_instruction::InnerInstructionsList;
 use solana_pubkey::Pubkey;
 use solana_transaction::versioned::{TransactionVersion, VersionedTransaction};
 
+use crate::progress::Progress;
+
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum RawTransactionEncoding {
@@ -142,10 +144,14 @@ pub fn is_transaction_signature(s: &str) -> bool {
     trimmed.chars().all(|c| c.is_ascii_alphanumeric() && !matches!(c, '0' | 'O' | 'I' | 'l'))
 }
 
-pub fn fetch_transaction_from_rpc(rpc_url: &str, signature: &str) -> Result<String> {
+pub fn fetch_transaction_from_rpc(
+    rpc_url: &str,
+    signature: &str,
+    progress: Option<&Progress>,
+) -> Result<String> {
     use crate::account_loader::AccountLoader;
 
-    let loader = AccountLoader::new(rpc_url.to_string(), None, false)?;
+    let loader = AccountLoader::new(rpc_url.to_string(), None, false, progress.cloned())?;
     let tx = loader.fetch_transaction_by_signature(signature)?;
 
     let serialized = bincode::serialize(&tx).context("Failed to serialize transaction")?;
@@ -205,6 +211,7 @@ pub fn collect_account_plan(tx: &VersionedTransaction) -> MessageAccountPlan {
 pub fn parse_multi_raw_transactions(
     raws: &[String],
     rpc_url: &str,
+    progress: Option<&Progress>,
 ) -> Result<Vec<ParsedTransaction>> {
     raws.iter()
         .enumerate()
@@ -214,9 +221,10 @@ pub fn parse_multi_raw_transactions(
                     "Transaction {} appears to be a signature, fetching from RPC...",
                     index + 1
                 );
-                let fetched = fetch_transaction_from_rpc(rpc_url, raw).with_context(|| {
-                    format!("Failed to fetch transaction {} from RPC", index + 1)
-                })?;
+                let fetched =
+                    fetch_transaction_from_rpc(rpc_url, raw, progress).with_context(|| {
+                        format!("Failed to fetch transaction {} from RPC", index + 1)
+                    })?;
                 parse_raw_transaction(&fetched)
             } else {
                 parse_raw_transaction(raw)

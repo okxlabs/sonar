@@ -26,14 +26,14 @@ pub(crate) fn handle(args: DecodeArgs) -> Result<()> {
     // Check if input looks like a transaction signature (works for all input methods)
     let raw_tx = if transaction::is_transaction_signature(&raw_input) {
         log::info!("Input appears to be a transaction signature, attempting to fetch from RPC...");
-        transaction::fetch_transaction_from_rpc(&rpc_url, &raw_input)?
+        transaction::fetch_transaction_from_rpc(&rpc_url, &raw_input, None)?
     } else {
         raw_input
     };
 
     let parsed_tx = transaction::parse_raw_transaction(&raw_tx)?;
 
-    let account_loader = account_loader::AccountLoader::new(rpc_url, None, false)?;
+    let account_loader = account_loader::AccountLoader::new(rpc_url, None, false, None)?;
     let resolved_accounts = account_loader.load_for_transaction(&parsed_tx.transaction, &[])?;
 
     let program_ids = collect_program_ids(&resolved_accounts);
@@ -69,12 +69,13 @@ fn handle_bundle(
 ) -> Result<()> {
     log::info!("Bundle decode mode: {} transactions", tx_inputs.len());
 
-    let parsed_txs = transaction::parse_multi_raw_transactions(&tx_inputs, rpc_url)?;
+    let parsed_txs = transaction::parse_multi_raw_transactions(&tx_inputs, rpc_url, None)?;
     log::info!("Successfully parsed {} transactions", parsed_txs.len());
 
     let tx_refs: Vec<_> = parsed_txs.iter().map(|p| &p.transaction).collect();
 
-    let account_loader = account_loader::AccountLoader::new(rpc_url.to_string(), None, false)?;
+    let account_loader =
+        account_loader::AccountLoader::new(rpc_url.to_string(), None, false, None)?;
     let resolved_accounts = account_loader.load_for_transactions(&tx_refs, &[])?;
 
     let program_ids = collect_program_ids(&resolved_accounts);

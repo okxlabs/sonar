@@ -114,7 +114,7 @@ pub(crate) fn handle(args: AccountArgs) -> Result<()> {
     // Try to find IDL: first from local directory, then from chain
     let idl_json = try_load_idl_from_dir(&args.idl_dir, &owner).or_else(|| {
         let loader =
-            account_loader::AccountLoader::new(args.rpc.rpc_url.clone(), None, false).ok()?;
+            account_loader::AccountLoader::new(args.rpc.rpc_url.clone(), None, false, None).ok()?;
         loader.fetch_idl(&owner).ok().flatten()
     });
 

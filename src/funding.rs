@@ -9,6 +9,7 @@ use spl_token_2022::extension::{BaseStateWithExtensions, BaseStateWithExtensions
 use crate::{
     account_loader::{AccountLoader, ResolvedAccounts},
     cli::{Funding, TokenFunding},
+    progress::Progress,
 };
 
 const LAMPORTS_PER_SOL: u64 = 1_000_000_000;
@@ -51,13 +52,18 @@ pub fn prepare_token_fundings(
     loader: &AccountLoader,
     resolved: &mut ResolvedAccounts,
     requests: &[TokenFunding],
+    progress: Option<&Progress>,
 ) -> Result<Vec<PreparedTokenFunding>> {
     let mut prepared = Vec::new();
     if requests.is_empty() {
         return Ok(prepared);
     }
 
-    for request in requests {
+    let total = requests.len();
+    for (index, request) in requests.iter().enumerate() {
+        if let Some(progress) = progress {
+            progress.set_message(format!("Preparing token fundings... ({}/{})", index + 1, total));
+        }
         let summary = process_single(loader, resolved, request)
             .with_context(|| format!("Failed to prepare token funding for {}", request.account))?;
         prepared.push(summary);
@@ -465,7 +471,7 @@ mod tests {
 
     #[test]
     fn prepares_spl_token_funding_and_updates_account_data() {
-        let loader = AccountLoader::new("http://localhost:8899".into(), None, false).unwrap();
+        let loader = AccountLoader::new("http://localhost:8899".into(), None, false, None).unwrap();
         let mint = Pubkey::new_unique();
         let token = Pubkey::new_unique();
         let owner = Pubkey::new_unique();
@@ -477,8 +483,8 @@ mod tests {
         resolved.accounts.insert(mint, mint_account);
 
         let funding = TokenFunding { account: token, mint: Some(mint), amount_raw: 1_500_000 };
-        let prepared =
-            prepare_token_fundings(&loader, &mut resolved, &[funding]).expect("prepares funding");
+        let prepared = prepare_token_fundings(&loader, &mut resolved, &[funding], None)
+            .expect("prepares funding");
         assert_eq!(prepared.len(), 1);
         let summary = &prepared[0];
         assert_eq!(summary.mint, mint);

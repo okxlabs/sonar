@@ -39,7 +39,7 @@ pub(crate) fn handle(args: FetchIdlArgs) -> Result<()> {
         .with_context(|| format!("Failed to create output directory: {}", output_dir.display()))?;
 
     // Create account loader and fetch IDLs
-    let loader = account_loader::AccountLoader::new(args.rpc.rpc_url, None, false)?;
+    let loader = account_loader::AccountLoader::new(args.rpc.rpc_url, None, false, None)?;
 
     let mut success_count = 0;
     let mut not_found_count = 0;

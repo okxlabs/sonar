@@ -539,12 +539,7 @@ fn render_instruction_details_text(
                 } else {
                     format!("account_{}", i + 1)
                 };
-                render_instruction_account_text(
-                    account,
-                    resolved,
-                    Some(&account_name),
-                    INDENT_L1,
-                );
+                render_instruction_account_text(account, resolved, Some(&account_name), INDENT_L1);
             }
 
             // Display raw instruction data only when requested
