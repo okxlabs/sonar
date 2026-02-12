@@ -5,6 +5,7 @@ mod config;
 mod executor;
 mod funding;
 mod handlers;
+mod native_ids;
 mod instruction_parsers;
 mod log_parser;
 mod output;

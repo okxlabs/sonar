@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::LazyLock;
 
@@ -368,40 +368,10 @@ struct DumpAccountInner {
     space: usize,
 }
 
-/// Well-known native program IDs that should be skipped during dump.
-static NATIVE_PROGRAM_IDS: LazyLock<HashSet<Pubkey>> = LazyLock::new(|| {
-    use solana_sdk_ids::*;
-    HashSet::from([
-        system_program::id(),
-        bpf_loader::id(),
-        bpf_loader_deprecated::id(),
-        bpf_loader_upgradeable::id(),
-        vote::id(),
-        stake::id(),
-        config::id(),
-        compute_budget::id(),
-        address_lookup_table::id(),
-        ed25519_program::id(),
-        secp256k1_program::id(),
-        // sysvar accounts
-        solana_sdk_ids::sysvar::clock::id(),
-        solana_sdk_ids::sysvar::rent::id(),
-        solana_sdk_ids::sysvar::slot_hashes::id(),
-        solana_sdk_ids::sysvar::epoch_schedule::id(),
-        solana_sdk_ids::sysvar::instructions::id(),
-        solana_sdk_ids::sysvar::recent_blockhashes::id(),
-    ])
-});
-
 /// The NativeLoader program ID (owner of all native programs).
 static NATIVE_LOADER_ID: LazyLock<Pubkey> = LazyLock::new(|| {
     "NativeLoader1111111111111111111111111111111".parse().expect("invalid NativeLoader pubkey")
 });
-
-/// Returns `true` if the pubkey is a well-known native/system program.
-fn is_native_program(pubkey: &Pubkey) -> bool {
-    NATIVE_PROGRAM_IDS.contains(pubkey)
-}
 
 /// Returns `true` if the account is owned by the NativeLoader (native program executable marker).
 fn is_native_owner(account: &Account) -> bool {
@@ -421,7 +391,7 @@ pub fn dump_accounts_to_dir(accounts: &HashMap<Pubkey, Account>, dir: &Path) -> 
     let mut skipped = 0usize;
 
     for (pubkey, account) in accounts {
-        if is_native_program(pubkey) {
+        if crate::native_ids::is_native_or_sysvar(pubkey) {
             skipped += 1;
             continue;
         }
