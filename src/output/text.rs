@@ -539,10 +539,10 @@ fn render_instruction_details_text(
                 } else {
                     format!("account_{}", i + 1)
                 };
-                render_instruction_account_text_with_name(
+                render_instruction_account_text(
                     account,
                     resolved,
-                    &account_name,
+                    Some(&account_name),
                     INDENT_L1,
                 );
             }
@@ -562,7 +562,7 @@ fn render_instruction_details_text(
             );
 
             for account in &ix.accounts {
-                render_instruction_account_text(account, resolved, INDENT_L1);
+                render_instruction_account_text(account, resolved, None, INDENT_L1);
             }
             println!("{}🔢 0x{} | {} byte(s)", INDENT_L1, hex::encode(&ix.data), ix.data.len());
         }
@@ -587,10 +587,10 @@ fn render_instruction_details_text(
                         } else {
                             format!("account_{}", i + 1)
                         };
-                        render_instruction_account_text_with_name(
+                        render_instruction_account_text(
                             account,
                             resolved,
-                            &account_name,
+                            Some(&account_name),
                             INDENT_L2,
                         );
                     }
@@ -616,7 +616,7 @@ fn render_instruction_details_text(
                     );
 
                     for account in &inner_ix.accounts {
-                        render_instruction_account_text(account, resolved, INDENT_L2);
+                        render_instruction_account_text(account, resolved, None, INDENT_L2);
                     }
                     println!(
                         "{}🔢 0x{} | {} byte(s)",
@@ -633,6 +633,7 @@ fn render_instruction_details_text(
 fn render_instruction_account_text(
     account: &InstructionAccountEntry,
     resolved: &ResolvedAccounts,
+    name: Option<&str>,
     indent: &str,
 ) {
     let solscan_linked_pubkey = format_solscan_link(&account.pubkey);
@@ -641,36 +642,18 @@ fn render_instruction_account_text(
     } else {
         false
     };
-    println!(
-        "{}{} [{}] {} {}",
-        indent,
-        account.source,
-        account.index,
-        solscan_linked_pubkey,
-        account_privilege_emoji(account.signer, account.writable, executable)
-    );
-}
-
-fn render_instruction_account_text_with_name(
-    account: &InstructionAccountEntry,
-    resolved: &ResolvedAccounts,
-    name: &str,
-    indent: &str,
-) {
-    let solscan_linked_pubkey = format_solscan_link(&account.pubkey);
-    let executable = if let Ok(pubkey) = Pubkey::from_str(&account.pubkey) {
-        resolved.accounts.get(&pubkey).map(|acc| acc.executable).unwrap_or(false)
-    } else {
-        false
+    let name_suffix = match name {
+        Some(n) => format!(" ({})", n.custom_color((139, 170, 214))),
+        None => String::new(),
     };
     println!(
-        "{}{} [{}] {} {} ({})",
+        "{}{} [{}] {} {}{}",
         indent,
         account.source,
         account.index,
         solscan_linked_pubkey,
         account_privilege_emoji(account.signer, account.writable, executable),
-        name.custom_color((139, 170, 214))
+        name_suffix
     );
 }
 
