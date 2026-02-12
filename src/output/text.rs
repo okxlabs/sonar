@@ -20,6 +20,14 @@ use super::report::{
 
 /// Width of the separator line (using ═ character).
 const SEPARATOR_WIDTH: usize = 120;
+/// Single indentation unit (2 spaces).
+const INDENT: &str = "  ";
+/// Indentation for outer items (level 1 = 2 spaces).
+const INDENT_L1: &str = INDENT;
+/// Indentation for inner items (level 2 = 4 spaces).
+const INDENT_L2: &str = "    ";
+/// Indentation for deeply nested items (level 3 = 6 spaces).
+const INDENT_L3: &str = "      ";
 
 pub(super) fn render_text(
     report: &Report,
@@ -187,7 +195,8 @@ fn render_bundle_summary_header(bundle: &BundleReport, total_count: usize) {
             .unwrap_or_else(|| "<no-sig>".to_string());
 
         println!(
-            "  TX {:>tx_w$}/{:<tx_w$}  {}  CU: {:>cu_w$} / {:>cu_w$} ({:>3}%)  {}",
+            "{}TX {:>tx_w$}/{:<tx_w$}  {}  CU: {:>cu_w$} / {:>cu_w$} ({:>3}%)  {}",
+            INDENT_L1,
             idx,
             total_count,
             status_icon,
@@ -202,7 +211,13 @@ fn render_bundle_summary_header(bundle: &BundleReport, total_count: usize) {
 
     // Render skipped transactions
     for i in bundle.transactions.len()..total_count {
-        println!("  TX {:>tx_w$}/{:<tx_w$}  ⏭️  SKIPPED", i + 1, total_count, tx_w = tx_col_width);
+        println!(
+            "{}TX {:>tx_w$}/{:<tx_w$}  ⏭️  SKIPPED",
+            INDENT_L1,
+            i + 1,
+            total_count,
+            tx_w = tx_col_width
+        );
     }
 
     render_separator();
@@ -214,7 +229,7 @@ fn render_bundle_transaction_trace(
     log_opts: LogDisplayOptions,
 ) {
     if let SimulationStatusReport::Failed { error } = &tx_report.simulation.status {
-        println!("   ↳ Error: {}", error);
+        println!("{}↳ Error: {}", INDENT_L1, error);
     }
     render_execution_trace_section(&tx_report.simulation, log_opts);
 }
@@ -236,7 +251,8 @@ fn render_bundle_balance_changes(bundle: &BundleReport) {
             let sign = if change.change >= 0 { "+" } else { "" };
             let color = if change.change >= 0 { (152, 195, 121) } else { (224, 108, 117) };
             println!(
-                "  {} {} | {} | {}",
+                "{}{} {} | {} | {}",
+                INDENT_L1,
                 change.account.cyan(),
                 format!("{:.9}", sol_before).custom_color((171, 178, 191)),
                 format!("{:.9}", sol_after).custom_color((171, 178, 191)),
@@ -255,7 +271,8 @@ fn render_bundle_balance_changes(bundle: &BundleReport) {
             let sign = if change.change >= 0 { "+" } else { "" };
             let color = if change.change >= 0 { (152, 195, 121) } else { (224, 108, 117) };
             println!(
-                "  {} ({}) {} | {} | {}",
+                "{}{} ({}) {} | {} | {}",
+                INDENT_L1,
                 change.account.cyan(),
                 change.mint.custom_color((139, 170, 214)),
                 format!("{:.prec$}", ui_before, prec = change.decimals as usize)
@@ -441,7 +458,7 @@ fn render_lookup_tables_text(transaction: &TransactionSection) {
 
     for (idx, lookup) in transaction.lookups.iter().enumerate() {
         let solscan_linked_key = format_solscan_link(&lookup.account_key);
-        println!("  [{}] {}", idx, solscan_linked_key);
+        println!("{}[{}] {}", INDENT_L1, idx, solscan_linked_key);
     }
 }
 
@@ -486,7 +503,8 @@ fn render_account_entry_text(
     let solscan_linked_pubkey = format_solscan_link(pubkey_str);
     let executable = resolved.accounts.get(&pubkey).map(|acc| acc.executable).unwrap_or(false);
     println!(
-        "  [{}] {} {}",
+        "{}[{}] {} {}",
+        INDENT_L1,
         index,
         solscan_linked_pubkey,
         account_privilege_emoji(signer, writable, executable)
@@ -521,16 +539,21 @@ fn render_instruction_details_text(
                 } else {
                     format!("account_{}", i + 1)
                 };
-                render_instruction_account_text_with_name(account, resolved, &account_name);
+                render_instruction_account_text_with_name(
+                    account,
+                    resolved,
+                    &account_name,
+                    INDENT_L1,
+                );
             }
 
             // Display raw instruction data only when requested
             if show_ix_data {
-                println!("  🔢 0x{} | {} byte(s)", hex::encode(&ix.data), ix.data.len());
+                println!("{}🔢 0x{} | {} byte(s)", INDENT_L1, hex::encode(&ix.data), ix.data.len());
             }
 
             // Then render parsed fields as formatted JSON, preserving original order
-            render_parsed_fields(&parsed.fields);
+            render_parsed_fields(&parsed.fields, INDENT_L2);
         } else {
             println!(
                 "#{} {}",
@@ -539,9 +562,9 @@ fn render_instruction_details_text(
             );
 
             for account in &ix.accounts {
-                render_instruction_account_text(account, resolved);
+                render_instruction_account_text(account, resolved, INDENT_L1);
             }
-            println!("  🔢 0x{} | {} byte(s)", hex::encode(&ix.data), ix.data.len());
+            println!("{}🔢 0x{} | {} byte(s)", INDENT_L1, hex::encode(&ix.data), ix.data.len());
         }
 
         // Display inner instructions if any
@@ -550,7 +573,8 @@ fn render_instruction_details_text(
                 // Try to parse inner instruction
                 if let Some(parsed_inner) = &inner_ix.parsed {
                     println!(
-                        "  {} {} [{}]",
+                        "{}{} {} [{}]",
+                        INDENT_L1,
                         format!("#{}", inner_ix.label).custom_color((229, 192, 123)),
                         format_solscan_link(&inner_ix.program.pubkey).cyan(),
                         parsed_inner.name.custom_color((152, 195, 121))
@@ -563,36 +587,40 @@ fn render_instruction_details_text(
                         } else {
                             format!("account_{}", i + 1)
                         };
-                        render_inner_instruction_account_text_with_name(
+                        render_instruction_account_text_with_name(
                             account,
                             resolved,
                             &account_name,
+                            INDENT_L2,
                         );
                     }
 
                     // Display raw instruction data only when requested
                     if show_ix_data {
                         println!(
-                            "    🔢 0x{} | {} byte(s)",
+                            "{}🔢 0x{} | {} byte(s)",
+                            INDENT_L2,
                             hex::encode(&inner_ix.data),
                             inner_ix.data.len()
                         );
                     }
 
                     // Then render parsed fields as formatted JSON, preserving original order
-                    render_inner_parsed_fields(&parsed_inner.fields);
+                    render_parsed_fields(&parsed_inner.fields, INDENT_L3);
                 } else {
                     println!(
-                        "  {} {}",
+                        "{}{} {}",
+                        INDENT_L1,
                         format!("#{}", inner_ix.label).custom_color((229, 192, 123)),
                         format_solscan_link(&inner_ix.program.pubkey).cyan()
                     );
 
                     for account in &inner_ix.accounts {
-                        render_inner_instruction_account_text(account, resolved);
+                        render_instruction_account_text(account, resolved, INDENT_L2);
                     }
                     println!(
-                        "    🔢 0x{} | {} byte(s)",
+                        "{}🔢 0x{} | {} byte(s)",
+                        INDENT_L2,
                         hex::encode(&inner_ix.data),
                         inner_ix.data.len()
                     );
@@ -602,7 +630,11 @@ fn render_instruction_details_text(
     }
 }
 
-fn render_instruction_account_text(account: &InstructionAccountEntry, resolved: &ResolvedAccounts) {
+fn render_instruction_account_text(
+    account: &InstructionAccountEntry,
+    resolved: &ResolvedAccounts,
+    indent: &str,
+) {
     let solscan_linked_pubkey = format_solscan_link(&account.pubkey);
     let executable = if let Ok(pubkey) = Pubkey::from_str(&account.pubkey) {
         resolved.accounts.get(&pubkey).map(|acc| acc.executable).unwrap_or(false)
@@ -610,7 +642,8 @@ fn render_instruction_account_text(account: &InstructionAccountEntry, resolved: 
         false
     };
     println!(
-        "  {} [{}] {} {}",
+        "{}{} [{}] {} {}",
+        indent,
         account.source,
         account.index,
         solscan_linked_pubkey,
@@ -622,6 +655,7 @@ fn render_instruction_account_text_with_name(
     account: &InstructionAccountEntry,
     resolved: &ResolvedAccounts,
     name: &str,
+    indent: &str,
 ) {
     let solscan_linked_pubkey = format_solscan_link(&account.pubkey);
     let executable = if let Ok(pubkey) = Pubkey::from_str(&account.pubkey) {
@@ -630,47 +664,8 @@ fn render_instruction_account_text_with_name(
         false
     };
     println!(
-        "  {} [{}] {} {} ({})",
-        account.source,
-        account.index,
-        solscan_linked_pubkey,
-        account_privilege_emoji(account.signer, account.writable, executable),
-        name.custom_color((139, 170, 214))
-    );
-}
-
-fn render_inner_instruction_account_text(
-    account: &InstructionAccountEntry,
-    resolved: &ResolvedAccounts,
-) {
-    let solscan_linked_pubkey = format_solscan_link(&account.pubkey);
-    let executable = if let Ok(pubkey) = Pubkey::from_str(&account.pubkey) {
-        resolved.accounts.get(&pubkey).map(|acc| acc.executable).unwrap_or(false)
-    } else {
-        false
-    };
-    println!(
-        "    {} [{}] {} {}",
-        account.source,
-        account.index,
-        solscan_linked_pubkey,
-        account_privilege_emoji(account.signer, account.writable, executable)
-    );
-}
-
-fn render_inner_instruction_account_text_with_name(
-    account: &InstructionAccountEntry,
-    resolved: &ResolvedAccounts,
-    name: &str,
-) {
-    let solscan_linked_pubkey = format_solscan_link(&account.pubkey);
-    let executable = if let Ok(pubkey) = Pubkey::from_str(&account.pubkey) {
-        resolved.accounts.get(&pubkey).map(|acc| acc.executable).unwrap_or(false)
-    } else {
-        false
-    };
-    println!(
-        "    {} [{}] {} {} ({})",
+        "{}{} [{}] {} {} ({})",
+        indent,
         account.source,
         account.index,
         solscan_linked_pubkey,
@@ -709,7 +704,7 @@ fn get_program_display_name(pubkey: &str) -> &str {
 fn render_log_entry(entry_with_depth: &LogEntryWithDepth) {
     let depth = entry_with_depth.depth as usize;
     // Base indent for logs under instruction header, plus additional for CPI depth
-    let indent = "  ".repeat(depth);
+    let indent = INDENT.repeat(depth);
 
     match &entry_with_depth.entry {
         LogEntry::Invoke { program, depth: invoke_depth } => {
@@ -830,62 +825,32 @@ fn account_privilege_emoji(signer: bool, writable: bool, executable: bool) -> &'
     }
 }
 
-fn render_parsed_fields(fields: &[ParsedField]) {
-    if fields.is_empty() {
-        return;
-    }
+struct OrderedFields<'a>(&'a [ParsedField]);
 
-    struct OrderedFields<'a>(&'a [ParsedField]);
+impl Serialize for OrderedFields<'_> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeMap;
 
-    impl Serialize for OrderedFields<'_> {
-        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-        where
-            S: serde::Serializer,
-        {
-            use serde::ser::SerializeMap;
-
-            let mut map = serializer.serialize_map(Some(self.0.len()))?;
-            for field in self.0 {
-                map.serialize_entry(&field.name, &field.value)?;
-            }
-            map.end()
+        let mut map = serializer.serialize_map(Some(self.0.len()))?;
+        for field in self.0 {
+            map.serialize_entry(&field.name, &field.value)?;
         }
-    }
-
-    let ordered = OrderedFields(fields);
-    let pretty = serde_json::to_string_pretty(&ordered).unwrap_or_else(|_| "{}".to_string());
-
-    for line in pretty.lines() {
-        println!("{}", format!("    {}", line).custom_color((171, 178, 191)));
+        map.end()
     }
 }
 
-fn render_inner_parsed_fields(fields: &[ParsedField]) {
+fn render_parsed_fields(fields: &[ParsedField], indent: &str) {
     if fields.is_empty() {
         return;
-    }
-
-    struct OrderedFields<'a>(&'a [ParsedField]);
-
-    impl Serialize for OrderedFields<'_> {
-        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-        where
-            S: serde::Serializer,
-        {
-            use serde::ser::SerializeMap;
-
-            let mut map = serializer.serialize_map(Some(self.0.len()))?;
-            for field in self.0 {
-                map.serialize_entry(&field.name, &field.value)?;
-            }
-            map.end()
-        }
     }
 
     let ordered = OrderedFields(fields);
     let pretty = serde_json::to_string_pretty(&ordered).unwrap_or_else(|_| "{}".to_string());
 
     for line in pretty.lines() {
-        println!("{}", format!("      {}", line).custom_color((171, 178, 191)));
+        println!("{}", format!("{}{}", indent, line).custom_color((171, 178, 191)));
     }
 }
