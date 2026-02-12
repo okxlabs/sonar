@@ -19,10 +19,10 @@ use std::{
 use std::io::IsTerminal;
 
 use anyhow::{Context, Result};
-use clap::Parser;
+use clap::{CommandFactory, Parser};
 use cli::{
-    AccountArgs, Cli, ColorMode, Commands, ConvertArgs, DecodeArgs, FetchIdlArgs, PdaArgs,
-    ProgramDataArgs, SendArgs, SimulateArgs, TransactionInputArgs,
+    AccountArgs, Cli, ColorMode, Commands, CompletionsArgs, ConvertArgs, DecodeArgs, FetchIdlArgs,
+    PdaArgs, ProgramDataArgs, SendArgs, SimulateArgs, TransactionInputArgs,
 };
 use instruction_parsers::ParserRegistry;
 use solana_pubkey::Pubkey;
@@ -66,8 +66,17 @@ fn run() -> Result<()> {
         Commands::Pda(args) => handle_pda(args)?,
         Commands::ProgramData(args) => handle_program_data(args)?,
         Commands::Send(args) => handle_send(args)?,
+        Commands::Completions(args) => {
+            handle_completions(args);
+            return Ok(());
+        }
     }
     Ok(())
+}
+
+fn handle_completions(args: CompletionsArgs) {
+    let mut cmd = Cli::command();
+    clap_complete::generate(args.shell, &mut cmd, "sonar", &mut std::io::stdout());
 }
 
 fn handle_fetch_idl(args: FetchIdlArgs) -> Result<()> {

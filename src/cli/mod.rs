@@ -79,4 +79,17 @@ pub enum Commands {
     ProgramData(ProgramDataArgs),
     /// Send a signed transaction to the network
     Send(SendArgs),
+    /// Generate shell completion scripts
+    Completions(CompletionsArgs),
+}
+
+#[derive(Args, Debug)]
+#[command(after_help = "\
+EXAMPLES:
+  sonar completions bash > ~/.local/share/bash-completion/completions/sonar
+  sonar completions zsh > ~/.zsh/completions/_sonar
+  sonar completions fish > ~/.config/fish/completions/sonar.fish")]
+pub struct CompletionsArgs {
+    /// The shell to generate completions for (bash, zsh, fish, elvish, powershell)
+    pub shell: clap_complete::Shell,
 }
