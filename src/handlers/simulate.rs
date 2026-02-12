@@ -97,88 +97,13 @@ pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
     let raw_input = transaction::read_raw_transaction(tx_single)?;
 
     // Check if input looks like a transaction signature (works for all input methods)
-    if transaction::is_transaction_signature(&raw_input) {
+    let tx_data = if transaction::is_transaction_signature(&raw_input) {
         log::info!("Input appears to be a transaction signature, attempting to fetch from RPC...");
-        let fetched_tx = transaction::fetch_transaction_from_rpc(&rpc_url, &raw_input)?;
-        let parsed_tx = transaction::parse_raw_transaction(&fetched_tx)?;
-
-        let account_loader =
-            account_loader::AccountLoader::new(rpc_url.clone(), load_accounts.clone(), offline)?;
-        let mut resolved_accounts =
-            account_loader.load_for_transaction(&parsed_tx.transaction, &replacements)?;
-        warn_unmatched_addresses(
-            &replacements,
-            &fundings,
-            &token_funding_requests,
-            &[&parsed_tx],
-            &resolved_accounts,
-        );
-
-        let prepared_token_fundings = if token_funding_requests.is_empty() {
-            Vec::new()
-        } else {
-            funding::prepare_token_fundings(
-                &account_loader,
-                &mut resolved_accounts,
-                &token_funding_requests,
-            )?
-        };
-
-        let program_ids = collect_program_ids(&resolved_accounts);
-
-        if program_ids.is_empty() {
-            log::error!("No executable accounts found after RPC load; skipping IDL parsing");
-        } else {
-            match parser_registry.load_idl_parsers_for_programs(program_ids) {
-                Ok(count) if count > 0 => log::info!("Lazy-loaded {} IDL parsers", count),
-                Ok(_) => {}
-                Err(err) => log::warn!("Failed to load IDL parsers: {:?}", err),
-            }
-        }
-
-        // Dump original RPC account data before --replace / --patch-data
-        if let Some(ref dump_dir) = dump_accounts {
-            executor::dump_accounts_to_dir(&resolved_accounts.accounts, dump_dir)
-                .context("Failed to dump accounts")?;
-        }
-
-        let sim_opts = executor::SimulationOptions {
-            replacements,
-            fundings,
-            token_fundings: prepared_token_fundings,
-            data_patches,
-            verify_signatures,
-            slot,
-            timestamp,
-        };
-        let mut executor = executor::TransactionExecutor::prepare(resolved_accounts, sim_opts)?;
-
-        let simulation = executor.simulate(&parsed_tx.transaction)?;
-
-        // Update transaction summary with inner instructions from simulation
-        let mut updated_tx = parsed_tx;
-        updated_tx.summary = transaction::TransactionSummary::from_transaction(
-            &updated_tx.transaction,
-            &updated_tx.account_plan,
-            simulation.meta.inner_instructions.clone(),
-        );
-
-        output::render(
-            &updated_tx,
-            executor.resolved_accounts(),
-            &simulation,
-            executor.replacements(),
-            executor.fundings(),
-            executor.token_fundings(),
-            &mut parser_registry,
-            &render_opts,
-        )?;
-
-        return Ok(());
-    }
-
-    // If not a signature, parse as raw transaction
-    let parsed_tx = transaction::parse_raw_transaction(&raw_input)?;
+        transaction::fetch_transaction_from_rpc(&rpc_url, &raw_input)?
+    } else {
+        raw_input
+    };
+    let parsed_tx = transaction::parse_raw_transaction(&tx_data)?;
 
     let account_loader = account_loader::AccountLoader::new(rpc_url, load_accounts, offline)?;
     let mut resolved_accounts =
