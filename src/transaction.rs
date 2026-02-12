@@ -1,5 +1,3 @@
-use std::path::Path;
-
 use anyhow::{Context, Result, anyhow};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
@@ -104,48 +102,31 @@ pub struct LookupLocation {
     pub writable: bool,
 }
 
-pub fn read_raw_transaction(inline: Option<String>, tx_file: Option<&Path>) -> Result<String> {
-    match (inline, tx_file) {
-        (Some(tx), None) => {
-            let trimmed = tx.trim();
+pub fn read_raw_transaction(inline: Option<String>) -> Result<String> {
+    if let Some(tx) = inline {
+        let trimmed = tx.trim();
+        if trimmed.is_empty() {
+            Err(anyhow!("Raw transaction string cannot be empty"))
+        } else {
+            Ok(trimmed.to_owned())
+        }
+    } else {
+        use std::io::{IsTerminal, Read};
+        if !std::io::stdin().is_terminal() {
+            let mut buf = String::new();
+            std::io::stdin()
+                .read_to_string(&mut buf)
+                .context("Failed to read transaction from stdin")?;
+            let trimmed = buf.trim();
             if trimmed.is_empty() {
-                Err(anyhow!("Raw transaction string cannot be empty"))
+                Err(anyhow!("No transaction data received from stdin"))
             } else {
                 Ok(trimmed.to_owned())
             }
-        }
-        (None, Some(path)) => {
-            let content = std::fs::read_to_string(path)
-                .with_context(|| format!("Failed to read transaction file: {}", path.display()))?;
-            let trimmed = content.trim();
-            if trimmed.is_empty() {
-                Err(anyhow!(
-                    "File `{}` does not contain valid raw transaction content",
-                    path.display()
-                ))
-            } else {
-                Ok(trimmed.to_owned())
-            }
-        }
-        (Some(_), Some(_)) => Err(anyhow!("Please specify only one of positional TX or --tx-file")),
-        (None, None) => {
-            use std::io::{IsTerminal, Read};
-            if !std::io::stdin().is_terminal() {
-                let mut buf = String::new();
-                std::io::stdin()
-                    .read_to_string(&mut buf)
-                    .context("Failed to read transaction from stdin")?;
-                let trimmed = buf.trim();
-                if trimmed.is_empty() {
-                    Err(anyhow!("No transaction data received from stdin"))
-                } else {
-                    Ok(trimmed.to_owned())
-                }
-            } else {
-                Err(anyhow!(
-                    "No transaction provided. Pass TX as a positional argument, use --tx-file, or pipe via stdin"
-                ))
-            }
+        } else {
+            Err(anyhow!(
+                "No transaction provided. Pass TX as a positional argument or pipe via stdin"
+            ))
         }
     }
 }

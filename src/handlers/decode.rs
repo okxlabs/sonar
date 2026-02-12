@@ -12,16 +12,16 @@ pub(crate) fn handle(args: DecodeArgs) -> Result<()> {
 
     let DecodeArgs { transaction, rpc, ix_data, idl_dir: _ } = args;
     let rpc_url = rpc.rpc_url;
-    let TransactionInputArgs { tx, tx_file, output } = transaction;
+    let TransactionInputArgs { tx, output } = transaction;
 
     // Check if this is a bundle (multiple positional TX arguments)
     if tx.len() > 1 {
         return handle_bundle(tx, &rpc_url, ix_data, output, &mut parser_registry);
     }
 
-    // Single tx: take the first positional arg, or fall back to --tx-file / stdin
+    // Single tx: take the first positional arg, or fall back to stdin
     let tx_single = tx.into_iter().next();
-    let raw_input = transaction::read_raw_transaction(tx_single, tx_file.as_deref())?;
+    let raw_input = transaction::read_raw_transaction(tx_single)?;
 
     // Check if input looks like a transaction signature (works for all input methods)
     let raw_tx = if transaction::is_transaction_signature(&raw_input) {

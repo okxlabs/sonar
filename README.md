@@ -40,8 +40,8 @@ sonar simulate --tx <BASE58_STRING> --rpc-url https://api.mainnet-beta.solana.co
 sonar simulate --tx 2gTzNX3zLNhhmJaY44LycEgF8UMadrKeDLHz8rgcQVbXWVU4bs8fLBzWKhvAqKBeo2ttqyXsCeqUW47dfW6775Wu \
   --rpc-url https://api.mainnet-beta.solana.com
 
-# Read transaction from file
-sonar simulate --tx-file ./transaction.txt --rpc-url <RPC_URL>
+# Read transaction from file via stdin
+cat ./transaction.txt | sonar simulate --rpc-url <RPC_URL>
 ```
 
 ### Parse-Only Mode

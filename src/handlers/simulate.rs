@@ -35,7 +35,7 @@ pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
     } = args;
     let rpc_url = rpc.rpc_url;
 
-    let TransactionInputArgs { tx, tx_file, output } = transaction;
+    let TransactionInputArgs { tx, output } = transaction;
 
     let replacements = replacement_args
         .into_iter()
@@ -92,9 +92,9 @@ pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
         );
     }
 
-    // Single tx: take the first positional arg, or fall back to --tx-file / stdin
+    // Single tx: take the first positional arg, or fall back to stdin
     let tx_single = tx.into_iter().next();
-    let raw_input = transaction::read_raw_transaction(tx_single, tx_file.as_deref())?;
+    let raw_input = transaction::read_raw_transaction(tx_single)?;
 
     // Check if input looks like a transaction signature (works for all input methods)
     if transaction::is_transaction_signature(&raw_input) {
