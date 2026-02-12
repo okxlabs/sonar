@@ -33,7 +33,9 @@ pub struct SimulateArgs {
     )]
     pub fundings: Vec<String>,
     /// Fund a token account.
-    /// Format: <ACCOUNT>=<AMOUNT> or <ACCOUNT>:<MINT>=<AMOUNT> (mint auto-detected if account exists on-chain)
+    /// Format: <ACCOUNT>=<AMOUNT> or <ACCOUNT>:<MINT>=<AMOUNT> (mint auto-detected if account exists on-chain).
+    /// Integer amounts are treated as raw token units; decimal amounts (e.g. 1.5) are
+    /// converted using the mint's decimals (e.g. 1.5 with 6 decimals → 1500000).
     #[arg(
         long = "fund-token",
         value_name = "FUNDING",
@@ -127,11 +129,20 @@ pub struct Funding {
     pub amount_lamports: u64,
 }
 
+/// How the user specified the token amount on the CLI.
+#[derive(Clone, Debug)]
+pub enum TokenAmount {
+    /// Raw u64 value — used when the input has no decimal point (e.g. `1500000`).
+    Raw(u64),
+    /// Human-readable decimal — will be converted using the mint's `decimals` (e.g. `1.5`).
+    Decimal(f64),
+}
+
 #[derive(Clone, Debug)]
 pub struct TokenFunding {
     pub account: Pubkey,
     pub mint: Option<Pubkey>,
-    pub amount_raw: u64,
+    pub amount: TokenAmount,
 }
 
 #[derive(Clone, Debug)]
@@ -291,12 +302,26 @@ pub fn parse_token_funding(raw: &str) -> Result<TokenFunding, String> {
 
     let account = Pubkey::from_str(token_str)
         .map_err(|err| format!("Failed to parse token account `{token_str}`: {err}"))?;
-    let amount_raw = amount_str
-        .trim()
-        .parse::<u64>()
-        .map_err(|err| format!("Failed to parse token amount `{amount_str}`: {err}"))?;
 
-    Ok(TokenFunding { account, mint, amount_raw })
+    let trimmed = amount_str.trim();
+    let amount = if trimmed.contains('.') {
+        // Decimal → human-readable UI amount (will be converted using mint decimals later)
+        let decimal: f64 = trimmed
+            .parse()
+            .map_err(|err| format!("Failed to parse token amount `{trimmed}`: {err}"))?;
+        if decimal < 0.0 {
+            return Err("Token funding amount must be non-negative".to_string());
+        }
+        TokenAmount::Decimal(decimal)
+    } else {
+        // Integer → raw token units
+        let raw = trimmed
+            .parse::<u64>()
+            .map_err(|err| format!("Failed to parse token amount `{trimmed}`: {err}"))?;
+        TokenAmount::Raw(raw)
+    };
+
+    Ok(TokenFunding { account, mint, amount })
 }
 
 pub fn parse_data_patch(raw: &str) -> Result<AccountDataPatch, String> {
@@ -352,7 +377,7 @@ mod tests {
         let parsed = parse_token_funding(&input).expect("parses");
         assert_eq!(parsed.account, token);
         assert_eq!(parsed.mint, Some(mint));
-        assert_eq!(parsed.amount_raw, 12_345);
+        assert!(matches!(parsed.amount, TokenAmount::Raw(12_345)));
     }
 
     #[test]
@@ -362,7 +387,7 @@ mod tests {
         let parsed = parse_token_funding(&input).expect("parses");
         assert_eq!(parsed.account, token);
         assert_eq!(parsed.mint, None);
-        assert_eq!(parsed.amount_raw, 99_999);
+        assert!(matches!(parsed.amount, TokenAmount::Raw(99_999)));
     }
 
     #[test]
@@ -526,5 +551,60 @@ mod tests {
         let key = Pubkey::new_unique();
         let err = parse_data_patch(&format!("{key}=0:zzzz")).unwrap_err();
         assert!(err.contains("Invalid hex"));
+    }
+
+    // --- TokenAmount::Decimal tests ---
+
+    #[test]
+    fn parse_token_funding_decimal_amount_without_mint() {
+        let token = Pubkey::new_unique();
+        let input = format!("{token}=1.5");
+        let parsed = parse_token_funding(&input).expect("parses");
+        assert_eq!(parsed.account, token);
+        assert_eq!(parsed.mint, None);
+        match parsed.amount {
+            TokenAmount::Decimal(v) => assert!((v - 1.5).abs() < f64::EPSILON),
+            _ => panic!("expected Decimal variant"),
+        }
+    }
+
+    #[test]
+    fn parse_token_funding_decimal_amount_with_mint() {
+        let token = Pubkey::new_unique();
+        let mint = Pubkey::new_unique();
+        let input = format!("{token}:{mint}=0.001");
+        let parsed = parse_token_funding(&input).expect("parses");
+        assert_eq!(parsed.account, token);
+        assert_eq!(parsed.mint, Some(mint));
+        match parsed.amount {
+            TokenAmount::Decimal(v) => assert!((v - 0.001).abs() < f64::EPSILON),
+            _ => panic!("expected Decimal variant"),
+        }
+    }
+
+    #[test]
+    fn parse_token_funding_decimal_zero() {
+        let token = Pubkey::new_unique();
+        let input = format!("{token}=0.0");
+        let parsed = parse_token_funding(&input).expect("parses");
+        match parsed.amount {
+            TokenAmount::Decimal(v) => assert!((v - 0.0).abs() < f64::EPSILON),
+            _ => panic!("expected Decimal variant"),
+        }
+    }
+
+    #[test]
+    fn parse_token_funding_integer_stays_raw() {
+        let token = Pubkey::new_unique();
+        let input = format!("{token}=1000000");
+        let parsed = parse_token_funding(&input).expect("parses");
+        assert!(matches!(parsed.amount, TokenAmount::Raw(1_000_000)));
+    }
+
+    #[test]
+    fn parse_token_funding_rejects_negative_decimal() {
+        let key = Pubkey::new_unique();
+        let err = parse_token_funding(&format!("{key}=-1.5")).unwrap_err();
+        assert!(err.contains("non-negative"));
     }
 }

@@ -242,11 +242,15 @@ mod tests {
         let tx_keys: HashSet<Pubkey> = [account_in_tx, mint_in_tx].into_iter().collect();
 
         let token_fundings = vec![
-            cli::TokenFunding { account: account_in_tx, mint: Some(mint_in_tx), amount_raw: 100 },
+            cli::TokenFunding {
+                account: account_in_tx,
+                mint: Some(mint_in_tx),
+                amount: cli::TokenAmount::Raw(100),
+            },
             cli::TokenFunding {
                 account: account_not_in_tx,
                 mint: Some(mint_not_in_tx),
-                amount_raw: 200,
+                amount: cli::TokenAmount::Raw(200),
             },
         ];
 
@@ -262,7 +266,11 @@ mod tests {
         let mint = Pubkey::new_unique();
         let tx_keys: HashSet<Pubkey> = [account, mint].into_iter().collect();
 
-        let token_fundings = vec![cli::TokenFunding { account, mint: Some(mint), amount_raw: 100 }];
+        let token_fundings = vec![cli::TokenFunding {
+            account,
+            mint: Some(mint),
+            amount: cli::TokenAmount::Raw(100),
+        }];
 
         let unmatched = find_unmatched_token_fundings(&token_fundings, &tx_keys);
         assert!(unmatched.is_empty());

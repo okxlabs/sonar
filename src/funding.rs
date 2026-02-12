@@ -8,7 +8,7 @@ use spl_token_2022::extension::{BaseStateWithExtensions, BaseStateWithExtensions
 
 use crate::{
     account_loader::{AccountLoader, ResolvedAccounts},
-    cli::{Funding, TokenFunding},
+    cli::{Funding, TokenAmount, TokenFunding},
     progress::Progress,
 };
 
@@ -131,6 +131,10 @@ fn process_single(
         TokenProgramKind::Token2022 => read_token2022_mint_decimals(&mint_account)?,
     };
 
+    // 3b. Resolve the token amount to raw u64 using mint decimals
+    let amount_raw = resolve_token_amount(&request.amount, decimals)
+        .with_context(|| format!("Failed to resolve token amount for {}", request.account))?;
+
     // 4. Create the token account if it does not exist
     if !resolved.accounts.contains_key(&request.account) {
         create_missing_token_account(
@@ -145,15 +149,11 @@ fn process_single(
     // 5. Update the token account amount
     match program_kind {
         TokenProgramKind::Legacy => {
-            update_legacy_account(resolved, &request.account, &mint, request.amount_raw, decimals)
+            update_legacy_account(resolved, &request.account, &mint, amount_raw, decimals)
         }
-        TokenProgramKind::Token2022 => update_token2022_account(
-            resolved,
-            &request.account,
-            &mint,
-            request.amount_raw,
-            decimals,
-        ),
+        TokenProgramKind::Token2022 => {
+            update_token2022_account(resolved, &request.account, &mint, amount_raw, decimals)
+        }
     }
 }
 
@@ -401,6 +401,29 @@ fn ensure_account_loaded(
     loader.append_accounts(resolved, &[*pubkey])
 }
 
+/// Convert a [`TokenAmount`] to a raw `u64` value using the mint's decimals.
+///
+/// - `TokenAmount::Raw(v)` is returned as-is.
+/// - `TokenAmount::Decimal(v)` is multiplied by `10^decimals` and rounded.
+fn resolve_token_amount(amount: &TokenAmount, decimals: u8) -> Result<u64> {
+    match amount {
+        TokenAmount::Raw(raw) => Ok(*raw),
+        TokenAmount::Decimal(ui) => {
+            let factor = 10u64.pow(decimals as u32);
+            let raw_f64 = ui * factor as f64;
+            if raw_f64 < 0.0 {
+                return Err(anyhow!("Token funding amount must be non-negative"));
+            }
+            if raw_f64 > u64::MAX as f64 {
+                return Err(anyhow!(
+                    "Token funding amount {ui} with {decimals} decimals overflows u64"
+                ));
+            }
+            Ok(raw_f64.round() as u64)
+        }
+    }
+}
+
 fn raw_to_ui_amount(amount_raw: u64, decimals: u8) -> f64 {
     let factor = 10f64.powi(decimals as i32);
     if factor == 0.0 { amount_raw as f64 } else { (amount_raw as f64) / factor }
@@ -482,7 +505,8 @@ mod tests {
         resolved.accounts.insert(token, token_account);
         resolved.accounts.insert(mint, mint_account);
 
-        let funding = TokenFunding { account: token, mint: Some(mint), amount_raw: 1_500_000 };
+        let funding =
+            TokenFunding { account: token, mint: Some(mint), amount: TokenAmount::Raw(1_500_000) };
         let prepared = prepare_token_fundings(&loader, &mut resolved, &[funding], None)
             .expect("prepares funding");
         assert_eq!(prepared.len(), 1);
