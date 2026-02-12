@@ -23,6 +23,18 @@ use crate::{
     funding::{PreparedTokenFunding, apply_sol_fundings},
 };
 
+/// Simulation execution options passed to `TransactionExecutor::prepare`.
+#[derive(Default)]
+pub struct SimulationOptions {
+    pub replacements: Vec<Replacement>,
+    pub fundings: Vec<Funding>,
+    pub token_fundings: Vec<PreparedTokenFunding>,
+    pub data_patches: Vec<AccountDataPatch>,
+    pub verify_signatures: bool,
+    pub slot: Option<u64>,
+    pub timestamp: Option<i64>,
+}
+
 pub struct TransactionExecutor {
     svm: LiteSVM,
     resolved: ResolvedAccounts,
@@ -34,17 +46,16 @@ pub struct TransactionExecutor {
 }
 
 impl TransactionExecutor {
-    #[allow(clippy::too_many_arguments)]
-    pub fn prepare(
-        resolved: ResolvedAccounts,
-        replacements: Vec<Replacement>,
-        fundings: Vec<Funding>,
-        token_fundings: Vec<PreparedTokenFunding>,
-        data_patches: Vec<AccountDataPatch>,
-        verify_signatures: bool,
-        slot: Option<u64>,
-        timestamp: Option<i64>,
-    ) -> Result<Self> {
+    pub fn prepare(resolved: ResolvedAccounts, opts: SimulationOptions) -> Result<Self> {
+        let SimulationOptions {
+            replacements,
+            fundings,
+            token_fundings,
+            data_patches,
+            verify_signatures,
+            slot,
+            timestamp,
+        } = opts;
         let mut svm = LiteSVM::new()
             .with_log_bytes_limit(Some(1024 * 1024 * 10)) // 10M
             .with_blockhash_check(false)
@@ -509,17 +520,8 @@ mod tests {
 
         let resolved = ResolvedAccounts { accounts, lookups: vec![] };
 
-        let mut executor = TransactionExecutor::prepare(
-            resolved,
-            vec![],
-            vec![],
-            vec![],
-            vec![],
-            false, // don't verify signatures for test
-            None,  // slot
-            None,  // timestamp
-        )
-        .expect("Failed to prepare executor");
+        let mut executor = TransactionExecutor::prepare(resolved, SimulationOptions::default())
+            .expect("Failed to prepare executor");
 
         let results = executor.execute_bundle(&tx_refs);
 

@@ -28,6 +28,17 @@ pub struct LogDisplayOptions {
     pub raw_log: bool,
 }
 
+/// Rendering configuration options.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct RenderOptions {
+    pub format: OutputFormat,
+    pub show_ix_data: bool,
+    pub show_ix_detail: bool,
+    pub verify_signatures: bool,
+    pub balance_opts: BalanceChangeOptions,
+    pub log_opts: LogDisplayOptions,
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn render(
     parsed: &ParsedTransaction,
@@ -37,12 +48,7 @@ pub fn render(
     fundings: &[Funding],
     token_fundings: &[PreparedTokenFunding],
     parser_registry: &mut ParserRegistry,
-    format: OutputFormat,
-    show_ix_data: bool,
-    show_ix_detail: bool,
-    verify_signatures: bool,
-    balance_opts: BalanceChangeOptions,
-    log_opts: LogDisplayOptions,
+    opts: &RenderOptions,
 ) -> Result<()> {
     let report = Report::from_sources(
         parsed,
@@ -52,17 +58,17 @@ pub fn render(
         fundings,
         token_fundings,
         parser_registry,
-        verify_signatures,
-        balance_opts,
+        opts.verify_signatures,
+        opts.balance_opts,
     );
-    match format {
+    match opts.format {
         OutputFormat::Text => text::render_text(
             &report,
             resolved,
             parser_registry,
-            show_ix_data,
-            show_ix_detail,
-            log_opts,
+            opts.show_ix_data,
+            opts.show_ix_detail,
+            opts.log_opts,
         ),
         OutputFormat::Json => json::render_json(&report),
     }
@@ -109,12 +115,7 @@ pub fn render_bundle(
     fundings: &[Funding],
     token_fundings: &[PreparedTokenFunding],
     parser_registry: &mut ParserRegistry,
-    format: OutputFormat,
-    show_ix_data: bool,
-    verify_signatures: bool,
-    balance_opts: BalanceChangeOptions,
-    log_opts: LogDisplayOptions,
-    show_ix_detail: bool,
+    opts: &RenderOptions,
 ) -> Result<()> {
     let bundle_report = BundleReport::from_sources(
         parsed_txs,
@@ -124,18 +125,18 @@ pub fn render_bundle(
         fundings,
         token_fundings,
         parser_registry,
-        verify_signatures,
-        balance_opts,
+        opts.verify_signatures,
+        opts.balance_opts,
     );
 
-    match format {
+    match opts.format {
         OutputFormat::Text => text::render_bundle_text(
             &bundle_report,
             total_tx_count,
             resolved,
-            show_ix_data,
-            show_ix_detail,
-            log_opts,
+            opts.show_ix_data,
+            opts.show_ix_detail,
+            opts.log_opts,
         ),
         OutputFormat::Json => json::render_bundle_json(&bundle_report),
     }

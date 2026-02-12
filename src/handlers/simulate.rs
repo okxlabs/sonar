@@ -35,8 +35,6 @@ pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
     } = args;
     let rpc_url = rpc.rpc_url;
 
-    let balance_opts = output::BalanceChangeOptions { show_balance_change };
-    let log_opts = output::LogDisplayOptions { raw_log };
     let TransactionInputArgs { tx, tx_file, output } = transaction;
 
     let replacements = replacement_args
@@ -59,25 +57,35 @@ pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
         .map(|raw| cli::parse_data_patch(&raw).map_err(anyhow::Error::msg))
         .collect::<Result<Vec<_>>>()?;
 
+    // Build rendering options once; shared across all code paths.
+    let render_opts = output::RenderOptions {
+        format: output,
+        show_ix_data: ix_data,
+        show_ix_detail,
+        verify_signatures,
+        balance_opts: output::BalanceChangeOptions { show_balance_change },
+        log_opts: output::LogDisplayOptions { raw_log },
+    };
+
     // Check if this is a bundle (multiple positional TX arguments)
     if tx.len() > 1 {
-        // Bundle simulation mode
+        // Build simulation options (token_fundings populated inside handle_bundle).
+        let sim_opts = executor::SimulationOptions {
+            replacements,
+            fundings,
+            data_patches,
+            verify_signatures,
+            slot,
+            timestamp,
+            ..Default::default()
+        };
         return handle_bundle(
             tx,
             &rpc_url,
-            replacements,
-            fundings,
             token_funding_requests,
-            data_patches,
-            ix_data,
-            verify_signatures,
-            output,
+            sim_opts,
+            &render_opts,
             &mut parser_registry,
-            balance_opts,
-            log_opts,
-            show_ix_detail,
-            slot,
-            timestamp,
             dump_accounts,
             load_accounts,
             offline,
@@ -134,16 +142,16 @@ pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
                 .context("Failed to dump accounts")?;
         }
 
-        let mut executor = executor::TransactionExecutor::prepare(
-            resolved_accounts,
+        let sim_opts = executor::SimulationOptions {
             replacements,
             fundings,
-            prepared_token_fundings,
+            token_fundings: prepared_token_fundings,
             data_patches,
             verify_signatures,
             slot,
             timestamp,
-        )?;
+        };
+        let mut executor = executor::TransactionExecutor::prepare(resolved_accounts, sim_opts)?;
 
         let simulation = executor.simulate(&parsed_tx.transaction)?;
 
@@ -163,12 +171,7 @@ pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
             executor.fundings(),
             executor.token_fundings(),
             &mut parser_registry,
-            output,
-            ix_data,
-            show_ix_detail,
-            verify_signatures,
-            balance_opts,
-            log_opts,
+            &render_opts,
         )?;
 
         return Ok(());
@@ -218,16 +221,16 @@ pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
             .context("Failed to dump accounts")?;
     }
 
-    let mut executor = executor::TransactionExecutor::prepare(
-        resolved_accounts,
+    let sim_opts = executor::SimulationOptions {
         replacements,
         fundings,
-        prepared_token_fundings,
+        token_fundings: prepared_token_fundings,
         data_patches,
         verify_signatures,
         slot,
         timestamp,
-    )?;
+    };
+    let mut executor = executor::TransactionExecutor::prepare(resolved_accounts, sim_opts)?;
 
     let simulation = executor.simulate(&parsed_tx.transaction)?;
 
@@ -247,12 +250,7 @@ pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
         executor.fundings(),
         executor.token_fundings(),
         &mut parser_registry,
-        output,
-        ix_data,
-        show_ix_detail,
-        verify_signatures,
-        balance_opts,
-        log_opts,
+        &render_opts,
     )?;
 
     Ok(())
@@ -263,19 +261,10 @@ pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
 fn handle_bundle(
     tx_inputs: Vec<String>,
     rpc_url: &str,
-    replacements: Vec<cli::Replacement>,
-    fundings: Vec<cli::Funding>,
     token_funding_requests: Vec<cli::TokenFunding>,
-    data_patches: Vec<cli::AccountDataPatch>,
-    ix_data: bool,
-    verify_signatures: bool,
-    output_format: cli::OutputFormat,
-    parser_registry: &mut crate::instruction_parsers::ParserRegistry,
-    balance_opts: output::BalanceChangeOptions,
-    log_opts: output::LogDisplayOptions,
-    show_ix_detail: bool,
-    slot: Option<u64>,
-    timestamp: Option<i64>,
+    mut sim_opts: executor::SimulationOptions,
+    render_opts: &output::RenderOptions,
+    parser_registry: &mut ParserRegistry,
     dump_accounts: Option<PathBuf>,
     load_accounts: Option<PathBuf>,
     offline: bool,
@@ -292,12 +281,13 @@ fn handle_bundle(
     // Load accounts for all transactions
     let account_loader =
         account_loader::AccountLoader::new(rpc_url.to_string(), load_accounts, offline)?;
-    let mut resolved_accounts = account_loader.load_for_transactions(&tx_refs, &replacements)?;
+    let mut resolved_accounts =
+        account_loader.load_for_transactions(&tx_refs, &sim_opts.replacements)?;
 
     let parsed_tx_refs: Vec<_> = parsed_txs.iter().collect();
     warn_unmatched_addresses(
-        &replacements,
-        &fundings,
+        &sim_opts.replacements,
+        &sim_opts.fundings,
         &token_funding_requests,
         &parsed_tx_refs,
         &resolved_accounts,
@@ -313,6 +303,7 @@ fn handle_bundle(
             &token_funding_requests,
         )?
     };
+    sim_opts.token_fundings = prepared_token_fundings;
 
     // Load IDL parsers for all programs
     let program_ids = collect_program_ids(&resolved_accounts);
@@ -332,16 +323,7 @@ fn handle_bundle(
 
     // Execute bundle simulation
     let total_tx_count = parsed_txs.len();
-    let mut executor = executor::TransactionExecutor::prepare(
-        resolved_accounts,
-        replacements,
-        fundings,
-        prepared_token_fundings,
-        data_patches,
-        verify_signatures,
-        slot,
-        timestamp,
-    )?;
+    let mut executor = executor::TransactionExecutor::prepare(resolved_accounts, sim_opts)?;
 
     let simulations = executor.execute_bundle(&tx_refs);
 
@@ -371,12 +353,7 @@ fn handle_bundle(
         executor.fundings(),
         executor.token_fundings(),
         parser_registry,
-        output_format,
-        ix_data,
-        verify_signatures,
-        balance_opts,
-        log_opts,
-        show_ix_detail,
+        render_opts,
     )?;
 
     Ok(())
