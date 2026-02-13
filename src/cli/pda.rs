@@ -10,10 +10,10 @@ pub struct PdaArgs {
     #[arg(value_name = "PROGRAM_ID")]
     pub program_id: String,
 
-    /// Seeds in format: value:type,value:type,...
+    /// Seeds in format: type:value (repeatable), e.g. string:hello pubkey:<PUBKEY>
     /// Types: string, pubkey
-    #[arg(value_name = "SEEDS")]
-    pub seeds: String,
+    #[arg(value_name = "SEED", num_args = 1.., required = true)]
+    pub seeds: Vec<String>,
 }
 
 /// Supported seed types for PDA derivation.
@@ -44,31 +44,27 @@ pub struct ParsedSeed {
     pub seed_type: SeedType,
 }
 
-/// Parse the seeds string into a vector of ParsedSeed.
-/// Format: "value:type,value:type,..."
-/// Example: "position:string,9msbbNFZaK9hGEBiWvdAXdN7YgHUKVeT5APk2b4r6rR6:pubkey"
-pub fn parse_seeds(input: &str) -> Result<Vec<ParsedSeed>, String> {
-    let input = input.trim();
-    if input.is_empty() {
-        return Ok(Vec::new());
+/// Parse seed arguments into a vector of ParsedSeed.
+/// Format: "type:value", provided as repeatable positional args.
+/// Example: ["string:position", "pubkey:9msbbNFZaK9hGEBiWvdAXdN7YgHUKVeT5APk2b4r6rR6"]
+pub fn parse_seeds(inputs: &[String]) -> Result<Vec<ParsedSeed>, String> {
+    if inputs.is_empty() {
+        return Err("At least one seed is required. Use format 'type:value'".to_string());
     }
 
     let mut seeds = Vec::new();
 
-    for part in input.split(',') {
-        let part = part.trim();
-        if part.is_empty() {
-            continue;
+    for raw in inputs {
+        let part = raw.trim();
+        let (type_str, value) = part
+            .split_once(':')
+            .ok_or_else(|| format!("Invalid seed format '{}': expected 'type:value'", part))?;
+        let type_str = type_str.trim();
+        let value = value.trim();
+
+        if type_str.is_empty() {
+            return Err(format!("Empty seed type in '{}'", part));
         }
-
-        // Find the last colon to split value and type
-        // This allows colons in the value part (though unusual)
-        let last_colon = part
-            .rfind(':')
-            .ok_or_else(|| format!("Invalid seed format '{}': expected 'value:type'", part))?;
-
-        let value = part[..last_colon].to_string();
-        let type_str = part[last_colon + 1..].trim();
 
         if value.is_empty() {
             return Err(format!("Empty seed value in '{}'", part));
@@ -76,7 +72,7 @@ pub fn parse_seeds(input: &str) -> Result<Vec<ParsedSeed>, String> {
 
         let seed_type = SeedType::from_str(type_str)?;
 
-        seeds.push(ParsedSeed { value, seed_type });
+        seeds.push(ParsedSeed { value: value.to_string(), seed_type });
     }
 
     Ok(seeds)
@@ -103,7 +99,7 @@ mod tests {
 
     #[test]
     fn parse_seeds_single_string() {
-        let seeds = parse_seeds("position:string").unwrap();
+        let seeds = parse_seeds(&["string:position".to_string()]).unwrap();
         assert_eq!(seeds.len(), 1);
         assert_eq!(seeds[0].value, "position");
         assert_eq!(seeds[0].seed_type, SeedType::String);
@@ -111,9 +107,11 @@ mod tests {
 
     #[test]
     fn parse_seeds_multiple() {
-        let seeds =
-            parse_seeds("position:string,9msbbNFZaK9hGEBiWvdAXdN7YgHUKVeT5APk2b4r6rR6:pubkey")
-                .unwrap();
+        let seeds = parse_seeds(&[
+            "string:position".to_string(),
+            "pubkey:9msbbNFZaK9hGEBiWvdAXdN7YgHUKVeT5APk2b4r6rR6".to_string(),
+        ])
+        .unwrap();
         assert_eq!(seeds.len(), 2);
         assert_eq!(seeds[0].value, "position");
         assert_eq!(seeds[0].seed_type, SeedType::String);
@@ -123,28 +121,49 @@ mod tests {
 
     #[test]
     fn parse_seeds_with_whitespace() {
-        let seeds = parse_seeds("  position : string , key : pubkey  ").unwrap();
+        let seeds =
+            parse_seeds(&["  string : position  ".to_string(), " pubkey : key ".to_string()])
+                .unwrap();
         assert_eq!(seeds.len(), 2);
-        assert_eq!(seeds[0].value, "position ");
-        assert_eq!(seeds[1].value, "key ");
+        assert_eq!(seeds[0].value, "position");
+        assert_eq!(seeds[1].value, "key");
     }
 
     #[test]
-    fn parse_seeds_empty() {
-        let seeds = parse_seeds("").unwrap();
-        assert!(seeds.is_empty());
+    fn parse_seeds_alias_type() {
+        let seeds = parse_seeds(&[
+            "str:hello".to_string(),
+            "pk:11111111111111111111111111111111".to_string(),
+        ])
+        .unwrap();
+        assert_eq!(seeds[0].seed_type, SeedType::String);
+        assert_eq!(seeds[1].seed_type, SeedType::Pubkey);
+    }
+
+    #[test]
+    fn parse_seeds_empty_input() {
+        let result = parse_seeds(&[]);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("At least one seed is required"));
     }
 
     #[test]
     fn parse_seeds_invalid_format() {
-        let result = parse_seeds("position");
+        let result = parse_seeds(&["position".to_string()]);
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("expected 'value:type'"));
+        assert!(result.unwrap_err().contains("expected 'type:value'"));
+    }
+
+    #[test]
+    fn parse_seeds_empty_type() {
+        let result = parse_seeds(&[":position".to_string()]);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Empty seed type"));
     }
 
     #[test]
     fn parse_seeds_unknown_type() {
-        let result = parse_seeds("position:unknown");
+        let result = parse_seeds(&["unknown:position".to_string()]);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Unknown seed type"));
     }

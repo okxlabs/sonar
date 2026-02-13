@@ -192,7 +192,7 @@ If auto-detection fails to parse, Sonar will try safe fallback formats before re
 Derive a Program Derived Address from seeds:
 
 ```bash
-sonar pda <PROGRAM_ID> "hello:string,<PUBKEY>:pubkey"
+sonar pda <PROGRAM_ID> string:hello pubkey:<PUBKEY>
 ```
 
 ### Program Data

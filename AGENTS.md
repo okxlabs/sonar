@@ -86,7 +86,7 @@ cargo run -- decode <TX> --rpc-url <RPC_URL>
 # Run — other subcommands
 cargo run -- account <PUBKEY> --rpc-url <RPC_URL>
 cargo run -- convert 0x48656c6c6f -t utf8
-cargo run -- pda <PROGRAM_ID> "hello:string,<PUBKEY>:pubkey"
+cargo run -- pda <PROGRAM_ID> string:hello pubkey:<PUBKEY>
 cargo run -- program-data <PROGRAM_ID> --rpc-url <RPC_URL>
 cargo run -- send <SIGNED_TX> --rpc-url <RPC_URL>
 cargo run -- fetch-idl <PROGRAM_ID> --rpc-url <RPC_URL>
