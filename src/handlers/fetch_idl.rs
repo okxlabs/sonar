@@ -7,6 +7,7 @@ use solana_pubkey::Pubkey;
 
 use crate::account_loader;
 use crate::cli::FetchIdlArgs;
+use crate::progress::Progress;
 
 pub(crate) fn handle(args: FetchIdlArgs) -> Result<()> {
     // Determine program IDs from positional args or --sync-dir
@@ -38,37 +39,35 @@ pub(crate) fn handle(args: FetchIdlArgs) -> Result<()> {
     fs::create_dir_all(&output_dir)
         .with_context(|| format!("Failed to create output directory: {}", output_dir.display()))?;
 
-    // Create account loader and fetch IDLs
-    let loader = account_loader::AccountLoader::new(args.rpc.rpc_url, None, false, None)?;
+    let progress = Progress::new();
+    let loader =
+        account_loader::AccountLoader::new(args.rpc.rpc_url, None, false, Some(progress.clone()))?;
 
-    let mut success_count = 0;
-    let mut not_found_count = 0;
-    let mut error_count = 0;
+    let results = loader.fetch_idls(&program_ids);
+    progress.finish();
 
-    for program_id in &program_ids {
-        match loader.fetch_idl(program_id) {
+    let mut not_found = Vec::new();
+    let mut errors = Vec::new();
+
+    for (program_id, result) in &results {
+        match result {
             Ok(Some(idl_json)) => {
                 let path = output_dir.join(format!("{}.json", program_id));
-                fs::write(&path, &idl_json)
+                fs::write(&path, idl_json)
                     .with_context(|| format!("Failed to write IDL file: {}", path.display()))?;
-                println!("Saved IDL for {} to {}", program_id, path.display());
-                success_count += 1;
+                println!("{}", path.display());
             }
-            Ok(None) => {
-                eprintln!("No IDL found for program: {}", program_id);
-                not_found_count += 1;
-            }
-            Err(e) => {
-                eprintln!("Error fetching IDL for {}: {:#}", program_id, e);
-                error_count += 1;
-            }
+            Ok(None) => not_found.push(program_id),
+            Err(e) => errors.push((program_id, e)),
         }
     }
 
-    println!(
-        "\nSummary: {} saved, {} not found, {} errors",
-        success_count, not_found_count, error_count
-    );
+    for id in &not_found {
+        eprintln!("no IDL found: {}", id);
+    }
+    for (id, e) in &errors {
+        eprintln!("error {}: {:#}", id, e);
+    }
 
     Ok(())
 }
@@ -105,6 +104,6 @@ fn scan_idl_directory(dir: &Path) -> Result<Vec<Pubkey>> {
         return Err(anyhow::anyhow!("No valid IDL files found in directory: {}", dir.display()));
     }
 
-    println!("Found {} IDL files to sync in {}", program_ids.len(), dir.display());
+    eprintln!("syncing {} IDLs from {}", program_ids.len(), dir.display());
     Ok(program_ids)
 }

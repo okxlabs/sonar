@@ -536,6 +536,43 @@ pub fn get_idl_address(program_id: &Pubkey) -> Result<Pubkey> {
         .map_err(|e| anyhow!("Failed to derive IDL address for {}: {}", program_id, e))
 }
 
+/// Parses raw IDL account data (header validation + zlib decompression).
+///
+/// Account layout:
+/// - Bytes 0-7: Discriminator (8 bytes)
+/// - Bytes 8-39: Authority pubkey (32 bytes)
+/// - Bytes 40-43: Data length (u32 LE)
+/// - Bytes 44+: Compressed IDL data (zlib)
+fn parse_idl_account_data(data: &[u8], program_id: &Pubkey) -> Result<String> {
+    if data.len() < 44 {
+        return Err(anyhow!(
+            "IDL account data too short: {} bytes (expected at least 44)",
+            data.len()
+        ));
+    }
+
+    let data_len = u32::from_le_bytes([data[40], data[41], data[42], data[43]]) as usize;
+
+    if data.len() < 44 + data_len {
+        return Err(anyhow!(
+            "IDL account data truncated: has {} bytes, expected {} (header) + {} (data)",
+            data.len(),
+            44,
+            data_len
+        ));
+    }
+
+    let compressed_data = &data[44..44 + data_len];
+
+    let mut decoder = ZlibDecoder::new(compressed_data);
+    let mut decompressed = String::new();
+    decoder
+        .read_to_string(&mut decompressed)
+        .with_context(|| format!("Failed to decompress IDL data for program {}", program_id))?;
+
+    Ok(decompressed)
+}
+
 impl AccountLoader {
     /// Fetches and parses the Anchor IDL for a given program ID.
     ///
@@ -561,40 +598,84 @@ impl AccountLoader {
             }
         };
 
-        // Parse IDL account data:
-        // - Bytes 0-7: Discriminator (8 bytes)
-        // - Bytes 8-39: Authority pubkey (32 bytes)
-        // - Bytes 40-43: Data length (u32 LE)
-        // - Bytes 44+: Compressed IDL data (zlib)
-        let data = account.data;
-        if data.len() < 44 {
-            return Err(anyhow!(
-                "IDL account data too short: {} bytes (expected at least 44)",
-                data.len()
-            ));
+        Ok(Some(parse_idl_account_data(&account.data, program_id)?))
+    }
+
+    /// Fetches and parses Anchor IDLs for multiple program IDs in batch.
+    ///
+    /// Uses `get_multiple_accounts` to minimize RPC round-trips.
+    /// Returns one `(program_id, result)` entry per input, preserving order.
+    pub fn fetch_idls(&self, program_ids: &[Pubkey]) -> Vec<(Pubkey, Result<Option<String>>)> {
+        // Compute IDL addresses and build mapping back to program IDs
+        let mut idl_addresses = Vec::with_capacity(program_ids.len());
+        let mut addr_to_program: Vec<(Pubkey, Pubkey)> = Vec::with_capacity(program_ids.len());
+        let mut results: Vec<(Pubkey, Result<Option<String>>)> = Vec::with_capacity(program_ids.len());
+
+        for &program_id in program_ids {
+            match get_idl_address(&program_id) {
+                Ok(idl_addr) => {
+                    idl_addresses.push(idl_addr);
+                    addr_to_program.push((idl_addr, program_id));
+                }
+                Err(e) => {
+                    results.push((program_id, Err(e)));
+                }
+            }
         }
 
-        // Read data length (u32 little-endian at offset 40)
-        let data_len = u32::from_le_bytes([data[40], data[41], data[42], data[43]]) as usize;
+        // Fetch all IDL accounts in batches
+        let total = idl_addresses.len();
+        let mut fetched: HashMap<Pubkey, Option<Account>> = HashMap::with_capacity(total);
+        let mut requested = 0usize;
 
-        if data.len() < 44 + data_len {
-            return Err(anyhow!(
-                "IDL account data truncated: has {} bytes, expected {} (header) + {} (data)",
-                data.len(),
-                44,
-                data_len
+        for chunk in idl_addresses.chunks(MAX_ACCOUNTS_PER_REQUEST) {
+            self.set_progress_message(format!(
+                "fetching IDL accounts ({}/{})",
+                requested + 1,
+                total
             ));
+
+            match self.client.get_multiple_accounts(&chunk.to_vec()) {
+                Ok(response) => {
+                    for (addr, maybe_account) in chunk.iter().zip(response.into_iter()) {
+                        fetched.insert(*addr, maybe_account);
+                    }
+                }
+                Err(e) => {
+                    // On RPC error, mark all accounts in this chunk as failed
+                    for addr in chunk {
+                        if let Some((_, program_id)) =
+                            addr_to_program.iter().find(|(a, _)| a == addr)
+                        {
+                            results.push((
+                                *program_id,
+                                Err(anyhow!("Failed to fetch IDL account {}: {}", addr, e)),
+                            ));
+                        }
+                    }
+                }
+            }
+            requested += chunk.len();
         }
 
-        let compressed_data = &data[44..44 + data_len];
+        // Parse fetched accounts
+        for (idl_addr, program_id) in &addr_to_program {
+            if let Some(maybe_account) = fetched.remove(idl_addr) {
+                match maybe_account {
+                    Some(account) => {
+                        results.push((
+                            *program_id,
+                            parse_idl_account_data(&account.data, program_id).map(Some),
+                        ));
+                    }
+                    None => {
+                        results.push((*program_id, Ok(None)));
+                    }
+                }
+            }
+            // If not in fetched, it was already added as an error above
+        }
 
-        // Decompress using zlib
-        let mut decoder = ZlibDecoder::new(compressed_data);
-        let mut decompressed = String::new();
-        decoder
-            .read_to_string(&mut decompressed)
-            .with_context(|| format!("Failed to decompress IDL data for program {}", program_id))?;
-
-        Ok(Some(decompressed))
+        results
     }
 }
