@@ -150,24 +150,42 @@ sonar account <PUBKEY> --rpc-url <RPC_URL> --no-account-meta
 Convert between data formats:
 
 ```bash
-# Hex to decimal array
+# Auto-detect: hex (0x...) to decimal array
 sonar convert 0x48656c6c6f -t dec-array
 
-# Number to hex (little-endian by default)
+# Auto-detect: decimal integer to hex (little-endian by default)
 sonar convert 255 -t hex
 
-# Base64 to base58
+# Auto-detect: decimal float to lamports (treated as SOL)
+sonar convert 1.5 -t lamports
+
+# Auto-detect: hex-array ([0x..]) to UTF-8
+sonar convert [0x48,0x65,0x6c,0x6c,0x6f] -t utf8
+
+# Auto-detect: plain text to hex (non-base58 chars => utf8)
+sonar convert "Hello World" -t hex
+
+# Explicitly specify input format when needed
 sonar convert SGVsbG8= -f base64 -t base58
 
-# Lamports to SOL
+# Lamports to SOL (explicit format)
 sonar convert 1500000000 -f lamports -t sol
 
-# SOL to lamports
-sonar convert 1.5 -f sol -t lamports
-
-# Hex to UTF-8
-sonar convert 0x48656c6c6f -t utf8
+# Hex to UTF-8 (explicit format also supported)
+sonar convert 0x48656c6c6f -f hex -t utf8
 ```
+
+Auto-detection priority for `convert` input:
+
+1. `0x...` / `0X...` -> `hex`
+2. `[...]` -> `dec-array` or `hex-array` (if any element has `0x` prefix)
+3. Contains `+`, `/`, or trailing `=` -> `base64`
+4. All digits -> `number`
+5. Decimal float (for example `1.5`) -> `sol`
+6. Contains non-base58 characters (spaces, punctuation, Unicode, or `0/O/I/l`) -> `utf8`
+7. Otherwise -> `base58`
+
+If auto-detection fails to parse, Sonar will try safe fallback formats before returning an error.
 
 ### PDA
 
