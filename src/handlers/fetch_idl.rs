@@ -52,8 +52,14 @@ pub(crate) fn handle(args: FetchIdlArgs) -> Result<()> {
     for (program_id, result) in &results {
         match result {
             Ok(Some(idl_json)) => {
+                // Pretty-print the JSON; fall back to original if parsing fails
+                let formatted = match serde_json::from_str::<serde_json::Value>(idl_json) {
+                    Ok(value) => serde_json::to_string_pretty(&value)
+                        .unwrap_or_else(|_| idl_json.clone()),
+                    Err(_) => idl_json.clone(),
+                };
                 let path = output_dir.join(format!("{}.json", program_id));
-                fs::write(&path, idl_json)
+                fs::write(&path, &formatted)
                     .with_context(|| format!("Failed to write IDL file: {}", path.display()))?;
                 println!("{}", path.display());
             }
