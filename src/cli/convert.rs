@@ -40,7 +40,7 @@ pub struct ConvertArgs {
     #[arg(value_name = "INPUT")]
     pub input: String,
 
-    /// Input format; if omitted, auto-detected (0x→hex, [...]→dec-array, digits→number, +/=/→base64, else base58)
+    /// Input format; if omitted, auto-detected (0x→hex, [...]→array, digits→number, decimal→sol, +/=/→base64, non-base58→utf8, else base58)
     #[arg(short = 'f', long, value_name = "FORMAT")]
     pub from: Option<ConvertFormat>,
 
@@ -580,6 +580,46 @@ mod tests {
         assert_eq!(result, "A\\xff你\\xfe");
     }
 
+    // ===== is_decimal_float tests =====
+
+    #[test]
+    fn is_decimal_float_valid() {
+        assert!(is_decimal_float("1.5"));
+        assert!(is_decimal_float("0.001"));
+        assert!(is_decimal_float(".5"));
+        assert!(is_decimal_float("100.0"));
+    }
+
+    #[test]
+    fn is_decimal_float_invalid() {
+        assert!(!is_decimal_float("123")); // no dot
+        assert!(!is_decimal_float("1.2.3")); // two dots
+        assert!(!is_decimal_float("")); // empty
+        assert!(!is_decimal_float(".")); // dot only, no digit
+        assert!(!is_decimal_float("abc")); // letters
+        assert!(!is_decimal_float("1.5a")); // trailing letter
+    }
+
+    // ===== is_valid_base58_charset tests =====
+
+    #[test]
+    fn base58_charset_valid() {
+        assert!(is_valid_base58_charset("9Ajdvz"));
+        assert!(is_valid_base58_charset("11111111111111111111111111111111"));
+        assert!(is_valid_base58_charset("ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"));
+    }
+
+    #[test]
+    fn base58_charset_invalid() {
+        assert!(!is_valid_base58_charset("")); // empty
+        assert!(!is_valid_base58_charset("Hello")); // 'l' not in base58
+        assert!(!is_valid_base58_charset("OIOI")); // 'O' and 'I' not in base58
+        assert!(!is_valid_base58_charset("abc 123")); // space
+        assert!(!is_valid_base58_charset("test!")); // punctuation
+        assert!(!is_valid_base58_charset("你好")); // Unicode
+        assert!(!is_valid_base58_charset("abc0def")); // '0' not in base58
+    }
+
     // ===== detect_format tests =====
 
     #[test]
@@ -589,9 +629,17 @@ mod tests {
     }
 
     #[test]
-    fn detect_format_array() {
+    fn detect_format_dec_array() {
         assert_eq!(detect_format("[18,52,86,120]"), ConvertFormat::DecArray);
         assert_eq!(detect_format("[1 2 3]"), ConvertFormat::DecArray);
+    }
+
+    #[test]
+    fn detect_format_hex_array_with_0x_elements() {
+        assert_eq!(detect_format("[0x12,0x34,0x56]"), ConvertFormat::HexArray);
+        assert_eq!(detect_format("[0X12,0X34]"), ConvertFormat::HexArray);
+        // Mixed: some elements with 0x prefix → HexArray
+        assert_eq!(detect_format("[0x12,34,0x56]"), ConvertFormat::HexArray);
     }
 
     #[test]
@@ -607,9 +655,53 @@ mod tests {
     }
 
     #[test]
+    fn detect_format_sol_decimal_float() {
+        assert_eq!(detect_format("1.5"), ConvertFormat::Sol);
+        assert_eq!(detect_format("0.001"), ConvertFormat::Sol);
+        assert_eq!(detect_format(".5"), ConvertFormat::Sol);
+        assert_eq!(detect_format("100.0"), ConvertFormat::Sol);
+    }
+
+    #[test]
+    fn detect_format_utf8_with_spaces() {
+        assert_eq!(detect_format("Hello World"), ConvertFormat::Utf8);
+        assert_eq!(detect_format("a b c"), ConvertFormat::Utf8);
+    }
+
+    #[test]
+    fn detect_format_utf8_with_unicode() {
+        assert_eq!(detect_format("你好"), ConvertFormat::Utf8);
+        assert_eq!(detect_format("café"), ConvertFormat::Utf8);
+    }
+
+    #[test]
+    fn detect_format_utf8_with_punctuation() {
+        assert_eq!(detect_format("hello!"), ConvertFormat::Utf8);
+        assert_eq!(detect_format("key=value"), ConvertFormat::Utf8);
+    }
+
+    #[test]
+    fn detect_format_utf8_invalid_base58_chars() {
+        // 0, O, I, l are not in base58 alphabet
+        assert_eq!(detect_format("Hello"), ConvertFormat::Utf8); // 'l' not in base58
+        assert_eq!(detect_format("OIOI"), ConvertFormat::Utf8); // 'O', 'I' not in base58
+        assert_eq!(detect_format("abc0def"), ConvertFormat::Utf8); // '0' not in base58
+    }
+
+    #[test]
+    fn detect_format_utf8_multiple_dots() {
+        // Not a valid float → UTF-8
+        assert_eq!(detect_format("1.2.3"), ConvertFormat::Utf8);
+    }
+
+    #[test]
     fn detect_format_base58() {
-        // Alphanumeric without special chars defaults to base58
+        // Valid base58 characters only (no 0, O, I, l)
         assert_eq!(detect_format("9Ajdvz"), ConvertFormat::Base58);
+        assert_eq!(
+            detect_format("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"),
+            ConvertFormat::Base58
+        );
     }
 
     // ===== convert function tests =====
@@ -799,6 +891,124 @@ mod tests {
         assert_eq!(result, "0xff");
     }
 
+    // ===== auto-detect improvement tests =====
+
+    #[test]
+    fn convert_auto_detect_utf8_with_spaces() {
+        // "Hello World" contains a space → auto-detect as UTF-8
+        let args = ConvertArgs {
+            input: "Hello World".to_string(),
+            from: None,
+            to: ConvertFormat::Hex,
+            be: false,
+            space: false,
+            prefix: false,
+            escape: false,
+        };
+        let result = convert(&args).unwrap();
+        assert_eq!(result, "0x48656c6c6f20576f726c64");
+    }
+
+    #[test]
+    fn convert_auto_detect_utf8_invalid_base58_char() {
+        // "Hello" contains 'l' (not in base58) → auto-detect as UTF-8
+        let args = ConvertArgs {
+            input: "Hello".to_string(),
+            from: None,
+            to: ConvertFormat::Hex,
+            be: false,
+            space: false,
+            prefix: false,
+            escape: false,
+        };
+        let result = convert(&args).unwrap();
+        assert_eq!(result, "0x48656c6c6f");
+    }
+
+    #[test]
+    fn convert_auto_detect_utf8_unicode() {
+        // "你好" contains Unicode → auto-detect as UTF-8
+        let args = ConvertArgs {
+            input: "你好".to_string(),
+            from: None,
+            to: ConvertFormat::Hex,
+            be: false,
+            space: false,
+            prefix: false,
+            escape: false,
+        };
+        let result = convert(&args).unwrap();
+        assert_eq!(result, "0xe4bda0e5a5bd");
+    }
+
+    #[test]
+    fn convert_auto_detect_sol() {
+        // "1.5" is a decimal float → auto-detect as SOL
+        let args = ConvertArgs {
+            input: "1.5".to_string(),
+            from: None,
+            to: ConvertFormat::Lamports,
+            be: false,
+            space: false,
+            prefix: false,
+            escape: false,
+        };
+        let result = convert(&args).unwrap();
+        assert_eq!(result, "1500000000");
+    }
+
+    #[test]
+    fn convert_auto_detect_sol_small() {
+        // "0.001" → auto-detect as SOL
+        let args = ConvertArgs {
+            input: "0.001".to_string(),
+            from: None,
+            to: ConvertFormat::Lamports,
+            be: false,
+            space: false,
+            prefix: false,
+            escape: false,
+        };
+        let result = convert(&args).unwrap();
+        assert_eq!(result, "1000000");
+    }
+
+    #[test]
+    fn convert_auto_detect_hex_array() {
+        // "[0x48,0x65,0x6c,0x6c,0x6f]" has 0x-prefixed elements → auto-detect as HexArray
+        let args = ConvertArgs {
+            input: "[0x48,0x65,0x6c,0x6c,0x6f]".to_string(),
+            from: None,
+            to: ConvertFormat::Utf8,
+            be: false,
+            space: false,
+            prefix: false,
+            escape: false,
+        };
+        let result = convert(&args).unwrap();
+        assert_eq!(result, "Hello");
+    }
+
+    // ===== fallback mechanism tests =====
+
+    #[test]
+    fn convert_fallback_base64_to_utf8() {
+        // "a/b" contains '/' so auto-detects as base64, but it's not valid base64.
+        // Should fall back: base58 fails ('/' not in base58) → UTF-8 succeeds.
+        let args = ConvertArgs {
+            input: "a/b".to_string(),
+            from: None,
+            to: ConvertFormat::Hex,
+            be: false,
+            space: false,
+            prefix: false,
+            escape: false,
+        };
+        let result = convert(&args).unwrap();
+        // "a/b" as UTF-8 bytes: [97, 47, 98]
+        assert_eq!(result, "0x612f62");
+    }
+
     #[test]
     fn convert_hex_array_with_space_separator() {
         let args = ConvertArgs {
@@ -964,32 +1174,103 @@ mod tests {
     }
 }
 
+/// Check whether a string looks like a decimal floating-point number (e.g. "1.5", "0.001", ".5").
+fn is_decimal_float(input: &str) -> bool {
+    if input.is_empty() {
+        return false;
+    }
+    let mut has_dot = false;
+    let mut has_digit = false;
+    for c in input.chars() {
+        match c {
+            '.' => {
+                if has_dot {
+                    return false; // two dots
+                }
+                has_dot = true;
+            }
+            '0'..='9' => {
+                has_digit = true;
+            }
+            _ => return false,
+        }
+    }
+    has_dot && has_digit
+}
+
+/// Base58 alphabet (Bitcoin/Solana variant): excludes 0, O, I, l
+const BASE58_CHARS: &[u8] = b"123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+
+/// Check if all characters in the string are valid base58 characters.
+fn is_valid_base58_charset(input: &str) -> bool {
+    !input.is_empty() && input.bytes().all(|b| BASE58_CHARS.contains(&b))
+}
+
+/// Human-readable name for a ConvertFormat variant.
+fn format_display_name(format: ConvertFormat) -> &'static str {
+    match format {
+        ConvertFormat::Number => "number",
+        ConvertFormat::Hex => "hex",
+        ConvertFormat::HexArray => "hex-array",
+        ConvertFormat::DecArray => "dec-array",
+        ConvertFormat::Utf8 => "utf8",
+        ConvertFormat::Base64 => "base64",
+        ConvertFormat::Base58 => "base58",
+        ConvertFormat::Lamports => "lamports",
+        ConvertFormat::Sol => "sol",
+    }
+}
+
 /// Auto-detect input format based on content patterns.
+///
+/// Detection priority:
+/// 1. `0x`/`0X` prefix → Hex
+/// 2. `[...]` bracket syntax → DecArray or HexArray (if elements have `0x` prefix)
+/// 3. Contains `+`, `/`, or trailing `=` → Base64
+/// 4. All ASCII digits → Number
+/// 5. Decimal float (e.g. "1.5") → Sol
+/// 6. Contains non-base58 characters (spaces, punctuation, 0/O/I/l, Unicode) → Utf8
+/// 7. Default → Base58
 fn detect_format(input: &str) -> ConvertFormat {
     let input = input.trim();
 
-    // Check for hex string (0x...)
+    // 1. Hex with 0x/0X prefix
     if input.starts_with("0x") || input.starts_with("0X") {
         return ConvertFormat::Hex;
     }
 
-    // Check for array format [...]
+    // 2. Array format [...]
     if input.starts_with('[') && input.ends_with(']') {
-        // Default to decimal array (most common case)
+        let inner = &input[1..input.len() - 1];
+        // If any element has 0x prefix, treat as hex-array
+        if inner.contains("0x") || inner.contains("0X") {
+            return ConvertFormat::HexArray;
+        }
         return ConvertFormat::DecArray;
     }
 
-    // Check if it looks like base64 (contains +, /, or ends with =)
+    // 3. Base64 indicators (+, /, or trailing =)
     if input.contains('+') || input.contains('/') || input.ends_with('=') {
         return ConvertFormat::Base64;
     }
 
-    // Check if it's a pure decimal number
-    if input.chars().all(|c| c.is_ascii_digit()) {
+    // 4. Pure integer (all ASCII digits)
+    if !input.is_empty() && input.chars().all(|c| c.is_ascii_digit()) {
         return ConvertFormat::Number;
     }
 
-    // Default to base58 for alphanumeric strings (common for Solana)
+    // 5. Decimal float (digits with exactly one dot) → SOL amount
+    if is_decimal_float(input) {
+        return ConvertFormat::Sol;
+    }
+
+    // 6. Contains characters outside base58 alphabet → UTF-8
+    //    (spaces, punctuation, 0/O/I/l, Unicode, etc.)
+    if !is_valid_base58_charset(input) {
+        return ConvertFormat::Utf8;
+    }
+
+    // 7. Default to base58 (common for Solana pubkeys and hashes)
     ConvertFormat::Base58
 }
 
@@ -1162,13 +1443,54 @@ fn format_sol(lamports: u64) -> String {
     }
 }
 
+/// Try fallback formats when auto-detected format fails to parse.
+///
+/// Returns the successfully parsed value, or the original error if all fallbacks fail.
+fn try_fallback_formats(
+    input: &str,
+    primary_format: ConvertFormat,
+    primary_err: String,
+) -> Result<ConvertValue, String> {
+    // Ordered list of fallback formats to try, depending on what was originally detected
+    let fallbacks: &[ConvertFormat] = match primary_format {
+        ConvertFormat::Base58 => &[ConvertFormat::Utf8],
+        ConvertFormat::Base64 => &[ConvertFormat::Base58, ConvertFormat::Utf8],
+        ConvertFormat::Number => &[ConvertFormat::Base58, ConvertFormat::Utf8],
+        ConvertFormat::Sol => &[ConvertFormat::Utf8],
+        _ => &[ConvertFormat::Utf8],
+    };
+
+    for &fallback in fallbacks {
+        if fallback == primary_format {
+            continue;
+        }
+        if let Ok(value) = parse_input(input, fallback) {
+            eprintln!(
+                "hint: auto-detected as {} (initial guess '{}' failed)",
+                format_display_name(fallback),
+                format_display_name(primary_format),
+            );
+            return Ok(value);
+        }
+    }
+
+    Err(primary_err)
+}
+
 /// Perform the complete conversion from input to output.
 pub fn convert(args: &ConvertArgs) -> Result<String, String> {
     // Determine input format (auto-detect if not specified)
     let from_format = args.from.unwrap_or_else(|| detect_format(&args.input));
 
-    // Parse input
-    let value = parse_input(&args.input, from_format)?;
+    // Parse input (with fallback for auto-detect mode)
+    let value = match parse_input(&args.input, from_format) {
+        Ok(v) => v,
+        Err(primary_err) if args.from.is_none() => {
+            // Auto-detect mode: try fallback formats before giving up
+            try_fallback_formats(&args.input, from_format, primary_err)?
+        }
+        Err(err) => return Err(err),
+    };
 
     // Special case: direct lamports <-> SOL conversion without bytes intermediate
     if let ConvertValue::Lamports(lamports) = &value {
