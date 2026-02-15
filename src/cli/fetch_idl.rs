@@ -17,6 +17,6 @@ pub struct FetchIdlArgs {
     #[command(flatten)]
     pub rpc: RpcArgs,
     /// Output directory for IDL files (default: sync-dir if set, otherwise current directory)
-    #[arg(long = "output-dir", value_name = "PATH")]
+    #[arg(short = 'o', long = "output-dir", value_name = "PATH")]
     pub output_dir: Option<PathBuf>,
 }
