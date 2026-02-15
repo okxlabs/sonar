@@ -175,6 +175,7 @@ fn render_bundle_summary_header(bundle: &BundleReport, total_count: usize) {
         format_with_commas(total_cu)
     );
     render_section_title(&summary_text);
+    println!();
 
     let tx_col_width = total_count.to_string().len().max(2);
     const CU_COL_WIDTH: usize = 12;
@@ -245,6 +246,8 @@ fn render_bundle_transaction_ix_detail(
 
 /// Render overall bundle balance changes (first tx pre -> last successful tx post)
 fn render_bundle_balance_changes(bundle: &BundleReport) {
+    println!();
+
     if !bundle.sol_balance_changes.is_empty() {
         for change in &bundle.sol_balance_changes {
             let sol_before = change.before as f64 / 1_000_000_000.0;
@@ -302,7 +305,6 @@ fn render_section_title(title: &str) {
         title_with_padding.dimmed(),
         "─".repeat(right).dimmed(),
     );
-    println!();
 }
 
 /// Render the summary header showing status and compute units (displayed first).
@@ -395,6 +397,7 @@ fn render_balance_changes_text(
     if sol_changes.is_empty() && token_changes.is_empty() {
         return;
     }
+    println!();
 
     // SOL balance changes first
     for change in sol_changes {
@@ -443,6 +446,7 @@ fn render_lookup_tables_text(transaction: &TransactionSection) {
     if transaction.lookups.is_empty() {
         return;
     }
+    println!();
 
     for (idx, lookup) in transaction.lookups.iter().enumerate() {
         let solscan_linked_key = format_solscan_link(&lookup.account_key);
@@ -451,6 +455,8 @@ fn render_lookup_tables_text(transaction: &TransactionSection) {
 }
 
 fn render_account_list_text(transaction: &TransactionSection, resolved: &ResolvedAccounts) {
+    println!();
+
     let mut account_index = 0;
 
     // Render static accounts
@@ -506,6 +512,8 @@ fn render_instruction_details_text(
     resolved: &ResolvedAccounts,
     show_ix_data: bool,
 ) {
+    println!();
+
     for ix in &transaction.instructions {
         let program_pubkey_with_link = format_solscan_link(&ix.program.pubkey);
         // Display outer instruction with 1-based indexing (#1, #2, #3, etc.)
