@@ -143,9 +143,6 @@ pub(super) fn render_transaction_section_text(
 
 /// Render the bundle summary header showing overall status and per-transaction compact rows.
 fn render_bundle_summary_header(bundle: &BundleReport, total_count: usize) {
-    let width = header_content_width();
-    render_separator();
-
     // Determine overall bundle status
     let succeeded = bundle
         .transactions
@@ -177,13 +174,7 @@ fn render_bundle_summary_header(bundle: &BundleReport, total_count: usize) {
         total_count,
         format_with_commas(total_cu)
     );
-
-    // Center the summary text
-    let text_len = summary_text.chars().count();
-    let padding = (width.saturating_sub(text_len)) / 2;
-    println!(" {:>width$} ", summary_text, width = padding + text_len);
-
-    println!();
+    render_section_title(&summary_text);
 
     let tx_col_width = total_count.to_string().len().max(2);
     const CU_COL_WIDTH: usize = 12;
@@ -232,8 +223,6 @@ fn render_bundle_summary_header(bundle: &BundleReport, total_count: usize) {
         );
     }
 
-    render_separator();
-    println!(); // Empty line after header
 }
 
 fn render_bundle_transaction_trace(
@@ -298,12 +287,6 @@ fn render_bundle_balance_changes(bundle: &BundleReport) {
     }
 }
 
-/// Render a double-line separator.
-fn render_separator() {
-    let width = header_content_width();
-    println!(" {} ", "═".repeat(width));
-}
-
 /// Render a section title with centered text flanked by `─` lines.
 fn render_section_title(title: &str) {
     let width = header_content_width();
@@ -324,9 +307,6 @@ fn render_section_title(title: &str) {
 
 /// Render the summary header showing status and compute units (displayed first).
 fn render_summary_header(simulation: &SimulationSection, transaction: &TransactionSection) {
-    let width = header_content_width();
-    render_separator();
-
     // For failed transactions, don't print the error reason
     let status_str = match &simulation.status {
         SimulationStatusReport::Succeeded => "🟢 SUCCESS".to_string(),
@@ -346,14 +326,7 @@ fn render_summary_header(simulation: &SimulationSection, transaction: &Transacti
         format_with_commas(cu_limit),
         percentage
     );
-
-    // Center the result text
-    let text_len = result_text.chars().count();
-    let padding = (width.saturating_sub(text_len)) / 2;
-    println!(" {:>width$} ", result_text, width = padding + text_len);
-
-    render_separator();
-    println!(); // Empty line after summary
+    render_section_title(&result_text);
 }
 
 /// Extract compute unit limit from SetComputeUnitLimit instruction if present.
