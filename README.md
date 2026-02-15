@@ -37,6 +37,19 @@ cargo build --release
 
 ## Usage
 
+### Command Overview
+
+| Command | Use when |
+|---------|----------|
+| `simulate` | You want local execution logs, balance changes, and failure reasons |
+| `decode` | You only need transaction structure (instructions/accounts) without execution |
+| `account` | You want decoded account metadata/data for a pubkey |
+| `program-data` | You need raw ELF bytes from upgradeable program/buffer accounts |
+| `fetch-idl` | You want to download and persist Anchor IDLs locally |
+| `send` | You want to submit a signed transaction to the network |
+| `convert` | You want pure format conversion (hex/base58/base64/utf8/lamports/sol) |
+| `pda` | You want to derive a PDA from seeds |
+
 ### Simulate
 
 Simulate a Solana transaction locally using LiteSVM.
