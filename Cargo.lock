@@ -5840,6 +5840,7 @@ dependencies = [
  "spl-token-metadata-interface",
  "terminal_size",
  "toml",
+ "unicode-width",
 ]
 
 [[package]]

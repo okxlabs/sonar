@@ -4,6 +4,7 @@ use anyhow::Result;
 use colored::Colorize;
 use serde::Serialize;
 use solana_pubkey::Pubkey;
+use unicode_width::UnicodeWidthStr;
 
 use crate::{
     account_loader::ResolvedAccounts,
@@ -294,7 +295,7 @@ fn render_bundle_balance_changes(bundle: &BundleReport) {
 fn render_section_title(title: &str) {
     let width = header_content_width();
     let title_with_padding = format!(" {} ", title);
-    let title_len = title_with_padding.chars().count();
+    let title_len = UnicodeWidthStr::width(title_with_padding.as_str());
     let remaining = width.saturating_sub(title_len);
     let left = remaining / 2;
     let right = remaining - left;
