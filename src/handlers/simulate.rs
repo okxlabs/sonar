@@ -37,7 +37,7 @@ pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
     } = args;
     let rpc_url = rpc.rpc_url;
 
-    let TransactionInputArgs { tx, output } = transaction;
+    let TransactionInputArgs { tx, json } = transaction;
 
     let replacements = replacement_args
         .into_iter()
@@ -61,7 +61,7 @@ pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
 
     // Build rendering options once; shared across all code paths.
     let render_opts = output::RenderOptions {
-        format: output,
+        json,
         show_ix_data: ix_data,
         show_ix_detail,
         verify_signatures,

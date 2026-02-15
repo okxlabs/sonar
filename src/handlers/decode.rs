@@ -1,6 +1,6 @@
 use anyhow::Result;
 
-use crate::cli::{self, DecodeArgs, TransactionInputArgs};
+use crate::cli::{DecodeArgs, TransactionInputArgs};
 use crate::instruction_parsers::ParserRegistry;
 use crate::progress::Progress;
 use crate::{account_loader, output, transaction};
@@ -14,11 +14,11 @@ pub(crate) fn handle(args: DecodeArgs) -> Result<()> {
 
     let DecodeArgs { transaction, rpc, ix_data, idl_dir: _ } = args;
     let rpc_url = rpc.rpc_url;
-    let TransactionInputArgs { tx, output } = transaction;
+    let TransactionInputArgs { tx, json } = transaction;
 
     // Check if this is a bundle (multiple positional TX arguments)
     if tx.len() > 1 {
-        return handle_bundle(tx, &rpc_url, ix_data, output, &mut parser_registry, &progress);
+        return handle_bundle(tx, &rpc_url, ix_data, json, &mut parser_registry, &progress);
     }
 
     // Single tx: take the first positional arg, or fall back to stdin
@@ -55,7 +55,7 @@ pub(crate) fn handle(args: DecodeArgs) -> Result<()> {
         &parsed_tx,
         &resolved_accounts,
         &mut parser_registry,
-        output,
+        json,
         ix_data,
         None,
     )?;
@@ -68,7 +68,7 @@ fn handle_bundle(
     tx_inputs: Vec<String>,
     rpc_url: &str,
     ix_data: bool,
-    output_format: cli::OutputFormat,
+    json: bool,
     parser_registry: &mut ParserRegistry,
     progress: &Progress,
 ) -> Result<()> {
@@ -104,7 +104,7 @@ fn handle_bundle(
             parsed_tx,
             &resolved_accounts,
             parser_registry,
-            output_format,
+            json,
             ix_data,
             Some((i + 1, total)),
         )?;

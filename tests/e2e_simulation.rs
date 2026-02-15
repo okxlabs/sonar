@@ -13,9 +13,7 @@ fn simulate_real_transaction_via_cli() -> Result<(), Box<dyn std::error::Error>>
         .arg("--rpc-url")
         .arg("https://api.mainnet-beta.solana.com")
         .arg("--replace")
-        .arg("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA=tests/fixtures/spl_token.so")
-        .arg("--output")
-        .arg("text");
+        .arg("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA=tests/fixtures/spl_token.so");
 
     let assert = cmd.assert().success();
     let output = assert.get_output();
@@ -31,12 +29,7 @@ fn simulate_real_transaction_via_cli() -> Result<(), Box<dyn std::error::Error>>
 #[ignore]
 fn parse_real_transaction_via_cli() -> Result<(), Box<dyn std::error::Error>> {
     let mut cmd = cargo_bin_cmd!("sonar");
-    cmd.arg("decode")
-        .arg(V0_RAW_TX)
-        .arg("--rpc-url")
-        .arg("https://api.mainnet-beta.solana.com")
-        .arg("--output")
-        .arg("text");
+    cmd.arg("decode").arg(V0_RAW_TX).arg("--rpc-url").arg("https://api.mainnet-beta.solana.com");
 
     let assert = cmd.assert().success();
     let output = assert.get_output();
@@ -57,9 +50,7 @@ fn simulate_real_transaction_replace_multiple_program() -> Result<(), Box<dyn st
         .arg("--replace")
         .arg("proVF4pMXVaYqmy4NjniPh4pqKNfMmsihgd4wdkCX3u=tests/fixtures/dex_solana_v3.so")
         .arg("--replace")
-        .arg("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA=tests/fixtures/spl_token.so")
-        .arg("--output")
-        .arg("text");
+        .arg("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA=tests/fixtures/spl_token.so");
 
     let assert = cmd.assert().success();
     let output = assert.get_output();

@@ -59,7 +59,7 @@ cat ./transaction.txt | sonar simulate --rpc-url <RPC_URL>
 sonar simulate <TX> --rpc-url <RPC_URL> -b -d
 
 # JSON output
-sonar simulate <TX> --rpc-url <RPC_URL> --output json
+sonar simulate <TX> --rpc-url <RPC_URL> --json
 ```
 
 #### Program & Account Replacement
@@ -128,7 +128,7 @@ Decode and display a raw transaction without simulation:
 
 ```bash
 sonar decode <TX> --rpc-url https://api.mainnet-beta.solana.com
-sonar decode <TX> --rpc-url <RPC_URL> --output json
+sonar decode <TX> --rpc-url <RPC_URL> --json
 ```
 
 ### Account

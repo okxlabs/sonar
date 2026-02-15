@@ -2,7 +2,7 @@
 
 use std::{path::PathBuf, str::FromStr};
 
-use clap::{Args, ValueEnum};
+use clap::Args;
 use serde::Deserialize;
 use solana_account::Account;
 use solana_pubkey::Pubkey;
@@ -95,16 +95,9 @@ pub struct TransactionInputArgs {
     /// Pass multiple values for bundle mode
     #[arg(value_name = "TX")]
     pub tx: Vec<String>,
-    /// Output format
-    #[arg(long, value_enum, default_value_t = OutputFormat::Text, env = "SONAR_OUTPUT")]
-    pub output: OutputFormat,
-}
-
-#[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum, Default)]
-pub enum OutputFormat {
-    #[default]
-    Text,
-    Json,
+    /// Output as JSON instead of human-readable text
+    #[arg(long, default_value_t = false)]
+    pub json: bool,
 }
 
 #[derive(Clone, Debug)]

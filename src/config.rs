@@ -10,7 +10,6 @@
 //! rpc_url = "https://my-custom-rpc.example.com"
 //! idl_dir = "~/.sonar/idls"
 //! color = "auto"
-//! output = "text"
 //! show_balance_change = true
 //! show_ix_detail = true
 //! ```
@@ -28,8 +27,6 @@ pub struct SonarConfig {
     pub idl_dir: Option<String>,
     /// Default color mode (`auto`, `always`, `never`).  Maps to `SONAR_COLOR` env var.
     pub color: Option<String>,
-    /// Default output format (`text`, `json`). Maps to `SONAR_OUTPUT` env var.
-    pub output: Option<String>,
     /// Default for `--show-balance-change`. Maps to `SONAR_SHOW_BALANCE_CHANGE` env var.
     pub show_balance_change: Option<bool>,
     /// Default for `--show-ix-detail`. Maps to `SONAR_SHOW_IX_DETAIL` env var.
@@ -119,11 +116,6 @@ fn apply_config_to_env(config: &SonarConfig) {
             std::env::set_var("SONAR_COLOR", color);
         }
     }
-    if let Some(ref output) = config.output {
-        if std::env::var("SONAR_OUTPUT").is_err() {
-            std::env::set_var("SONAR_OUTPUT", output);
-        }
-    }
     if let Some(value) = config.show_balance_change {
         set_bool_env("SONAR_SHOW_BALANCE_CHANGE", value);
     }
@@ -192,7 +184,6 @@ mod tests {
             rpc_url = "https://example.com"
             idl_dir = "~/.sonar/idls"
             color = "never"
-            output = "json"
             show_balance_change = true
             show_ix_detail = true
             raw_log = false
@@ -204,7 +195,6 @@ mod tests {
         assert_eq!(config.rpc_url.as_deref(), Some("https://example.com"));
         assert_eq!(config.idl_dir.as_deref(), Some("~/.sonar/idls"));
         assert_eq!(config.color.as_deref(), Some("never"));
-        assert_eq!(config.output.as_deref(), Some("json"));
         assert_eq!(config.show_balance_change, Some(true));
         assert_eq!(config.show_ix_detail, Some(true));
         assert_eq!(config.raw_log, Some(false));
@@ -222,7 +212,6 @@ mod tests {
         assert_eq!(config.rpc_url.as_deref(), Some("https://example.com"));
         assert!(config.idl_dir.is_none());
         assert!(config.color.is_none());
-        assert!(config.output.is_none());
         assert!(config.show_balance_change.is_none());
         assert!(config.show_ix_detail.is_none());
         assert!(config.raw_log.is_none());
@@ -237,7 +226,6 @@ mod tests {
         assert!(config.rpc_url.is_none());
         assert!(config.idl_dir.is_none());
         assert!(config.color.is_none());
-        assert!(config.output.is_none());
         assert!(config.show_balance_change.is_none());
         assert!(config.show_ix_detail.is_none());
         assert!(config.raw_log.is_none());

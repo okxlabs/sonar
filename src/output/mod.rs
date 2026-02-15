@@ -6,7 +6,7 @@ use anyhow::Result;
 
 use crate::{
     account_loader::ResolvedAccounts,
-    cli::{Funding, OutputFormat, Replacement},
+    cli::{Funding, Replacement},
     executor::SimulationResult,
     funding::PreparedTokenFunding,
     instruction_parsers::ParserRegistry,
@@ -31,7 +31,7 @@ pub struct LogDisplayOptions {
 /// Rendering configuration options.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct RenderOptions {
-    pub format: OutputFormat,
+    pub json: bool,
     pub show_ix_data: bool,
     pub show_ix_detail: bool,
     pub verify_signatures: bool,
@@ -61,16 +61,17 @@ pub fn render(
         opts.verify_signatures,
         opts.balance_opts,
     );
-    match opts.format {
-        OutputFormat::Text => text::render_text(
+    if opts.json {
+        json::render_json(&report)
+    } else {
+        text::render_text(
             &report,
             resolved,
             parser_registry,
             opts.show_ix_data,
             opts.show_ix_detail,
             opts.log_opts,
-        ),
-        OutputFormat::Json => json::render_json(&report),
+        )
     }
 }
 
@@ -78,29 +79,26 @@ pub fn render_transaction_only(
     parsed: &ParsedTransaction,
     resolved: &ResolvedAccounts,
     parser_registry: &mut ParserRegistry,
-    format: OutputFormat,
+    json: bool,
     show_ix_data: bool,
     bundle_info: Option<(usize, usize)>,
 ) -> Result<()> {
     let resolver = LookupResolver::new(resolved.lookup_details());
     let transaction =
         TransactionSection::from_sources(parsed, resolved, &resolver, parser_registry, false);
-    match format {
-        OutputFormat::Text => {
-            text::render_transaction_section_text(
-                &transaction,
-                resolved,
-                parser_registry,
-                show_ix_data,
-                bundle_info,
-            );
-            Ok(())
-        }
-        OutputFormat::Json => {
-            let json = serde_json::to_string_pretty(&transaction)?;
-            println!("{json}");
-            Ok(())
-        }
+    if json {
+        let json = serde_json::to_string_pretty(&transaction)?;
+        println!("{json}");
+        Ok(())
+    } else {
+        text::render_transaction_section_text(
+            &transaction,
+            resolved,
+            parser_registry,
+            show_ix_data,
+            bundle_info,
+        );
+        Ok(())
     }
 }
 
@@ -129,15 +127,16 @@ pub fn render_bundle(
         opts.balance_opts,
     );
 
-    match opts.format {
-        OutputFormat::Text => text::render_bundle_text(
+    if opts.json {
+        json::render_bundle_json(&bundle_report)
+    } else {
+        text::render_bundle_text(
             &bundle_report,
             total_tx_count,
             resolved,
             opts.show_ix_data,
             opts.show_ix_detail,
             opts.log_opts,
-        ),
-        OutputFormat::Json => json::render_bundle_json(&bundle_report),
+        )
     }
 }
