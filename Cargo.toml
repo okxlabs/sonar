@@ -46,6 +46,7 @@ spl-pod = "0.7.1"
 spl-token-metadata-interface = "0.8.0"
 spl-token-group-interface = "0.7.1"
 toml = "0.9.12"
+terminal_size = "0.4"
 
 [dev-dependencies]
 assert_cmd = "2.0"

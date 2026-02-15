@@ -18,8 +18,6 @@ use super::report::{
     SimulationStatusReport, SolBalanceChangeSection, TokenBalanceChangeSection, TransactionSection,
 };
 
-/// Width of the separator line (using ═ character).
-const SEPARATOR_WIDTH: usize = 120;
 /// Single indentation unit (2 spaces).
 const INDENT: &str = "  ";
 /// Indentation for outer items (level 1 = 2 spaces).
@@ -28,6 +26,19 @@ const INDENT_L1: &str = INDENT;
 const INDENT_L2: &str = "    ";
 /// Indentation for deeply nested items (level 3 = 6 spaces).
 const INDENT_L3: &str = "      ";
+
+/// Get effective terminal width for text rendering.
+/// Falls back to 80 when width detection is unavailable.
+fn terminal_width() -> usize {
+    terminal_size::terminal_size()
+        .map(|(width, _)| (width.0 as usize).clamp(60, 120))
+        .unwrap_or(80)
+}
+
+/// Header content width with one-space side margins.
+fn header_content_width() -> usize {
+    terminal_width().saturating_sub(2).max(1)
+}
 
 pub(super) fn render_text(
     report: &Report,
@@ -132,6 +143,7 @@ pub(super) fn render_transaction_section_text(
 
 /// Render the bundle summary header showing overall status and per-transaction compact rows.
 fn render_bundle_summary_header(bundle: &BundleReport, total_count: usize) {
+    let width = header_content_width();
     render_separator();
 
     // Determine overall bundle status
@@ -168,8 +180,8 @@ fn render_bundle_summary_header(bundle: &BundleReport, total_count: usize) {
 
     // Center the summary text
     let text_len = summary_text.chars().count();
-    let padding = (SEPARATOR_WIDTH.saturating_sub(text_len)) / 2;
-    println!("{:>width$}", summary_text, width = padding + text_len);
+    let padding = (width.saturating_sub(text_len)) / 2;
+    println!(" {:>width$} ", summary_text, width = padding + text_len);
 
     println!();
 
@@ -288,19 +300,21 @@ fn render_bundle_balance_changes(bundle: &BundleReport) {
 
 /// Render a double-line separator.
 fn render_separator() {
-    println!("{}", "═".repeat(SEPARATOR_WIDTH));
+    let width = header_content_width();
+    println!(" {} ", "═".repeat(width));
 }
 
 /// Render a section title with centered text flanked by `─` lines.
 fn render_section_title(title: &str) {
+    let width = header_content_width();
     let title_with_padding = format!(" {} ", title);
     let title_len = title_with_padding.chars().count();
-    let remaining = SEPARATOR_WIDTH.saturating_sub(title_len);
+    let remaining = width.saturating_sub(title_len);
     let left = remaining / 2;
     let right = remaining - left;
     println!();
     println!(
-        "{}{}{}",
+        " {}{}{} ",
         "─".repeat(left).dimmed(),
         title_with_padding.dimmed(),
         "─".repeat(right).dimmed(),
@@ -310,6 +324,7 @@ fn render_section_title(title: &str) {
 
 /// Render the summary header showing status and compute units (displayed first).
 fn render_summary_header(simulation: &SimulationSection, transaction: &TransactionSection) {
+    let width = header_content_width();
     render_separator();
 
     // For failed transactions, don't print the error reason
@@ -334,8 +349,8 @@ fn render_summary_header(simulation: &SimulationSection, transaction: &Transacti
 
     // Center the result text
     let text_len = result_text.chars().count();
-    let padding = (SEPARATOR_WIDTH.saturating_sub(text_len)) / 2;
-    println!("{:>width$}", result_text, width = padding + text_len);
+    let padding = (width.saturating_sub(text_len)) / 2;
+    println!(" {:>width$} ", result_text, width = padding + text_len);
 
     render_separator();
     println!(); // Empty line after summary

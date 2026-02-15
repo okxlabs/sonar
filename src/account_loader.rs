@@ -609,7 +609,8 @@ impl AccountLoader {
         // Compute IDL addresses and build mapping back to program IDs
         let mut idl_addresses = Vec::with_capacity(program_ids.len());
         let mut addr_to_program: Vec<(Pubkey, Pubkey)> = Vec::with_capacity(program_ids.len());
-        let mut results: Vec<(Pubkey, Result<Option<String>>)> = Vec::with_capacity(program_ids.len());
+        let mut results: Vec<(Pubkey, Result<Option<String>>)> =
+            Vec::with_capacity(program_ids.len());
 
         for &program_id in program_ids {
             match get_idl_address(&program_id) {
@@ -635,7 +636,7 @@ impl AccountLoader {
                 total
             ));
 
-            match self.client.get_multiple_accounts(&chunk.to_vec()) {
+            match self.client.get_multiple_accounts(chunk) {
                 Ok(response) => {
                     for (addr, maybe_account) in chunk.iter().zip(response.into_iter()) {
                         fetched.insert(*addr, maybe_account);

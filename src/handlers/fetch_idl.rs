@@ -54,8 +54,9 @@ pub(crate) fn handle(args: FetchIdlArgs) -> Result<()> {
             Ok(Some(idl_json)) => {
                 // Pretty-print the JSON; fall back to original if parsing fails
                 let formatted = match serde_json::from_str::<serde_json::Value>(idl_json) {
-                    Ok(value) => serde_json::to_string_pretty(&value)
-                        .unwrap_or_else(|_| idl_json.clone()),
+                    Ok(value) => {
+                        serde_json::to_string_pretty(&value).unwrap_or_else(|_| idl_json.clone())
+                    }
                     Err(_) => idl_json.clone(),
                 };
                 let path = output_dir.join(format!("{}.json", program_id));
