@@ -44,22 +44,22 @@ pub struct SimulateArgs {
     )]
     pub token_fundings: Vec<String>,
     /// Always print raw instruction data, even when parser succeeds
-    #[arg(long = "raw-ix-data")]
+    #[arg(long = "raw-ix-data", env = "SONAR_RAW_IX_DATA")]
     pub ix_data: bool,
     /// Verify transaction signatures during simulation
-    #[arg(long = "check-sig")]
+    #[arg(long = "check-sig", env = "SONAR_VERIFY_SIGNATURES")]
     pub verify_signatures: bool,
     /// Directory containing Anchor IDL JSON files
     #[arg(long = "idl-dir", value_name = "DIR", env = "SONAR_IDL_DIR")]
     pub idl_dir: Option<PathBuf>,
     /// Show SOL and token balance changes after simulation
-    #[arg(short = 'b', long = "show-balance-change")]
+    #[arg(short = 'b', long = "show-balance-change", env = "SONAR_SHOW_BALANCE_CHANGE")]
     pub show_balance_change: bool,
     /// Print raw program logs instead of structured execution trace
-    #[arg(long = "raw-log")]
+    #[arg(long = "raw-log", env = "SONAR_RAW_LOG")]
     pub raw_log: bool,
     /// Show detailed instruction information (accounts, parsed fields, inner instructions)
-    #[arg(short = 'd', long = "show-ix-detail")]
+    #[arg(short = 'd', long = "show-ix-detail", env = "SONAR_SHOW_IX_DETAIL")]
     pub show_ix_detail: bool,
     /// Override the Clock sysvar's unix_timestamp for simulation
     #[arg(long = "timestamp", value_name = "UNIX_TIMESTAMP")]
@@ -96,7 +96,7 @@ pub struct TransactionInputArgs {
     #[arg(value_name = "TX")]
     pub tx: Vec<String>,
     /// Output format
-    #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
+    #[arg(long, value_enum, default_value_t = OutputFormat::Text, env = "SONAR_OUTPUT")]
     pub output: OutputFormat,
 }
 

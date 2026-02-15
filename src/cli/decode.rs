@@ -15,7 +15,7 @@ pub struct DecodeArgs {
     #[command(flatten)]
     pub rpc: RpcArgs,
     /// Always print raw instruction data, even when parser succeeds
-    #[arg(long = "raw-ix-data")]
+    #[arg(long = "raw-ix-data", env = "SONAR_RAW_IX_DATA")]
     pub ix_data: bool,
     /// Directory containing Anchor IDL JSON files
     #[arg(long = "idl-dir", value_name = "DIR", env = "SONAR_IDL_DIR")]

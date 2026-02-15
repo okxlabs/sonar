@@ -14,6 +14,6 @@ pub struct SendArgs {
     pub rpc: RpcArgs,
 
     /// Skip preflight transaction checks
-    #[arg(long = "skip-preflight")]
+    #[arg(long = "skip-preflight", env = "SONAR_SKIP_PREFLIGHT")]
     pub skip_preflight: bool,
 }

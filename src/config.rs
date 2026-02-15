@@ -10,6 +10,9 @@
 //! rpc_url = "https://my-custom-rpc.example.com"
 //! idl_dir = "~/.sonar/idls"
 //! color = "auto"
+//! output = "text"
+//! show_balance_change = true
+//! show_ix_detail = true
 //! ```
 
 use std::path::PathBuf;
@@ -25,6 +28,20 @@ pub struct SonarConfig {
     pub idl_dir: Option<String>,
     /// Default color mode (`auto`, `always`, `never`).  Maps to `SONAR_COLOR` env var.
     pub color: Option<String>,
+    /// Default output format (`text`, `json`). Maps to `SONAR_OUTPUT` env var.
+    pub output: Option<String>,
+    /// Default for `--show-balance-change`. Maps to `SONAR_SHOW_BALANCE_CHANGE` env var.
+    pub show_balance_change: Option<bool>,
+    /// Default for `--show-ix-detail`. Maps to `SONAR_SHOW_IX_DETAIL` env var.
+    pub show_ix_detail: Option<bool>,
+    /// Default for `--raw-log`. Maps to `SONAR_RAW_LOG` env var.
+    pub raw_log: Option<bool>,
+    /// Default for `--raw-ix-data`. Maps to `SONAR_RAW_IX_DATA` env var.
+    pub raw_ix_data: Option<bool>,
+    /// Default for `--check-sig`. Maps to `SONAR_VERIFY_SIGNATURES` env var.
+    pub verify_signatures: Option<bool>,
+    /// Default for `--skip-preflight`. Maps to `SONAR_SKIP_PREFLIGHT` env var.
+    pub skip_preflight: Option<bool>,
 }
 
 /// Returns the default config file path: `$HOME/.config/sonar/config.toml`.
@@ -81,6 +98,12 @@ pub fn load_config() -> SonarConfig {
 ///
 /// This must be called **before** `Cli::parse()`.
 fn apply_config_to_env(config: &SonarConfig) {
+    fn set_bool_env(var: &str, value: bool) {
+        if std::env::var(var).is_err() {
+            std::env::set_var(var, if value { "true" } else { "false" });
+        }
+    }
+
     if let Some(ref rpc_url) = config.rpc_url {
         if std::env::var("RPC_URL").is_err() {
             std::env::set_var("RPC_URL", rpc_url);
@@ -95,6 +118,29 @@ fn apply_config_to_env(config: &SonarConfig) {
         if std::env::var("SONAR_COLOR").is_err() {
             std::env::set_var("SONAR_COLOR", color);
         }
+    }
+    if let Some(ref output) = config.output {
+        if std::env::var("SONAR_OUTPUT").is_err() {
+            std::env::set_var("SONAR_OUTPUT", output);
+        }
+    }
+    if let Some(value) = config.show_balance_change {
+        set_bool_env("SONAR_SHOW_BALANCE_CHANGE", value);
+    }
+    if let Some(value) = config.show_ix_detail {
+        set_bool_env("SONAR_SHOW_IX_DETAIL", value);
+    }
+    if let Some(value) = config.raw_log {
+        set_bool_env("SONAR_RAW_LOG", value);
+    }
+    if let Some(value) = config.raw_ix_data {
+        set_bool_env("SONAR_RAW_IX_DATA", value);
+    }
+    if let Some(value) = config.verify_signatures {
+        set_bool_env("SONAR_VERIFY_SIGNATURES", value);
+    }
+    if let Some(value) = config.skip_preflight {
+        set_bool_env("SONAR_SKIP_PREFLIGHT", value);
     }
 }
 
@@ -146,11 +192,25 @@ mod tests {
             rpc_url = "https://example.com"
             idl_dir = "~/.sonar/idls"
             color = "never"
+            output = "json"
+            show_balance_change = true
+            show_ix_detail = true
+            raw_log = false
+            raw_ix_data = true
+            verify_signatures = false
+            skip_preflight = true
         "#;
         let config: SonarConfig = toml::from_str(toml_str).unwrap();
         assert_eq!(config.rpc_url.as_deref(), Some("https://example.com"));
         assert_eq!(config.idl_dir.as_deref(), Some("~/.sonar/idls"));
         assert_eq!(config.color.as_deref(), Some("never"));
+        assert_eq!(config.output.as_deref(), Some("json"));
+        assert_eq!(config.show_balance_change, Some(true));
+        assert_eq!(config.show_ix_detail, Some(true));
+        assert_eq!(config.raw_log, Some(false));
+        assert_eq!(config.raw_ix_data, Some(true));
+        assert_eq!(config.verify_signatures, Some(false));
+        assert_eq!(config.skip_preflight, Some(true));
     }
 
     #[test]
@@ -162,6 +222,13 @@ mod tests {
         assert_eq!(config.rpc_url.as_deref(), Some("https://example.com"));
         assert!(config.idl_dir.is_none());
         assert!(config.color.is_none());
+        assert!(config.output.is_none());
+        assert!(config.show_balance_change.is_none());
+        assert!(config.show_ix_detail.is_none());
+        assert!(config.raw_log.is_none());
+        assert!(config.raw_ix_data.is_none());
+        assert!(config.verify_signatures.is_none());
+        assert!(config.skip_preflight.is_none());
     }
 
     #[test]
@@ -170,5 +237,12 @@ mod tests {
         assert!(config.rpc_url.is_none());
         assert!(config.idl_dir.is_none());
         assert!(config.color.is_none());
+        assert!(config.output.is_none());
+        assert!(config.show_balance_change.is_none());
+        assert!(config.show_ix_detail.is_none());
+        assert!(config.raw_log.is_none());
+        assert!(config.raw_ix_data.is_none());
+        assert!(config.verify_signatures.is_none());
+        assert!(config.skip_preflight.is_none());
     }
 }
