@@ -373,14 +373,6 @@ impl AccountLoader {
         let total_count = to_fetch.len();
         let mut requested_count = 0usize;
         for chunk in to_fetch.chunks(MAX_ACCOUNTS_PER_REQUEST) {
-            if let Some(account) = chunk.first() {
-                self.set_progress_message(format!(
-                    "loading account {} ({}/{})",
-                    account,
-                    requested_count + 1,
-                    total_count
-                ));
-            }
             let response = self.client.get_multiple_accounts(chunk).with_context(|| {
                 format!(
                     "getMultipleAccounts call failed, account list: [{}]",
@@ -397,13 +389,17 @@ impl AccountLoader {
             }
 
             for (pubkey, maybe_account) in chunk.iter().zip(response.into_iter()) {
+                requested_count += 1;
+                self.set_progress_message(format!(
+                    "loading account {} ({}/{})",
+                    pubkey, requested_count, total_count
+                ));
                 if let Some(account) = maybe_account {
                     destination.insert(*pubkey, account.clone());
                     let mut cache = self.cache.lock().unwrap();
                     cache.insert(*pubkey, account);
                 }
             }
-            requested_count += chunk.len();
         }
 
         debug!("Successfully fetched accounts: [{}]", format_pubkeys(pubkeys));
