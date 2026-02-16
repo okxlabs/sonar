@@ -64,7 +64,11 @@ pub struct Token2022ProgramParser {
 
 impl Token2022ProgramParser {
     pub fn new() -> Self {
-        Self { program_id: Pubkey::from_str_const(TOKEN2022_PROGRAM_ID) }
+        Self::with_program_id(Pubkey::from_str_const(TOKEN2022_PROGRAM_ID))
+    }
+
+    pub fn with_program_id(program_id: Pubkey) -> Self {
+        Self { program_id }
     }
 }
 
@@ -2067,6 +2071,15 @@ mod tests {
         let parser = Token2022ProgramParser::new();
         let expected_id = Pubkey::from_str_const(TOKEN2022_PROGRAM_ID);
         assert_eq!(parser.program_id(), &expected_id);
+    }
+
+    #[test]
+    fn test_custom_program_id() {
+        let custom_program_id =
+            Pubkey::from_str_const("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+        let parser = Token2022ProgramParser::with_program_id(custom_program_id);
+
+        assert_eq!(parser.program_id(), &custom_program_id);
     }
 
     #[test]

@@ -175,6 +175,28 @@ impl ParserRegistry {
         let token2022_parser = Token2022ProgramParser::new();
         registry.parsers.insert(*token2022_parser.program_id(), Box::new(token2022_parser));
 
+        // Register SPL Token parser by reusing the Token2022 parser implementation
+        let spl_token_parser = Token2022ProgramParser::with_program_id(Pubkey::from_str_const(
+            "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+        ));
+        registry.parsers.insert(*spl_token_parser.program_id(), Box::new(spl_token_parser));
+
+        // Register Compute Budget parser
+        let compute_budget_parser = ComputeBudgetProgramParser::new();
+        registry
+            .parsers
+            .insert(*compute_budget_parser.program_id(), Box::new(compute_budget_parser));
+
+        // Register Associated Token parser
+        let associated_token_parser = AssociatedTokenProgramParser::new();
+        registry
+            .parsers
+            .insert(*associated_token_parser.program_id(), Box::new(associated_token_parser));
+
+        // Register Memo parser
+        let memo_parser = MemoProgramParser::new();
+        registry.parsers.insert(*memo_parser.program_id(), Box::new(memo_parser));
+
         registry
     }
 
@@ -374,6 +396,40 @@ mod tests {
     }
 
     #[test]
+    fn test_spl_token_parser_registration() {
+        let registry = ParserRegistry::new(None);
+        let tokenkeg_id = Pubkey::from_str_const("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+
+        assert!(registry.parsers.contains_key(&tokenkeg_id));
+    }
+
+    #[test]
+    fn test_compute_budget_parser_registration() {
+        let registry = ParserRegistry::new(None);
+        let compute_budget_id =
+            Pubkey::from_str_const("ComputeBudget111111111111111111111111111111");
+
+        assert!(registry.parsers.contains_key(&compute_budget_id));
+    }
+
+    #[test]
+    fn test_associated_token_parser_registration() {
+        let registry = ParserRegistry::new(None);
+        let associated_token_id =
+            Pubkey::from_str_const("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
+
+        assert!(registry.parsers.contains_key(&associated_token_id));
+    }
+
+    #[test]
+    fn test_memo_parser_registration() {
+        let registry = ParserRegistry::new(None);
+        let memo_id = Pubkey::from_str_const("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr");
+
+        assert!(registry.parsers.contains_key(&memo_id));
+    }
+
+    #[test]
     fn test_token2022_parser_program_id() {
         let parser = Token2022ProgramParser::new();
         let expected_id = Pubkey::from_str_const("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb");
@@ -387,5 +443,14 @@ pub use system_program::SystemProgramParser;
 
 mod token2022_program;
 pub use token2022_program::Token2022ProgramParser;
+
+mod compute_budget_program;
+pub use compute_budget_program::ComputeBudgetProgramParser;
+
+mod associated_token_program;
+pub use associated_token_program::AssociatedTokenProgramParser;
+
+mod memo_program;
+pub use memo_program::MemoProgramParser;
 
 pub mod anchor_idl;

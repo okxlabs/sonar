@@ -31,9 +31,7 @@ const INDENT_L3: &str = "      ";
 /// Get effective terminal width for text rendering.
 /// Falls back to 80 when width detection is unavailable.
 fn terminal_width() -> usize {
-    terminal_size::terminal_size()
-        .map(|(width, _)| (width.0 as usize).clamp(60, 120))
-        .unwrap_or(80)
+    terminal_size::terminal_size().map(|(width, _)| (width.0 as usize).clamp(60, 120)).unwrap_or(80)
 }
 
 /// Header content width with one-space side margins.
@@ -224,7 +222,6 @@ fn render_bundle_summary_header(bundle: &BundleReport, total_count: usize) {
             tx_w = tx_col_width
         );
     }
-
 }
 
 fn render_bundle_transaction_trace(
