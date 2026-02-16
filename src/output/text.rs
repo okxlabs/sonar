@@ -320,11 +320,12 @@ fn render_summary_header(simulation: &SimulationSection, transaction: &Transacti
         if cu_limit > 0 { (cu_used as f64 / cu_limit as f64 * 100.0) as u32 } else { 0 };
 
     let result_text = format!(
-        "{} | CU: {} / {} ({}%)",
+        "{} | CU: {} / {} ({}%) | Size: {} bytes",
         status_str,
         format_with_commas(cu_used),
         format_with_commas(cu_limit),
-        percentage
+        percentage,
+        transaction.size_bytes
     );
     render_section_title(&result_text);
 }

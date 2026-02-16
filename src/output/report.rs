@@ -369,6 +369,7 @@ fn compute_bundle_overall_balance_changes(
 pub(super) struct TransactionSection {
     pub(super) encoding: String,
     pub(super) version: String,
+    pub(super) size_bytes: usize,
     pub(super) signatures: Vec<String>,
     pub(super) recent_blockhash: String,
     pub(super) static_accounts: Vec<AccountEntry>,
@@ -425,10 +426,13 @@ impl TransactionSection {
             .collect();
 
         let lookups = resolved.lookups.iter().map(LookupSection::from_lookup).collect();
+        let size_bytes =
+            bincode::serialize(&parsed.transaction).map(|serialized| serialized.len()).unwrap_or(0);
 
         Self {
             encoding,
             version,
+            size_bytes,
             signatures: parsed.summary.signatures.clone(),
             recent_blockhash: parsed.summary.recent_blockhash.clone(),
             static_accounts,
