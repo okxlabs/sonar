@@ -1,26 +1,31 @@
-# Sonar - Solana Developer Toolkit
+# Sonar - Solana Transaction Simulator & Utilities
 
-A command-line Solana developer toolkit powered by LiteSVM. Simulate, decode, and inspect Solana transactions and accounts locally without deploying to a live network.
+A command-line tool for simulating Solana transactions locally using LiteSVM, bundled with a handful of small utilities for everyday Solana development tasks.
 
 ## Features
 
-- Parse and analyze Solana transactions from raw encoding (Base58/Base64)
-- Fetch and parse transactions directly from Solana RPC using transaction signatures
-- Simulate transactions in a local SVM environment
-- Decode transactions without simulation via dedicated `decode` subcommand
-- Support for address lookup tables (ALT)
+### Transaction Simulation (core)
+
+- Simulate transactions in a local SVM environment — no deployment needed
+- Parse transactions from raw encoding (Base58/Base64) or fetch by signature from RPC
+- Bundle simulation (multiple transactions in one run)
 - Program and account replacement for testing custom behavior
-- Fund system accounts with arbitrary SOL amounts for testing
-- Fund token accounts for testing token transfers
+- Fund system/token accounts with arbitrary amounts before simulation
+- Patch account data, override clock/slot for fine-grained control
+- Dump/load accounts for offline replay
+- Decode transactions without simulation via `decode` subcommand
+- Support for address lookup tables (ALT)
 - Multiple output formats (text and JSON)
-- Account fetching and decoding (SPL Token, Token-2022, Anchor IDL, BPF Upgradeable)
-- Data format conversion (hex, base58, base64, arrays, UTF-8, lamports, SOL)
-- PDA (Program Derived Address) derivation
-- Program data (ELF bytecode) extraction
-- Send signed transactions to the network
-- Anchor IDL fetching from on-chain accounts
-- Load IDL files from custom directories for Anchor program instruction parsing
-- Shell completion scripts generation (bash, zsh, fish, elvish, powershell)
+
+### Utilities
+
+- **account** — Fetch and decode on-chain accounts (SPL Token, Token-2022, Anchor IDL, BPF Upgradeable)
+- **convert** — Data format conversion (hex, base58, base64, arrays, UTF-8, lamports, SOL)
+- **pda** — PDA (Program Derived Address) derivation
+- **program-data** — Extract program ELF bytecode from upgradeable programs/buffers
+- **send** — Submit signed transactions to the network
+- **fetch-idl** — Download Anchor IDLs from on-chain accounts
+- **completions** — Shell completion scripts (bash, zsh, fish, elvish, powershell)
 
 ## Installation
 
@@ -41,7 +46,7 @@ cargo build --release
 
 | Command | Use when |
 |---------|----------|
-| `simulate` | You want local execution logs, balance changes, and failure reasons |
+| **`simulate`** | **You want local execution logs, balance changes, and failure reasons** |
 | `decode` | You only need transaction structure (instructions/accounts) without execution |
 | `account` | You want decoded account metadata/data for a pubkey |
 | `program-data` | You need raw ELF bytes from upgradeable program/buffer accounts |
