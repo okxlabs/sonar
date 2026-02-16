@@ -25,4 +25,8 @@ pub struct AccountArgs {
     /// Skip account metadata, only print parsed data
     #[arg(long = "no-account-meta")]
     pub no_account_meta: bool,
+
+    /// For legacy SPL mint accounts, also fetch and parse Metaplex metadata PDA
+    #[arg(long)]
+    pub metadata: bool,
 }

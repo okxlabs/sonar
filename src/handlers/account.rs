@@ -3,10 +3,11 @@ use std::path::PathBuf;
 use std::str::FromStr;
 
 use anyhow::{Context, Result};
+use serde_json::Value;
 use solana_pubkey::Pubkey;
 
 use crate::cli::AccountArgs;
-use crate::{account_loader, token_account_decoder};
+use crate::{account_loader, metaplex_metadata_decoder, token_account_decoder};
 
 pub(crate) fn handle(args: AccountArgs) -> Result<()> {
     use crate::instruction_parsers::anchor_idl::{IdlRegistry, RawAnchorIdl, parse_account_data};
@@ -97,6 +98,16 @@ pub(crate) fn handle(args: AccountArgs) -> Result<()> {
 
     // Try to decode as SPL Token or Token-2022 account (mint or token account)
     if let Some(token_json) = token_account_decoder::decode_spl_token_account(&account) {
+        if args.metadata {
+            if !should_enrich_with_metaplex_metadata(&account, &token_json) {
+                anyhow::bail!("--metadata requires a SPL Token or Token-2022 mint account");
+            }
+
+            let metadata_json = fetch_metadata_for_mint(&client, &account_pubkey)?;
+            println!("{}", serde_json::to_string_pretty(&metadata_json)?);
+            return Ok(());
+        }
+
         if args.no_account_meta {
             // Only print the parsed data part
             if let Some(data) = token_json.get("data") {
@@ -273,4 +284,155 @@ fn print_raw_account_data(account: &solana_account::Account) {
         "space": account.data.len()
     });
     println!("{}", serde_json::to_string_pretty(&output).unwrap_or_else(|_| "{}".to_string()));
+}
+
+/// Token mint JSON shape check:
+/// - owner is SPL Token legacy or Token-2022
+/// - parsed token data contains mint fields (decimals/supply)
+fn should_enrich_with_metaplex_metadata(
+    account: &solana_account::Account,
+    token_json: &Value,
+) -> bool {
+    let owner_bytes = account.owner.to_bytes();
+    if owner_bytes != spl_token::ID.to_bytes() && owner_bytes != spl_token_2022::ID.to_bytes() {
+        return false;
+    }
+
+    token_json
+        .get("data")
+        .and_then(Value::as_object)
+        .map(|data| data.contains_key("decimals") && data.contains_key("supply"))
+        .unwrap_or(false)
+}
+
+fn fetch_metadata_for_mint(
+    client: &solana_client::rpc_client::RpcClient,
+    mint_pubkey: &Pubkey,
+) -> Result<Value> {
+    use solana_commitment_config::CommitmentConfig;
+
+    let metadata_pda = metaplex_metadata_decoder::derive_metadata_pda(mint_pubkey);
+    let response = client
+        .get_account_with_commitment(&metadata_pda, CommitmentConfig::processed())
+        .with_context(|| {
+            format!("Failed to fetch metadata PDA {} for mint {}", metadata_pda, mint_pubkey)
+        })?;
+
+    let metadata_account = response.value.with_context(|| {
+        format!("Metadata PDA account not found for mint {} (PDA: {})", mint_pubkey, metadata_pda)
+    })?;
+
+    if metadata_account.owner != metaplex_metadata_decoder::metadata_program_id() {
+        anyhow::bail!(
+            "Metadata PDA {} owner mismatch, expected {}, got {}",
+            metadata_pda,
+            metaplex_metadata_decoder::metadata_program_id(),
+            metadata_account.owner
+        );
+    }
+
+    metaplex_metadata_decoder::decode_metadata_account_data(&metadata_account.data).with_context(
+        || {
+            format!(
+                "Failed to decode metaplex metadata account {} for mint {}",
+                metadata_pda, mint_pubkey
+            )
+        },
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::should_enrich_with_metaplex_metadata;
+    use crate::token_account_decoder;
+    use solana_pubkey::Pubkey;
+    use spl_token::solana_program::program_option::COption;
+    use spl_token::solana_program::program_pack::Pack;
+    use spl_token::solana_program::pubkey::Pubkey as ProgramPubkey;
+
+    fn legacy_owner_pubkey() -> Pubkey {
+        Pubkey::new_from_array(spl_token::ID.to_bytes())
+    }
+
+    fn token2022_owner_pubkey() -> Pubkey {
+        Pubkey::new_from_array(spl_token_2022::ID.to_bytes())
+    }
+
+    #[test]
+    fn should_enrich_metadata_for_legacy_mint() {
+        use spl_token::state::Mint;
+
+        let mint = Mint {
+            mint_authority: COption::Some(ProgramPubkey::new_unique()),
+            supply: 1_000_000,
+            decimals: 6,
+            is_initialized: true,
+            freeze_authority: COption::None,
+        };
+        let mut data = vec![0u8; Mint::LEN];
+        Mint::pack(mint, &mut data).unwrap();
+
+        let account = solana_account::Account {
+            lamports: 1,
+            data,
+            owner: legacy_owner_pubkey(),
+            executable: false,
+            rent_epoch: 0,
+        };
+        let token_json = token_account_decoder::decode_spl_token_account(&account).unwrap();
+        assert!(should_enrich_with_metaplex_metadata(&account, &token_json));
+    }
+
+    #[test]
+    fn should_enrich_metadata_for_token2022_mint() {
+        use spl_token_2022::state::Mint;
+
+        let mint = Mint {
+            mint_authority: COption::Some(ProgramPubkey::new_unique()),
+            supply: 2_000_000,
+            decimals: 9,
+            is_initialized: true,
+            freeze_authority: COption::None,
+        };
+        let mut data = vec![0u8; Mint::LEN];
+        Mint::pack(mint, &mut data).unwrap();
+
+        let account = solana_account::Account {
+            lamports: 1,
+            data,
+            owner: token2022_owner_pubkey(),
+            executable: false,
+            rent_epoch: 0,
+        };
+        let token_json = token_account_decoder::decode_spl_token_account(&account).unwrap();
+        assert!(should_enrich_with_metaplex_metadata(&account, &token_json));
+    }
+
+    #[test]
+    fn should_not_enrich_metadata_for_token_account() {
+        use spl_token::state::{Account as TokenAccount, AccountState};
+
+        let token_account = TokenAccount {
+            mint: ProgramPubkey::new_unique(),
+            owner: ProgramPubkey::new_unique(),
+            amount: 123,
+            delegate: COption::None,
+            state: AccountState::Initialized,
+            is_native: COption::None,
+            delegated_amount: 0,
+            close_authority: COption::None,
+        };
+        let mut data = vec![0u8; TokenAccount::LEN];
+        TokenAccount::pack(token_account, &mut data).unwrap();
+
+        let account = solana_account::Account {
+            lamports: 1,
+            data,
+            owner: legacy_owner_pubkey(),
+            executable: false,
+            rent_epoch: 0,
+        };
+        let token_json = token_account_decoder::decode_spl_token_account(&account).unwrap();
+        assert!(!should_enrich_with_metaplex_metadata(&account, &token_json));
+    }
 }

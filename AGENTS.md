@@ -132,3 +132,4 @@ cargo run -- completions zsh
 6. Follow existing code style and English error message convention
 7. Run `cargo clippy -- -D warnings` and fix all warnings before committing
 8. Run `cargo fmt` before committing changes
+9. Update `README.md` if new feature is added or removed accordingly.

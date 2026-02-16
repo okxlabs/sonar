@@ -19,7 +19,7 @@ A command-line tool for simulating Solana transactions locally using LiteSVM, bu
 
 ### Utilities
 
-- **account** — Fetch and decode on-chain accounts (SPL Token, Token-2022, Anchor IDL, BPF Upgradeable)
+- **account** — Fetch and decode on-chain accounts (SPL Token, Token-2022, Anchor IDL, BPF Upgradeable, optional Metaplex metadata for mint accounts)
 - **convert** — Data format conversion (hex, base58, base64, arrays, UTF-8, lamports, SOL)
 - **pda** — PDA (Program Derived Address) derivation
 - **program-data** — Extract program ELF bytecode from upgradeable programs/buffers
@@ -161,7 +161,14 @@ sonar account <PUBKEY> --rpc-url <RPC_URL> --raw
 
 # Skip account metadata
 sonar account <PUBKEY> --rpc-url <RPC_URL> --no-account-meta
+
+# For mint accounts, also try Metaplex metadata PDA decoding (opt-in)
+sonar account <MINT_PUBKEY> --rpc-url <RPC_URL> --metadata
 ```
+
+`--metadata` is opt-in and defaults to disabled. When enabled, Sonar will attempt to fetch and decode
+the Metaplex metadata PDA for SPL Token legacy or Token-2022 mint accounts, and print only the
+decoded metadata PDA content. If metadata is missing or cannot be decoded, the command returns an error.
 
 ### Convert
 

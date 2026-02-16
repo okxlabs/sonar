@@ -7,6 +7,7 @@ mod funding;
 mod handlers;
 mod instruction_parsers;
 mod log_parser;
+mod metaplex_metadata_decoder;
 mod native_ids;
 mod output;
 mod progress;
