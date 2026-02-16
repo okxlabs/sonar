@@ -133,6 +133,9 @@ sonar simulate <TX> --rpc-url <RPC_URL> \
 sonar simulate <TX> --rpc-url <RPC_URL> --dump-accounts ./accounts/
 sonar simulate <TX> --load-accounts ./accounts/ --offline
 
+# Always print raw instruction data, even when parser succeeds
+sonar simulate <TX> --rpc-url <RPC_URL> --raw-ix-data
+
 # Verify transaction signatures during simulation
 sonar simulate <TX> --rpc-url <RPC_URL> --check-sig
 
@@ -147,6 +150,9 @@ Decode and display a raw transaction without simulation:
 ```bash
 sonar decode <TX> --rpc-url https://api.mainnet-beta.solana.com
 sonar decode <TX> --rpc-url <RPC_URL> --json
+
+# Always print raw instruction data, even when parser succeeds
+sonar decode <TX> --rpc-url <RPC_URL> --raw-ix-data
 ```
 
 ### Account
@@ -280,6 +286,19 @@ Sonar reads configuration from `~/.config/sonar/config.toml`:
 rpc_url = "https://api.mainnet-beta.solana.com"
 idl_dir = "~/.sonar/idls"
 color = "auto"  # auto, always, never
+
+# Default for `simulate --show-balance-change`
+show_balance_change = false
+# Default for `simulate --show-ix-detail`
+show_ix_detail = false
+# Default for `simulate --raw-log`
+raw_log = false
+# Default for `simulate/decode --raw-ix-data`
+raw_ix_data = false
+# Default for `simulate --check-sig`
+verify_signatures = false
+# Default for `send --skip-preflight`
+skip_preflight = false
 ```
 
 Priority: CLI arguments > environment variables > config file > defaults.
