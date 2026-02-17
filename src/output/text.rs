@@ -50,8 +50,10 @@ pub(super) fn render_text(
     // Summary header (status + CU)
     render_summary_header(&report.simulation, &report.transaction);
 
-    // Execution Trace
-    if !report.simulation.logs.is_empty() {
+    // Execution Trace (also show when failed without runtime logs)
+    if !report.simulation.logs.is_empty()
+        || matches!(&report.simulation.status, SimulationStatusReport::Failed { .. })
+    {
         render_section_title("Execution Trace");
         render_execution_trace_section(&report.simulation, log_opts);
     }
@@ -85,10 +87,18 @@ pub(super) fn render_bundle_text(
     // Bundle summary header (status + per-TX overview)
     render_bundle_summary_header(bundle, total_count);
 
-    // Execution Trace (per-TX)
-    let has_logs = bundle.transactions.iter().any(|t| !t.simulation.logs.is_empty());
-    if has_logs {
+    // Execution Trace (per-TX): render TX with logs, or failed TX without logs.
+    let has_logs_or_failed = bundle.transactions.iter().any(|t| {
+        !t.simulation.logs.is_empty()
+            || matches!(&t.simulation.status, SimulationStatusReport::Failed { .. })
+    });
+    if has_logs_or_failed {
         for (i, tx_report) in bundle.transactions.iter().enumerate() {
+            let should_render = !tx_report.simulation.logs.is_empty()
+                || matches!(&tx_report.simulation.status, SimulationStatusReport::Failed { .. });
+            if !should_render {
+                continue;
+            }
             render_section_title(&format!("Execution Trace: TX {}/{}", i + 1, total_count));
             render_bundle_transaction_trace(tx_report, log_opts);
         }
@@ -228,9 +238,6 @@ fn render_bundle_transaction_trace(
     tx_report: &BundleTransactionReport,
     log_opts: LogDisplayOptions,
 ) {
-    if let SimulationStatusReport::Failed { error } = &tx_report.simulation.status {
-        println!("{}↳ Error: {}", INDENT_L1, error);
-    }
     render_execution_trace_section(&tx_report.simulation, log_opts);
 }
 
@@ -375,6 +382,7 @@ fn format_with_commas(n: u64) -> String {
 /// Render execution trace section with centered header.
 fn render_execution_trace_section(simulation: &SimulationSection, log_opts: LogDisplayOptions) {
     if simulation.logs.is_empty() {
+        render_no_trace_hint(simulation, INDENT_L1);
         return;
     }
 
@@ -384,6 +392,12 @@ fn render_execution_trace_section(simulation: &SimulationSection, log_opts: LogD
         }
     } else {
         render_logs_structured(&simulation.logs);
+    }
+}
+
+fn render_no_trace_hint(simulation: &SimulationSection, indent: &str) {
+    if let SimulationStatusReport::Failed { error } = &simulation.status {
+        println!("\n{}↳ Failed before program invocation: {}", indent, error);
     }
 }
 
