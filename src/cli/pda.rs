@@ -11,7 +11,7 @@ pub struct PdaArgs {
     pub program_id: String,
 
     /// Seeds in format: type:value (repeatable), e.g. string:hello pubkey:<PUBKEY>
-    /// Types: string, pubkey
+    /// Types: string, pubkey, u64, u8
     #[arg(value_name = "SEED", num_args = 1.., required = true)]
     pub seeds: Vec<String>,
 }
@@ -23,6 +23,10 @@ pub enum SeedType {
     String,
     /// Base58-encoded Solana pubkey, converted to 32 bytes
     Pubkey,
+    /// Unsigned 64-bit integer, encoded as little-endian bytes
+    U64,
+    /// Unsigned 8-bit integer, encoded as a single byte
+    U8,
 }
 
 impl FromStr for SeedType {
@@ -32,7 +36,11 @@ impl FromStr for SeedType {
         match s.to_lowercase().as_str() {
             "string" | "str" => Ok(SeedType::String),
             "pubkey" | "publickey" | "pk" => Ok(SeedType::Pubkey),
-            _ => Err(format!("Unknown seed type: '{}'. Supported types: string, pubkey", s)),
+            "u64" => Ok(SeedType::U64),
+            "u8" => Ok(SeedType::U8),
+            _ => {
+                Err(format!("Unknown seed type: '{}'. Supported types: string, pubkey, u64, u8", s))
+            }
         }
     }
 }
@@ -89,6 +97,24 @@ pub fn seeds_to_bytes(seeds: &[ParsedSeed]) -> Result<Vec<Vec<u8>>, String> {
                     .map_err(|e| format!("Invalid pubkey '{}': {}", seed.value, e))?;
                 Ok(pubkey.to_bytes().to_vec())
             }
+            SeedType::U64 => {
+                let value = seed.value.parse::<u64>().map_err(|e| {
+                    format!(
+                        "Invalid u64 '{}': expected an unsigned 64-bit integer ({})",
+                        seed.value, e
+                    )
+                })?;
+                Ok(value.to_le_bytes().to_vec())
+            }
+            SeedType::U8 => {
+                let value = seed.value.parse::<u8>().map_err(|e| {
+                    format!(
+                        "Invalid u8 '{}': expected an unsigned 8-bit integer ({})",
+                        seed.value, e
+                    )
+                })?;
+                Ok(vec![value])
+            }
         })
         .collect()
 }
@@ -141,6 +167,17 @@ mod tests {
     }
 
     #[test]
+    fn parse_seeds_u64_and_u8_values() {
+        let seeds = parse_seeds(&["u64:42".to_string(), "u8:7".to_string()]).unwrap();
+
+        assert_eq!(seeds.len(), 2);
+        assert_eq!(seeds[0].value, "42");
+        assert_eq!(seeds[0].seed_type, SeedType::U64);
+        assert_eq!(seeds[1].value, "7");
+        assert_eq!(seeds[1].seed_type, SeedType::U8);
+    }
+
+    #[test]
     fn parse_seeds_empty_input() {
         let result = parse_seeds(&[]);
         assert!(result.is_err());
@@ -169,6 +206,17 @@ mod tests {
     }
 
     #[test]
+    fn parse_seeds_removed_types_are_rejected() {
+        let u64be_result = parse_seeds(&["u64be:42".to_string()]);
+        assert!(u64be_result.is_err());
+        assert!(u64be_result.unwrap_err().contains("Unknown seed type"));
+
+        let bytes_result = parse_seeds(&["bytes:deadbeef".to_string()]);
+        assert!(bytes_result.is_err());
+        assert!(bytes_result.unwrap_err().contains("Unknown seed type"));
+    }
+
+    #[test]
     fn seeds_to_bytes_string() {
         let seeds = vec![ParsedSeed { value: "hello".to_string(), seed_type: SeedType::String }];
         let bytes = seeds_to_bytes(&seeds).unwrap();
@@ -191,5 +239,37 @@ mod tests {
         let result = seeds_to_bytes(&seeds);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Invalid pubkey"));
+    }
+
+    #[test]
+    fn seeds_to_bytes_u64_little_endian() {
+        let seeds = parse_seeds(&["u64:42".to_string()]).unwrap();
+        let bytes = seeds_to_bytes(&seeds).unwrap();
+        assert_eq!(bytes.len(), 1);
+        assert_eq!(bytes[0], 42_u64.to_le_bytes().to_vec());
+    }
+
+    #[test]
+    fn seeds_to_bytes_u8() {
+        let seeds = parse_seeds(&["u8:42".to_string()]).unwrap();
+        let bytes = seeds_to_bytes(&seeds).unwrap();
+        assert_eq!(bytes.len(), 1);
+        assert_eq!(bytes[0], vec![42_u8]);
+    }
+
+    #[test]
+    fn seeds_to_bytes_invalid_u8() {
+        let seeds = parse_seeds(&["u8:999".to_string()]).unwrap();
+        let result = seeds_to_bytes(&seeds);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Invalid u8"));
+    }
+
+    #[test]
+    fn seeds_to_bytes_invalid_u64() {
+        let seeds = parse_seeds(&["u64:not_a_number".to_string()]).unwrap();
+        let result = seeds_to_bytes(&seeds);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Invalid u64"));
     }
 }

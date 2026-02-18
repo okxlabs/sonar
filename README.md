@@ -224,6 +224,9 @@ Derive a Program Derived Address from seeds:
 
 ```bash
 sonar pda <PROGRAM_ID> string:hello pubkey:<PUBKEY>
+
+# Numeric seeds (u64 little-endian, and single-byte u8)
+sonar pda <PROGRAM_ID> string:position u64:42 u8:7
 ```
 
 ### Program Data
