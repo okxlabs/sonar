@@ -125,9 +125,11 @@ sonar simulate <TX> \
 sonar simulate <TX> --rpc-url <RPC_URL> \
   --patch-data <PUBKEY>=<OFFSET>:<HEX_DATA>
 
-# Override clock timestamp and slot
+# Override clock timestamp and slot (Unix or RFC3339)
 sonar simulate <TX> --rpc-url <RPC_URL> \
   --timestamp 1700000000 --slot 250000000
+sonar simulate <TX> --rpc-url <RPC_URL> \
+  --timestamp 2024-01-01T00:00:00Z --slot 250000000
 
 # Dump/load accounts for offline simulation
 sonar simulate <TX> --rpc-url <RPC_URL> --dump-accounts ./accounts/

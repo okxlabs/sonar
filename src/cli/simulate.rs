@@ -2,6 +2,7 @@
 
 use std::{path::PathBuf, str::FromStr};
 
+use chrono::DateTime;
 use clap::Args;
 use serde::Deserialize;
 use solana_account::Account;
@@ -61,8 +62,9 @@ pub struct SimulateArgs {
     /// Show detailed instruction information (accounts, parsed fields, inner instructions)
     #[arg(short = 'd', long = "show-ix-detail", env = "SONAR_SHOW_IX_DETAIL")]
     pub show_ix_detail: bool,
-    /// Override the Clock sysvar's unix_timestamp for simulation
-    #[arg(long = "timestamp", value_name = "UNIX_TIMESTAMP")]
+    /// Override the Clock sysvar's unix_timestamp for simulation.
+    /// Supports Unix timestamp (e.g. 1700000000) or RFC3339 (e.g. 2024-01-01T00:00:00Z).
+    #[arg(long = "timestamp", value_name = "TIMESTAMP", value_parser = parse_timestamp)]
     pub timestamp: Option<i64>,
     /// Override the simulation slot
     #[arg(long = "slot", value_name = "SLOT")]
@@ -358,6 +360,27 @@ pub fn parse_data_patch(raw: &str) -> Result<AccountDataPatch, String> {
     Ok(AccountDataPatch { pubkey, offset, data })
 }
 
+pub fn parse_timestamp(raw: &str) -> Result<i64, String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err(
+            "Timestamp must not be empty; use Unix seconds or RFC3339 (e.g. 2024-01-01T00:00:00Z)"
+                .to_string(),
+        );
+    }
+
+    if let Ok(unix_seconds) = trimmed.parse::<i64>() {
+        return Ok(unix_seconds);
+    }
+
+    DateTime::parse_from_rfc3339(trimmed).map(|datetime| datetime.timestamp()).map_err(|_| {
+        format!(
+            "Invalid timestamp `{trimmed}`. Supported formats: Unix seconds (e.g. 1700000000) \
+                 or RFC3339 (e.g. 2024-01-01T00:00:00Z)"
+        )
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -544,6 +567,24 @@ mod tests {
         let key = Pubkey::new_unique();
         let err = parse_data_patch(&format!("{key}=0:zzzz")).unwrap_err();
         assert!(err.contains("Invalid hex"));
+    }
+
+    #[test]
+    fn parse_timestamp_accepts_unix_seconds() {
+        let parsed = parse_timestamp("1700000000").expect("parses unix timestamp");
+        assert_eq!(parsed, 1_700_000_000);
+    }
+
+    #[test]
+    fn parse_timestamp_accepts_rfc3339() {
+        let parsed = parse_timestamp("2024-01-01T00:00:00Z").expect("parses rfc3339 timestamp");
+        assert_eq!(parsed, 1_704_067_200);
+    }
+
+    #[test]
+    fn parse_timestamp_rejects_invalid_format() {
+        let err = parse_timestamp("not-a-timestamp").unwrap_err();
+        assert!(err.contains("Supported formats"));
     }
 
     // --- TokenAmount::Decimal tests ---
