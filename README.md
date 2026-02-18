@@ -271,6 +271,12 @@ sonar send <SIGNED_TX> --rpc-url <RPC_URL>
 
 # Skip preflight checks
 sonar send <SIGNED_TX> --rpc-url <RPC_URL> --skip-preflight
+
+# Wait for confirmation (default: confirmed, 30s timeout)
+sonar send <SIGNED_TX> --rpc-url <RPC_URL> --wait
+
+# Wait with custom commitment/timeout
+sonar send <SIGNED_TX> --rpc-url <RPC_URL> --wait --wait-commitment finalized --wait-timeout-secs 60
 ```
 
 ### Completions
