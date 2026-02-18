@@ -171,12 +171,18 @@ sonar account <PUBKEY> --rpc-url <RPC_URL> --raw
 sonar account <PUBKEY> --rpc-url <RPC_URL> --no-account-meta
 
 # For mint accounts, also try Metaplex metadata PDA decoding (opt-in)
-sonar account <MINT_PUBKEY> --rpc-url <RPC_URL> --metadata
+sonar account <MINT_PUBKEY> --rpc-url <RPC_URL> --mpl-metadata
+
+# Short form
+sonar account <MINT_PUBKEY> --rpc-url <RPC_URL> -m
 ```
 
-`--metadata` is opt-in and defaults to disabled. When enabled, Sonar will attempt to fetch and decode
+`--mpl-metadata` is opt-in and defaults to disabled. When enabled, Sonar will attempt to fetch and decode
 the Metaplex metadata PDA for SPL Token legacy or Token-2022 mint accounts, and print only the
-decoded metadata PDA content. If metadata is missing or cannot be decoded, the command returns an error.
+decoded metadata PDA content.
+
+If metadata PDA is missing or cannot be decoded, Sonar prints a warning to stderr and falls back to
+the parsed mint account output.
 
 ### Convert
 

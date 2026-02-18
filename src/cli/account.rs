@@ -26,7 +26,64 @@ pub struct AccountArgs {
     #[arg(long = "no-account-meta")]
     pub no_account_meta: bool,
 
-    /// For legacy SPL mint accounts, also fetch and parse Metaplex metadata PDA
-    #[arg(long)]
-    pub metadata: bool,
+    /// For SPL Token legacy or Token-2022 mint accounts, decode Metaplex metadata PDA.
+    /// If metadata is missing or invalid, prints a warning to stderr and falls back to mint data.
+    #[arg(short = 'm', long = "mpl-metadata")]
+    pub mpl_metadata: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::{Cli, Commands};
+    use clap::Parser;
+
+    #[test]
+    fn account_accepts_long_mpl_metadata_flag() {
+        let cli = Cli::try_parse_from([
+            "sonar",
+            "account",
+            "11111111111111111111111111111111",
+            "--rpc-url",
+            "http://localhost:8899",
+            "--mpl-metadata",
+        ])
+        .expect("should parse --mpl-metadata");
+
+        let Commands::Account(args) = cli.command else {
+            panic!("expected account subcommand");
+        };
+        assert!(args.mpl_metadata);
+    }
+
+    #[test]
+    fn account_accepts_short_mpl_metadata_flag() {
+        let cli = Cli::try_parse_from([
+            "sonar",
+            "account",
+            "11111111111111111111111111111111",
+            "--rpc-url",
+            "http://localhost:8899",
+            "-m",
+        ])
+        .expect("should parse -m");
+
+        let Commands::Account(args) = cli.command else {
+            panic!("expected account subcommand");
+        };
+        assert!(args.mpl_metadata);
+    }
+
+    #[test]
+    fn account_rejects_removed_metadata_flag() {
+        let result = Cli::try_parse_from([
+            "sonar",
+            "account",
+            "11111111111111111111111111111111",
+            "--rpc-url",
+            "http://localhost:8899",
+            "--metadata",
+        ]);
+
+        assert!(result.is_err());
+    }
 }

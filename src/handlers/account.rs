@@ -98,27 +98,23 @@ pub(crate) fn handle(args: AccountArgs) -> Result<()> {
 
     // Try to decode as SPL Token or Token-2022 account (mint or token account)
     if let Some(token_json) = token_account_decoder::decode_spl_token_account(&account) {
-        if args.metadata {
+        if args.mpl_metadata {
             if !should_enrich_with_metaplex_metadata(&account, &token_json) {
-                anyhow::bail!("--metadata requires a SPL Token or Token-2022 mint account");
+                anyhow::bail!("--mpl-metadata requires a SPL Token or Token-2022 mint account");
             }
 
-            let metadata_json = fetch_metadata_for_mint(&client, &account_pubkey)?;
-            println!("{}", serde_json::to_string_pretty(&metadata_json)?);
+            let metadata_result = fetch_metadata_for_mint(&client, &account_pubkey);
+            let (output, warning) =
+                resolve_metadata_output(&token_json, metadata_result, args.no_account_meta)?;
+            if let Some(message) = warning {
+                eprintln!("Warning: {message}");
+            }
+            println!("{}", serde_json::to_string_pretty(&output)?);
             return Ok(());
         }
 
-        if args.no_account_meta {
-            // Only print the parsed data part
-            if let Some(data) = token_json.get("data") {
-                println!("{}", serde_json::to_string_pretty(data)?);
-            } else {
-                println!("{}", serde_json::to_string_pretty(&token_json)?);
-            }
-        } else {
-            // Print the complete token_json (already contains account metadata and data)
-            println!("{}", serde_json::to_string_pretty(&token_json)?);
-        }
+        let output = token_output_value(&token_json, args.no_account_meta);
+        println!("{}", serde_json::to_string_pretty(&output)?);
         return Ok(());
     }
 
@@ -305,6 +301,31 @@ fn should_enrich_with_metaplex_metadata(
         .unwrap_or(false)
 }
 
+fn token_output_value(token_json: &Value, no_account_meta: bool) -> Value {
+    if no_account_meta {
+        token_json.get("data").cloned().unwrap_or_else(|| token_json.clone())
+    } else {
+        token_json.clone()
+    }
+}
+
+fn resolve_metadata_output(
+    token_json: &Value,
+    metadata_result: Result<Value>,
+    no_account_meta: bool,
+) -> Result<(Value, Option<String>)> {
+    match metadata_result {
+        Ok(metadata_json) => Ok((metadata_json, None)),
+        Err(error) => {
+            let fallback = token_output_value(token_json, no_account_meta);
+            let warning = format!(
+                "--mpl-metadata enrichment failed ({error}). Falling back to parsed mint account data."
+            );
+            Ok((fallback, Some(warning)))
+        }
+    }
+}
+
 fn fetch_metadata_for_mint(
     client: &solana_client::rpc_client::RpcClient,
     mint_pubkey: &Pubkey,
@@ -343,8 +364,10 @@ fn fetch_metadata_for_mint(
 
 #[cfg(test)]
 mod tests {
-    use super::should_enrich_with_metaplex_metadata;
+    use super::{resolve_metadata_output, should_enrich_with_metaplex_metadata};
     use crate::token_account_decoder;
+    use anyhow::anyhow;
+    use serde_json::json;
     use solana_pubkey::Pubkey;
     use spl_token::solana_program::program_option::COption;
     use spl_token::solana_program::program_pack::Pack;
@@ -434,5 +457,89 @@ mod tests {
         };
         let token_json = token_account_decoder::decode_spl_token_account(&account).unwrap();
         assert!(!should_enrich_with_metaplex_metadata(&account, &token_json));
+    }
+
+    #[test]
+    fn metadata_missing_is_non_fatal_without_strict_mode() {
+        let token_json = json!({
+            "lamports": 123,
+            "space": 82,
+            "owner": spl_token::ID.to_string(),
+            "executable": false,
+            "rentEpoch": 0,
+            "data": {
+                "mintAuthority": null,
+                "supply": "1000",
+                "decimals": 6,
+                "isInitialized": true,
+                "freezeAuthority": null
+            }
+        });
+
+        let (output, warning) = resolve_metadata_output(
+            &token_json,
+            Err(anyhow!("Metadata PDA account not found for mint ...")),
+            false,
+        )
+        .expect("metadata failure should fallback");
+
+        assert_eq!(output, token_json);
+        assert!(warning.is_some());
+    }
+
+    #[test]
+    fn metadata_decode_failure_falls_back_to_data_with_no_account_meta() {
+        let token_json = json!({
+            "lamports": 123,
+            "space": 82,
+            "owner": spl_token::ID.to_string(),
+            "executable": false,
+            "rentEpoch": 0,
+            "data": {
+                "mintAuthority": null,
+                "supply": "1000",
+                "decimals": 6,
+                "isInitialized": true,
+                "freezeAuthority": null
+            }
+        });
+
+        let (output, warning) = resolve_metadata_output(
+            &token_json,
+            Err(anyhow!("Failed to decode metaplex metadata account ...")),
+            true,
+        )
+        .expect("metadata decode failure should fallback");
+
+        assert_eq!(output, token_json["data"]);
+        assert!(warning.is_some());
+    }
+
+    #[test]
+    fn metadata_failure_still_falls_back() {
+        let token_json = json!({
+            "lamports": 123,
+            "space": 82,
+            "owner": spl_token::ID.to_string(),
+            "executable": false,
+            "rentEpoch": 0,
+            "data": {
+                "mintAuthority": null,
+                "supply": "1000",
+                "decimals": 6,
+                "isInitialized": true,
+                "freezeAuthority": null
+            }
+        });
+
+        let (output, warning) = resolve_metadata_output(
+            &token_json,
+            Err(anyhow!("Metadata PDA account not found for mint ...")),
+            false,
+        )
+        .expect("metadata failure should always fallback");
+
+        assert_eq!(output, token_json);
+        assert!(warning.is_some());
     }
 }
