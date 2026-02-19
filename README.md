@@ -20,7 +20,7 @@ A command-line tool for simulating Solana transactions locally using LiteSVM, bu
 ### Utilities
 
 - **account** — Fetch and decode on-chain accounts (SPL Token, Token-2022, Anchor IDL, BPF Upgradeable, optional Metaplex metadata for mint accounts)
-- **convert** — Explicit format conversion (hex, base58, base64, arrays, text, lamports, SOL)
+- **convert** — Explicit format conversion (hex/base58/base64/arrays/text/lamports/SOL/pubkey/signature/u-i fixed integers)
 - **pda** — PDA (Program Derived Address) derivation
 - **program-elf** — Extract program ELF bytecode from upgradeable programs/buffers
 - **send** — Submit signed transactions to the network
@@ -198,6 +198,10 @@ Convert with explicit syntax:
 sonar convert hex text 0x48656c6c6f
 sonar convert bytes int "[12,34]"
 sonar convert sol lamports 1.5
+sonar convert pubkey hex 11111111111111111111111111111111
+sonar convert signature bytes 3PtGYH77LhhQqTXP4SmDVJ85hmDieWsgXCUbn14v7gYyVYPjZzygUQhTk3bSTYnfA48vCM1rmWY7zWL3j1EVKmEy
+sonar convert u64 hex 1000000000
+sonar convert u128 hex 340282366920938463463374607431768211455
 
 # Use little-endian when needed
 sonar convert int hex 305419896 --le
@@ -215,6 +219,18 @@ sonar convert hex hex-bytes 0x48656c6c6f --no-prefix
 # Short aliases kept by design (scheme B)
 sonar convert hb lam "[0x01,0x00,0x00,0x00,0x00,0x00,0x00,0x00]"
 ```
+
+Supported formats:
+
+- Generic: `int`, `hex`, `hex-bytes`, `bytes`, `text`, `base64`, `base58`, `lamports`, `sol`
+- Solana-specific: `pubkey` (32-byte), `signature` (64-byte)
+- Fixed-width integers: `u8`, `u16`, `u32`, `u64`, `u128`, `i8`, `i16`, `i32`, `i64`, `i128`
+
+Length and strictness rules:
+
+- `TO=pubkey` requires exactly 32 bytes.
+- `TO=signature` requires exactly 64 bytes.
+- `TO=u/iN` enforces exact width when the source is byte-oriented input (e.g. `hex`, `bytes`, `base64`, `base58`).
 
 Breaking UX changes in the new `convert`:
 
