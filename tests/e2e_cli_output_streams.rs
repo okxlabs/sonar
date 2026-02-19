@@ -81,3 +81,38 @@ fn convert_hex_to_binary_writes_bitstring_to_stdout() {
     assert_eq!(stdout.trim_end(), "0b0100100001100101011011000110110001101111");
     assert!(stderr.trim().is_empty(), "expected no stderr for binary convert, got: {stderr}");
 }
+
+#[test]
+fn convert_keypair_to_pubkey_writes_base58_address_to_stdout() {
+    let keypair_hex = format!("0x{}{}", "01".repeat(32), "00".repeat(32));
+
+    let mut cmd = cargo_bin_cmd!("sonar");
+    cmd.arg("convert").arg("keypair").arg("pubkey").arg(&keypair_hex);
+
+    let assert = cmd.assert().success();
+    let output = assert.get_output();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert_eq!(stdout.trim_end(), "11111111111111111111111111111111");
+    assert!(stderr.trim().is_empty(), "expected no stderr for keypair->pubkey, got: {stderr}");
+}
+
+#[test]
+fn convert_keypair_rejects_non_64_byte_input() {
+    let invalid_keypair_hex = format!("0x{}{}", "01".repeat(31), "00".repeat(32));
+
+    let mut cmd = cargo_bin_cmd!("sonar");
+    cmd.arg("convert").arg("keypair").arg("pubkey").arg(&invalid_keypair_hex);
+
+    let assert = cmd.assert().failure();
+    let output = assert.get_output();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(stdout.trim().is_empty(), "expected no stdout on error, got: {stdout}");
+    assert!(
+        stderr.contains("keypair requires exactly 64 bytes"),
+        "expected keypair length error in stderr, got: {stderr}"
+    );
+}

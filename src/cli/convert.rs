@@ -36,6 +36,9 @@ pub enum ConvertInputFormat {
     /// Solana transaction signature (base58, 64-byte)
     #[value(alias = "sig")]
     Signature,
+    /// Solana keypair bytes (64-byte: secret[32] + pubkey[32]) (alias: kp)
+    #[value(alias = "kp")]
+    Keypair,
     /// Unsigned 8-bit integer
     U8,
     /// Unsigned 16-bit integer
@@ -487,6 +490,13 @@ fn parse_input_with_format(
             let signature = Signature::from_str(trimmed)
                 .map_err(|e| format!("Invalid signature '{}': {}", trimmed, e))?;
             Ok(ConvertValue::Bytes(signature.as_ref().to_vec()))
+        }
+        ConvertInputFormat::Keypair => {
+            let bytes = parse_bytes_input(input, Some(ByteFormat::Bytes))?;
+            if bytes.len() != 64 {
+                return Err(format!("keypair requires exactly 64 bytes, got {}", bytes.len()));
+            }
+            Ok(ConvertValue::Bytes(bytes[32..].to_vec()))
         }
         ConvertInputFormat::Lamports => {
             let trimmed = input.trim();
@@ -1155,6 +1165,21 @@ mod tests {
     }
 
     #[test]
+    fn cli_accepts_keypair_kp_alias() {
+        use clap::Parser;
+
+        let cli =
+            crate::cli::Cli::try_parse_from(["sonar", "convert", "kp", "pubkey", "0x00"]).unwrap();
+        match cli.command {
+            crate::cli::Commands::Convert(args) => {
+                assert_eq!(args.from, ConvertInputFormat::Keypair);
+                assert_eq!(args.to, ConvertOutputFormat::Pubkey);
+            }
+            _ => panic!("expected convert command"),
+        }
+    }
+
+    #[test]
     fn cli_accepts_binary_and_bin_alias() {
         use clap::Parser;
 
@@ -1208,6 +1233,20 @@ mod tests {
                 "signature",
                 "bytes",
                 "3PtGYH77LhhQqTXP4SmDVJ85hmDieWsgXCUbn14v7gYyVYPjZzygUQhTk3bSTYnfA48vCM1rmWY7zWL3j1EVKmEy",
+            ],
+            vec![
+                "sonar",
+                "convert",
+                "keypair",
+                "pubkey",
+                "0x01010101010101010101010101010101010101010101010101010101010101010000000000000000000000000000000000000000000000000000000000000000",
+            ],
+            vec![
+                "sonar",
+                "convert",
+                "kp",
+                "pubkey",
+                "0x01010101010101010101010101010101010101010101010101010101010101010000000000000000000000000000000000000000000000000000000000000000",
             ],
             vec!["sonar", "convert", "u8", "hex", "255"],
             vec!["sonar", "convert", "u16", "hex", "65535"],
@@ -1320,6 +1359,43 @@ mod tests {
             parse_convert_args(&["sonar", "convert", "signature", "hex", "invalid-signature"]);
         let err = convert(&parsed).unwrap_err();
         assert!(err.contains("Invalid signature"));
+    }
+
+    #[test]
+    fn convert_keypair_to_pubkey_from_hex() {
+        let keypair_hex = format!("0x{}{}", "01".repeat(32), "00".repeat(32));
+        let parsed = parse_convert_args(&["sonar", "convert", "keypair", "pubkey", &keypair_hex]);
+        let output = convert(&parsed).unwrap();
+        assert_eq!(output, "11111111111111111111111111111111");
+    }
+
+    #[test]
+    fn convert_keypair_to_pubkey_from_hex_bytes_array() {
+        let mut elements = vec!["0x01".to_string(); 32];
+        elements.extend(vec!["0x00".to_string(); 32]);
+        let keypair_hex_bytes = format!("[{}]", elements.join(","));
+        let parsed =
+            parse_convert_args(&["sonar", "convert", "keypair", "pubkey", &keypair_hex_bytes]);
+        let output = convert(&parsed).unwrap();
+        assert_eq!(output, "11111111111111111111111111111111");
+    }
+
+    #[test]
+    fn convert_keypair_to_pubkey_from_decimal_bytes_array() {
+        let mut elements = vec!["1".to_string(); 32];
+        elements.extend(vec!["0".to_string(); 32]);
+        let keypair_bytes = format!("[{}]", elements.join(","));
+        let parsed = parse_convert_args(&["sonar", "convert", "keypair", "pubkey", &keypair_bytes]);
+        let output = convert(&parsed).unwrap();
+        assert_eq!(output, "11111111111111111111111111111111");
+    }
+
+    #[test]
+    fn convert_keypair_requires_exactly_64_bytes() {
+        let invalid_hex = format!("0x{}{}", "01".repeat(31), "00".repeat(32));
+        let parsed = parse_convert_args(&["sonar", "convert", "keypair", "pubkey", &invalid_hex]);
+        let err = convert(&parsed).unwrap_err();
+        assert!(err.contains("keypair requires exactly 64 bytes"));
     }
 
     #[test]

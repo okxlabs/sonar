@@ -200,6 +200,8 @@ sonar convert bytes int "[12,34]"
 sonar convert sol lamports 1.5
 sonar convert pubkey hex 11111111111111111111111111111111
 sonar convert signature bytes 3PtGYH77LhhQqTXP4SmDVJ85hmDieWsgXCUbn14v7gYyVYPjZzygUQhTk3bSTYnfA48vCM1rmWY7zWL3j1EVKmEy
+sonar convert keypair pubkey 0x<64-byte-keypair-hex>
+sonar convert kp pubkey "[0x01,0x02,...,0x40]"  # alias of keypair
 sonar convert u64 hex 1000000000
 sonar convert u128 hex 340282366920938463463374607431768211455
 
@@ -230,13 +232,14 @@ sonar convert hb lam "[0x01,0x00,0x00,0x00,0x00,0x00,0x00,0x00]"
 Supported formats:
 
 - Generic: `int`, `hex`, `hex-bytes`, `bytes`, `text`, `binary`, `base64`, `base58`, `lamports`, `sol`
-- Solana-specific: `pubkey` (32-byte), `signature` (64-byte)
+- Solana-specific: `pubkey` (32-byte), `signature` (64-byte), `keypair` (64-byte input; alias: `kp`)
 - Fixed-width integers: `u8`, `u16`, `u32`, `u64`, `u128`, `i8`, `i16`, `i32`, `i64`, `i128`
 
 Length and strictness rules:
 
 - `TO=pubkey` requires exactly 32 bytes.
 - `TO=signature` requires exactly 64 bytes.
+- `FROM=keypair` requires exactly 64 bytes (`secret[32] + pubkey[32]`), and converts using the embedded pubkey bytes.
 - `TO=u/iN` enforces exact width when the source is byte-oriented input (e.g. `hex`, `bytes`, `base64`, `base58`).
 
 Breaking UX changes in the new `convert`:
