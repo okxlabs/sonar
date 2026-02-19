@@ -22,7 +22,7 @@ pub struct ProgramDataArgs {
     #[arg(long, value_name = "HASH")]
     pub verify_sha256: Option<String>,
 
-    /// Output file path (writes to stdout if not specified)
+    /// Output file path for raw ELF bytes (use "-" for stdout)
     #[arg(short, long)]
     pub output: Option<PathBuf>,
 }

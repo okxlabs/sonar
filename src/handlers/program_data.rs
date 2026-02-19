@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, anyhow};
 use solana_pubkey::Pubkey;
 
 use crate::cli::ProgramDataArgs;
@@ -10,11 +10,12 @@ pub(crate) fn handle(args: ProgramDataArgs) -> Result<()> {
     use solana_client::rpc_client::RpcClient;
     use solana_loader_v3_interface::state::UpgradeableLoaderState;
     use solana_sdk_ids::bpf_loader_upgradeable;
-    use std::io::Write;
 
     // Header sizes for different account types
     const PROGRAM_DATA_HEADER_SIZE: usize = 45;
     const BUFFER_HEADER_SIZE: usize = 37;
+
+    validate_output_mode(&args)?;
 
     let address = Pubkey::from_str(&args.address)
         .with_context(|| format!("Invalid address: {}", args.address))?;
@@ -112,20 +113,60 @@ pub(crate) fn handle(args: ProgramDataArgs) -> Result<()> {
             Ok(())
         } else {
             println!("false");
-            std::process::exit(1);
+            Err(anyhow!(
+                "SHA256 mismatch: expected {}, got {}",
+                expected_hash,
+                actual_hash
+            ))
         }
     } else if let Some(output_path) = args.output {
-        // Write to specified file
-        std::fs::write(&output_path, &elf_data).with_context(|| {
-            format!("Failed to write program data to {}", output_path.display())
-        })?;
-        eprintln!("Wrote {} bytes to {}", elf_data.len(), output_path.display());
-        Ok(())
+        if is_stdout_output_path(&output_path) {
+            write_raw_bytes_to_stdout(&elf_data)
+        } else {
+            // Write to specified file
+            std::fs::write(&output_path, &elf_data).with_context(|| {
+                format!("Failed to write program data to {}", output_path.display())
+            })?;
+            eprintln!("Wrote {} bytes to {}", elf_data.len(), output_path.display());
+            Ok(())
+        }
     } else {
-        // Output raw binary data to stdout
-        let stdout = std::io::stdout();
-        let mut handle = stdout.lock();
-        handle.write_all(&elf_data).with_context(|| "Failed to write program data to stdout")?;
-        Ok(())
+        unreachable!("output mode is validated before fetching account data");
+    }
+}
+
+fn validate_output_mode(args: &ProgramDataArgs) -> Result<()> {
+    if args.verify_sha256.is_none() && args.output.is_none() {
+        return Err(anyhow!(
+            "Refusing to write raw program bytes to stdout by default. Use -o <PATH> (or -o - for stdout), or --verify-sha256 <HASH>."
+        ));
+    }
+
+    Ok(())
+}
+
+fn is_stdout_output_path(path: &std::path::Path) -> bool {
+    path.as_os_str() == "-"
+}
+
+fn write_raw_bytes_to_stdout(data: &[u8]) -> Result<()> {
+    use std::io::Write;
+
+    let stdout = std::io::stdout();
+    let mut handle = stdout.lock();
+    handle.write_all(data).with_context(|| "Failed to write program data to stdout")?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use super::is_stdout_output_path;
+
+    #[test]
+    fn output_dash_path_maps_to_stdout() {
+        assert!(is_stdout_output_path(Path::new("-")));
+        assert!(!is_stdout_output_path(Path::new("program.so")));
     }
 }

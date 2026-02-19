@@ -55,6 +55,11 @@ cargo build --release
 | `convert` | You want pure format conversion (hex/base58/base64/utf8/lamports/sol) |
 | `pda` | You want to derive a PDA from seeds |
 
+### Output Stream Convention
+
+- Primary command results are written to `stdout`.
+- Warnings, prompts, and errors are written to `stderr`.
+
 ### Simulate
 
 Simulate a Solana transaction locally using LiteSVM.
@@ -240,18 +245,20 @@ sonar pda <PROGRAM_ID> string:position u64:42 u8:7
 ### Program Data
 
 Get raw program data (ELF bytecode) from an upgradeable program or buffer:
+you must explicitly choose one output mode: `-o` (use `-o -` for stdout) or `--verify-sha256`.
 
 ```bash
-sonar program-data <PROGRAM_ID> --rpc-url <RPC_URL>
-
 # Save to file
 sonar program-data <PROGRAM_ID> --rpc-url <RPC_URL> -o program.so
+
+# Stream raw bytes to stdout with Unix-style dash output target
+sonar program-data <PROGRAM_ID> --rpc-url <RPC_URL> -o - | shasum -a 256
 
 # Verify SHA256 hash
 sonar program-data <PROGRAM_ID> --rpc-url <RPC_URL> --verify-sha256 <HEX_HASH>
 
-# Fetch from a buffer account
-sonar program-data <BUFFER_ADDRESS> --rpc-url <RPC_URL> --buffer
+# Fetch from a buffer account and save to disk
+sonar program-data <BUFFER_ADDRESS> --rpc-url <RPC_URL> --buffer -o buffer.so
 ```
 
 ### Fetch IDL
