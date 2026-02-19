@@ -5,7 +5,7 @@ use anyhow::{Context, Result};
 use crate::cli::{self, SimulateArgs, TransactionInputArgs};
 use crate::parsers::instruction::ParserRegistry;
 use crate::utils::progress::Progress;
-use crate::{core::account_loader, core::executor, core::funding, output, core::transaction};
+use crate::{core::account_loader, core::executor, core::funding, core::transaction, output};
 
 use super::{collect_program_ids, warn_unmatched_addresses};
 

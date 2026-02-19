@@ -3,7 +3,7 @@ use anyhow::Result;
 use crate::cli::{DecodeArgs, TransactionInputArgs};
 use crate::parsers::instruction::ParserRegistry;
 use crate::utils::progress::Progress;
-use crate::{core::account_loader, output, core::transaction};
+use crate::{core::account_loader, core::transaction, output};
 
 use super::collect_program_ids;
 

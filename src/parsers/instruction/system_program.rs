@@ -495,7 +495,9 @@ fn parse_create_account_allow_prefund_instruction(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::transaction::{AccountReferenceSummary, AccountSourceSummary, InstructionSummary};
+    use crate::core::transaction::{
+        AccountReferenceSummary, AccountSourceSummary, InstructionSummary,
+    };
     use solana_pubkey::Pubkey;
 
     fn create_test_instruction(

@@ -8,7 +8,7 @@ pub(crate) mod program_elf;
 pub(crate) mod send;
 pub(crate) mod simulate;
 
-use crate::{core::account_loader, cli, core::transaction};
+use crate::{cli, core::account_loader, core::transaction};
 use solana_pubkey::Pubkey;
 
 /// Collects executable program IDs from resolved accounts for IDL loading.
@@ -135,8 +135,8 @@ mod tests {
         collect_program_ids, find_unmatched_replacements, find_unmatched_sol_fundings,
         find_unmatched_token_fundings,
     };
-    use crate::core::account_loader;
     use crate::cli;
+    use crate::core::account_loader;
     use solana_account::Account;
     use solana_pubkey::Pubkey;
     use solana_sdk_ids::system_program;

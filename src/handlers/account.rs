@@ -7,7 +7,9 @@ use serde_json::Value;
 use solana_pubkey::Pubkey;
 
 use crate::cli::AccountArgs;
-use crate::{core::account_loader, parsers::metaplex_metadata_decoder, parsers::token_account_decoder};
+use crate::{
+    core::account_loader, parsers::metaplex_metadata_decoder, parsers::token_account_decoder,
+};
 
 pub(crate) fn handle(args: AccountArgs) -> Result<()> {
     use crate::parsers::instruction::anchor_idl::{IdlRegistry, RawAnchorIdl, parse_account_data};

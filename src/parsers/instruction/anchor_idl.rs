@@ -7,10 +7,10 @@ use serde_json::{Number as JsonNumber, Value as JsonValue};
 use sha2::{Digest, Sha256};
 use solana_pubkey::Pubkey;
 
+use crate::core::transaction::InstructionSummary;
 use crate::parsers::instruction::{
     InstructionParser, OrderedJsonValue, ParsedField, ParsedInstruction,
 };
-use crate::core::transaction::InstructionSummary;
 
 /// Helper to calculate sighash for discriminators
 fn sighash(namespace: &str, name: &str) -> [u8; 8] {

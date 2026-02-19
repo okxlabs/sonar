@@ -5,8 +5,8 @@ use std::str::FromStr;
 use anyhow::{Context, Result};
 use solana_pubkey::Pubkey;
 
-use crate::core::account_loader;
 use crate::cli::FetchIdlArgs;
+use crate::core::account_loader;
 use crate::utils::progress::Progress;
 
 pub(crate) fn handle(args: FetchIdlArgs) -> Result<()> {
