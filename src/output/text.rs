@@ -462,8 +462,7 @@ fn render_lookup_tables_text(transaction: &TransactionSection) {
     println!();
 
     for (idx, lookup) in transaction.lookups.iter().enumerate() {
-        let solscan_linked_key = format_solscan_link(&lookup.account_key);
-        println!("{}[{}] {}", INDENT_L1, idx, solscan_linked_key);
+        println!("{}[{}] {}", INDENT_L1, idx, lookup.account_key);
     }
 }
 
@@ -507,13 +506,12 @@ fn render_account_entry_text(
     resolved: &ResolvedAccounts,
 ) -> usize {
     let pubkey = Pubkey::from_str(pubkey_str).unwrap();
-    let solscan_linked_pubkey = format_solscan_link(pubkey_str);
     let executable = resolved.accounts.get(&pubkey).map(|acc| acc.executable).unwrap_or(false);
     println!(
         "{}[{}] {} {}",
         INDENT_L1,
         index,
-        solscan_linked_pubkey,
+        pubkey_str,
         account_privilege_emoji(signer, writable, executable)
     );
     index + 1
@@ -528,7 +526,7 @@ fn render_instruction_details_text(
     println!();
 
     for ix in &transaction.instructions {
-        let program_pubkey_with_link = format_solscan_link(&ix.program.pubkey);
+        let program_pubkey = ix.program.pubkey.as_str();
         // Display outer instruction with 1-based indexing (#1, #2, #3, etc.)
         let outer_number = ix.index + 1;
 
@@ -537,7 +535,7 @@ fn render_instruction_details_text(
             println!(
                 "#{} {} [{}]",
                 outer_number.to_string().custom_color((229, 192, 123)),
-                program_pubkey_with_link.cyan(),
+                program_pubkey.cyan(),
                 parsed.name.custom_color((152, 195, 121))
             );
 
@@ -562,7 +560,7 @@ fn render_instruction_details_text(
             println!(
                 "#{} {}",
                 outer_number.to_string().custom_color((229, 192, 123)),
-                program_pubkey_with_link.cyan()
+                program_pubkey.cyan()
             );
 
             for account in &ix.accounts {
@@ -580,7 +578,7 @@ fn render_instruction_details_text(
                         "{}{} {} [{}]",
                         INDENT_L1,
                         format!("#{}", inner_ix.label).custom_color((229, 192, 123)),
-                        format_solscan_link(&inner_ix.program.pubkey).cyan(),
+                        inner_ix.program.pubkey.as_str().cyan(),
                         parsed_inner.name.custom_color((152, 195, 121))
                     );
 
@@ -616,7 +614,7 @@ fn render_instruction_details_text(
                         "{}{} {}",
                         INDENT_L1,
                         format!("#{}", inner_ix.label).custom_color((229, 192, 123)),
-                        format_solscan_link(&inner_ix.program.pubkey).cyan()
+                        inner_ix.program.pubkey.as_str().cyan()
                     );
 
                     for account in &inner_ix.accounts {
@@ -640,7 +638,6 @@ fn render_instruction_account_text(
     name: Option<&str>,
     indent: &str,
 ) {
-    let solscan_linked_pubkey = format_solscan_link(&account.pubkey);
     let executable = if let Ok(pubkey) = Pubkey::from_str(&account.pubkey) {
         resolved.accounts.get(&pubkey).map(|acc| acc.executable).unwrap_or(false)
     } else {
@@ -655,7 +652,7 @@ fn render_instruction_account_text(
         indent,
         account.source,
         account.index,
-        solscan_linked_pubkey,
+        account.pubkey,
         account_privilege_emoji(account.signer, account.writable, executable),
         name_suffix
     );
@@ -765,38 +762,6 @@ fn truncate_sig(sig: &str, prefix_len: usize) -> String {
 
 fn truncate_display(value: &str, limit: usize) -> String {
     if value.len() <= limit { value.to_string() } else { format!("{}…", &value[..limit]) }
-}
-
-/// Check if the terminal supports OSC 8 hyperlinks.
-fn supports_hyperlinks() -> bool {
-    // iTerm2, WezTerm, VSCode integrated terminal
-    if let Ok(term) = std::env::var("TERM_PROGRAM") {
-        if term.contains("iTerm")
-            || term.contains("WezTerm")
-            || term.contains("vscode")
-            || term.contains("Apple_Terminal")
-        {
-            return true;
-        }
-    }
-    // Windows Terminal
-    if std::env::var("WT_SESSION").is_ok() {
-        return true;
-    }
-    // VTE-based terminals (GNOME Terminal, etc.)
-    if std::env::var("VTE_VERSION").is_ok() {
-        return true;
-    }
-    false
-}
-
-fn format_solscan_link(account_pubkey: &str) -> String {
-    if supports_hyperlinks() {
-        let solscan_url = format!("https://solscan.io/account/{}", account_pubkey);
-        format!("\x1b]8;;{}\x1b\\{}\x1b]8;;\x1b\\", solscan_url, account_pubkey)
-    } else {
-        account_pubkey.to_string()
-    }
 }
 
 fn account_privilege_emoji(signer: bool, writable: bool, executable: bool) -> &'static str {
