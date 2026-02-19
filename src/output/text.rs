@@ -421,7 +421,7 @@ fn render_balance_changes_text(
 
         println!(
             "{} {} | {} | {}",
-            change.account.cyan(),
+            change.account,
             format!("{:.9}", sol_before).custom_color((171, 178, 191)),
             format!("{:.9}", sol_after).custom_color((171, 178, 191)),
             format!("{}{:.9}", sign, change.change_sol).custom_color(color)
@@ -443,7 +443,7 @@ fn render_balance_changes_text(
 
         println!(
             "{} ({}) {} | {} | {}",
-            change.account.cyan(),
+            change.account,
             change.mint.custom_color((139, 170, 214)),
             format!("{:.prec$}", ui_before, prec = change.decimals as usize)
                 .custom_color((171, 178, 191)),
