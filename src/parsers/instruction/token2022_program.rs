@@ -688,17 +688,22 @@ fn parse_initialize_account3_instruction(
         return Ok(None); // Invalid data length for InitializeAccount3
     }
 
-    if instruction.accounts.len() != 3 {
+    if instruction.accounts.len() < 2 {
         return Ok(None); // Invalid number of accounts for InitializeAccount3
     }
 
     // The data contains the owner pubkey for validation
     let owner_pubkey = bs58::encode(&data[..32]).into_string();
 
+    let mut account_names = vec!["account".to_string(), "mint".to_string()];
+    for i in 2..instruction.accounts.len() {
+        account_names.push(format!("account_{}", i + 1));
+    }
+
     Ok(Some(ParsedInstruction {
         name: "InitializeAccount3".to_string(),
         fields: vec![ParsedField::text("owner", owner_pubkey)],
-        account_names: vec!["account".to_string(), "mint".to_string(), "owner".to_string()],
+        account_names,
     }))
 }
 
@@ -1835,7 +1840,6 @@ mod tests {
         let accounts = vec![
             create_test_account(0, "AccountPubkey11111111111111111111111111111111", false, true),
             create_test_account(1, "MintPubkey111111111111111111111111111111111", false, false),
-            create_test_account(2, "OwnerPubkey111111111111111111111111111111111", false, false),
         ];
 
         // InitializeAccount3 instruction with 1-byte discriminator (18) + 32 bytes owner pubkey
@@ -1849,10 +1853,9 @@ mod tests {
 
         let parsed = result.unwrap();
         assert_eq!(parsed.name, "InitializeAccount3");
-        assert_eq!(parsed.account_names.len(), 3);
+        assert_eq!(parsed.account_names.len(), 2);
         assert_eq!(parsed.account_names[0], "account");
         assert_eq!(parsed.account_names[1], "mint");
-        assert_eq!(parsed.account_names[2], "owner");
 
         // Check that owner field is present
         assert!(parsed.fields.iter().any(|field| field.name == "owner"));
