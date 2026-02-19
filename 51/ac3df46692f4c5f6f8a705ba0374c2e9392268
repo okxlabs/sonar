@@ -1,0 +1,9 @@
+src/output/report.rs
+src/output/text.rs
+---
+{
+  "metadata": {
+    "base_commit_sha": "51ac3df46692f4c5f6f8a705ba0374c2e9392268",
+    "prompts": {}
+  }
+}
