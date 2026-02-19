@@ -26,8 +26,6 @@ const INDENT: &str = "  ";
 const INDENT_L1: &str = INDENT;
 /// Indentation for inner items (level 2 = 4 spaces).
 const INDENT_L2: &str = "    ";
-/// Indentation for deeply nested items (level 3 = 6 spaces).
-const INDENT_L3: &str = "      ";
 
 /// Subdued gray for metadata columns (index labels, permission flags, account names).
 const DIM_GRAY: colored::CustomColor = colored::CustomColor { r: 128, g: 128, b: 128 };
@@ -550,6 +548,9 @@ fn render_instruction_details_text(
     println!();
     let layout = instruction_account_layout(transaction);
 
+    let data_indent = " ".repeat(INDENT_L1.len() + layout.index_width + 3);
+    let inner_data_indent = " ".repeat(INDENT_L2.len() + layout.index_width + 3);
+
     for (ix_pos, ix) in transaction.instructions.iter().enumerate() {
         if ix_pos > 0 {
             println!();
@@ -557,6 +558,12 @@ fn render_instruction_details_text(
         let program_pubkey = ix.program.pubkey.as_str();
         // Display outer instruction with 1-based indexing (#1, #2, #3, etc.)
         let outer_number = ix.index + 1;
+
+        let current_data_indent = if ix.accounts.is_empty() {
+            " ".repeat(1 + outer_number.to_string().len() + 1)
+        } else {
+            data_indent.clone()
+        };
 
         // Try to parse the instruction
         if let Some(parsed) = &ix.parsed {
@@ -584,10 +591,10 @@ fn render_instruction_details_text(
             }
 
             if show_ix_data {
-                println!("{}0x{}", INDENT_L1, hex::encode(&ix.data));
+                println!("{}0x{}", &current_data_indent, hex::encode(&ix.data));
             }
 
-            render_parsed_fields(&parsed.fields, INDENT_L2);
+            render_parsed_fields(&parsed.fields, &current_data_indent);
         } else {
             println!(
                 "#{} {}",
@@ -598,11 +605,17 @@ fn render_instruction_details_text(
             for account in &ix.accounts {
                 render_instruction_account_text(account, resolved, None, INDENT_L1, &layout);
             }
-            println!("{}0x{}", INDENT_L1, hex::encode(&ix.data));
+            println!("{}0x{}", &current_data_indent, hex::encode(&ix.data));
         }
 
         if !ix.inner_instructions.is_empty() {
             for inner_ix in &ix.inner_instructions {
+                let current_inner_data_indent = if inner_ix.accounts.is_empty() {
+                    " ".repeat(INDENT_L1.len() + 1 + inner_ix.label.len() + 1)
+                } else {
+                    inner_data_indent.clone()
+                };
+
                 if let Some(parsed_inner) = &inner_ix.parsed {
                     println!(
                         "{}{} {} {}",
@@ -628,10 +641,10 @@ fn render_instruction_details_text(
                     }
 
                     if show_ix_data {
-                        println!("{}0x{}", INDENT_L2, hex::encode(&inner_ix.data));
+                        println!("{}0x{}", &current_inner_data_indent, hex::encode(&inner_ix.data));
                     }
 
-                    render_parsed_fields(&parsed_inner.fields, INDENT_L3);
+                    render_parsed_fields(&parsed_inner.fields, &current_inner_data_indent);
                 } else {
                     println!(
                         "{}{} {}",
@@ -645,7 +658,7 @@ fn render_instruction_details_text(
                             account, resolved, None, INDENT_L2, &layout,
                         );
                     }
-                    println!("{}0x{}", INDENT_L2, hex::encode(&inner_ix.data));
+                    println!("{}0x{}", &current_inner_data_indent, hex::encode(&inner_ix.data));
                 }
             }
         }
