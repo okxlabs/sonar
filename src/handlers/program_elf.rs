@@ -22,15 +22,17 @@ pub(crate) fn handle(args: ProgramDataArgs) -> Result<()> {
         .with_context(|| format!("Invalid address: {}", args.address))?;
 
     let client = RpcClient::new(&args.rpc.rpc_url);
-    let input_account =
-        client.get_account(&address).with_context(|| format!("Failed to fetch account: {address}"))?;
+    let input_account = client
+        .get_account(&address)
+        .with_context(|| format!("Failed to fetch account: {address}"))?;
     ensure_upgradeable_owner(address, &input_account.owner)?;
 
     let elf_data = match classify_upgradeable_account(address, &input_account.data)? {
         UpgradeableAccountKind::Program { programdata_address } => {
-            let programdata_account = client.get_account(&programdata_address).with_context(|| {
-                format!("Failed to fetch program data account: {programdata_address}")
-            })?;
+            let programdata_account =
+                client.get_account(&programdata_address).with_context(|| {
+                    format!("Failed to fetch program data account: {programdata_address}")
+                })?;
             ensure_upgradeable_owner(programdata_address, &programdata_account.owner)?;
 
             match classify_upgradeable_account(programdata_address, &programdata_account.data)? {
@@ -44,7 +46,9 @@ pub(crate) fn handle(args: ProgramDataArgs) -> Result<()> {
                 }
             }
         }
-        UpgradeableAccountKind::ProgramData => extract_elf_from_program_data(address, &input_account.data)?,
+        UpgradeableAccountKind::ProgramData => {
+            extract_elf_from_program_data(address, &input_account.data)?
+        }
         UpgradeableAccountKind::Buffer => extract_elf_from_buffer(address, &input_account.data)?,
     };
 
@@ -64,11 +68,7 @@ pub(crate) fn handle(args: ProgramDataArgs) -> Result<()> {
             Ok(())
         } else {
             println!("false");
-            Err(anyhow!(
-                "SHA256 mismatch: expected {}, got {}",
-                expected_hash,
-                actual_hash
-            ))
+            Err(anyhow!("SHA256 mismatch: expected {}, got {}", expected_hash, actual_hash))
         }
     } else if let Some(output_path) = args.output {
         if is_stdout_output_path(&output_path) {
@@ -99,7 +99,10 @@ fn ensure_upgradeable_owner(address: Pubkey, owner: &Pubkey) -> Result<()> {
     Ok(())
 }
 
-fn classify_upgradeable_account(address: Pubkey, account_data: &[u8]) -> Result<UpgradeableAccountKind> {
+fn classify_upgradeable_account(
+    address: Pubkey,
+    account_data: &[u8],
+) -> Result<UpgradeableAccountKind> {
     use solana_loader_v3_interface::state::UpgradeableLoaderState;
 
     let state: UpgradeableLoaderState = bincode::deserialize(account_data).with_context(|| {
@@ -107,27 +110,20 @@ fn classify_upgradeable_account(address: Pubkey, account_data: &[u8]) -> Result<
     })?;
 
     match state {
-        UpgradeableLoaderState::Program { programdata_address } => Ok(
-            UpgradeableAccountKind::Program {
+        UpgradeableLoaderState::Program { programdata_address } => {
+            Ok(UpgradeableAccountKind::Program {
                 programdata_address: Pubkey::new_from_array(programdata_address.to_bytes()),
-            },
-        ),
+            })
+        }
         UpgradeableLoaderState::ProgramData { .. } => Ok(UpgradeableAccountKind::ProgramData),
         UpgradeableLoaderState::Buffer { .. } => Ok(UpgradeableAccountKind::Buffer),
-        _ => Err(anyhow!(
-            "Account {} is not a Program, ProgramData, or Buffer account",
-            address
-        )),
+        _ => Err(anyhow!("Account {} is not a Program, ProgramData, or Buffer account", address)),
     }
 }
 
 fn extract_elf_from_program_data(address: Pubkey, data: &[u8]) -> Result<Vec<u8>> {
     if data.len() <= PROGRAM_DATA_HEADER_SIZE {
-        return Err(anyhow!(
-            "ProgramData account {} is too short: {} bytes",
-            address,
-            data.len()
-        ));
+        return Err(anyhow!("ProgramData account {} is too short: {} bytes", address, data.len()));
     }
 
     Ok(data[PROGRAM_DATA_HEADER_SIZE..].to_vec())
@@ -135,11 +131,7 @@ fn extract_elf_from_program_data(address: Pubkey, data: &[u8]) -> Result<Vec<u8>
 
 fn extract_elf_from_buffer(address: Pubkey, data: &[u8]) -> Result<Vec<u8>> {
     if data.len() <= BUFFER_HEADER_SIZE {
-        return Err(anyhow!(
-            "Buffer account {} is too short: {} bytes",
-            address,
-            data.len()
-        ));
+        return Err(anyhow!("Buffer account {} is too short: {} bytes", address, data.len()));
     }
 
     Ok(data[BUFFER_HEADER_SIZE..].to_vec())
@@ -176,10 +168,12 @@ mod tests {
     #[test]
     fn classify_programdata_account_state() {
         let address = Pubkey::new_unique();
-        let state = UpgradeableLoaderState::ProgramData { slot: 1, upgrade_authority_address: None };
+        let state =
+            UpgradeableLoaderState::ProgramData { slot: 1, upgrade_authority_address: None };
         let serialized = bincode::serialize(&state).expect("serialize ProgramData state");
 
-        let kind = classify_upgradeable_account(address, &serialized).expect("classify ProgramData");
+        let kind =
+            classify_upgradeable_account(address, &serialized).expect("classify ProgramData");
         assert!(matches!(kind, super::UpgradeableAccountKind::ProgramData));
     }
 
