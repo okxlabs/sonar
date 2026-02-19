@@ -696,13 +696,20 @@ impl InnerInstructionSection {
     }
 }
 
+#[derive(Serialize, Clone, Copy)]
+#[serde(rename_all = "lowercase")]
+pub(super) enum InstructionAccountSource {
+    Static,
+    Lookup,
+}
+
 #[derive(Serialize)]
 pub(super) struct InstructionAccountEntry {
     pub(super) index: usize,
     pub(super) pubkey: String,
     pub(super) signer: bool,
     pub(super) writable: bool,
-    pub(super) source: &'static str,
+    pub(super) source: InstructionAccountSource,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(super) lookup_table: Option<LookupReference>,
 }
@@ -713,9 +720,11 @@ impl InstructionAccountEntry {
         resolver: Option<&LookupResolver>,
     ) -> Self {
         let (pubkey, source, lookup_table) = match &reference.source {
-            AccountSourceSummary::Static => {
-                (reference.pubkey.clone().unwrap_or_else(|| "<missing>".into()), "⚓", None)
-            }
+            AccountSourceSummary::Static => (
+                reference.pubkey.clone().unwrap_or_else(|| "<missing>".into()),
+                InstructionAccountSource::Static,
+                None,
+            ),
             AccountSourceSummary::Lookup { table_account, lookup_index, writable } => {
                 let resolved =
                     resolver.and_then(|res| res.resolve(table_account, *writable, *lookup_index));
@@ -727,10 +736,10 @@ impl InstructionAccountEntry {
                     index: *lookup_index,
                     writable: *writable,
                 };
-                (pubkey, "🔍", Some(lookup_ref))
+                (pubkey, InstructionAccountSource::Lookup, Some(lookup_ref))
             }
             AccountSourceSummary::Unknown => {
-                (reference.pubkey.clone().unwrap_or_else(|| "<unknown>".into()), "unknown", None)
+                unreachable!("Account source must be static or lookup table")
             }
         };
 

@@ -15,8 +15,9 @@ use crate::{
 
 use super::LogDisplayOptions;
 use super::report::{
-    BundleReport, BundleTransactionReport, InstructionAccountEntry, Report, SimulationSection,
-    SimulationStatusReport, SolBalanceChangeSection, TokenBalanceChangeSection, TransactionSection,
+    BundleReport, BundleTransactionReport, InstructionAccountEntry, InstructionAccountSource,
+    Report, SimulationSection, SimulationStatusReport, SolBalanceChangeSection,
+    TokenBalanceChangeSection, TransactionSection,
 };
 
 /// Single indentation unit (2 spaces).
@@ -27,6 +28,9 @@ const INDENT_L1: &str = INDENT;
 const INDENT_L2: &str = "    ";
 /// Indentation for deeply nested items (level 3 = 6 spaces).
 const INDENT_L3: &str = "      ";
+
+/// Subdued gray for metadata columns (index labels, permission flags, account names).
+const DIM_GRAY: colored::CustomColor = colored::CustomColor { r: 128, g: 128, b: 128 };
 
 /// Get effective terminal width for text rendering.
 /// Falls back to 80 when width detection is unavailable.
@@ -460,9 +464,15 @@ fn render_lookup_tables_text(transaction: &TransactionSection) {
         return;
     }
     println!();
+    let index_width = index_label_width(transaction.lookups.len().saturating_sub(1));
 
     for (idx, lookup) in transaction.lookups.iter().enumerate() {
-        println!("{}[{}] {}", INDENT_L1, idx, lookup.account_key);
+        println!(
+            "{}{} {}",
+            INDENT_L1,
+            render_account_index_label(idx, index_width),
+            lookup.account_key
+        );
     }
 }
 
@@ -470,30 +480,45 @@ fn render_account_list_text(transaction: &TransactionSection, resolved: &Resolve
     println!();
 
     let mut account_index = 0;
+    let layout = account_list_layout(transaction);
 
-    // Render static accounts
     for account in &transaction.static_accounts {
         account_index = render_account_entry_text(
             account_index,
             &account.pubkey,
+            InstructionAccountSource::Static,
             account.signer,
             account.writable,
+            &layout,
             resolved,
         );
     }
 
-    // Render lookup table accounts (writable first, then readonly)
     for lookup in &transaction.lookups {
         for entry in &lookup.writable {
-            account_index =
-                render_account_entry_text(account_index, &entry.pubkey, false, true, resolved);
+            account_index = render_account_entry_text(
+                account_index,
+                &entry.pubkey,
+                InstructionAccountSource::Lookup,
+                false,
+                true,
+                &layout,
+                resolved,
+            );
         }
     }
 
     for lookup in &transaction.lookups {
         for entry in &lookup.readonly {
-            account_index =
-                render_account_entry_text(account_index, &entry.pubkey, false, false, resolved);
+            account_index = render_account_entry_text(
+                account_index,
+                &entry.pubkey,
+                InstructionAccountSource::Lookup,
+                false,
+                false,
+                &layout,
+                resolved,
+            );
         }
     }
 }
@@ -501,19 +526,18 @@ fn render_account_list_text(transaction: &TransactionSection, resolved: &Resolve
 fn render_account_entry_text(
     index: usize,
     pubkey_str: &str,
+    source: InstructionAccountSource,
     signer: bool,
     writable: bool,
+    layout: &ColumnLayout,
     resolved: &ResolvedAccounts,
 ) -> usize {
     let pubkey = Pubkey::from_str(pubkey_str).unwrap();
     let executable = resolved.accounts.get(&pubkey).map(|acc| acc.executable).unwrap_or(false);
-    println!(
-        "{}[{}] {} {}",
-        INDENT_L1,
-        index,
-        pubkey_str,
-        account_privilege_emoji(signer, writable, executable)
-    );
+    let index_label = render_account_index_label(index, layout.index_width);
+    let source_marker = render_instruction_account_marker(source, signer, writable, executable);
+    let pubkey_display = format!("{:<width$}", pubkey_str, width = layout.pubkey_width);
+    println!("{}{} {} {}", INDENT_L1, index_label, pubkey_display, source_marker);
     index + 1
 }
 
@@ -524,8 +548,17 @@ fn render_instruction_details_text(
     show_ix_data: bool,
 ) {
     println!();
+    let layout = instruction_account_layout(transaction);
+    println!(
+        "{}legend: [<src><sig><perm><exe>] [n]=account-list, src:s/u sig:s/- perm:w/r exe:x/-",
+        INDENT_L1
+    );
+    println!();
 
-    for ix in &transaction.instructions {
+    for (ix_pos, ix) in transaction.instructions.iter().enumerate() {
+        if ix_pos > 0 {
+            println!();
+        }
         let program_pubkey = ix.program.pubkey.as_str();
         // Display outer instruction with 1-based indexing (#1, #2, #3, etc.)
         let outer_number = ix.index + 1;
@@ -533,10 +566,10 @@ fn render_instruction_details_text(
         // Try to parse the instruction
         if let Some(parsed) = &ix.parsed {
             println!(
-                "#{} {} [{}]",
+                "#{} {} {}",
                 outer_number.to_string().custom_color((229, 192, 123)),
                 program_pubkey.cyan(),
-                parsed.name.custom_color((152, 195, 121))
+                format!("[{}]", parsed.name).custom_color((152, 195, 121))
             );
 
             // Render accounts with parsed names
@@ -546,15 +579,19 @@ fn render_instruction_details_text(
                 } else {
                     format!("account_{}", i + 1)
                 };
-                render_instruction_account_text(account, resolved, Some(&account_name), INDENT_L1);
+                render_instruction_account_text(
+                    account,
+                    resolved,
+                    Some(&account_name),
+                    INDENT_L1,
+                    &layout,
+                );
             }
 
-            // Display raw instruction data only when requested
             if show_ix_data {
-                println!("{}🔢 0x{} | {} byte(s)", INDENT_L1, hex::encode(&ix.data), ix.data.len());
+                println!("{}0x{}", INDENT_L1, hex::encode(&ix.data));
             }
 
-            // Then render parsed fields as formatted JSON, preserving original order
             render_parsed_fields(&parsed.fields, INDENT_L2);
         } else {
             println!(
@@ -564,25 +601,22 @@ fn render_instruction_details_text(
             );
 
             for account in &ix.accounts {
-                render_instruction_account_text(account, resolved, None, INDENT_L1);
+                render_instruction_account_text(account, resolved, None, INDENT_L1, &layout);
             }
-            println!("{}🔢 0x{} | {} byte(s)", INDENT_L1, hex::encode(&ix.data), ix.data.len());
+            println!("{}0x{}", INDENT_L1, hex::encode(&ix.data));
         }
 
-        // Display inner instructions if any
         if !ix.inner_instructions.is_empty() {
             for inner_ix in &ix.inner_instructions {
-                // Try to parse inner instruction
                 if let Some(parsed_inner) = &inner_ix.parsed {
                     println!(
-                        "{}{} {} [{}]",
+                        "{}{} {} {}",
                         INDENT_L1,
                         format!("#{}", inner_ix.label).custom_color((229, 192, 123)),
                         inner_ix.program.pubkey.as_str().cyan(),
-                        parsed_inner.name.custom_color((152, 195, 121))
+                        format!("[{}]", parsed_inner.name).custom_color((152, 195, 121))
                     );
 
-                    // Render accounts with parsed names
                     for (i, account) in inner_ix.accounts.iter().enumerate() {
                         let account_name = if i < parsed_inner.account_names.len() {
                             parsed_inner.account_names[i].clone()
@@ -594,20 +628,14 @@ fn render_instruction_details_text(
                             resolved,
                             Some(&account_name),
                             INDENT_L2,
+                            &layout,
                         );
                     }
 
-                    // Display raw instruction data only when requested
                     if show_ix_data {
-                        println!(
-                            "{}🔢 0x{} | {} byte(s)",
-                            INDENT_L2,
-                            hex::encode(&inner_ix.data),
-                            inner_ix.data.len()
-                        );
+                        println!("{}0x{}", INDENT_L2, hex::encode(&inner_ix.data));
                     }
 
-                    // Then render parsed fields as formatted JSON, preserving original order
                     render_parsed_fields(&parsed_inner.fields, INDENT_L3);
                 } else {
                     println!(
@@ -618,14 +646,11 @@ fn render_instruction_details_text(
                     );
 
                     for account in &inner_ix.accounts {
-                        render_instruction_account_text(account, resolved, None, INDENT_L2);
+                        render_instruction_account_text(
+                            account, resolved, None, INDENT_L2, &layout,
+                        );
                     }
-                    println!(
-                        "{}🔢 0x{} | {} byte(s)",
-                        INDENT_L2,
-                        hex::encode(&inner_ix.data),
-                        inner_ix.data.len()
-                    );
+                    println!("{}0x{}", INDENT_L2, hex::encode(&inner_ix.data));
                 }
             }
         }
@@ -637,6 +662,7 @@ fn render_instruction_account_text(
     resolved: &ResolvedAccounts,
     name: Option<&str>,
     indent: &str,
+    layout: &ColumnLayout,
 ) {
     let executable = if let Ok(pubkey) = Pubkey::from_str(&account.pubkey) {
         resolved.accounts.get(&pubkey).map(|acc| acc.executable).unwrap_or(false)
@@ -644,18 +670,92 @@ fn render_instruction_account_text(
         false
     };
     let name_suffix = match name {
-        Some(n) => format!(" ({})", n.custom_color((139, 170, 214))),
+        Some(n) => format!(" {}", n.custom_color(DIM_GRAY)),
         None => String::new(),
     };
-    println!(
-        "{}{} [{}] {} {}{}",
-        indent,
+    let source_marker = render_instruction_account_marker(
         account.source,
-        account.index,
-        account.pubkey,
-        account_privilege_emoji(account.signer, account.writable, executable),
-        name_suffix
+        account.signer,
+        account.writable,
+        executable,
     );
+    let index_label = render_account_index_label(account.index, layout.index_width);
+    let pubkey_display = format!("{:<width$}", account.pubkey, width = layout.pubkey_width);
+    println!("{}{} {} {}{}", indent, index_label, pubkey_display, source_marker, name_suffix);
+}
+
+fn render_instruction_account_marker(
+    source: InstructionAccountSource,
+    signer: bool,
+    writable: bool,
+    executable: bool,
+) -> String {
+    let mode = account_mode_bits(signer, writable, executable);
+    let prefix = match source {
+        InstructionAccountSource::Static => 's',
+        InstructionAccountSource::Lookup => 'u',
+    };
+    format!("[{prefix}{mode}]").custom_color(DIM_GRAY).to_string()
+}
+
+fn account_mode_bits(signer: bool, writable: bool, executable: bool) -> String {
+    let signer_bit = if signer { 's' } else { '-' };
+    let access_bit = if writable { 'w' } else { 'r' };
+    let exec_bit = if executable { 'x' } else { '-' };
+    format!("{signer_bit}{access_bit}{exec_bit}")
+}
+
+/// Pre-computed column widths for aligned account display.
+struct ColumnLayout {
+    index_width: usize,
+    pubkey_width: usize,
+}
+
+fn instruction_account_layout(transaction: &TransactionSection) -> ColumnLayout {
+    let mut max_index = 0usize;
+    let mut max_pubkey = 0usize;
+    for ix in &transaction.instructions {
+        for account in &ix.accounts {
+            max_index = max_index.max(account.index);
+            max_pubkey = max_pubkey.max(UnicodeWidthStr::width(account.pubkey.as_str()));
+        }
+        for inner_ix in &ix.inner_instructions {
+            for account in &inner_ix.accounts {
+                max_index = max_index.max(account.index);
+                max_pubkey = max_pubkey.max(UnicodeWidthStr::width(account.pubkey.as_str()));
+            }
+        }
+    }
+    ColumnLayout { index_width: index_label_width(max_index), pubkey_width: max_pubkey }
+}
+
+fn account_list_layout(transaction: &TransactionSection) -> ColumnLayout {
+    let total = transaction.static_accounts.len()
+        + transaction.lookups.iter().map(|l| l.writable.len() + l.readonly.len()).sum::<usize>();
+    let mut max_pubkey = 0usize;
+    for account in &transaction.static_accounts {
+        max_pubkey = max_pubkey.max(UnicodeWidthStr::width(account.pubkey.as_str()));
+    }
+    for lookup in &transaction.lookups {
+        for entry in &lookup.writable {
+            max_pubkey = max_pubkey.max(UnicodeWidthStr::width(entry.pubkey.as_str()));
+        }
+        for entry in &lookup.readonly {
+            max_pubkey = max_pubkey.max(UnicodeWidthStr::width(entry.pubkey.as_str()));
+        }
+    }
+    ColumnLayout {
+        index_width: index_label_width(total.saturating_sub(1)),
+        pubkey_width: max_pubkey,
+    }
+}
+
+fn index_label_width(max_index: usize) -> usize {
+    if max_index >= 100 { 3 } else { 2 }
+}
+
+fn render_account_index_label(index: usize, width: usize) -> String {
+    format!("[{:>width$}]", index, width = width).custom_color(DIM_GRAY).to_string()
 }
 
 /// Render logs in a structured format, grouped by instruction with proper indentation.
@@ -702,26 +802,25 @@ fn render_log_entry(entry_with_depth: &LogEntryWithDepth) {
             println!(
                 "{}{} {}",
                 indent,
-                ">".custom_color((128, 128, 128)),
-                format!("Program log: {}", message).custom_color((128, 128, 128))
+                ">".custom_color(DIM_GRAY),
+                format!("Program log: {}", message).custom_color(DIM_GRAY)
             );
         }
         LogEntry::Data { data } => {
             println!(
                 "{}{} {}",
                 indent,
-                ">".custom_color((128, 128, 128)),
-                format!("Program data: {}", truncate_display(data, 60))
-                    .custom_color((128, 128, 128))
+                ">".custom_color(DIM_GRAY),
+                format!("Program data: {}", truncate_display(data, 60)).custom_color(DIM_GRAY)
             );
         }
         LogEntry::Consumed { _program: _, used, total } => {
             println!(
                 "{}{} {}",
                 indent,
-                ">".custom_color((128, 128, 128)),
+                ">".custom_color(DIM_GRAY),
                 format!("Program consumed: {} of {} compute units", used, total)
-                    .custom_color((128, 128, 128))
+                    .custom_color(DIM_GRAY)
             );
         }
         LogEntry::Success { _program: _ } => {
@@ -734,19 +833,13 @@ fn render_log_entry(entry_with_depth: &LogEntryWithDepth) {
             println!(
                 "{}{} {}",
                 indent,
-                ">".custom_color((128, 128, 128)),
-                format!("Program return: {}", truncate_display(data, 60))
-                    .custom_color((128, 128, 128))
+                ">".custom_color(DIM_GRAY),
+                format!("Program return: {}", truncate_display(data, 60)).custom_color(DIM_GRAY)
             );
         }
         LogEntry::Other(msg) => {
             if !msg.is_empty() {
-                println!(
-                    "{}{} {}",
-                    indent,
-                    ">".custom_color((128, 128, 128)),
-                    msg.custom_color((128, 128, 128))
-                );
+                println!("{}{} {}", indent, ">".custom_color(DIM_GRAY), msg.custom_color(DIM_GRAY));
             }
         }
     }
@@ -762,19 +855,6 @@ fn truncate_sig(sig: &str, prefix_len: usize) -> String {
 
 fn truncate_display(value: &str, limit: usize) -> String {
     if value.len() <= limit { value.to_string() } else { format!("{}…", &value[..limit]) }
-}
-
-fn account_privilege_emoji(signer: bool, writable: bool, executable: bool) -> &'static str {
-    if executable {
-        "⚡"
-    } else {
-        match (signer, writable) {
-            (true, true) => "📜 🔑",
-            (true, false) => "🔒 🔑",
-            (false, true) => "📜",
-            (false, false) => "🔒",
-        }
-    }
 }
 
 struct OrderedFields<'a>(&'a [ParsedField]);
