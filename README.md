@@ -1,31 +1,30 @@
 # Sonar - Solana Transaction Simulator & Utilities
 
-A command-line tool for simulating Solana transactions locally using LiteSVM, bundled with a handful of small utilities for everyday Solana development tasks.
+A CLI tool for local Solana transaction simulation (LiteSVM) plus common developer utilities.
 
 ## Features
 
 ### Transaction Simulation (core)
 
-- Simulate transactions in a local SVM environment — no deployment needed
-- Parse transactions from raw encoding (Base58/Base64) or fetch by signature from RPC
-- Bundle simulation (multiple transactions in one run)
-- Program and account replacement for testing custom behavior
-- Fund system/token accounts with arbitrary amounts before simulation
-- Patch account data, override clock/slot for fine-grained control
+- Local simulation without deploying programs
+- Parse raw tx (`base58`/`base64`) or fetch by signature
+- Simulate bundles (multiple transactions in one run)
+- Replace program/account data with local files
+- Fund SOL or token accounts before simulation
+- Patch account data; override timestamp and slot
 - Dump/load accounts for offline replay
-- Decode transactions without simulation via `decode` subcommand
-- Support for address lookup tables (ALT)
-- Multiple output formats (text and JSON)
+- Decode-only mode via `decode`
+- Supports ALT and text/JSON output
 
 ### Utilities
 
-- **account** — Fetch and decode on-chain accounts (SPL Token, Token-2022, Anchor IDL, BPF Upgradeable, optional Metaplex metadata for mint accounts)
-- **convert** — Explicit format conversion (hex/base58/base64/binary/arrays/text/lamports/SOL/pubkey/signature/u-i fixed integers)
-- **pda** — PDA (Program Derived Address) derivation
-- **program-elf** — Extract program ELF bytecode from upgradeable programs/buffers
-- **send** — Submit signed transactions to the network
-- **fetch-idl** — Download Anchor IDLs from on-chain accounts
-- **completions** — Shell completion scripts (bash, zsh, fish, elvish, powershell)
+- **account**: decode on-chain accounts (SPL Token, Token-2022, Anchor, BPF upgradeable, optional Metaplex metadata)
+- **convert**: explicit format conversions
+- **pda**: derive program addresses from seeds
+- **program-elf**: extract ELF from Program/ProgramData/Buffer accounts
+- **send**: submit signed transactions
+- **fetch-idl**: fetch Anchor IDL from chain
+- **completions**: generate shell completions
 
 ## Installation
 
@@ -191,67 +190,42 @@ the parsed mint account output.
 
 ### Convert
 
-Convert with explicit syntax:
+Format conversion with explicit syntax:
 
 ```bash
-# Syntax: sonar convert <FROM> <TO> <INPUT>
+# Syntax
+sonar convert <FROM> <TO> <INPUT>
+
+# Common examples
 sonar convert hex text 0x48656c6c6f
 sonar convert bytes int "[12,34]"
 sonar convert sol lamports 1.5
 sonar convert pubkey hex 11111111111111111111111111111111
-sonar convert signature bytes 3PtGYH77LhhQqTXP4SmDVJ85hmDieWsgXCUbn14v7gYyVYPjZzygUQhTk3bSTYnfA48vCM1rmWY7zWL3j1EVKmEy
+sonar convert signature bytes <SIGNATURE>
 sonar convert keypair pubkey 0x<64-byte-keypair-hex>
-sonar convert kp pubkey "[0x01,0x02,...,0x40]"  # alias of keypair
 sonar convert u64 hex 1000000000
-sonar convert u128 hex 340282366920938463463374607431768211455
 
-# Omit <INPUT> and read from stdin
+# Read INPUT from stdin
 echo "0x48656c6c6f" | sonar convert hex text
-cat ./data.hex | sonar convert hex base64
 
-# Use little-endian when needed
+# Optional flags
 sonar convert int hex 305419896 --le
-
-# Lamports to SOL
-sonar convert lamports sol 1500000000
-
-# Raw hex without 0x (still supported with explicit hex input type)
-sonar convert hex text 48656c6c6f
-
-# Binary bitstring output
-sonar convert hex binary 0x48656c6c6f
-
-# Change array separator / hex-bytes prefix behavior
 sonar convert hex bytes 0x48656c6c6f --sep " "
 sonar convert hex hex-bytes 0x48656c6c6f --no-prefix
-
-# Short aliases kept by design (scheme B)
-sonar convert hb lam "[0x01,0x00,0x00,0x00,0x00,0x00,0x00,0x00]"
 ```
 
 Supported formats:
 
 - Generic: `int`, `hex`, `hex-bytes`, `bytes`, `text`, `binary`, `base64`, `base58`, `lamports`, `sol`
-- Solana-specific: `pubkey` (32-byte), `signature` (64-byte), `keypair` (64-byte input; alias: `kp`)
+- Solana: `pubkey` (32-byte), `signature` (64-byte), `keypair` (64-byte; alias `kp`)
 - Fixed-width integers: `u8`, `u16`, `u32`, `u64`, `u128`, `i8`, `i16`, `i32`, `i64`, `i128`
 
-Length and strictness rules:
+Validation rules:
 
-- `TO=pubkey` requires exactly 32 bytes.
-- `TO=signature` requires exactly 64 bytes.
-- `FROM=keypair` requires exactly 64 bytes (`secret[32] + pubkey[32]`), and converts using the embedded pubkey bytes.
-- `TO=u/iN` enforces exact width when the source is byte-oriented input (e.g. `hex`, `bytes`, `base64`, `base58`).
-
-Breaking UX changes in the new `convert`:
-
-- Auto-detection is removed. You must provide `<FROM>` explicitly.
-- `-f/--from` and `-t/--to` are removed. Use positional syntax: `sonar convert <FROM> <TO> <INPUT>`.
-- `--be` was replaced by `--le` (default is now big-endian).
-- `--space` and `--prefix` were replaced by `--sep <CHAR>` and `--no-prefix`.
-- Format names changed: `number` -> `int`, `utf8` -> `text`, `dec-array` -> `bytes`, `hex-array` -> `hex-bytes`.
-- Legacy aliases `number`, `utf8`, `dec-array`, and `hex-array` are no longer accepted.
-- Alias policy (scheme B): only `b64`, `b58`, `hb`, `bin`, and `lam` are kept; other short aliases are removed.
-- `sol` can now be used explicitly as both `<FROM>` and `<TO>`.
+- `TO=pubkey` requires 32 bytes.
+- `TO=signature` requires 64 bytes.
+- `FROM=keypair` requires 64 bytes (`secret[32] + pubkey[32]`).
+- `TO=u/iN` enforces exact width for byte-oriented input (`hex`, `bytes`, `base64`, `base58`).
 
 ### PDA
 
