@@ -1,0 +1,9 @@
+src/output/text.rs
+README.md
+---
+{
+  "metadata": {
+    "base_commit_sha": "dede8d7bbaa2167bbf55e5a2fa92e15b79b5c9b9",
+    "prompts": {}
+  }
+}
