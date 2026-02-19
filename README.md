@@ -20,7 +20,7 @@ A command-line tool for simulating Solana transactions locally using LiteSVM, bu
 ### Utilities
 
 - **account** — Fetch and decode on-chain accounts (SPL Token, Token-2022, Anchor IDL, BPF Upgradeable, optional Metaplex metadata for mint accounts)
-- **convert** — Explicit format conversion (hex/base58/base64/arrays/text/lamports/SOL/pubkey/signature/u-i fixed integers)
+- **convert** — Explicit format conversion (hex/base58/base64/binary/arrays/text/lamports/SOL/pubkey/signature/u-i fixed integers)
 - **pda** — PDA (Program Derived Address) derivation
 - **program-elf** — Extract program ELF bytecode from upgradeable programs/buffers
 - **send** — Submit signed transactions to the network
@@ -216,6 +216,9 @@ sonar convert lamports sol 1500000000
 # Raw hex without 0x (still supported with explicit hex input type)
 sonar convert hex text 48656c6c6f
 
+# Binary bitstring output
+sonar convert hex binary 0x48656c6c6f
+
 # Change array separator / hex-bytes prefix behavior
 sonar convert hex bytes 0x48656c6c6f --sep " "
 sonar convert hex hex-bytes 0x48656c6c6f --no-prefix
@@ -226,7 +229,7 @@ sonar convert hb lam "[0x01,0x00,0x00,0x00,0x00,0x00,0x00,0x00]"
 
 Supported formats:
 
-- Generic: `int`, `hex`, `hex-bytes`, `bytes`, `text`, `base64`, `base58`, `lamports`, `sol`
+- Generic: `int`, `hex`, `hex-bytes`, `bytes`, `text`, `binary`, `base64`, `base58`, `lamports`, `sol`
 - Solana-specific: `pubkey` (32-byte), `signature` (64-byte)
 - Fixed-width integers: `u8`, `u16`, `u32`, `u64`, `u128`, `i8`, `i16`, `i32`, `i64`, `i128`
 
@@ -244,7 +247,7 @@ Breaking UX changes in the new `convert`:
 - `--space` and `--prefix` were replaced by `--sep <CHAR>` and `--no-prefix`.
 - Format names changed: `number` -> `int`, `utf8` -> `text`, `dec-array` -> `bytes`, `hex-array` -> `hex-bytes`.
 - Legacy aliases `number`, `utf8`, `dec-array`, and `hex-array` are no longer accepted.
-- Alias policy (scheme B): only `b64`, `b58`, `hb`, and `lam` are kept; other short aliases are removed.
+- Alias policy (scheme B): only `b64`, `b58`, `hb`, `bin`, and `lam` are kept; other short aliases are removed.
 - `sol` can now be used explicitly as both `<FROM>` and `<TO>`.
 
 ### PDA

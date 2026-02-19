@@ -67,3 +67,17 @@ fn convert_rejects_empty_stdin_when_input_is_omitted() {
         "expected stdin-empty error in stderr, got: {stderr}"
     );
 }
+
+#[test]
+fn convert_hex_to_binary_writes_bitstring_to_stdout() {
+    let mut cmd = cargo_bin_cmd!("sonar");
+    cmd.arg("convert").arg("hex").arg("binary").arg("0x48656c6c6f");
+
+    let assert = cmd.assert().success();
+    let output = assert.get_output();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert_eq!(stdout.trim_end(), "0b0100100001100101011011000110110001101111");
+    assert!(stderr.trim().is_empty(), "expected no stderr for binary convert, got: {stderr}");
+}

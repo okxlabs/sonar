@@ -77,6 +77,9 @@ pub enum ConvertOutputFormat {
     Bytes,
     /// Text output
     Text,
+    /// Binary bitstring output with 0b prefix (alias: bin)
+    #[value(alias = "bin")]
+    Binary,
     /// Base64 output (alias: b64)
     #[value(alias = "b64")]
     Base64,
@@ -631,6 +634,15 @@ fn format_bytes(bytes: &[u8], format: ByteFormat, separator: &str, with_prefix: 
     }
 }
 
+fn format_binary(bytes: &[u8]) -> String {
+    if bytes.is_empty() {
+        return "0b0".to_string();
+    }
+
+    let bits: String = bytes.iter().map(|b| format!("{:08b}", b)).collect();
+    format!("0b{}", bits)
+}
+
 fn bytes_to_utf8(bytes: &[u8], escape_invalid: bool) -> String {
     if !escape_invalid {
         return String::from_utf8_lossy(bytes).into_owned();
@@ -809,6 +821,10 @@ fn format_target(
             let bytes = value_to_bytes(value, big_endian);
             Ok(bytes_to_utf8(&bytes, escape_text))
         }
+        ConvertOutputFormat::Binary => {
+            let bytes = value_to_bytes(value, big_endian);
+            Ok(format_binary(&bytes))
+        }
         ConvertOutputFormat::Base64 => {
             let bytes = value_to_bytes(value, big_endian);
             Ok(base64::engine::general_purpose::STANDARD.encode(&bytes))
@@ -980,6 +996,37 @@ mod tests {
     }
 
     #[test]
+    fn convert_hex_to_binary() {
+        let output =
+            convert(&args(ConvertInputFormat::Hex, "0x48656c6c6f", ConvertOutputFormat::Binary))
+                .unwrap();
+        assert_eq!(output, "0b0100100001100101011011000110110001101111");
+    }
+
+    #[test]
+    fn convert_int_to_binary_default_be() {
+        let output =
+            convert(&args(ConvertInputFormat::Int, "305419896", ConvertOutputFormat::Binary))
+                .unwrap();
+        assert_eq!(output, "0b00010010001101000101011001111000");
+    }
+
+    #[test]
+    fn convert_int_to_binary_le() {
+        let mut value = args(ConvertInputFormat::Int, "305419896", ConvertOutputFormat::Binary);
+        value.le = true;
+        let output = convert(&value).unwrap();
+        assert_eq!(output, "0b01111000010101100011010000010010");
+    }
+
+    #[test]
+    fn convert_zero_to_binary() {
+        let output =
+            convert(&args(ConvertInputFormat::Int, "0", ConvertOutputFormat::Binary)).unwrap();
+        assert_eq!(output, "0b00000000");
+    }
+
+    #[test]
     fn parse_sol_to_lamports_precision() {
         assert_eq!(parse_sol_to_lamports("1").unwrap(), 1_000_000_000);
         assert_eq!(parse_sol_to_lamports(".5").unwrap(), 500_000_000);
@@ -1108,6 +1155,29 @@ mod tests {
     }
 
     #[test]
+    fn cli_accepts_binary_and_bin_alias() {
+        use clap::Parser;
+
+        let full =
+            crate::cli::Cli::try_parse_from(["sonar", "convert", "hex", "binary", "0x01"]).unwrap();
+        match full.command {
+            crate::cli::Commands::Convert(args) => {
+                assert_eq!(args.to, ConvertOutputFormat::Binary);
+            }
+            _ => panic!("expected convert command"),
+        }
+
+        let alias =
+            crate::cli::Cli::try_parse_from(["sonar", "convert", "hex", "bin", "0x01"]).unwrap();
+        match alias.command {
+            crate::cli::Commands::Convert(args) => {
+                assert_eq!(args.to, ConvertOutputFormat::Binary);
+            }
+            _ => panic!("expected convert command"),
+        }
+    }
+
+    #[test]
     fn cli_rejects_removed_short_aliases() {
         use clap::Parser;
 
@@ -1172,6 +1242,8 @@ mod tests {
             ],
             vec!["sonar", "convert", "hex", "u8", "0xff"],
             vec!["sonar", "convert", "hex", "i8", "0xff"],
+            vec!["sonar", "convert", "hex", "binary", "0xff"],
+            vec!["sonar", "convert", "hex", "bin", "0xff"],
         ];
 
         for args in cases {
