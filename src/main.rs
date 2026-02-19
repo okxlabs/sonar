@@ -57,7 +57,7 @@ fn run() -> Result<()> {
         Commands::Account(args) => handlers::account::handle(args)?,
         Commands::Convert(args) => handlers::convert::handle(args)?,
         Commands::Pda(args) => handlers::pda::handle(args)?,
-        Commands::ProgramData(args) => handlers::program_data::handle(args)?,
+        Commands::ProgramData(args) => handlers::program_elf::handle(args)?,
         Commands::Send(args) => handlers::send::handle(args)?,
         Commands::Completions(args) => {
             handlers::completions::handle(args);

@@ -1,4 +1,4 @@
-//! Program data command arguments.
+//! Program ELF command arguments.
 
 use std::path::PathBuf;
 

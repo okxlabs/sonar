@@ -14,7 +14,7 @@ src/
 │   ├── account.rs             # Account args
 │   ├── convert.rs             # Convert args and conversion logic
 │   ├── pda.rs                 # PDA args and seed parsing
-│   ├── program_data.rs        # Program ELF args
+│   ├── program_elf.rs         # Program ELF args
 │   ├── send.rs                # Send args
 │   └── fetch_idl.rs           # Fetch IDL args
 ├── handlers/                  # Command handler implementations
@@ -24,7 +24,7 @@ src/
 │   ├── account.rs             # Account command handler
 │   ├── convert.rs             # Convert command handler
 │   ├── pda.rs                 # PDA command handler
-│   ├── program_data.rs        # Program ELF command handler
+│   ├── program_elf.rs         # Program ELF command handler
 │   ├── send.rs                # Send command handler
 │   ├── fetch_idl.rs           # Fetch IDL command handler
 │   └── completions.rs         # Shell completions handler

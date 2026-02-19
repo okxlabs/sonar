@@ -5,7 +5,7 @@ mod convert;
 mod decode;
 mod fetch_idl;
 mod pda;
-mod program_data;
+mod program_elf;
 mod send;
 mod simulate;
 
@@ -15,7 +15,7 @@ pub use convert::*;
 pub use decode::*;
 pub use fetch_idl::*;
 pub use pda::*;
-pub use program_data::*;
+pub use program_elf::*;
 pub use send::*;
 pub use simulate::*;
 
