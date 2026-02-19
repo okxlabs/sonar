@@ -22,7 +22,7 @@ A command-line tool for simulating Solana transactions locally using LiteSVM, bu
 - **account** — Fetch and decode on-chain accounts (SPL Token, Token-2022, Anchor IDL, BPF Upgradeable, optional Metaplex metadata for mint accounts)
 - **convert** — Data format conversion (hex, base58, base64, arrays, UTF-8, lamports, SOL)
 - **pda** — PDA (Program Derived Address) derivation
-- **program-data** — Extract program ELF bytecode from upgradeable programs/buffers
+- **program-elf** — Extract program ELF bytecode from upgradeable programs/buffers
 - **send** — Submit signed transactions to the network
 - **fetch-idl** — Download Anchor IDLs from on-chain accounts
 - **completions** — Shell completion scripts (bash, zsh, fish, elvish, powershell)
@@ -49,7 +49,7 @@ cargo build --release
 | **`simulate`** | **You want local execution logs, balance changes, and failure reasons** |
 | `decode` | You only need transaction structure (instructions/accounts) without execution |
 | `account` | You want decoded account metadata/data for a pubkey |
-| `program-data` | You need raw ELF bytes from upgradeable program/buffer accounts |
+| `program-elf` | You need raw ELF bytes from upgradeable program/buffer accounts |
 | `fetch-idl` | You want to download and persist Anchor IDLs locally |
 | `send` | You want to submit a signed transaction to the network |
 | `convert` | You want pure format conversion (hex/base58/base64/utf8/lamports/sol) |
@@ -242,23 +242,23 @@ sonar pda <PROGRAM_ID> string:hello pubkey:<PUBKEY>
 sonar pda <PROGRAM_ID> string:position u64:42 u8:7
 ```
 
-### Program Data
+### Program ELF
 
 Get raw program data (ELF bytecode) from an upgradeable program or buffer:
 you must explicitly choose one output mode: `-o` (use `-o -` for stdout) or `--verify-sha256`.
 
 ```bash
 # Save to file
-sonar program-data <PROGRAM_ID> --rpc-url <RPC_URL> -o program.so
+sonar program-elf <PROGRAM_ID> --rpc-url <RPC_URL> -o program.so
 
 # Stream raw bytes to stdout with Unix-style dash output target
-sonar program-data <PROGRAM_ID> --rpc-url <RPC_URL> -o - | shasum -a 256
+sonar program-elf <PROGRAM_ID> --rpc-url <RPC_URL> -o - | shasum -a 256
 
 # Verify SHA256 hash
-sonar program-data <PROGRAM_ID> --rpc-url <RPC_URL> --verify-sha256 <HEX_HASH>
+sonar program-elf <PROGRAM_ID> --rpc-url <RPC_URL> --verify-sha256 <HEX_HASH>
 
 # Fetch from a buffer account and save to disk
-sonar program-data <BUFFER_ADDRESS> --rpc-url <RPC_URL> --buffer -o buffer.so
+sonar program-elf <BUFFER_ADDRESS> --rpc-url <RPC_URL> --buffer -o buffer.so
 ```
 
 ### Fetch IDL

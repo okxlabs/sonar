@@ -14,7 +14,7 @@ src/
 │   ├── account.rs             # Account args
 │   ├── convert.rs             # Convert args and conversion logic
 │   ├── pda.rs                 # PDA args and seed parsing
-│   ├── program_data.rs        # Program data args
+│   ├── program_data.rs        # Program ELF args
 │   ├── send.rs                # Send args
 │   └── fetch_idl.rs           # Fetch IDL args
 ├── handlers/                  # Command handler implementations
@@ -24,7 +24,7 @@ src/
 │   ├── account.rs             # Account command handler
 │   ├── convert.rs             # Convert command handler
 │   ├── pda.rs                 # PDA command handler
-│   ├── program_data.rs        # Program data command handler
+│   ├── program_data.rs        # Program ELF command handler
 │   ├── send.rs                # Send command handler
 │   ├── fetch_idl.rs           # Fetch IDL command handler
 │   └── completions.rs         # Shell completions handler
@@ -87,7 +87,7 @@ cargo run -- decode <TX> --rpc-url <RPC_URL>
 cargo run -- account <PUBKEY> --rpc-url <RPC_URL>
 cargo run -- convert 0x48656c6c6f -t utf8
 cargo run -- pda <PROGRAM_ID> string:hello pubkey:<PUBKEY>
-cargo run -- program-data <PROGRAM_ID> --rpc-url <RPC_URL>
+cargo run -- program-elf <PROGRAM_ID> --rpc-url <RPC_URL>
 cargo run -- send <SIGNED_TX> --rpc-url <RPC_URL>
 cargo run -- fetch-idl <PROGRAM_ID> --rpc-url <RPC_URL>
 cargo run -- completions zsh

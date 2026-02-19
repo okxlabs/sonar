@@ -5,7 +5,7 @@ const VALID_PUBKEY: &str = "11111111111111111111111111111111";
 #[test]
 fn program_data_requires_explicit_output_mode_for_raw_binary() {
     let mut cmd = cargo_bin_cmd!("sonar");
-    cmd.arg("program-data")
+    cmd.arg("program-elf")
         .arg(VALID_PUBKEY)
         .arg("--rpc-url")
         .arg("http://127.0.0.1:1");
@@ -36,7 +36,7 @@ fn program_data_requires_explicit_output_mode_for_raw_binary() {
 #[test]
 fn program_data_help_is_printed_to_stdout() {
     let mut cmd = cargo_bin_cmd!("sonar");
-    cmd.arg("program-data").arg("--help");
+    cmd.arg("program-elf").arg("--help");
 
     let assert = cmd.assert().success();
     let output = assert.get_output();
