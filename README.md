@@ -203,6 +203,10 @@ sonar convert signature bytes 3PtGYH77LhhQqTXP4SmDVJ85hmDieWsgXCUbn14v7gYyVYPjZz
 sonar convert u64 hex 1000000000
 sonar convert u128 hex 340282366920938463463374607431768211455
 
+# Omit <INPUT> and read from stdin
+echo "0x48656c6c6f" | sonar convert hex text
+cat ./data.hex | sonar convert hex base64
+
 # Use little-endian when needed
 sonar convert int hex 305419896 --le
 

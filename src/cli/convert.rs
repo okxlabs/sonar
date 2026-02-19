@@ -1,6 +1,9 @@
 //! Explicit data format conversion utilities.
 
-use std::str::FromStr;
+use std::{
+    io::{IsTerminal, Read},
+    str::FromStr,
+};
 
 use base64::Engine;
 use clap::{Args, ValueEnum};
@@ -123,9 +126,9 @@ pub struct ConvertArgs {
     #[arg(value_name = "TO", index = 2)]
     pub to: ConvertOutputFormat,
 
-    /// Input value
-    #[arg(value_name = "INPUT", index = 3)]
-    pub input: String,
+    /// Input value (omit to read from stdin)
+    #[arg(value_name = "INPUT", index = 3, required = false)]
+    pub input: Option<String>,
 
     /// Use little-endian byte order; default is big-endian
     #[arg(long)]
@@ -847,11 +850,36 @@ fn normalize_separator(raw: &str) -> Result<&str, String> {
     Ok(raw)
 }
 
+fn read_convert_input(input: Option<&str>) -> Result<String, String> {
+    if let Some(input) = input {
+        let trimmed = input.trim();
+        if trimmed.is_empty() {
+            return Err("Input cannot be empty".to_string());
+        }
+        return Ok(trimmed.to_owned());
+    }
+
+    if !std::io::stdin().is_terminal() {
+        let mut buf = String::new();
+        std::io::stdin()
+            .read_to_string(&mut buf)
+            .map_err(|e| format!("Failed to read input from stdin: {}", e))?;
+        let trimmed = buf.trim();
+        if trimmed.is_empty() {
+            return Err("No input data received from stdin".to_string());
+        }
+        return Ok(trimmed.to_owned());
+    }
+
+    Err("No input provided. Pass INPUT as a positional argument or pipe via stdin".to_string())
+}
+
 /// Perform the complete conversion from input to output.
 pub fn convert(args: &ConvertArgs) -> Result<String, String> {
     let separator = normalize_separator(&args.sep)?;
     let big_endian = !args.le;
-    let value = parse_input_with_format(&args.input, args.from)?;
+    let input = read_convert_input(args.input.as_deref())?;
+    let value = parse_input_with_format(&input, args.from)?;
     format_target(&value, args.to, big_endian, separator, !args.no_prefix, args.escape)
 }
 
@@ -863,7 +891,7 @@ mod tests {
         ConvertArgs {
             from,
             to,
-            input: input.to_string(),
+            input: Some(input.to_string()),
             le: false,
             sep: ",".to_string(),
             no_prefix: false,
@@ -983,18 +1011,25 @@ mod tests {
             crate::cli::Commands::Convert(args) => {
                 assert_eq!(args.from, ConvertInputFormat::Hex);
                 assert_eq!(args.to, ConvertOutputFormat::Int);
-                assert_eq!(args.input, "0x123");
+                assert_eq!(args.input.as_deref(), Some("0x123"));
             }
             _ => panic!("expected convert command"),
         }
     }
 
     #[test]
-    fn cli_rejects_missing_input() {
+    fn cli_allows_missing_input_for_stdin() {
         use clap::Parser;
 
-        let err = crate::cli::Cli::try_parse_from(["sonar", "convert", "hex", "int"]).unwrap_err();
-        assert!(err.to_string().contains("<INPUT>"));
+        let cli = crate::cli::Cli::try_parse_from(["sonar", "convert", "hex", "int"]).unwrap();
+        match cli.command {
+            crate::cli::Commands::Convert(args) => {
+                assert_eq!(args.from, ConvertInputFormat::Hex);
+                assert_eq!(args.to, ConvertOutputFormat::Int);
+                assert_eq!(args.input, None);
+            }
+            _ => panic!("expected convert command"),
+        }
     }
 
     #[test]
@@ -1066,7 +1101,7 @@ mod tests {
             crate::cli::Commands::Convert(args) => {
                 assert_eq!(args.from, ConvertInputFormat::HexBytes);
                 assert_eq!(args.to, ConvertOutputFormat::Lamports);
-                assert_eq!(args.input, "[0x01]");
+                assert_eq!(args.input.as_deref(), Some("[0x01]"));
             }
             _ => panic!("expected convert command"),
         }
