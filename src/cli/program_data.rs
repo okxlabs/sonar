@@ -8,21 +8,17 @@ use super::RpcArgs;
 
 #[derive(Args, Debug)]
 pub struct ProgramDataArgs {
-    /// Program ID or Buffer address to fetch data for
+    /// Program, ProgramData, or Buffer address to fetch ELF data for
     pub address: String,
 
     #[command(flatten)]
     pub rpc: RpcArgs,
-
-    /// Treat address as a buffer account instead of a program
-    #[arg(long)]
-    pub buffer: bool,
 
     /// Verify the program data matches the expected SHA256 hash (hex string)
     #[arg(long, value_name = "HASH")]
     pub verify_sha256: Option<String>,
 
     /// Output file path for raw ELF bytes (use "-" for stdout)
-    #[arg(short, long)]
+    #[arg(short, long, required_unless_present = "verify_sha256")]
     pub output: Option<PathBuf>,
 }

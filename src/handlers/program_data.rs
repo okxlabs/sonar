@@ -5,96 +5,47 @@ use solana_pubkey::Pubkey;
 
 use crate::cli::ProgramDataArgs;
 
+const PROGRAM_DATA_HEADER_SIZE: usize = 45;
+const BUFFER_HEADER_SIZE: usize = 37;
+
+enum UpgradeableAccountKind {
+    Program { programdata_address: Pubkey },
+    ProgramData,
+    Buffer,
+}
+
 pub(crate) fn handle(args: ProgramDataArgs) -> Result<()> {
     use sha2::{Digest, Sha256};
     use solana_client::rpc_client::RpcClient;
-    use solana_loader_v3_interface::state::UpgradeableLoaderState;
-    use solana_sdk_ids::bpf_loader_upgradeable;
-
-    // Header sizes for different account types
-    const PROGRAM_DATA_HEADER_SIZE: usize = 45;
-    const BUFFER_HEADER_SIZE: usize = 37;
-
-    validate_output_mode(&args)?;
 
     let address = Pubkey::from_str(&args.address)
         .with_context(|| format!("Invalid address: {}", args.address))?;
 
     let client = RpcClient::new(&args.rpc.rpc_url);
+    let input_account =
+        client.get_account(&address).with_context(|| format!("Failed to fetch account: {address}"))?;
+    ensure_upgradeable_owner(address, &input_account.owner)?;
 
-    let elf_data = if args.buffer {
-        // Buffer mode: fetch buffer account directly
-        let account = client
-            .get_account(&address)
-            .with_context(|| format!("Failed to fetch buffer account: {}", address))?;
+    let elf_data = match classify_upgradeable_account(address, &input_account.data)? {
+        UpgradeableAccountKind::Program { programdata_address } => {
+            let programdata_account = client.get_account(&programdata_address).with_context(|| {
+                format!("Failed to fetch program data account: {programdata_address}")
+            })?;
+            ensure_upgradeable_owner(programdata_address, &programdata_account.owner)?;
 
-        if account.owner != bpf_loader_upgradeable::id() {
-            return Err(anyhow::anyhow!(
-                "Account {} is not owned by BPF Loader Upgradeable (owner: {})",
-                address,
-                account.owner
-            ));
-        }
-
-        // Verify it's a Buffer account
-        let state: UpgradeableLoaderState = bincode::deserialize(&account.data)
-            .with_context(|| "Failed to deserialize buffer account state")?;
-
-        match state {
-            UpgradeableLoaderState::Buffer { .. } => {}
-            _ => {
-                return Err(anyhow::anyhow!("Account {} is not a Buffer account", address));
+            match classify_upgradeable_account(programdata_address, &programdata_account.data)? {
+                UpgradeableAccountKind::ProgramData => {
+                    extract_elf_from_program_data(programdata_address, &programdata_account.data)?
+                }
+                _ => {
+                    return Err(anyhow!(
+                        "Program account {address} points to {programdata_address}, but that account is not ProgramData"
+                    ));
+                }
             }
         }
-
-        if account.data.len() <= BUFFER_HEADER_SIZE {
-            return Err(anyhow::anyhow!(
-                "Buffer account data too short: {} bytes",
-                account.data.len()
-            ));
-        }
-
-        account.data[BUFFER_HEADER_SIZE..].to_vec()
-    } else {
-        // Program mode: fetch program account and then program data account
-        let account = client
-            .get_account(&address)
-            .with_context(|| format!("Failed to fetch program account: {}", address))?;
-
-        if account.owner != bpf_loader_upgradeable::id() {
-            return Err(anyhow::anyhow!(
-                "Account {} is not owned by BPF Loader Upgradeable (owner: {})",
-                address,
-                account.owner
-            ));
-        }
-
-        // Parse program account to get programdata address
-        let state: UpgradeableLoaderState = bincode::deserialize(&account.data)
-            .with_context(|| "Failed to deserialize program account state")?;
-
-        let programdata_address = match state {
-            UpgradeableLoaderState::Program { programdata_address } => {
-                Pubkey::new_from_array(programdata_address.to_bytes())
-            }
-            _ => {
-                return Err(anyhow::anyhow!("Account {} is not a Program account", address));
-            }
-        };
-
-        // Fetch program data account
-        let programdata_account = client.get_account(&programdata_address).with_context(|| {
-            format!("Failed to fetch program data account: {}", programdata_address)
-        })?;
-
-        if programdata_account.data.len() <= PROGRAM_DATA_HEADER_SIZE {
-            return Err(anyhow::anyhow!(
-                "Program data account too short: {} bytes",
-                programdata_account.data.len()
-            ));
-        }
-
-        programdata_account.data[PROGRAM_DATA_HEADER_SIZE..].to_vec()
+        UpgradeableAccountKind::ProgramData => extract_elf_from_program_data(address, &input_account.data)?,
+        UpgradeableAccountKind::Buffer => extract_elf_from_buffer(address, &input_account.data)?,
     };
 
     // Handle verification or output
@@ -123,7 +74,6 @@ pub(crate) fn handle(args: ProgramDataArgs) -> Result<()> {
         if is_stdout_output_path(&output_path) {
             write_raw_bytes_to_stdout(&elf_data)
         } else {
-            // Write to specified file
             std::fs::write(&output_path, &elf_data).with_context(|| {
                 format!("Failed to write program data to {}", output_path.display())
             })?;
@@ -131,18 +81,68 @@ pub(crate) fn handle(args: ProgramDataArgs) -> Result<()> {
             Ok(())
         }
     } else {
-        unreachable!("output mode is validated before fetching account data");
+        unreachable!("clap requires --output when --verify-sha256 is absent");
     }
 }
 
-fn validate_output_mode(args: &ProgramDataArgs) -> Result<()> {
-    if args.verify_sha256.is_none() && args.output.is_none() {
+fn ensure_upgradeable_owner(address: Pubkey, owner: &Pubkey) -> Result<()> {
+    use solana_sdk_ids::bpf_loader_upgradeable;
+
+    if *owner != bpf_loader_upgradeable::id() {
         return Err(anyhow!(
-            "Refusing to write raw program bytes to stdout by default. Use -o <PATH> (or -o - for stdout), or --verify-sha256 <HASH>."
+            "Account {} is not owned by BPF Loader Upgradeable (owner: {})",
+            address,
+            owner
         ));
     }
 
     Ok(())
+}
+
+fn classify_upgradeable_account(address: Pubkey, account_data: &[u8]) -> Result<UpgradeableAccountKind> {
+    use solana_loader_v3_interface::state::UpgradeableLoaderState;
+
+    let state: UpgradeableLoaderState = bincode::deserialize(account_data).with_context(|| {
+        format!("Failed to deserialize upgradeable loader account state: {address}")
+    })?;
+
+    match state {
+        UpgradeableLoaderState::Program { programdata_address } => Ok(
+            UpgradeableAccountKind::Program {
+                programdata_address: Pubkey::new_from_array(programdata_address.to_bytes()),
+            },
+        ),
+        UpgradeableLoaderState::ProgramData { .. } => Ok(UpgradeableAccountKind::ProgramData),
+        UpgradeableLoaderState::Buffer { .. } => Ok(UpgradeableAccountKind::Buffer),
+        _ => Err(anyhow!(
+            "Account {} is not a Program, ProgramData, or Buffer account",
+            address
+        )),
+    }
+}
+
+fn extract_elf_from_program_data(address: Pubkey, data: &[u8]) -> Result<Vec<u8>> {
+    if data.len() <= PROGRAM_DATA_HEADER_SIZE {
+        return Err(anyhow!(
+            "ProgramData account {} is too short: {} bytes",
+            address,
+            data.len()
+        ));
+    }
+
+    Ok(data[PROGRAM_DATA_HEADER_SIZE..].to_vec())
+}
+
+fn extract_elf_from_buffer(address: Pubkey, data: &[u8]) -> Result<Vec<u8>> {
+    if data.len() <= BUFFER_HEADER_SIZE {
+        return Err(anyhow!(
+            "Buffer account {} is too short: {} bytes",
+            address,
+            data.len()
+        ));
+    }
+
+    Ok(data[BUFFER_HEADER_SIZE..].to_vec())
 }
 
 fn is_stdout_output_path(path: &std::path::Path) -> bool {
@@ -162,11 +162,34 @@ fn write_raw_bytes_to_stdout(data: &[u8]) -> Result<()> {
 mod tests {
     use std::path::Path;
 
-    use super::is_stdout_output_path;
+    use solana_loader_v3_interface::state::UpgradeableLoaderState;
+    use solana_pubkey::Pubkey;
+
+    use super::{classify_upgradeable_account, is_stdout_output_path};
 
     #[test]
     fn output_dash_path_maps_to_stdout() {
         assert!(is_stdout_output_path(Path::new("-")));
         assert!(!is_stdout_output_path(Path::new("program.so")));
+    }
+
+    #[test]
+    fn classify_programdata_account_state() {
+        let address = Pubkey::new_unique();
+        let state = UpgradeableLoaderState::ProgramData { slot: 1, upgrade_authority_address: None };
+        let serialized = bincode::serialize(&state).expect("serialize ProgramData state");
+
+        let kind = classify_upgradeable_account(address, &serialized).expect("classify ProgramData");
+        assert!(matches!(kind, super::UpgradeableAccountKind::ProgramData));
+    }
+
+    #[test]
+    fn classify_buffer_account_state() {
+        let address = Pubkey::new_unique();
+        let state = UpgradeableLoaderState::Buffer { authority_address: None };
+        let serialized = bincode::serialize(&state).expect("serialize Buffer state");
+
+        let kind = classify_upgradeable_account(address, &serialized).expect("classify Buffer");
+        assert!(matches!(kind, super::UpgradeableAccountKind::Buffer));
     }
 }

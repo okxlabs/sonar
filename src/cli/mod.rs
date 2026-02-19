@@ -74,7 +74,7 @@ pub enum Commands {
     Convert(ConvertArgs),
     /// Derive a PDA (Program Derived Address) from seeds
     Pda(PdaArgs),
-    /// Get raw program data (ELF bytecode) from an upgradeable program or buffer
+    /// Get raw program data (ELF bytecode) from an upgradeable Program/ProgramData/Buffer account
     #[command(name = "program-elf")]
     ProgramData(ProgramDataArgs),
     /// Send a signed transaction to the network

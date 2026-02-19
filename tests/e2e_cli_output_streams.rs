@@ -20,17 +20,10 @@ fn program_data_requires_explicit_output_mode_for_raw_binary() {
         "expected no stdout output for safety error, got: {stdout}"
     );
     assert!(
-        stderr.contains("Refusing to write raw program bytes to stdout by default"),
-        "expected explicit stdout safety error in stderr, got: {stderr}"
+        stderr.contains("required arguments were not provided"),
+        "expected clap required-argument error in stderr, got: {stderr}"
     );
-    assert!(
-        stderr.contains("-o <PATH>"),
-        "expected stderr to suggest -o output mode, got: {stderr}"
-    );
-    assert!(
-        stderr.contains("-o - for stdout"),
-        "expected stderr to mention -o - stdout mode, got: {stderr}"
-    );
+    assert!(stderr.contains("--output <OUTPUT>"), "expected --output hint, got: {stderr}");
 }
 
 #[test]
@@ -50,4 +43,5 @@ fn program_data_help_is_printed_to_stdout() {
     assert!(stdout.contains("Usage:"));
     assert!(stdout.contains("use \"-\" for stdout"));
     assert!(!stdout.contains("--stdout"));
+    assert!(!stdout.contains("--buffer"));
 }

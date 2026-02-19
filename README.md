@@ -244,7 +244,7 @@ sonar pda <PROGRAM_ID> string:position u64:42 u8:7
 
 ### Program ELF
 
-Get raw program data (ELF bytecode) from an upgradeable program or buffer:
+Get raw program data (ELF bytecode) from an upgradeable Program / ProgramData / Buffer account:
 you must explicitly choose one output mode: `-o` (use `-o -` for stdout) or `--verify-sha256`.
 
 ```bash
@@ -257,8 +257,11 @@ sonar program-elf <PROGRAM_ID> --rpc-url <RPC_URL> -o - | shasum -a 256
 # Verify SHA256 hash
 sonar program-elf <PROGRAM_ID> --rpc-url <RPC_URL> --verify-sha256 <HEX_HASH>
 
-# Fetch from a buffer account and save to disk
-sonar program-elf <BUFFER_ADDRESS> --rpc-url <RPC_URL> --buffer -o buffer.so
+# Fetch from a ProgramData account directly
+sonar program-elf <PROGRAM_DATA_ADDRESS> --rpc-url <RPC_URL> -o program.so
+
+# Fetch from a Buffer account directly (auto-detected)
+sonar program-elf <BUFFER_ADDRESS> --rpc-url <RPC_URL> -o buffer.so
 ```
 
 ### Fetch IDL
