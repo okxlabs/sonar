@@ -2,7 +2,7 @@ use anyhow::Result;
 use solana_pubkey::Pubkey;
 
 use super::{InstructionParser, ParsedInstruction};
-use crate::transaction::InstructionSummary;
+use crate::core::transaction::InstructionSummary;
 
 const ASSOCIATED_TOKEN_PROGRAM_ID: &str = "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL";
 const CREATE_DISCRIMINATOR: u8 = 0;
@@ -118,7 +118,7 @@ fn append_extra_account_names(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::transaction::{AccountReferenceSummary, AccountSourceSummary};
+    use crate::core::transaction::{AccountReferenceSummary, AccountSourceSummary};
 
     fn create_test_instruction(
         data: Vec<u8>,

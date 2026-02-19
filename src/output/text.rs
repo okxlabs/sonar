@@ -7,10 +7,11 @@ use solana_pubkey::Pubkey;
 use unicode_width::UnicodeWidthStr;
 
 use crate::{
-    account_loader::ResolvedAccounts,
-    instruction_parsers::ParsedField,
-    instruction_parsers::ParserRegistry,
-    log_parser::{LogEntry, LogEntryWithDepth, parse_logs_by_instruction},
+    core::account_loader::ResolvedAccounts,
+    parsers::{
+        instruction::{ParsedField, ParserRegistry},
+        log_parser::{LogEntry, LogEntryWithDepth, parse_logs_by_instruction},
+    },
 };
 
 use super::LogDisplayOptions;
@@ -341,7 +342,7 @@ fn render_summary_header(simulation: &SimulationSection, transaction: &Transacti
 
 /// Extract compute unit limit from SetComputeUnitLimit instruction if present.
 fn extract_compute_unit_limit(transaction: &TransactionSection) -> Option<u64> {
-    use crate::instruction_parsers::{OrderedJsonValue, ParsedFieldValue};
+    use crate::parsers::instruction::{OrderedJsonValue, ParsedFieldValue};
 
     for ix in &transaction.instructions {
         if let Some(parsed) = &ix.parsed {

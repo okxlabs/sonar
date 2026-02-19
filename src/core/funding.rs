@@ -7,9 +7,9 @@ use spl_token::solana_program::program_pack::Pack;
 use spl_token_2022::extension::{BaseStateWithExtensions, BaseStateWithExtensionsMut};
 
 use crate::{
-    account_loader::{AccountLoader, ResolvedAccounts},
     cli::{Funding, TokenAmount, TokenFunding},
-    progress::Progress,
+    core::account_loader::{AccountLoader, ResolvedAccounts},
+    utils::progress::Progress,
 };
 
 const LAMPORTS_PER_SOL: u64 = 1_000_000_000;

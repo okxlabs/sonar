@@ -7,9 +7,10 @@ CLI for local Solana transaction simulation (LiteSVM) plus utility subcommands.
 - `src/main.rs`: command entry and dispatch
 - `src/cli/`: argument definitions for each subcommand
 - `src/handlers/`: subcommand execution logic
-- Core simulation flow: `transaction.rs`, `account_loader.rs`, `executor.rs`, `funding.rs`
-- Output and parsing: `output/`, `instruction_parsers/`, `log_parser.rs`
-- Utilities: `token_account_decoder.rs`, `native_ids.rs`, `config.rs`, `progress.rs`
+- Core simulation flow (`src/core/`): `transaction.rs`, `account_loader.rs`, `executor.rs`, `funding.rs`, `balance_changes.rs`
+- Output presentation: `src/output/`
+- Parsing and Decoders (`src/parsers/`): `instruction/`, `log_parser.rs`, `metaplex_metadata_decoder.rs`, `token_account_decoder.rs`
+- Utilities (`src/utils/`): `native_ids.rs`, `config.rs`, `progress.rs`
 - Tests: `tests/e2e_simulation.rs`, `tests/fixtures/`
 
 ## Common Commands

@@ -3,7 +3,7 @@ use hex::encode as hex_encode;
 use solana_pubkey::Pubkey;
 
 use super::{InstructionParser, ParsedField, ParsedInstruction};
-use crate::transaction::InstructionSummary;
+use crate::core::transaction::InstructionSummary;
 
 const MEMO_PROGRAM_ID: &str = "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr";
 
@@ -53,7 +53,7 @@ fn parse_memo_fields(data: &[u8]) -> Vec<ParsedField> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::transaction::{AccountReferenceSummary, AccountSourceSummary};
+    use crate::core::transaction::{AccountReferenceSummary, AccountSourceSummary};
 
     fn create_test_instruction(data: Vec<u8>, signer_count: usize) -> InstructionSummary {
         let accounts = (0..signer_count)

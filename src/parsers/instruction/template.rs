@@ -27,7 +27,7 @@
 use anyhow::Result;
 use solana_pubkey::Pubkey;
 
-use crate::transaction::InstructionSummary;
+use crate::core::transaction::InstructionSummary;
 use super::{InstructionParser, ParsedField, ParsedInstruction};
 
 /// Parser for [Your Program Name] instructions
@@ -123,7 +123,7 @@ fn parse_another_instruction(
 mod tests {
     use super::*;
     use solana_pubkey::Pubkey;
-    use crate::transaction::{AccountReferenceSummary, AccountSourceSummary};
+    use crate::core::transaction::{AccountReferenceSummary, AccountSourceSummary};
 
     fn create_test_instruction(data: Vec<u8>, accounts: Vec<AccountReferenceSummary>) -> InstructionSummary {
         InstructionSummary {

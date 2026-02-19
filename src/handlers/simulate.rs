@@ -3,9 +3,9 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 
 use crate::cli::{self, SimulateArgs, TransactionInputArgs};
-use crate::instruction_parsers::ParserRegistry;
-use crate::progress::Progress;
-use crate::{account_loader, executor, funding, output, transaction};
+use crate::parsers::instruction::ParserRegistry;
+use crate::utils::progress::Progress;
+use crate::{core::account_loader, core::executor, core::funding, output, core::transaction};
 
 use super::{collect_program_ids, warn_unmatched_addresses};
 

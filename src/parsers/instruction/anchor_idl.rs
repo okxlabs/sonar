@@ -7,10 +7,10 @@ use serde_json::{Number as JsonNumber, Value as JsonValue};
 use sha2::{Digest, Sha256};
 use solana_pubkey::Pubkey;
 
-use crate::instruction_parsers::{
+use crate::parsers::instruction::{
     InstructionParser, OrderedJsonValue, ParsedField, ParsedInstruction,
 };
-use crate::transaction::InstructionSummary;
+use crate::core::transaction::InstructionSummary;
 
 /// Helper to calculate sighash for discriminators
 fn sighash(namespace: &str, name: &str) -> [u8; 8] {
@@ -750,7 +750,7 @@ fn parse_type_definition(
         "struct" => {
             if let Some(fields) = &type_def.type_.fields {
                 return match fields {
-                    crate::instruction_parsers::anchor_idl::IdlFields::Named(named_fields) => {
+                    crate::parsers::instruction::anchor_idl::IdlFields::Named(named_fields) => {
                         let mut entries = Vec::new();
                         for field in named_fields {
                             if *offset >= data.len() {
@@ -761,7 +761,7 @@ fn parse_type_definition(
                         }
                         Ok(OrderedJsonValue::Object(entries))
                     }
-                    crate::instruction_parsers::anchor_idl::IdlFields::Tuple(type_names) => {
+                    crate::parsers::instruction::anchor_idl::IdlFields::Tuple(type_names) => {
                         let mut values = Vec::new();
                         for type_name in type_names {
                             if *offset >= data.len() {
@@ -865,7 +865,7 @@ pub fn find_event_by_discriminator<'a>(idl: &'a Idl, discriminator: &[u8]) -> Op
 const EMIT_CPI_DISCRIMINATOR: [u8; 8] = [0xe4, 0x45, 0xa5, 0x2e, 0x51, 0xcb, 0x9a, 0x1d];
 
 /// Check if an inner instruction is an Anchor CPI event
-pub fn is_anchor_cpi_event(instruction: &crate::transaction::InstructionSummary) -> bool {
+pub fn is_anchor_cpi_event(instruction: &crate::core::transaction::InstructionSummary) -> bool {
     if instruction.data.len() >= 16 {
         // First 8 bytes: emit_cpi discriminator
         // Next 8 bytes: event discriminator
@@ -877,7 +877,7 @@ pub fn is_anchor_cpi_event(instruction: &crate::transaction::InstructionSummary)
 
 /// Parse an Anchor CPI event from instruction data
 pub fn parse_anchor_cpi_event(
-    instruction: &crate::transaction::InstructionSummary,
+    instruction: &crate::core::transaction::InstructionSummary,
     idl_registry: &IdlRegistry,
     program_id: &Pubkey,
 ) -> Result<Option<ParsedInstruction>> {
@@ -924,7 +924,7 @@ pub fn parse_anchor_cpi_event(
     let mut fields = Vec::new();
 
     match type_fields {
-        Some(crate::instruction_parsers::anchor_idl::IdlFields::Named(named_fields)) => {
+        Some(crate::parsers::instruction::anchor_idl::IdlFields::Named(named_fields)) => {
             // Regular struct with named fields
             for field in named_fields {
                 if offset >= instruction.data.len() {
@@ -936,7 +936,7 @@ pub fn parse_anchor_cpi_event(
                 fields.push(ParsedField::json(field.name.clone(), value));
             }
         }
-        Some(crate::instruction_parsers::anchor_idl::IdlFields::Tuple(type_names)) => {
+        Some(crate::parsers::instruction::anchor_idl::IdlFields::Tuple(type_names)) => {
             // Tuple struct like struct Foo(Type1, Type2)
             for (idx, type_name) in type_names.iter().enumerate() {
                 if offset >= instruction.data.len() {

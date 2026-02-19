@@ -3,7 +3,7 @@ use solana_pubkey::Pubkey;
 use std::convert::TryInto;
 
 use super::{InstructionParser, ParsedField, ParsedInstruction};
-use crate::transaction::InstructionSummary;
+use crate::core::transaction::InstructionSummary;
 
 /// Token2022 program ID: TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb
 const TOKEN2022_PROGRAM_ID: &str = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb";
@@ -1265,7 +1265,7 @@ fn generate_generic_account_names(len: usize) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::transaction::{AccountReferenceSummary, AccountSourceSummary};
+    use crate::core::transaction::{AccountReferenceSummary, AccountSourceSummary};
 
     fn create_test_instruction(
         data: Vec<u8>,

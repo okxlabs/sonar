@@ -7,10 +7,10 @@ use serde_json::Value;
 use solana_pubkey::Pubkey;
 
 use crate::cli::AccountArgs;
-use crate::{account_loader, metaplex_metadata_decoder, token_account_decoder};
+use crate::{core::account_loader, parsers::metaplex_metadata_decoder, parsers::token_account_decoder};
 
 pub(crate) fn handle(args: AccountArgs) -> Result<()> {
-    use crate::instruction_parsers::anchor_idl::{IdlRegistry, RawAnchorIdl, parse_account_data};
+    use crate::parsers::instruction::anchor_idl::{IdlRegistry, RawAnchorIdl, parse_account_data};
     use solana_client::rpc_client::RpcClient;
     use solana_loader_v3_interface::state::UpgradeableLoaderState;
     use solana_sdk_ids::bpf_loader_upgradeable;
@@ -365,7 +365,7 @@ fn fetch_metadata_for_mint(
 #[cfg(test)]
 mod tests {
     use super::{resolve_metadata_output, should_enrich_with_metaplex_metadata};
-    use crate::token_account_decoder;
+    use crate::parsers::token_account_decoder;
     use anyhow::anyhow;
     use serde_json::json;
     use solana_pubkey::Pubkey;

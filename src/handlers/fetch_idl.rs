@@ -5,9 +5,9 @@ use std::str::FromStr;
 use anyhow::{Context, Result};
 use solana_pubkey::Pubkey;
 
-use crate::account_loader;
+use crate::core::account_loader;
 use crate::cli::FetchIdlArgs;
-use crate::progress::Progress;
+use crate::utils::progress::Progress;
 
 pub(crate) fn handle(args: FetchIdlArgs) -> Result<()> {
     // Determine program IDs from positional args or --sync-dir

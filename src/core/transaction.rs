@@ -8,7 +8,7 @@ use solana_message::inner_instruction::InnerInstructionsList;
 use solana_pubkey::Pubkey;
 use solana_transaction::versioned::{TransactionVersion, VersionedTransaction};
 
-use crate::progress::Progress;
+use crate::utils::progress::Progress;
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -149,7 +149,7 @@ pub fn fetch_transaction_from_rpc(
     signature: &str,
     progress: Option<&Progress>,
 ) -> Result<String> {
-    use crate::account_loader::AccountLoader;
+    use crate::core::account_loader::AccountLoader;
 
     let loader = AccountLoader::new(rpc_url.to_string(), None, false, progress.cloned())?;
     let tx = loader.fetch_transaction_by_signature(signature)?;

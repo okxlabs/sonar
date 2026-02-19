@@ -1,9 +1,9 @@
 use anyhow::Result;
 
 use crate::cli::{DecodeArgs, TransactionInputArgs};
-use crate::instruction_parsers::ParserRegistry;
-use crate::progress::Progress;
-use crate::{account_loader, output, transaction};
+use crate::parsers::instruction::ParserRegistry;
+use crate::utils::progress::Progress;
+use crate::{core::account_loader, output, core::transaction};
 
 use super::collect_program_ids;
 

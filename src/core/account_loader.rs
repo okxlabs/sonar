@@ -26,8 +26,8 @@ use std::sync::Mutex;
 
 use crate::{
     cli::Replacement,
-    progress::Progress,
-    transaction::{AddressLookupPlan, collect_account_plan},
+    core::transaction::{AddressLookupPlan, collect_account_plan},
+    utils::progress::Progress,
 };
 
 const MAX_ACCOUNTS_PER_REQUEST: usize = 100;
@@ -518,7 +518,7 @@ fn format_pubkeys(pubkeys: &[Pubkey]) -> String {
 /// Returns `true` if the pubkey is a well-known native program or sysvar
 /// that is built into LiteSVM and does not need to be loaded from disk.
 fn is_native_or_sysvar(pubkey: &Pubkey) -> bool {
-    crate::native_ids::is_native_or_sysvar(pubkey)
+    crate::utils::native_ids::is_native_or_sysvar(pubkey)
 }
 
 /// Computes the Anchor IDL account address for a given program ID.

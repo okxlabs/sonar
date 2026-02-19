@@ -5,7 +5,7 @@ use serde::{Serialize, Serializer, ser::SerializeMap, ser::SerializeSeq};
 use serde_json::Number as JsonNumber;
 use solana_pubkey::Pubkey;
 
-use crate::transaction::InstructionSummary;
+use crate::core::transaction::InstructionSummary;
 
 /// Represents a parsed instruction with human-readable data and account names
 #[derive(Debug, Clone, Serialize)]
@@ -261,13 +261,13 @@ impl ParserRegistry {
             .with_context(|| format!("Failed to read IDL file: {}", idl_file_path.display()))?;
 
         // Parse as RawAnchorIdl to support both legacy and new formats
-        let raw_idl: crate::instruction_parsers::anchor_idl::RawAnchorIdl =
+        let raw_idl: crate::parsers::instruction::anchor_idl::RawAnchorIdl =
             match serde_json::from_str(&idl_content) {
                 Ok(idl) => idl,
                 Err(e) => {
                     // Try to debug why it failed by trying to parse as LegacyIdl directly
                     if let Err(legacy_err) = serde_json::from_str::<
-                        crate::instruction_parsers::anchor_idl::LegacyIdl,
+                        crate::parsers::instruction::anchor_idl::LegacyIdl,
                     >(&idl_content)
                     {
                         log::warn!("Failed to parse as LegacyIdl: {}", legacy_err);
@@ -285,7 +285,7 @@ impl ParserRegistry {
 
         // The IdlRegistry needs to be populated - use a temporary approach
         // by creating a wrapper that contains both the IDL and an empty registry
-        let parser = Box::new(crate::instruction_parsers::anchor_idl::AnchorIdlParser::new(
+        let parser = Box::new(crate::parsers::instruction::anchor_idl::AnchorIdlParser::new(
             *program_id,
             idl_data.clone(), // Clone for the parser
             // Create a registry with just this IDL for event lookup
@@ -297,7 +297,7 @@ impl ParserRegistry {
                 use std::sync::Arc;
 
                 // Create a minimal registry with just this IDL
-                let mut inner = crate::instruction_parsers::anchor_idl::IdlRegistryInner {
+                let mut inner = crate::parsers::instruction::anchor_idl::IdlRegistryInner {
                     idls: HashMap::new(),
                     types_by_program_and_name: HashMap::new(),
                 };
@@ -312,7 +312,7 @@ impl ParserRegistry {
                     }
                 }
 
-                crate::instruction_parsers::anchor_idl::IdlRegistry { inner: Arc::new(inner) }
+                crate::parsers::instruction::anchor_idl::IdlRegistry { inner: Arc::new(inner) }
             },
         ));
 
@@ -334,13 +334,13 @@ impl ParserRegistry {
     /// Try to parse an Anchor CPI event, loading IDL if needed
     pub fn parse_cpi_event(
         &mut self,
-        instruction: &crate::transaction::InstructionSummary,
+        instruction: &crate::core::transaction::InstructionSummary,
         program_id: &Pubkey,
         _message: &solana_message::VersionedMessage,
-        _account_plan: &crate::transaction::MessageAccountPlan,
-        _lookup_locations: &[crate::transaction::LookupLocation],
+        _account_plan: &crate::core::transaction::MessageAccountPlan,
+        _lookup_locations: &[crate::core::transaction::LookupLocation],
     ) -> Option<ParsedInstruction> {
-        use crate::instruction_parsers::anchor_idl;
+        use crate::parsers::instruction::anchor_idl;
 
         // Check if this is a CPI event
         if !anchor_idl::is_anchor_cpi_event(instruction) {

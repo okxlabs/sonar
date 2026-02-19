@@ -18,9 +18,11 @@ use solana_transaction::versioned::VersionedTransaction;
 use solana_transaction::versioned::VersionedTransaction as LiteVersionedTransaction;
 
 use crate::{
-    account_loader::{ResolvedAccounts, ResolvedLookup},
     cli::{AccountDataPatch, Funding, Replacement},
-    funding::{PreparedTokenFunding, apply_sol_fundings},
+    core::{
+        account_loader::{ResolvedAccounts, ResolvedLookup},
+        funding::{PreparedTokenFunding, apply_sol_fundings},
+    },
 };
 
 /// Simulation execution options passed to `TransactionExecutor::prepare`.
@@ -391,7 +393,7 @@ pub fn dump_accounts_to_dir(accounts: &HashMap<Pubkey, Account>, dir: &Path) -> 
     let mut skipped = 0usize;
 
     for (pubkey, account) in accounts {
-        if crate::native_ids::is_native_or_sysvar(pubkey) {
+        if crate::utils::native_ids::is_native_or_sysvar(pubkey) {
             skipped += 1;
             continue;
         }

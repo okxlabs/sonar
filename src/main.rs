@@ -1,18 +1,9 @@
-mod account_loader;
-mod balance_changes;
 mod cli;
-mod config;
-mod executor;
-mod funding;
+mod core;
 mod handlers;
-mod instruction_parsers;
-mod log_parser;
-mod metaplex_metadata_decoder;
-mod native_ids;
 mod output;
-mod progress;
-mod token_account_decoder;
-mod transaction;
+mod parsers;
+mod utils;
 
 use std::io::IsTerminal;
 
@@ -34,7 +25,7 @@ fn run() -> Result<()> {
 
     // Load ~/.config/sonar/config.toml and inject values into env vars
     // before clap parses, so that CLI arg > env var > config file > default.
-    config::load_and_apply();
+    crate::utils::config::load_and_apply();
 
     let cli = Cli::parse();
 

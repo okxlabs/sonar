@@ -5,12 +5,14 @@ mod text;
 use anyhow::Result;
 
 use crate::{
-    account_loader::ResolvedAccounts,
     cli::{Funding, Replacement},
-    executor::SimulationResult,
-    funding::PreparedTokenFunding,
-    instruction_parsers::ParserRegistry,
-    transaction::ParsedTransaction,
+    core::{
+        account_loader::ResolvedAccounts,
+        executor::SimulationResult,
+        funding::PreparedTokenFunding,
+        transaction::ParsedTransaction,
+    },
+    parsers::instruction::ParserRegistry,
 };
 
 use report::{BundleReport, LookupResolver, Report, TransactionSection};

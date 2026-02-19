@@ -2,7 +2,7 @@ use anyhow::Result;
 use solana_pubkey::Pubkey;
 
 use super::{InstructionParser, ParsedField, ParsedInstruction};
-use crate::transaction::InstructionSummary;
+use crate::core::transaction::InstructionSummary;
 
 const COMPUTE_BUDGET_PROGRAM_ID: &str = "ComputeBudget111111111111111111111111111111";
 const UNUSED_DISCRIMINATOR: u8 = 0;
@@ -115,7 +115,7 @@ fn parse_u64_instruction(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::transaction::{AccountReferenceSummary, AccountSourceSummary};
+    use crate::core::transaction::{AccountReferenceSummary, AccountSourceSummary};
 
     fn create_test_instruction(data: Vec<u8>) -> InstructionSummary {
         InstructionSummary {

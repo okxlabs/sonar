@@ -2,7 +2,7 @@ use anyhow::Result;
 use solana_pubkey::Pubkey;
 
 use super::{InstructionParser, ParsedField, ParsedInstruction};
-use crate::transaction::InstructionSummary;
+use crate::core::transaction::InstructionSummary;
 
 /// Parser for the System Program instructions
 pub struct SystemProgramParser {
@@ -495,7 +495,7 @@ fn parse_create_account_allow_prefund_instruction(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::transaction::{AccountReferenceSummary, AccountSourceSummary, InstructionSummary};
+    use crate::core::transaction::{AccountReferenceSummary, AccountSourceSummary, InstructionSummary};
     use solana_pubkey::Pubkey;
 
     fn create_test_instruction(

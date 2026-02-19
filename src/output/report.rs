@@ -8,14 +8,18 @@ use solana_pubkey::Pubkey;
 use solana_transaction::versioned::TransactionVersion;
 
 use crate::{
-    account_loader::{ResolvedAccounts, ResolvedLookup},
-    balance_changes::{compute_sol_changes, compute_token_changes, extract_mint_decimals_combined},
     cli::{Funding, Replacement},
-    executor::{ExecutionStatus, SimulationResult},
-    funding::PreparedTokenFunding,
-    instruction_parsers::anchor_idl::is_anchor_cpi_event,
-    instruction_parsers::{ParsedInstruction, ParserRegistry},
-    transaction::{AccountReferenceSummary, AccountSourceSummary, ParsedTransaction},
+    core::{
+        account_loader::{ResolvedAccounts, ResolvedLookup},
+        balance_changes::{compute_sol_changes, compute_token_changes, extract_mint_decimals_combined},
+        executor::{ExecutionStatus, SimulationResult},
+        funding::PreparedTokenFunding,
+        transaction::{AccountReferenceSummary, AccountSourceSummary, ParsedTransaction},
+    },
+    parsers::instruction::{
+        anchor_idl::is_anchor_cpi_event,
+        ParsedInstruction, ParserRegistry,
+    },
 };
 use litesvm::types::TransactionMetadata;
 
@@ -388,8 +392,8 @@ impl TransactionSection {
         verify_signatures: bool,
     ) -> Self {
         let encoding = match parsed.encoding {
-            crate::transaction::RawTransactionEncoding::Base58 => "base58",
-            crate::transaction::RawTransactionEncoding::Base64 => "base64",
+            crate::core::transaction::RawTransactionEncoding::Base58 => "base58",
+            crate::core::transaction::RawTransactionEncoding::Base64 => "base64",
         }
         .to_string();
 
@@ -495,7 +499,7 @@ pub(super) struct InstructionSection {
 
 impl InstructionSection {
     fn from_summary(
-        summary: &crate::transaction::InstructionSummary,
+        summary: &crate::core::transaction::InstructionSummary,
         resolver: &LookupResolver,
         inner_instructions_list: &[solana_message::inner_instruction::InnerInstructions],
         parsed: &ParsedTransaction,
@@ -563,17 +567,17 @@ pub(super) struct InnerInstructionSection {
 fn parse_inner_instruction_as_regular(
     inner_ix: &solana_message::inner_instruction::InnerInstruction,
     message: &solana_message::VersionedMessage,
-    account_plan: &crate::transaction::MessageAccountPlan,
-    lookup_locations: &[crate::transaction::LookupLocation],
+    account_plan: &crate::core::transaction::MessageAccountPlan,
+    lookup_locations: &[crate::core::transaction::LookupLocation],
     parser_registry: &mut ParserRegistry,
     program_id: &Pubkey,
 ) -> Option<ParsedInstruction> {
-    let inner_accounts: Vec<crate::transaction::AccountReferenceSummary> = inner_ix
+    let inner_accounts: Vec<crate::core::transaction::AccountReferenceSummary> = inner_ix
         .instruction
         .accounts
         .iter()
         .map(|account_index| {
-            crate::transaction::classify_account_reference(
+            crate::core::transaction::classify_account_reference(
                 message,
                 *account_index as usize,
                 account_plan,
@@ -582,14 +586,14 @@ fn parse_inner_instruction_as_regular(
         })
         .collect();
 
-    let inner_summary = crate::transaction::InstructionSummary {
+    let inner_summary = crate::core::transaction::InstructionSummary {
         index: 0, // Inner instruction index doesn't matter for parsing
-        program: crate::transaction::AccountReferenceSummary {
+        program: crate::core::transaction::AccountReferenceSummary {
             index: inner_ix.instruction.program_id_index as usize,
             pubkey: Some(program_id.to_string()),
             signer: false,
             writable: false,
-            source: crate::transaction::AccountSourceSummary::Static,
+            source: crate::core::transaction::AccountSourceSummary::Static,
         },
         accounts: inner_accounts,
         data: inner_ix.instruction.data.clone().into_boxed_slice(),
@@ -608,10 +612,10 @@ impl InnerInstructionSection {
         // Resolve inner instruction accounts using the same logic as outer instructions
         let message = &parsed.transaction.message;
         let lookup_locations =
-            crate::transaction::build_lookup_locations(&parsed.account_plan.address_lookups);
+            crate::core::transaction::build_lookup_locations(&parsed.account_plan.address_lookups);
 
         let program = {
-            let ref_summary = crate::transaction::classify_account_reference(
+            let ref_summary = crate::core::transaction::classify_account_reference(
                 message,
                 inner_ix.instruction.program_id_index as usize,
                 &parsed.account_plan,
@@ -625,7 +629,7 @@ impl InnerInstructionSection {
             .accounts
             .iter()
             .map(|account_index| {
-                let ref_summary = crate::transaction::classify_account_reference(
+                let ref_summary = crate::core::transaction::classify_account_reference(
                     message,
                     *account_index as usize,
                     &parsed.account_plan,
@@ -638,14 +642,14 @@ impl InnerInstructionSection {
         // Try to parse the inner instruction
         let parsed_instruction = if let Ok(program_id) = Pubkey::from_str(&program.pubkey) {
             // First check if this is a CPI event
-            let temp_summary = crate::transaction::InstructionSummary {
+            let temp_summary = crate::core::transaction::InstructionSummary {
                 index: 0,
-                program: crate::transaction::AccountReferenceSummary {
+                program: crate::core::transaction::AccountReferenceSummary {
                     index: inner_ix.instruction.program_id_index as usize,
                     pubkey: Some(program_id.to_string()),
                     signer: false,
                     writable: false,
-                    source: crate::transaction::AccountSourceSummary::Static,
+                    source: crate::core::transaction::AccountSourceSummary::Static,
                 },
                 accounts: Vec::new(), // Not needed for CPI event detection
                 data: inner_ix.instruction.data.clone().into_boxed_slice(),

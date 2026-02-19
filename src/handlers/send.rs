@@ -7,7 +7,7 @@ use solana_signature::Signature;
 use solana_transaction_status_client_types::{TransactionConfirmationStatus, TransactionStatus};
 
 use crate::cli::{SendArgs, WaitCommitmentArg};
-use crate::transaction;
+use crate::core::transaction;
 
 pub(crate) fn handle(args: SendArgs) -> Result<()> {
     let parsed = transaction::parse_raw_transaction(&args.tx)?;
