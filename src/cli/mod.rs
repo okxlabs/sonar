@@ -69,7 +69,7 @@ pub enum Commands {
     /// Fetch and decode a Solana account
     #[command(name = "account", alias = "acc")]
     Account(AccountArgs),
-    /// Convert between data formats (number, hex, arrays, utf8, base64, base58, lamports, sol)
+    /// Convert data formats (int, hex, arrays, text, base64, base58, lamports, sol)
     #[command(alias = "conv")]
     Convert(ConvertArgs),
     /// Derive a PDA (Program Derived Address) from seeds

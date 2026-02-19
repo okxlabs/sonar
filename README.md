@@ -20,7 +20,7 @@ A command-line tool for simulating Solana transactions locally using LiteSVM, bu
 ### Utilities
 
 - **account** — Fetch and decode on-chain accounts (SPL Token, Token-2022, Anchor IDL, BPF Upgradeable, optional Metaplex metadata for mint accounts)
-- **convert** — Data format conversion (hex, base58, base64, arrays, UTF-8, lamports, SOL)
+- **convert** — Explicit format conversion (hex, base58, base64, arrays, text, lamports, SOL)
 - **pda** — PDA (Program Derived Address) derivation
 - **program-elf** — Extract program ELF bytecode from upgradeable programs/buffers
 - **send** — Submit signed transactions to the network
@@ -52,7 +52,7 @@ cargo build --release
 | `program-elf` | You need raw ELF bytes from upgradeable program/buffer accounts |
 | `fetch-idl` | You want to download and persist Anchor IDLs locally |
 | `send` | You want to submit a signed transaction to the network |
-| `convert` | You want pure format conversion (hex/base58/base64/utf8/lamports/sol) |
+| `convert` | You want explicit and deterministic format conversion |
 | `pda` | You want to derive a PDA from seeds |
 
 ### Output Stream Convention
@@ -191,45 +191,41 @@ the parsed mint account output.
 
 ### Convert
 
-Convert between data formats:
+Convert with explicit syntax:
 
 ```bash
-# Auto-detect: hex (0x...) to decimal array
-sonar convert 0x48656c6c6f -t dec-array
+# Syntax: sonar convert <FROM> <TO> <INPUT>
+sonar convert hex text 0x48656c6c6f
+sonar convert bytes int "[12,34]"
+sonar convert sol lamports 1.5
 
-# Auto-detect: decimal integer to hex (little-endian by default)
-sonar convert 255 -t hex
+# Use little-endian when needed
+sonar convert int hex 305419896 --le
 
-# Auto-detect: decimal float to lamports (treated as SOL)
-sonar convert 1.5 -t lamports
+# Lamports to SOL
+sonar convert lamports sol 1500000000
 
-# Auto-detect: hex-array ([0x..]) to UTF-8
-sonar convert [0x48,0x65,0x6c,0x6c,0x6f] -t utf8
+# Raw hex without 0x (still supported with explicit hex input type)
+sonar convert hex text 48656c6c6f
 
-# Auto-detect: plain text to hex (non-base58 chars => utf8)
-sonar convert "Hello World" -t hex
+# Change array separator / hex-bytes prefix behavior
+sonar convert hex bytes 0x48656c6c6f --sep " "
+sonar convert hex hex-bytes 0x48656c6c6f --no-prefix
 
-# Explicitly specify input format when needed
-sonar convert SGVsbG8= -f base64 -t base58
-
-# Lamports to SOL (explicit format)
-sonar convert 1500000000 -f lamports -t sol
-
-# Hex to UTF-8 (explicit format also supported)
-sonar convert 0x48656c6c6f -f hex -t utf8
+# Short aliases kept by design (scheme B)
+sonar convert hb lam "[0x01,0x00,0x00,0x00,0x00,0x00,0x00,0x00]"
 ```
 
-Auto-detection priority for `convert` input:
+Breaking UX changes in the new `convert`:
 
-1. `0x...` / `0X...` -> `hex`
-2. `[...]` -> `dec-array` or `hex-array` (if any element has `0x` prefix)
-3. Contains `+`, `/`, or trailing `=` -> `base64`
-4. All digits -> `number`
-5. Decimal float (for example `1.5`) -> `sol`
-6. Contains non-base58 characters (spaces, punctuation, Unicode, or `0/O/I/l`) -> `utf8`
-7. Otherwise -> `base58`
-
-If auto-detection fails to parse, Sonar will try safe fallback formats before returning an error.
+- Auto-detection is removed. You must provide `<FROM>` explicitly.
+- `-f/--from` and `-t/--to` are removed. Use positional syntax: `sonar convert <FROM> <TO> <INPUT>`.
+- `--be` was replaced by `--le` (default is now big-endian).
+- `--space` and `--prefix` were replaced by `--sep <CHAR>` and `--no-prefix`.
+- Format names changed: `number` -> `int`, `utf8` -> `text`, `dec-array` -> `bytes`, `hex-array` -> `hex-bytes`.
+- Legacy aliases `number`, `utf8`, `dec-array`, and `hex-array` are no longer accepted.
+- Alias policy (scheme B): only `b64`, `b58`, `hb`, and `lam` are kept; other short aliases are removed.
+- `sol` can now be used explicitly as both `<FROM>` and `<TO>`.
 
 ### PDA
 
