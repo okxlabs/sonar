@@ -549,11 +549,6 @@ fn render_instruction_details_text(
 ) {
     println!();
     let layout = instruction_account_layout(transaction);
-    println!(
-        "{}legend: [<src><sig><perm><exe>] [n]=account-list, src:s/u sig:s/- perm:w/r exe:x/-",
-        INDENT_L1
-    );
-    println!();
 
     for (ix_pos, ix) in transaction.instructions.iter().enumerate() {
         if ix_pos > 0 {
@@ -693,7 +688,7 @@ fn render_instruction_account_marker(
     let mode = account_mode_bits(signer, writable, executable);
     let prefix = match source {
         InstructionAccountSource::Static => 's',
-        InstructionAccountSource::Lookup => 'u',
+        InstructionAccountSource::Lookup => 'l',
     };
     format!("[{prefix}{mode}]").custom_color(DIM_GRAY).to_string()
 }
