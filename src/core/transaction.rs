@@ -6,7 +6,9 @@ use serde::Serialize;
 use solana_message::VersionedMessage;
 use solana_message::inner_instruction::InnerInstructionsList;
 use solana_pubkey::Pubkey;
+use solana_signature::Signature;
 use solana_transaction::versioned::{TransactionVersion, VersionedTransaction};
+use std::str::FromStr;
 
 use crate::utils::progress::Progress;
 
@@ -135,13 +137,7 @@ pub fn read_raw_transaction(inline: Option<String>) -> Result<String> {
 
 pub fn is_transaction_signature(s: &str) -> bool {
     let trimmed = s.trim();
-    // Solana signatures are typically 87-88 characters in base58
-    if trimmed.len() < 87 || trimmed.len() > 88 {
-        return false;
-    }
-
-    // Check if it contains only base58 characters (alphanumeric except 0OIl)
-    trimmed.chars().all(|c| c.is_ascii_alphanumeric() && !matches!(c, '0' | 'O' | 'I' | 'l'))
+    Signature::from_str(trimmed).is_ok()
 }
 
 pub fn fetch_transaction_from_rpc(
@@ -202,12 +198,44 @@ pub fn parse_raw_transaction(raw: &str) -> Result<ParsedTransaction> {
     Err(anyhow!("Failed to parse raw transaction: {merged}"))
 }
 
+pub fn parse_transaction_input(
+    input: &str,
+    rpc_url: &str,
+    progress: Option<&Progress>,
+) -> Result<ParsedTransaction> {
+    match parse_raw_transaction(input) {
+        Ok(parsed) => Ok(parsed),
+        Err(raw_err) => {
+            if !is_transaction_signature(input) {
+                return Err(anyhow!(
+                    "Failed to parse transaction input.\n- Raw parse failed: {raw_err}\n- Signature fallback skipped: input does not look like a transaction signature"
+                ));
+            }
+
+            log::info!(
+                "Raw parse failed; input looks like a transaction signature, fetching from RPC..."
+            );
+            let fetched = fetch_transaction_from_rpc(rpc_url, input, progress).map_err(|fetch_err| {
+                anyhow!(
+                    "Failed to parse transaction input.\n- Raw parse failed: {raw_err}\n- Signature fetch failed: {fetch_err}"
+                )
+            })?;
+
+            parse_raw_transaction(&fetched).map_err(|fetched_parse_err| {
+                anyhow!(
+                    "Failed to parse transaction input.\n- Raw parse failed: {raw_err}\n- Signature fetch succeeded but parsing fetched transaction failed: {fetched_parse_err}"
+                )
+            })
+        }
+    }
+}
+
 pub fn collect_account_plan(tx: &VersionedTransaction) -> MessageAccountPlan {
     MessageAccountPlan::from_transaction(tx)
 }
 
-/// Parse multiple raw transaction strings, handling both raw transactions and signatures.
-/// For signatures, fetches the transaction from RPC.
+/// Parse multiple transaction inputs, each using auto strategy:
+/// try raw parse first, then fallback to signature fetch when applicable.
 pub fn parse_multi_raw_transactions(
     raws: &[String],
     rpc_url: &str,
@@ -216,20 +244,8 @@ pub fn parse_multi_raw_transactions(
     raws.iter()
         .enumerate()
         .map(|(index, raw)| {
-            let result = if is_transaction_signature(raw) {
-                log::info!(
-                    "Transaction {} appears to be a signature, fetching from RPC...",
-                    index + 1
-                );
-                let fetched =
-                    fetch_transaction_from_rpc(rpc_url, raw, progress).with_context(|| {
-                        format!("Failed to fetch transaction {} from RPC", index + 1)
-                    })?;
-                parse_raw_transaction(&fetched)
-            } else {
-                parse_raw_transaction(raw)
-            };
-            result.with_context(|| format!("Failed to parse transaction {}", index + 1))
+            parse_transaction_input(raw, rpc_url, progress)
+                .with_context(|| format!("Failed to parse transaction {}", index + 1))
         })
         .collect()
 }
@@ -502,6 +518,32 @@ mod tests {
         let parsed = parse_raw_transaction(&base58).expect("parse base58");
         assert_eq!(parsed.encoding, RawTransactionEncoding::Base58);
         assert_eq!(parsed.summary.instructions.len(), 1);
+    }
+
+    #[test]
+    fn is_transaction_signature_uses_strict_signature_parser() {
+        let signature = "3PtGYH77LhhQqTXP4SmDVJ85hmDieWsgXCUbn14v7gYyVYPjZzygUQhTk3bSTYnfA48vCM1rmWY7zWL3j1EVKmEy";
+        assert!(is_transaction_signature(signature));
+        assert!(!is_transaction_signature("invalid-signature"));
+    }
+
+    #[test]
+    fn auto_mode_reports_raw_and_signature_failure_branches() {
+        let signature = "3PtGYH77LhhQqTXP4SmDVJ85hmDieWsgXCUbn14v7gYyVYPjZzygUQhTk3bSTYnfA48vCM1rmWY7zWL3j1EVKmEy";
+        let err = parse_transaction_input(signature, "not a url", None)
+            .expect_err("auto mode should fail when rpc url is invalid");
+        let message = err.to_string();
+        assert!(message.contains("Raw parse failed"));
+        assert!(message.contains("Signature fetch failed"));
+    }
+
+    #[test]
+    fn parse_transaction_input_reports_fallback_skipped_for_non_signature() {
+        let err = parse_transaction_input("not-a-signature", "http://localhost:8899", None)
+            .expect_err("non-signature should skip signature fallback");
+        let message = err.to_string();
+        assert!(message.contains("Raw parse failed"));
+        assert!(message.contains("Signature fallback skipped"));
     }
 
     #[test]

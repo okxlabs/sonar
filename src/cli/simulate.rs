@@ -384,6 +384,8 @@ pub fn parse_timestamp(raw: &str) -> Result<i64, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cli::{Cli, Commands};
+    use clap::Parser;
 
     fn unique_test_file_path(base_dir: &std::path::Path, ext: &str) -> PathBuf {
         let nanos = std::time::SystemTime::now()
@@ -704,5 +706,33 @@ mod tests {
         let key = Pubkey::new_unique();
         let err = parse_token_funding(&format!("{key}=-1.5")).unwrap_err();
         assert!(err.contains("non-negative"));
+    }
+
+    #[test]
+    fn transaction_input_parses_without_input_kind_flag() {
+        let cli = Cli::try_parse_from([
+            "sonar",
+            "simulate",
+            "1111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+        ])
+        .expect("should parse without --input-kind");
+
+        let Commands::Simulate(args) = cli.command else {
+            panic!("expected simulate subcommand");
+        };
+
+        assert_eq!(args.transaction.tx.len(), 1);
+    }
+
+    #[test]
+    fn transaction_input_rejects_removed_input_kind_flag() {
+        let result = Cli::try_parse_from([
+            "sonar",
+            "decode",
+            "3PtGYH77LhhQqTXP4SmDVJ85hmDieWsgXCUbn14v7gYyVYPjZzygUQhTk3bSTYnfA48vCM1rmWY7zWL3j1EVKmEy",
+            "--input-kind",
+            "signature",
+        ]);
+        assert!(result.is_err());
     }
 }

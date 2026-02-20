@@ -99,14 +99,7 @@ pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
     let tx_single = tx.into_iter().next();
     let raw_input = transaction::read_raw_transaction(tx_single)?;
 
-    // Check if input looks like a transaction signature (works for all input methods)
-    let tx_data = if transaction::is_transaction_signature(&raw_input) {
-        log::info!("Input appears to be a transaction signature, attempting to fetch from RPC...");
-        transaction::fetch_transaction_from_rpc(&rpc_url, &raw_input, Some(&progress))?
-    } else {
-        raw_input
-    };
-    let parsed_tx = transaction::parse_raw_transaction(&tx_data)?;
+    let parsed_tx = transaction::parse_transaction_input(&raw_input, &rpc_url, Some(&progress))?;
 
     let account_loader = account_loader::AccountLoader::new(
         rpc_url,
