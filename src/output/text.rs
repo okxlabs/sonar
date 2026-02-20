@@ -704,7 +704,7 @@ fn render_instruction_account_marker(
         InstructionAccountSource::Static => 's',
         InstructionAccountSource::Lookup => 'l',
     };
-    format!("[{prefix}{mode}]").custom_color(DIM_GRAY).to_string()
+    format!("[{prefix}:{mode}]").custom_color(DIM_GRAY).to_string()
 }
 
 fn account_mode_bits(signer: bool, writable: bool, executable: bool) -> String {

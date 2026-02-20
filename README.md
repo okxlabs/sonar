@@ -329,7 +329,7 @@ Priority: CLI arguments > environment variables > config file > defaults.
 ## Account Permission Markers
 
 In the text output of `simulate` and `decode`, each account is annotated with a compact
-permission marker in the form `[<src><sig><perm><exe>]`:
+permission marker in the form `[<src>:<sig><perm><exe>]`:
 
 | Position | Values | Meaning |
 |----------|--------|---------|
@@ -338,7 +338,7 @@ permission marker in the form `[<src><sig><perm><exe>]`:
 | **perm** | `w` / `r` | **w**ritable or **r**ead-only |
 | **exe**  | `x` / `-` | e**x**ecutable (program) or not |
 
-Examples: `[ssw-]` = static, signer, writable; `[l-r-]` = lookup table, non-signer, read-only.
+Examples: `[s:sw-]` = static, signer, writable; `[l:-r-]` = lookup table, non-signer, read-only.
 
 The `[n]` label next to a marker refers to the account's index in the Account List section.
 
