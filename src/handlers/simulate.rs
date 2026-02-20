@@ -142,7 +142,7 @@ pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
         }
     }
 
-    // Dump original RPC account data before --replace / --patch-data
+    // Dump original RPC account data before --replace / --patch-account-data
     if let Some(ref dump_dir) = dump_accounts {
         executor::dump_accounts_to_dir(&resolved_accounts.accounts, dump_dir)
             .context("Failed to dump accounts")?;
@@ -250,7 +250,7 @@ fn handle_bundle(
         }
     }
 
-    // Dump original RPC account data before --replace / --patch-data
+    // Dump original RPC account data before --replace / --patch-account-data
     if let Some(ref dump_dir) = dump_accounts {
         executor::dump_accounts_to_dir(&resolved_accounts.accounts, dump_dir)
             .context("Failed to dump accounts")?;

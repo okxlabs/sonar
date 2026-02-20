@@ -127,7 +127,7 @@ sonar simulate <TX> \
 ```bash
 # Patch account data before simulation
 sonar simulate <TX> --rpc-url <RPC_URL> \
-  --patch-data <PUBKEY>=<OFFSET>:<HEX_DATA>
+  --patch-account-data <PUBKEY>=<OFFSET>:<HEX_DATA>
 
 # Override clock timestamp and slot (Unix or RFC3339)
 sonar simulate <TX> --rpc-url <RPC_URL> \

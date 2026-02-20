@@ -69,11 +69,12 @@ pub struct SimulateArgs {
     /// Override the simulation slot
     #[arg(long = "slot", value_name = "SLOT")]
     pub slot: Option<u64>,
-    /// Patch bytes in an account's data field before simulation.
+    /// Patch bytes in an account data field before simulation.
     /// Format: <PUBKEY>=<OFFSET>:<HEX_DATA>
     /// HEX_DATA may optionally start with 0x.
     #[arg(
-        long = "patch-data",
+        short = 'p',
+        long = "patch-account-data",
         value_name = "PATCH",
         num_args = 1..,
         value_parser = clap::builder::NonEmptyStringValueParser::new()
@@ -706,6 +707,57 @@ mod tests {
         let key = Pubkey::new_unique();
         let err = parse_token_funding(&format!("{key}=-1.5")).unwrap_err();
         assert!(err.contains("non-negative"));
+    }
+
+    #[test]
+    fn simulate_accepts_patch_account_data_flag() {
+        let patch = "key1=0:deadbeef";
+        let cli = Cli::try_parse_from([
+            "sonar",
+            "simulate",
+            "1111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+            "--patch-account-data",
+            patch,
+        ])
+        .expect("should parse --patch-account-data");
+
+        let Commands::Simulate(args) = cli.command else {
+            panic!("expected simulate subcommand");
+        };
+        assert_eq!(args.data_patches, vec![patch.to_string()]);
+    }
+
+    #[test]
+    fn simulate_accepts_patch_account_data_short_flag_multiple_times() {
+        let patch1 = "key1=0:aabb";
+        let patch2 = "key2=4:ccdd";
+        let cli = Cli::try_parse_from([
+            "sonar",
+            "simulate",
+            "1111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+            "-p",
+            patch1,
+            "-p",
+            patch2,
+        ])
+        .expect("should parse -p multiple times");
+
+        let Commands::Simulate(args) = cli.command else {
+            panic!("expected simulate subcommand");
+        };
+        assert_eq!(args.data_patches, vec![patch1.to_string(), patch2.to_string()]);
+    }
+
+    #[test]
+    fn simulate_rejects_removed_patch_data_flag() {
+        let result = Cli::try_parse_from([
+            "sonar",
+            "simulate",
+            "1111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+            "--patch-data",
+            "key1=0:deadbeef",
+        ]);
+        assert!(result.is_err());
     }
 
     #[test]

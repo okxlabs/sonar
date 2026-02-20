@@ -119,7 +119,9 @@ impl TransactionExecutor {
         for patch in &data_patches {
             let mut account = svm
                 .get_account(&patch.pubkey)
-                .ok_or_else(|| anyhow!("--patch-data target {} not found in SVM", patch.pubkey))?;
+                .ok_or_else(|| {
+                    anyhow!("--patch-account-data target {} not found in SVM", patch.pubkey)
+                })?;
             let end = patch.offset + patch.data.len();
             if end > account.data.len() {
                 return Err(anyhow!(
@@ -382,7 +384,7 @@ fn is_native_owner(account: &Account) -> bool {
 
 /// Dump accounts to a directory in Solana CLI compatible JSON format.
 ///
-/// Writes the original RPC-loaded account data (before --replace / --patch-data).
+/// Writes the original RPC-loaded account data (before --replace / --patch-account-data).
 /// Each account is written to `<pubkey>.json`. Native/system programs and
 /// accounts that don't exist on-chain (lamports=0, empty data) are skipped.
 pub fn dump_accounts_to_dir(accounts: &HashMap<Pubkey, Account>, dir: &Path) -> Result<()> {
