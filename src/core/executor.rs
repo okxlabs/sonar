@@ -117,11 +117,9 @@ impl TransactionExecutor {
 
         // Apply data patches (byte-level writes to account data)
         for patch in &data_patches {
-            let mut account = svm
-                .get_account(&patch.pubkey)
-                .ok_or_else(|| {
-                    anyhow!("--patch-account-data target {} not found in SVM", patch.pubkey)
-                })?;
+            let mut account = svm.get_account(&patch.pubkey).ok_or_else(|| {
+                anyhow!("--patch-account-data target {} not found in SVM", patch.pubkey)
+            })?;
             let end = patch.offset + patch.data.len();
             if end > account.data.len() {
                 return Err(anyhow!(

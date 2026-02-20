@@ -19,7 +19,6 @@ struct AccountOutput {
     json_output: Value,
 }
 
-
 pub(crate) fn handle(args: AccountArgs) -> Result<()> {
     // Parse the account pubkey
     let account_pubkey = Pubkey::from_str(&args.account)
@@ -258,22 +257,12 @@ fn render_account_text(
         format!("{balance_sol:.9} SOL"),
         format!("({})", format_with_commas(account.lamports)).dimmed()
     );
-    print_summary_line("Pubkey", account_pubkey.to_string().cyan().to_string());
+    print_summary_line("Pubkey", account_pubkey.to_string());
     print_summary_line("Balance", balance_text);
-    print_summary_line("Owner", account.owner.to_string().cyan().to_string());
+    print_summary_line("Owner", account.owner.to_string());
     print_summary_line("Executable", style_bool(account.executable));
-    print_summary_line(
-        "Space",
-        format!(
-            "{} {}",
-            account.data.len(),
-            "bytes".dimmed()
-        ),
-    );
-    print_summary_line(
-        "Rent Epoch",
-        account.rent_epoch.to_string(),
-    );
+    print_summary_line("Space", format!("{} {}", account.data.len(), "bytes".dimmed()));
+    print_summary_line("Rent Epoch", account.rent_epoch.to_string());
 
     render_section_title(&format!("Account Data ({data_kind})"));
     render_json_as_yaml(data, 1);
@@ -282,12 +271,7 @@ fn render_account_text(
 
 fn print_summary_line(label: &str, value: String) {
     const LABEL_WIDTH: usize = 12;
-    println!(
-        " {:<width$} {}",
-        format!("{label}:").dimmed(),
-        value,
-        width = LABEL_WIDTH
-    );
+    println!(" {:<width$} {}", format!("{label}:").dimmed(), value, width = LABEL_WIDTH);
 }
 
 fn render_json_as_yaml(value: &Value, indent: usize) {
@@ -320,11 +304,7 @@ fn render_json_as_yaml(value: &Value, indent: usize) {
 
             for item in items {
                 if is_scalar(item) {
-                    println!(
-                        "{indent_str}{} {}",
-                        "-".dimmed(),
-                        format_scalar(None, item)
-                    );
+                    println!("{indent_str}{} {}", "-".dimmed(), format_scalar(None, item));
                 } else {
                     println!("{indent_str}{}", "-".dimmed());
                     render_json_as_yaml(item, indent + 2);
@@ -349,42 +329,15 @@ fn format_scalar(key: Option<&str>, value: &Value) -> String {
             if key.is_some_and(|k| k.eq_ignore_ascii_case("error")) {
                 return rendered.red().to_string();
             }
-            if key.is_some_and(looks_like_address_key) || looks_like_base58_pubkey(v) {
-                return rendered.cyan().to_string();
-            }
 
-            if rendered.is_empty() {
-                "\"\"".dimmed().to_string()
-            } else {
-                rendered.to_string()
-            }
+            if rendered.is_empty() { "\"\"".dimmed().to_string() } else { rendered.to_string() }
         }
         _ => value.to_string(),
     }
 }
 
 fn style_bool(value: bool) -> String {
-    if value {
-        "true".green().to_string()
-    } else {
-        "false".red().to_string()
-    }
-}
-
-fn looks_like_address_key(key: &str) -> bool {
-    let lower = key.to_ascii_lowercase();
-    lower == "pubkey"
-        || lower.contains("owner")
-        || lower.contains("mint")
-        || lower.contains("authority")
-        || lower.contains("address")
-        || lower.contains("programid")
-}
-
-fn looks_like_base58_pubkey(value: &str) -> bool {
-    const BASE58_ALPHABET: &str = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
-    let len = value.len();
-    (32..=44).contains(&len) && value.chars().all(|c| BASE58_ALPHABET.contains(c))
+    if value { "true".green().to_string() } else { "false".red().to_string() }
 }
 
 fn truncate_for_display(input: &str, max_chars: usize) -> String {
