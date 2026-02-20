@@ -66,7 +66,7 @@ pub enum Commands {
     Decode(DecodeArgs),
     /// Fetch Anchor IDL from on-chain program accounts
     FetchIdl(FetchIdlArgs),
-    /// Fetch and decode a Solana account
+    /// Fetch and decode a Solana account (`account`, alias: `acc`)
     #[command(name = "account", alias = "acc")]
     Account(AccountArgs),
     /// Convert data formats (int, hex, arrays, text, base64, base58, lamports, sol)

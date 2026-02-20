@@ -18,7 +18,7 @@ A CLI tool for local Solana transaction simulation (LiteSVM) plus common develop
 
 ### Utilities
 
-- **account**: decode on-chain accounts (SPL Token, Token-2022, Anchor, BPF upgradeable, optional Metaplex metadata)
+- **account**: decode on-chain accounts (BPF upgradeable, Address Lookup Table, SPL Token/Token-2022, Anchor IDL; optional Metaplex metadata enrichment)
 - **convert**: explicit format conversions
 - **pda**: derive program addresses from seeds
 - **program-elf**: extract ELF from Program/ProgramData/Buffer accounts
@@ -163,30 +163,25 @@ sonar decode <TX> --rpc-url <RPC_URL> --raw-ix-data
 
 ### Account
 
-Fetch and decode a Solana account:
+Fetch and decode a Solana account (`account` or alias `acc`):
 
 ```bash
 sonar account <PUBKEY> --rpc-url https://api.mainnet-beta.solana.com
+sonar acc <PUBKEY> --rpc-url <RPC_URL>
 
-# Output raw account data as base64 JSON
+# Output raw account data as base64 JSON (skip all decoding)
 sonar account <PUBKEY> --rpc-url <RPC_URL> --raw
 
-# Skip account metadata
+# Skip top-level account metadata and print parsed data only
 sonar account <PUBKEY> --rpc-url <RPC_URL> --no-account-meta
 
-# For mint accounts, also try Metaplex metadata PDA decoding (opt-in)
-sonar account <MINT_PUBKEY> --rpc-url <RPC_URL> --mpl-metadata
+# Load local IDLs first (<OWNER_PROGRAM_ID>.json), then fallback to on-chain fetch
+sonar account <PUBKEY> --rpc-url <RPC_URL> --idl-dir /path/to/idls
 
-# Short form
+# For SPL Token / Token-2022 mint accounts, opt-in Metaplex metadata PDA decoding
+sonar account <MINT_PUBKEY> --rpc-url <RPC_URL> --mpl-metadata
 sonar account <MINT_PUBKEY> --rpc-url <RPC_URL> -m
 ```
-
-`--mpl-metadata` is opt-in and defaults to disabled. When enabled, Sonar will attempt to fetch and decode
-the Metaplex metadata PDA for SPL Token legacy or Token-2022 mint accounts, and print only the
-decoded metadata PDA content.
-
-If metadata PDA is missing or cannot be decoded, Sonar prints a warning to stderr and falls back to
-the parsed mint account output.
 
 ### Convert
 

@@ -27,6 +27,7 @@ pub struct AccountArgs {
     pub no_account_meta: bool,
 
     /// For SPL Token legacy or Token-2022 mint accounts, decode Metaplex metadata PDA.
+    /// Using this on token accounts (non-mint) returns an error.
     /// If metadata is missing or invalid, prints a warning to stderr and falls back to mint data.
     #[arg(short = 'm', long = "mpl-metadata")]
     pub mpl_metadata: bool,
