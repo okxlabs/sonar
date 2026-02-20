@@ -18,6 +18,10 @@ pub struct AccountArgs {
     #[arg(long = "idl-dir", env = "SONAR_IDL_DIR")]
     pub idl_dir: Option<PathBuf>,
 
+    /// Output as JSON instead of human-readable text
+    #[arg(long)]
+    pub json: bool,
+
     /// Output raw account data as base64 JSON, skip decoding
     #[arg(long)]
     pub raw: bool,
@@ -68,6 +72,24 @@ mod tests {
             panic!("expected account subcommand");
         };
         assert!(args.mpl_metadata);
+    }
+
+    #[test]
+    fn account_accepts_json_flag() {
+        let cli = Cli::try_parse_from([
+            "sonar",
+            "account",
+            "11111111111111111111111111111111",
+            "--rpc-url",
+            "http://localhost:8899",
+            "--json",
+        ])
+        .expect("should parse --json");
+
+        let Commands::Account(args) = cli.command else {
+            panic!("expected account subcommand");
+        };
+        assert!(args.json);
     }
 
     #[test]

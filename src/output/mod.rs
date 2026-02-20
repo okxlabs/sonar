@@ -1,5 +1,6 @@
 mod json;
 mod report;
+pub(crate) mod terminal;
 mod text;
 
 use anyhow::Result;

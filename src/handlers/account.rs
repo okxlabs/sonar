@@ -3,32 +3,42 @@ use std::path::PathBuf;
 use std::str::FromStr;
 
 use anyhow::{Context, Result};
+use colored::{Colorize, CustomColor};
 use serde_json::Value;
 use solana_pubkey::Pubkey;
 
 use crate::cli::AccountArgs;
 use crate::{
-    core::account_loader, parsers::metaplex_metadata_decoder, parsers::token_account_decoder,
+    core::account_loader, output::terminal::render_section_title,
+    parsers::metaplex_metadata_decoder, parsers::token_account_decoder,
 };
 
-pub(crate) fn handle(args: AccountArgs) -> Result<()> {
-    use crate::parsers::instruction::anchor_idl::{IdlRegistry, RawAnchorIdl, parse_account_data};
-    use solana_address_lookup_table_interface::state::AddressLookupTable;
-    use solana_client::rpc_client::RpcClient;
-    use solana_loader_v3_interface::state::UpgradeableLoaderState;
-    use solana_sdk_ids::{address_lookup_table, bpf_loader_upgradeable};
+struct AccountOutput {
+    kind: String,
+    data: Value,
+    json_output: Value,
+}
 
+const COLOR_LABEL: CustomColor = CustomColor { r: 128, g: 128, b: 128 };
+const COLOR_KEY: CustomColor = CustomColor { r: 139, g: 170, b: 214 };
+const COLOR_TEXT: CustomColor = CustomColor { r: 171, g: 178, b: 191 };
+const COLOR_STRING: CustomColor = CustomColor { r: 152, g: 195, b: 121 };
+const COLOR_NUMBER: CustomColor = CustomColor { r: 229, g: 192, b: 123 };
+const COLOR_BOOL_TRUE: CustomColor = CustomColor { r: 152, g: 195, b: 121 };
+const COLOR_BOOL_FALSE: CustomColor = CustomColor { r: 224, g: 108, b: 117 };
+const COLOR_ERROR: CustomColor = CustomColor { r: 224, g: 108, b: 117 };
+
+pub(crate) fn handle(args: AccountArgs) -> Result<()> {
     // Parse the account pubkey
     let account_pubkey = Pubkey::from_str(&args.account)
         .with_context(|| format!("Invalid account pubkey: {}", args.account))?;
 
     // Create RPC client and fetch the account
+    use solana_client::rpc_client::RpcClient;
     let client = RpcClient::new(&args.rpc.rpc_url);
     let account = client
         .get_account(&account_pubkey)
         .with_context(|| format!("Failed to fetch account: {}", account_pubkey))?;
-
-    let owner = account.owner;
 
     // If --raw is specified, just print raw data and return
     if args.raw {
@@ -36,39 +46,64 @@ pub(crate) fn handle(args: AccountArgs) -> Result<()> {
         return Ok(());
     }
 
+    let output = decode_account_output(&args, &client, &account_pubkey, &account)?;
+
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&output.json_output)?);
+    } else {
+        render_account_text(&account_pubkey, &account, &output.kind, &output.data);
+    }
+
+    Ok(())
+}
+
+fn decode_account_output(
+    args: &AccountArgs,
+    client: &solana_client::rpc_client::RpcClient,
+    account_pubkey: &Pubkey,
+    account: &solana_account::Account,
+) -> Result<AccountOutput> {
+    use crate::parsers::instruction::anchor_idl::{IdlRegistry, RawAnchorIdl, parse_account_data};
+    use solana_address_lookup_table_interface::state::AddressLookupTable;
+    use solana_loader_v3_interface::state::UpgradeableLoaderState;
+    use solana_sdk_ids::{address_lookup_table, bpf_loader_upgradeable};
+
     // Detect BPF Loader Upgradeable accounts (Program, ProgramData, Buffer)
     if account.owner == bpf_loader_upgradeable::id() {
         if let Ok(state) = bincode::deserialize::<UpgradeableLoaderState>(account.data.as_slice()) {
             match state {
                 UpgradeableLoaderState::Program { programdata_address } => {
                     let programdata_pubkey = Pubkey::new_from_array(programdata_address.to_bytes());
-
-                    // Build Program account JSON
-                    let program_data_json = serde_json::json!({
+                    let data_json = serde_json::json!({
                         "programdataAddress": programdata_pubkey.to_string()
                     });
-                    let output = wrap_account_data_output(&account, program_data_json);
-                    println!("{}", serde_json::to_string_pretty(&output)?);
-
-                    return Ok(());
+                    return Ok(AccountOutput {
+                        kind: "Upgradeable Program".to_string(),
+                        data: data_json.clone(),
+                        json_output: wrap_account_data_output(account, data_json),
+                    });
                 }
                 UpgradeableLoaderState::ProgramData { .. } => {
-                    print_programdata_json(&account)?;
-                    return Ok(());
+                    let data_json = build_programdata_json(account)?;
+                    return Ok(AccountOutput {
+                        kind: "ProgramData".to_string(),
+                        data: data_json.clone(),
+                        json_output: wrap_account_data_output(account, data_json),
+                    });
                 }
                 UpgradeableLoaderState::Buffer { authority_address, .. } => {
                     const BUFFER_HEADER_SIZE: usize = 37;
                     let data_size = account.data.len().saturating_sub(BUFFER_HEADER_SIZE);
-
-                    let buffer_data_json = serde_json::json!({
+                    let data_json = serde_json::json!({
                         "authority": authority_address
                             .map(|a| Pubkey::new_from_array(a.to_bytes()).to_string()),
                         "dataSize": data_size
                     });
-                    let output = wrap_account_data_output(&account, buffer_data_json);
-                    println!("{}", serde_json::to_string_pretty(&output)?);
-
-                    return Ok(());
+                    return Ok(AccountOutput {
+                        kind: "Upgradeable Buffer".to_string(),
+                        data: data_json.clone(),
+                        json_output: wrap_account_data_output(account, data_json),
+                    });
                 }
                 _ => {} // Uninitialized, fall through to other decoders
             }
@@ -79,7 +114,6 @@ pub(crate) fn handle(args: AccountArgs) -> Result<()> {
     if account.owner == address_lookup_table::id() {
         if let Ok(lookup_table) = AddressLookupTable::deserialize(account.data.as_slice()) {
             let authority = lookup_table.meta.authority.map(|a| a.to_string());
-
             let data_json = serde_json::json!({
                 "meta": {
                     "deactivation_slot": lookup_table.meta.deactivation_slot,
@@ -90,34 +124,49 @@ pub(crate) fn handle(args: AccountArgs) -> Result<()> {
                 },
                 "addresses": lookup_table.addresses.iter().map(|k| k.to_string()).collect::<Vec<_>>()
             });
-            let output = wrap_account_data_output(&account, data_json);
-            println!("{}", serde_json::to_string_pretty(&output)?);
-
-            return Ok(());
+            return Ok(AccountOutput {
+                kind: "Address Lookup Table".to_string(),
+                data: data_json.clone(),
+                json_output: wrap_account_data_output(account, data_json),
+            });
         }
     }
 
     // Try to decode as SPL Token or Token-2022 account (mint or token account)
-    if let Some(token_json) = token_account_decoder::decode_spl_token_account(&account) {
+    if let Some(token_json) = token_account_decoder::decode_spl_token_account(account) {
         if args.mpl_metadata {
-            if !should_enrich_with_metaplex_metadata(&account, &token_json) {
+            if !should_enrich_with_metaplex_metadata(account, &token_json) {
                 anyhow::bail!("--mpl-metadata requires a SPL Token or Token-2022 mint account");
             }
 
-            let metadata_result = fetch_metadata_for_mint(&client, &account_pubkey);
+            let metadata_result = fetch_metadata_for_mint(client, account_pubkey);
             let (output, warning) = resolve_metadata_output(&token_json, metadata_result)?;
             if let Some(message) = warning {
                 eprintln!("Warning: {message}");
             }
-            println!("{}", serde_json::to_string_pretty(&output)?);
-            return Ok(());
+
+            let kind = if has_account_meta_fields(&output) {
+                infer_token_data_kind(&output)
+            } else {
+                "Metaplex Metadata".to_string()
+            };
+
+            return Ok(AccountOutput {
+                kind,
+                data: extract_data_for_text(&output),
+                json_output: output,
+            });
         }
 
-        println!("{}", serde_json::to_string_pretty(&token_json)?);
-        return Ok(());
+        return Ok(AccountOutput {
+            kind: infer_token_data_kind(&token_json),
+            data: extract_data_for_text(&token_json),
+            json_output: token_json,
+        });
     }
 
     // Try to find IDL: first from local directory, then from chain
+    let owner = account.owner;
     let idl_json = try_load_idl_from_dir(&args.idl_dir, &owner).or_else(|| {
         let loader =
             account_loader::AccountLoader::new(args.rpc.rpc_url.clone(), None, false, None).ok()?;
@@ -127,9 +176,17 @@ pub(crate) fn handle(args: AccountArgs) -> Result<()> {
     let idl_json = match idl_json {
         Some(json) => json,
         None => {
-            // Output raw data in Solana JSON RPC format
-            print_raw_account_data(&account);
-            return Ok(());
+            // Keep old JSON shape for --json, and show concise data in text mode.
+            let raw_json = raw_account_data_json(account);
+            let data_json = serde_json::json!({
+                "encoding": "base64",
+                "data": raw_json.get("data").cloned().unwrap_or(Value::Null)
+            });
+            return Ok(AccountOutput {
+                kind: "Raw Account Data".to_string(),
+                data: data_json,
+                json_output: raw_json,
+            });
         }
     };
 
@@ -143,12 +200,29 @@ pub(crate) fn handle(args: AccountArgs) -> Result<()> {
 
     // Parse the account data
     match parse_account_data(&idl, &account.data, &registry)? {
-        Some((_type_name, parsed_value)) => {
-            let output = wrap_account_data_output(&account, parsed_value);
-            println!("{}", serde_json::to_string_pretty(&output)?);
+        Some((type_name, parsed_value)) => {
+            let parsed_json = serde_json::to_value(&parsed_value)
+                .with_context(|| "Failed to convert parsed value to JSON")?;
+            Ok(AccountOutput {
+                kind: type_name.to_string(),
+                data: parsed_json,
+                json_output: wrap_account_data_output(account, &parsed_value),
+            })
         }
         None => {
-            let output = if account.data.len() >= 8 {
+            let data_json = if account.data.len() >= 8 {
+                serde_json::json!({
+                    "error": "No matching account type found",
+                    "discriminator": hex::encode(&account.data[..8]),
+                    "raw_data": hex::encode(&account.data)
+                })
+            } else {
+                serde_json::json!({
+                    "error": "Account data too short",
+                    "raw_data": hex::encode(&account.data)
+                })
+            };
+            let json_output = if account.data.len() >= 8 {
                 serde_json::json!({
                     "lamports": account.lamports,
                     "space": account.data.len(),
@@ -170,11 +244,221 @@ pub(crate) fn handle(args: AccountArgs) -> Result<()> {
                     "raw_data": hex::encode(&account.data)
                 })
             };
-            println!("{}", serde_json::to_string_pretty(&output)?);
+            Ok(AccountOutput {
+                kind: "Unknown / Unparsed".to_string(),
+                data: data_json,
+                json_output,
+            })
         }
     }
+}
 
-    Ok(())
+fn render_account_text(
+    account_pubkey: &Pubkey,
+    account: &solana_account::Account,
+    data_kind: &str,
+    data: &Value,
+) {
+    render_section_title("Account Summary");
+    let balance_sol = account.lamports as f64 / 1_000_000_000.0;
+    let balance_text = format!(
+        "{}{}",
+        format!("{balance_sol:.9} SOL").custom_color(COLOR_STRING),
+        format!(" ({})", format_with_commas(account.lamports)).custom_color(COLOR_TEXT)
+    );
+    print_summary_line("Pubkey", account_pubkey.to_string().cyan().to_string());
+    print_summary_line("Balance", balance_text);
+    print_summary_line("Owner", account.owner.to_string().cyan().to_string());
+    print_summary_line("Executable", style_bool(account.executable));
+    print_summary_line(
+        "Space",
+        format!(
+            "{}{}",
+            account.data.len().to_string().custom_color(COLOR_NUMBER),
+            " bytes".custom_color(COLOR_TEXT)
+        ),
+    );
+    print_summary_line(
+        "Rent Epoch",
+        account.rent_epoch.to_string().custom_color(COLOR_TEXT).to_string(),
+    );
+
+    render_section_title(&format!("Account Data ({data_kind})"));
+    render_json_as_yaml(data, 1);
+}
+
+fn print_summary_line(label: &str, value: String) {
+    const LABEL_WIDTH: usize = 12;
+    println!(
+        " {:<width$} {}",
+        format!("{label}:").custom_color(COLOR_LABEL),
+        value,
+        width = LABEL_WIDTH
+    );
+}
+
+fn render_json_as_yaml(value: &Value, indent: usize) {
+    let indent_str = " ".repeat(indent);
+    match value {
+        Value::Object(map) => {
+            if map.is_empty() {
+                println!("{indent_str}{}", "{}".dimmed());
+                return;
+            }
+
+            for (key, child) in map {
+                if is_scalar(child) {
+                    println!(
+                        "{indent_str}{} {}",
+                        format!("{key}:").custom_color(COLOR_KEY),
+                        format_scalar(Some(key.as_str()), child)
+                    );
+                } else {
+                    println!("{indent_str}{}", format!("{key}:").custom_color(COLOR_KEY));
+                    render_json_as_yaml(child, indent + 2);
+                }
+            }
+        }
+        Value::Array(items) => {
+            if items.is_empty() {
+                println!("{indent_str}{}", "[]".custom_color(COLOR_LABEL));
+                return;
+            }
+
+            for item in items {
+                if is_scalar(item) {
+                    println!(
+                        "{indent_str}{} {}",
+                        "-".custom_color(COLOR_LABEL),
+                        format_scalar(None, item)
+                    );
+                } else {
+                    println!("{indent_str}{}", "-".custom_color(COLOR_LABEL));
+                    render_json_as_yaml(item, indent + 2);
+                }
+            }
+        }
+        _ => println!("{indent_str}{}", format_scalar(None, value)),
+    }
+}
+
+fn is_scalar(value: &Value) -> bool {
+    matches!(value, Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_))
+}
+
+fn format_scalar(key: Option<&str>, value: &Value) -> String {
+    match value {
+        Value::Null => "null".custom_color(COLOR_LABEL).to_string(),
+        Value::Bool(v) => style_bool(*v),
+        Value::Number(v) => v.to_string().custom_color(COLOR_NUMBER).to_string(),
+        Value::String(v) => {
+            let rendered = truncate_for_display(v, 120);
+            if key.is_some_and(|k| k.eq_ignore_ascii_case("error")) {
+                return rendered.custom_color(COLOR_ERROR).to_string();
+            }
+            if key.is_some_and(looks_like_address_key) || looks_like_base58_pubkey(v) {
+                return rendered.cyan().to_string();
+            }
+
+            if rendered.is_empty() {
+                "\"\"".custom_color(COLOR_STRING).to_string()
+            } else {
+                rendered.custom_color(COLOR_STRING).to_string()
+            }
+        }
+        _ => value.to_string(),
+    }
+}
+
+fn style_bool(value: bool) -> String {
+    let color = if value { COLOR_BOOL_TRUE } else { COLOR_BOOL_FALSE };
+    value.to_string().custom_color(color).to_string()
+}
+
+fn looks_like_address_key(key: &str) -> bool {
+    let lower = key.to_ascii_lowercase();
+    lower == "pubkey"
+        || lower.contains("owner")
+        || lower.contains("mint")
+        || lower.contains("authority")
+        || lower.contains("address")
+        || lower.contains("programid")
+}
+
+fn looks_like_base58_pubkey(value: &str) -> bool {
+    const BASE58_ALPHABET: &str = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+    let len = value.len();
+    (32..=44).contains(&len) && value.chars().all(|c| BASE58_ALPHABET.contains(c))
+}
+
+fn truncate_for_display(input: &str, max_chars: usize) -> String {
+    let input_len = input.chars().count();
+    if input_len <= max_chars {
+        return input.to_string();
+    }
+
+    let prefix: String = input.chars().take(max_chars).collect();
+    format!("{prefix}… ({input_len} chars)")
+}
+
+fn infer_token_data_kind(token_json: &Value) -> String {
+    let data = token_json.get("data");
+    let owner_bytes = token_json
+        .get("owner")
+        .and_then(Value::as_str)
+        .and_then(|owner| Pubkey::from_str(owner).ok())
+        .map(|owner| owner.to_bytes());
+    let program_label = if owner_bytes == Some(spl_token::ID.to_bytes()) {
+        "SPL Token"
+    } else if owner_bytes == Some(spl_token_2022::ID.to_bytes()) {
+        "Token-2022"
+    } else {
+        "Token"
+    };
+
+    if data
+        .and_then(Value::as_object)
+        .is_some_and(|obj| obj.contains_key("decimals") && obj.contains_key("supply"))
+    {
+        format!("{program_label} Mint")
+    } else if data
+        .and_then(Value::as_object)
+        .is_some_and(|obj| obj.contains_key("mint") && obj.contains_key("token_owner"))
+    {
+        format!("{program_label} Account")
+    } else {
+        format!("{program_label} Data")
+    }
+}
+
+fn has_account_meta_fields(value: &Value) -> bool {
+    value.as_object().is_some_and(|obj| {
+        obj.contains_key("lamports")
+            && obj.contains_key("space")
+            && obj.contains_key("owner")
+            && obj.contains_key("executable")
+            && obj.contains_key("rentEpoch")
+    })
+}
+
+fn extract_data_for_text(value: &Value) -> Value {
+    if has_account_meta_fields(value) {
+        value.get("data").cloned().unwrap_or_else(|| value.clone())
+    } else {
+        value.clone()
+    }
+}
+
+fn format_with_commas(n: u64) -> String {
+    let s = n.to_string();
+    let mut result = String::new();
+    for (i, c) in s.chars().rev().enumerate() {
+        if i > 0 && i % 3 == 0 {
+            result.push(',');
+        }
+        result.push(c);
+    }
+    result.chars().rev().collect()
 }
 
 /// Try to load IDL from local directory (if specified).
@@ -200,9 +484,9 @@ fn try_load_idl_from_dir(idl_dir: &Option<PathBuf>, owner: &Pubkey) -> Option<St
     }
 }
 
-/// Print ProgramData account info as JSON.
+/// Build ProgramData account payload.
 /// Deserializes the UpgradeableLoaderState::ProgramData to extract upgrade authority and slot.
-fn print_programdata_json(account: &solana_account::Account) -> Result<()> {
+fn build_programdata_json(account: &solana_account::Account) -> Result<Value> {
     use solana_loader_v3_interface::state::UpgradeableLoaderState;
 
     const PROGRAM_DATA_HEADER_SIZE: usize = 45;
@@ -215,21 +499,20 @@ fn print_programdata_json(account: &solana_account::Account) -> Result<()> {
             upgrade_authority_address.map(|a| Pubkey::new_from_array(a.to_bytes()).to_string());
         let elf_size = account.data.len().saturating_sub(PROGRAM_DATA_HEADER_SIZE);
 
-        let data_json = serde_json::json!({
+        Ok(serde_json::json!({
             "upgradeAuthority": authority,
             "lastDeployedSlot": slot,
             "elfSize": elf_size
-        });
-        let output = wrap_account_data_output(account, data_json);
-        println!("{}", serde_json::to_string_pretty(&output)?);
+        }))
     } else {
         anyhow::bail!("Account is not a ProgramData account");
     }
-
-    Ok(())
 }
 
-fn wrap_account_data_output<S: serde::Serialize>(account: &solana_account::Account, data: S) -> Value {
+fn wrap_account_data_output<S: serde::Serialize>(
+    account: &solana_account::Account,
+    data: S,
+) -> Value {
     serde_json::json!({
         "lamports": account.lamports,
         "space": account.data.len(),
@@ -243,17 +526,22 @@ fn wrap_account_data_output<S: serde::Serialize>(account: &solana_account::Accou
 /// Print account data in Solana JSON RPC format.
 /// Field order follows Solana Account struct: lamports, data, owner, executable, rent_epoch
 fn print_raw_account_data(account: &solana_account::Account) {
+    let output = raw_account_data_json(account);
+    println!("{}", serde_json::to_string_pretty(&output).unwrap_or_else(|_| "{}".to_string()));
+}
+
+fn raw_account_data_json(account: &solana_account::Account) -> Value {
     use base64::{Engine as _, engine::general_purpose};
+
     let data_b64 = general_purpose::STANDARD.encode(&account.data);
-    let output = serde_json::json!({
+    serde_json::json!({
         "lamports": account.lamports,
         "data": data_b64,
         "owner": account.owner.to_string(),
         "executable": account.executable,
         "rentEpoch": account.rent_epoch,
         "space": account.data.len()
-    });
-    println!("{}", serde_json::to_string_pretty(&output).unwrap_or_else(|_| "{}".to_string()));
+    })
 }
 
 /// Token mint JSON shape check:

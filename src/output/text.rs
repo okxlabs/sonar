@@ -20,6 +20,7 @@ use super::report::{
     Report, SimulationSection, SimulationStatusReport, SolBalanceChangeSection,
     TokenBalanceChangeSection, TransactionSection,
 };
+use super::terminal::render_section_title;
 
 /// Single indentation unit (2 spaces).
 const INDENT: &str = "  ";
@@ -30,17 +31,6 @@ const INDENT_L2: &str = "    ";
 
 /// Subdued gray for metadata columns (index labels, permission flags, account names).
 const DIM_GRAY: colored::CustomColor = colored::CustomColor { r: 128, g: 128, b: 128 };
-
-/// Get effective terminal width for text rendering.
-/// Falls back to 80 when width detection is unavailable.
-fn terminal_width() -> usize {
-    terminal_size::terminal_size().map(|(width, _)| (width.0 as usize).clamp(60, 120)).unwrap_or(80)
-}
-
-/// Header content width with one-space side margins.
-fn header_content_width() -> usize {
-    terminal_width().saturating_sub(2).max(1)
-}
 
 pub(super) fn render_text(
     report: &Report,
@@ -296,23 +286,6 @@ fn render_bundle_balance_changes(bundle: &BundleReport) {
             );
         }
     }
-}
-
-/// Render a section title with centered text flanked by `─` lines.
-fn render_section_title(title: &str) {
-    let width = header_content_width();
-    let title_with_padding = format!(" {} ", title);
-    let title_len = UnicodeWidthStr::width(title_with_padding.as_str());
-    let remaining = width.saturating_sub(title_len);
-    let left = remaining / 2;
-    let right = remaining - left;
-    println!();
-    println!(
-        " {}{}{} ",
-        "─".repeat(left).dimmed(),
-        title_with_padding.dimmed(),
-        "─".repeat(right).dimmed(),
-    );
 }
 
 /// Render the summary header showing status and compute units (displayed first).
