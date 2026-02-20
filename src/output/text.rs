@@ -141,6 +141,9 @@ pub(super) fn render_transaction_section_text(
     // Account list at the end
     render_section_title(&format!("Account List{}", tx_suffix));
     render_account_list_text(transaction, resolved);
+
+    // Final empty line for consistent CLI output termination.
+    println!();
 }
 
 /// Render the bundle summary header showing overall status and per-transaction compact rows.
@@ -177,7 +180,6 @@ fn render_bundle_summary_header(bundle: &BundleReport, total_count: usize) {
         format_with_commas(total_cu)
     );
     render_section_title(&summary_text);
-    println!();
 
     let tx_col_width = total_count.to_string().len().max(2);
     const CU_COL_WIDTH: usize = 12;
@@ -244,8 +246,6 @@ fn render_bundle_transaction_ix_detail(
 
 /// Render overall bundle balance changes (first tx pre -> last successful tx post)
 fn render_bundle_balance_changes(bundle: &BundleReport) {
-    println!();
-
     if !bundle.sol_balance_changes.is_empty() {
         for change in &bundle.sol_balance_changes {
             let sol_before = change.before as f64 / 1_000_000_000.0;
@@ -373,7 +373,7 @@ fn render_execution_trace_section(simulation: &SimulationSection, log_opts: LogD
 
 fn render_no_trace_hint(simulation: &SimulationSection, indent: &str) {
     if let SimulationStatusReport::Failed { error } = &simulation.status {
-        println!("\n{}↳ Failed before program invocation: {}", indent, error);
+        println!("{}↳ Failed before program invocation: {}", indent, error);
     }
 }
 
@@ -386,7 +386,6 @@ fn render_balance_changes_text(
     if sol_changes.is_empty() && token_changes.is_empty() {
         return;
     }
-    println!();
 
     // SOL balance changes first
     for change in sol_changes {
@@ -435,7 +434,6 @@ fn render_lookup_tables_text(transaction: &TransactionSection) {
     if transaction.lookups.is_empty() {
         return;
     }
-    println!();
     let index_width = index_label_width(transaction.lookups.len().saturating_sub(1));
 
     for (idx, lookup) in transaction.lookups.iter().enumerate() {
@@ -449,8 +447,6 @@ fn render_lookup_tables_text(transaction: &TransactionSection) {
 }
 
 fn render_account_list_text(transaction: &TransactionSection, resolved: &ResolvedAccounts) {
-    println!();
-
     let mut account_index = 0;
     let layout = account_list_layout(transaction);
 
@@ -519,7 +515,6 @@ fn render_instruction_details_text(
     resolved: &ResolvedAccounts,
     show_ix_data: bool,
 ) {
-    println!();
     let layout = instruction_account_layout(transaction);
 
     let data_indent = " ".repeat(INDENT_L1.len() + layout.index_width + 3);
@@ -744,11 +739,14 @@ fn render_account_index_label(index: usize, width: usize) -> String {
 fn render_logs_structured(logs: &[String]) {
     let instruction_logs = parse_logs_by_instruction(logs);
 
-    for inst_logs in &instruction_logs {
+    for (idx, inst_logs) in instruction_logs.iter().enumerate() {
+        if idx > 0 {
+            println!();
+        }
         // Print instruction header
         let program_name = get_program_display_name(&inst_logs.program);
         println!(
-            "\n{} {} instruction",
+            "{} {} instruction",
             format!("#{}", inst_logs.instruction_index + 1).bold(),
             program_name.bold()
         );

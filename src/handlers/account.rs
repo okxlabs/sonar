@@ -285,6 +285,7 @@ fn render_account_text(
 
     render_section_title(&format!("Account Data ({data_kind})"));
     render_json_as_yaml(data, 1);
+    println!();
 }
 
 fn print_summary_line(label: &str, value: String) {
