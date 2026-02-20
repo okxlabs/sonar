@@ -13,9 +13,10 @@ use crate::{
 
 pub(crate) fn handle(args: AccountArgs) -> Result<()> {
     use crate::parsers::instruction::anchor_idl::{IdlRegistry, RawAnchorIdl, parse_account_data};
+    use solana_address_lookup_table_interface::state::AddressLookupTable;
     use solana_client::rpc_client::RpcClient;
     use solana_loader_v3_interface::state::UpgradeableLoaderState;
-    use solana_sdk_ids::bpf_loader_upgradeable;
+    use solana_sdk_ids::{address_lookup_table, bpf_loader_upgradeable};
 
     // Parse the account pubkey
     let account_pubkey = Pubkey::from_str(&args.account)
@@ -95,6 +96,40 @@ pub(crate) fn handle(args: AccountArgs) -> Result<()> {
                 }
                 _ => {} // Uninitialized, fall through to other decoders
             }
+        }
+    }
+
+    // Detect Address Lookup Table
+    if account.owner == address_lookup_table::id() {
+        if let Ok(lookup_table) = AddressLookupTable::deserialize(account.data.as_slice()) {
+            let authority = lookup_table.meta.authority.map(|a| a.to_string());
+
+            let data_json = serde_json::json!({
+                "meta": {
+                    "deactivation_slot": lookup_table.meta.deactivation_slot,
+                    "last_extended_slot": lookup_table.meta.last_extended_slot,
+                    "last_extended_slot_start_index": lookup_table.meta.last_extended_slot_start_index,
+                    "authority": authority,
+                    "_padding": lookup_table.meta._padding,
+                },
+                "addresses": lookup_table.addresses.iter().map(|k| k.to_string()).collect::<Vec<_>>()
+            });
+
+            if args.no_account_meta {
+                println!("{}", serde_json::to_string_pretty(&data_json)?);
+            } else {
+                let output = serde_json::json!({
+                    "lamports": account.lamports,
+                    "space": account.data.len(),
+                    "owner": account.owner.to_string(),
+                    "executable": account.executable,
+                    "rentEpoch": account.rent_epoch,
+                    "data": data_json
+                });
+                println!("{}", serde_json::to_string_pretty(&output)?);
+            }
+
+            return Ok(());
         }
     }
 
