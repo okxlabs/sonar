@@ -20,8 +20,7 @@ pub(crate) fn handle(args: PdaArgs) -> Result<()> {
 
     let (pda, bump) = Pubkey::find_program_address(&seed_slices, &program_id);
 
-    println!("PDA: {}", pda);
-    println!("Bump: {}", bump);
+    println!("{pda} {bump}");
 
     Ok(())
 }
