@@ -592,7 +592,7 @@ fn render_instruction_details_text(
             }
 
             if show_ix_data {
-                println!("{}0x{}", &current_data_indent, hex::encode(&ix.data));
+                render_instruction_data_text(&current_data_indent, &ix.data);
             }
 
             render_parsed_fields(&parsed.fields, &current_data_indent);
@@ -606,7 +606,7 @@ fn render_instruction_details_text(
             for account in &ix.accounts {
                 render_instruction_account_text(account, resolved, None, INDENT_L1, &layout);
             }
-            println!("{}0x{}", &current_data_indent, hex::encode(&ix.data));
+            render_instruction_data_text(&current_data_indent, &ix.data);
         }
 
         if !ix.inner_instructions.is_empty() {
@@ -642,7 +642,7 @@ fn render_instruction_details_text(
                     }
 
                     if show_ix_data {
-                        println!("{}0x{}", &current_inner_data_indent, hex::encode(&inner_ix.data));
+                        render_instruction_data_text(&current_inner_data_indent, &inner_ix.data);
                     }
 
                     render_parsed_fields(&parsed_inner.fields, &current_inner_data_indent);
@@ -659,7 +659,7 @@ fn render_instruction_details_text(
                             account, resolved, None, INDENT_L2, &layout,
                         );
                     }
-                    println!("{}0x{}", &current_inner_data_indent, hex::encode(&inner_ix.data));
+                    render_instruction_data_text(&current_inner_data_indent, &inner_ix.data);
                 }
             }
         }
@@ -894,4 +894,8 @@ fn render_parsed_fields(fields: &[ParsedField], indent: &str) {
     for line in pretty.lines() {
         println!("{}", format!("{}{}", indent, line).custom_color((171, 178, 191)));
     }
+}
+
+fn render_instruction_data_text(indent: &str, data: &[u8]) {
+    println!("{}0x{} {} bytes", indent, hex::encode(data), data.len());
 }
