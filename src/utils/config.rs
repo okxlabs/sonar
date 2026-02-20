@@ -48,7 +48,7 @@ fn default_config_path() -> Option<PathBuf> {
 }
 
 /// Expand a leading `~` to the user's home directory.
-fn expand_tilde(path: &str) -> String {
+pub(crate) fn expand_tilde(path: &str) -> String {
     if let Some(rest) = path.strip_prefix("~/") {
         if let Ok(home) = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")) {
             return format!("{}/{}", home, rest);

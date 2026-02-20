@@ -153,7 +153,7 @@ pub fn parse_replacement(raw: &str) -> Result<Replacement, String> {
         .ok_or_else(|| "Replacement must be in <PUBKEY>=<PATH> format".to_string())?;
     let pubkey = Pubkey::from_str(pubkey_str)
         .map_err(|err| format!("Failed to parse address `{pubkey_str}`: {err}"))?;
-    let path = PathBuf::from(path_str.trim());
+    let path = PathBuf::from(crate::utils::config::expand_tilde(path_str.trim()));
     if !path.exists() {
         return Err(format!("Specified file `{}` does not exist", path.display()));
     }
@@ -384,6 +384,70 @@ pub fn parse_timestamp(raw: &str) -> Result<i64, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn unique_test_file_path(base_dir: &std::path::Path, ext: &str) -> PathBuf {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system time should be after UNIX_EPOCH")
+            .as_nanos();
+        base_dir.join(format!(".sonar_replace_test_{}_{}.{}", std::process::id(), nanos, ext))
+    }
+
+    #[test]
+    fn parse_replacement_expands_tilde_path() {
+        let home = std::env::var("HOME")
+            .or_else(|_| std::env::var("USERPROFILE"))
+            .expect("HOME or USERPROFILE should be set");
+        let absolute_path = unique_test_file_path(std::path::Path::new(&home), "so");
+        std::fs::write(&absolute_path, b"fake-elf").expect("create replacement file");
+
+        let file_name = absolute_path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .expect("temporary filename should be valid UTF-8");
+        let program_id = Pubkey::new_unique();
+        let input = format!("{program_id}=~/{file_name}");
+        let parsed = parse_replacement(&input).expect("parse replacement with ~ path");
+
+        std::fs::remove_file(&absolute_path).ok();
+
+        match parsed {
+            Replacement::Program { program_id: parsed_id, so_path } => {
+                assert_eq!(parsed_id, program_id);
+                assert_eq!(so_path, absolute_path);
+            }
+            _ => panic!("expected program replacement"),
+        }
+    }
+
+    #[test]
+    fn parse_replacement_accepts_absolute_path() {
+        let absolute_path = unique_test_file_path(&std::env::temp_dir(), "so");
+        std::fs::write(&absolute_path, b"fake-elf").expect("create replacement file");
+
+        let program_id = Pubkey::new_unique();
+        let input = format!("{program_id}={}", absolute_path.display());
+        let parsed = parse_replacement(&input).expect("parse replacement with absolute path");
+
+        std::fs::remove_file(&absolute_path).ok();
+
+        match parsed {
+            Replacement::Program { program_id: parsed_id, so_path } => {
+                assert_eq!(parsed_id, program_id);
+                assert_eq!(so_path, absolute_path);
+            }
+            _ => panic!("expected program replacement"),
+        }
+    }
+
+    #[test]
+    fn parse_replacement_reports_missing_file() {
+        let missing_path = unique_test_file_path(&std::env::temp_dir(), "so");
+        let program_id = Pubkey::new_unique();
+        let input = format!("{program_id}={}", missing_path.display());
+        let err = parse_replacement(&input).unwrap_err();
+        assert!(err.contains("does not exist"));
+    }
 
     #[test]
     fn parse_token_funding_accepts_valid_input_with_mint() {
