@@ -172,9 +172,6 @@ sonar acc <PUBKEY> --rpc-url <RPC_URL>
 # Output raw account data as base64 JSON (skip all decoding)
 sonar account <PUBKEY> --rpc-url <RPC_URL> --raw
 
-# Skip top-level account metadata and print parsed data only
-sonar account <PUBKEY> --rpc-url <RPC_URL> --no-account-meta
-
 # Load local IDLs first (<OWNER_PROGRAM_ID>.json), then fallback to on-chain fetch
 sonar account <PUBKEY> --rpc-url <RPC_URL> --idl-dir /path/to/idls
 

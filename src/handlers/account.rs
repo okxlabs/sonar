@@ -47,25 +47,13 @@ pub(crate) fn handle(args: AccountArgs) -> Result<()> {
                     let program_data_json = serde_json::json!({
                         "programdataAddress": programdata_pubkey.to_string()
                     });
-
-                    if args.no_account_meta {
-                        println!("{}", serde_json::to_string_pretty(&program_data_json)?);
-                    } else {
-                        let output = serde_json::json!({
-                            "lamports": account.lamports,
-                            "space": account.data.len(),
-                            "owner": account.owner.to_string(),
-                            "executable": account.executable,
-                            "rentEpoch": account.rent_epoch,
-                            "data": program_data_json
-                        });
-                        println!("{}", serde_json::to_string_pretty(&output)?);
-                    }
+                    let output = wrap_account_data_output(&account, program_data_json);
+                    println!("{}", serde_json::to_string_pretty(&output)?);
 
                     return Ok(());
                 }
                 UpgradeableLoaderState::ProgramData { .. } => {
-                    print_programdata_json(&account, args.no_account_meta)?;
+                    print_programdata_json(&account)?;
                     return Ok(());
                 }
                 UpgradeableLoaderState::Buffer { authority_address, .. } => {
@@ -77,20 +65,8 @@ pub(crate) fn handle(args: AccountArgs) -> Result<()> {
                             .map(|a| Pubkey::new_from_array(a.to_bytes()).to_string()),
                         "dataSize": data_size
                     });
-
-                    if args.no_account_meta {
-                        println!("{}", serde_json::to_string_pretty(&buffer_data_json)?);
-                    } else {
-                        let output = serde_json::json!({
-                            "lamports": account.lamports,
-                            "space": account.data.len(),
-                            "owner": account.owner.to_string(),
-                            "executable": account.executable,
-                            "rentEpoch": account.rent_epoch,
-                            "data": buffer_data_json
-                        });
-                        println!("{}", serde_json::to_string_pretty(&output)?);
-                    }
+                    let output = wrap_account_data_output(&account, buffer_data_json);
+                    println!("{}", serde_json::to_string_pretty(&output)?);
 
                     return Ok(());
                 }
@@ -114,20 +90,8 @@ pub(crate) fn handle(args: AccountArgs) -> Result<()> {
                 },
                 "addresses": lookup_table.addresses.iter().map(|k| k.to_string()).collect::<Vec<_>>()
             });
-
-            if args.no_account_meta {
-                println!("{}", serde_json::to_string_pretty(&data_json)?);
-            } else {
-                let output = serde_json::json!({
-                    "lamports": account.lamports,
-                    "space": account.data.len(),
-                    "owner": account.owner.to_string(),
-                    "executable": account.executable,
-                    "rentEpoch": account.rent_epoch,
-                    "data": data_json
-                });
-                println!("{}", serde_json::to_string_pretty(&output)?);
-            }
+            let output = wrap_account_data_output(&account, data_json);
+            println!("{}", serde_json::to_string_pretty(&output)?);
 
             return Ok(());
         }
@@ -141,8 +105,7 @@ pub(crate) fn handle(args: AccountArgs) -> Result<()> {
             }
 
             let metadata_result = fetch_metadata_for_mint(&client, &account_pubkey);
-            let (output, warning) =
-                resolve_metadata_output(&token_json, metadata_result, args.no_account_meta)?;
+            let (output, warning) = resolve_metadata_output(&token_json, metadata_result)?;
             if let Some(message) = warning {
                 eprintln!("Warning: {message}");
             }
@@ -150,8 +113,7 @@ pub(crate) fn handle(args: AccountArgs) -> Result<()> {
             return Ok(());
         }
 
-        let output = token_output_value(&token_json, args.no_account_meta);
-        println!("{}", serde_json::to_string_pretty(&output)?);
+        println!("{}", serde_json::to_string_pretty(&token_json)?);
         return Ok(());
     }
 
@@ -182,35 +144,11 @@ pub(crate) fn handle(args: AccountArgs) -> Result<()> {
     // Parse the account data
     match parse_account_data(&idl, &account.data, &registry)? {
         Some((_type_name, parsed_value)) => {
-            if args.no_account_meta {
-                println!("{}", serde_json::to_string_pretty(&parsed_value)?);
-            } else {
-                let output = serde_json::json!({
-                    "lamports": account.lamports,
-                    "space": account.data.len(),
-                    "owner": account.owner.to_string(),
-                    "executable": account.executable,
-                    "rentEpoch": account.rent_epoch,
-                    "data": parsed_value
-                });
-                println!("{}", serde_json::to_string_pretty(&output)?);
-            }
+            let output = wrap_account_data_output(&account, parsed_value);
+            println!("{}", serde_json::to_string_pretty(&output)?);
         }
         None => {
-            let output = if args.no_account_meta {
-                if account.data.len() >= 8 {
-                    serde_json::json!({
-                        "error": "No matching account type found",
-                        "discriminator": hex::encode(&account.data[..8]),
-                        "raw_data": hex::encode(&account.data)
-                    })
-                } else {
-                    serde_json::json!({
-                        "error": "Account data too short",
-                        "raw_data": hex::encode(&account.data)
-                    })
-                }
-            } else if account.data.len() >= 8 {
+            let output = if account.data.len() >= 8 {
                 serde_json::json!({
                     "lamports": account.lamports,
                     "space": account.data.len(),
@@ -264,7 +202,7 @@ fn try_load_idl_from_dir(idl_dir: &Option<PathBuf>, owner: &Pubkey) -> Option<St
 
 /// Print ProgramData account info as JSON.
 /// Deserializes the UpgradeableLoaderState::ProgramData to extract upgrade authority and slot.
-fn print_programdata_json(account: &solana_account::Account, no_account_meta: bool) -> Result<()> {
+fn print_programdata_json(account: &solana_account::Account) -> Result<()> {
     use solana_loader_v3_interface::state::UpgradeableLoaderState;
 
     const PROGRAM_DATA_HEADER_SIZE: usize = 45;
@@ -282,25 +220,24 @@ fn print_programdata_json(account: &solana_account::Account, no_account_meta: bo
             "lastDeployedSlot": slot,
             "elfSize": elf_size
         });
-
-        if no_account_meta {
-            println!("{}", serde_json::to_string_pretty(&data_json)?);
-        } else {
-            let output = serde_json::json!({
-                "lamports": account.lamports,
-                "space": account.data.len(),
-                "owner": account.owner.to_string(),
-                "executable": account.executable,
-                "rentEpoch": account.rent_epoch,
-                "data": data_json
-            });
-            println!("{}", serde_json::to_string_pretty(&output)?);
-        }
+        let output = wrap_account_data_output(account, data_json);
+        println!("{}", serde_json::to_string_pretty(&output)?);
     } else {
         anyhow::bail!("Account is not a ProgramData account");
     }
 
     Ok(())
+}
+
+fn wrap_account_data_output<S: serde::Serialize>(account: &solana_account::Account, data: S) -> Value {
+    serde_json::json!({
+        "lamports": account.lamports,
+        "space": account.data.len(),
+        "owner": account.owner.to_string(),
+        "executable": account.executable,
+        "rentEpoch": account.rent_epoch,
+        "data": data
+    })
 }
 
 /// Print account data in Solana JSON RPC format.
@@ -338,23 +275,14 @@ fn should_enrich_with_metaplex_metadata(
         .unwrap_or(false)
 }
 
-fn token_output_value(token_json: &Value, no_account_meta: bool) -> Value {
-    if no_account_meta {
-        token_json.get("data").cloned().unwrap_or_else(|| token_json.clone())
-    } else {
-        token_json.clone()
-    }
-}
-
 fn resolve_metadata_output(
     token_json: &Value,
     metadata_result: Result<Value>,
-    no_account_meta: bool,
 ) -> Result<(Value, Option<String>)> {
     match metadata_result {
         Ok(metadata_json) => Ok((metadata_json, None)),
         Err(error) => {
-            let fallback = token_output_value(token_json, no_account_meta);
+            let fallback = token_json.clone();
             let warning = format!(
                 "--mpl-metadata enrichment failed ({error}). Falling back to parsed mint account data."
             );
@@ -516,7 +444,6 @@ mod tests {
         let (output, warning) = resolve_metadata_output(
             &token_json,
             Err(anyhow!("Metadata PDA account not found for mint ...")),
-            false,
         )
         .expect("metadata failure should fallback");
 
@@ -525,7 +452,7 @@ mod tests {
     }
 
     #[test]
-    fn metadata_decode_failure_falls_back_to_data_with_no_account_meta() {
+    fn metadata_decode_failure_falls_back_to_full_token_output() {
         let token_json = json!({
             "lamports": 123,
             "space": 82,
@@ -544,11 +471,10 @@ mod tests {
         let (output, warning) = resolve_metadata_output(
             &token_json,
             Err(anyhow!("Failed to decode metaplex metadata account ...")),
-            true,
         )
         .expect("metadata decode failure should fallback");
 
-        assert_eq!(output, token_json["data"]);
+        assert_eq!(output, token_json);
         assert!(warning.is_some());
     }
 
@@ -572,7 +498,6 @@ mod tests {
         let (output, warning) = resolve_metadata_output(
             &token_json,
             Err(anyhow!("Metadata PDA account not found for mint ...")),
-            false,
         )
         .expect("metadata failure should always fallback");
 

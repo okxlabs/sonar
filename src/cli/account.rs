@@ -22,10 +22,6 @@ pub struct AccountArgs {
     #[arg(long)]
     pub raw: bool,
 
-    /// Skip account metadata, only print parsed data
-    #[arg(long = "no-account-meta")]
-    pub no_account_meta: bool,
-
     /// For SPL Token legacy or Token-2022 mint accounts, decode Metaplex metadata PDA.
     /// Using this on token accounts (non-mint) returns an error.
     /// If metadata is missing or invalid, prints a warning to stderr and falls back to mint data.
@@ -83,6 +79,20 @@ mod tests {
             "--rpc-url",
             "http://localhost:8899",
             "--metadata",
+        ]);
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn account_rejects_removed_no_account_meta_flag() {
+        let result = Cli::try_parse_from([
+            "sonar",
+            "account",
+            "11111111111111111111111111111111",
+            "--rpc-url",
+            "http://localhost:8899",
+            "--no-account-meta",
         ]);
 
         assert!(result.is_err());
