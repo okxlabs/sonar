@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use std::str::FromStr;
 
 use anyhow::{Context, Result};
-use colored::{Colorize, CustomColor};
+use colored::Colorize;
 use serde_json::Value;
 use solana_pubkey::Pubkey;
 
@@ -19,14 +19,6 @@ struct AccountOutput {
     json_output: Value,
 }
 
-const COLOR_LABEL: CustomColor = CustomColor { r: 128, g: 128, b: 128 };
-const COLOR_KEY: CustomColor = CustomColor { r: 139, g: 170, b: 214 };
-const COLOR_TEXT: CustomColor = CustomColor { r: 171, g: 178, b: 191 };
-const COLOR_STRING: CustomColor = CustomColor { r: 152, g: 195, b: 121 };
-const COLOR_NUMBER: CustomColor = CustomColor { r: 229, g: 192, b: 123 };
-const COLOR_BOOL_TRUE: CustomColor = CustomColor { r: 152, g: 195, b: 121 };
-const COLOR_BOOL_FALSE: CustomColor = CustomColor { r: 224, g: 108, b: 117 };
-const COLOR_ERROR: CustomColor = CustomColor { r: 224, g: 108, b: 117 };
 
 pub(crate) fn handle(args: AccountArgs) -> Result<()> {
     // Parse the account pubkey
@@ -262,9 +254,9 @@ fn render_account_text(
     render_section_title("Account Summary");
     let balance_sol = account.lamports as f64 / 1_000_000_000.0;
     let balance_text = format!(
-        "{}{}",
-        format!("{balance_sol:.9} SOL").custom_color(COLOR_STRING),
-        format!(" ({})", format_with_commas(account.lamports)).custom_color(COLOR_TEXT)
+        "{} {}",
+        format!("{balance_sol:.9} SOL"),
+        format!("({})", format_with_commas(account.lamports)).dimmed()
     );
     print_summary_line("Pubkey", account_pubkey.to_string().cyan().to_string());
     print_summary_line("Balance", balance_text);
@@ -273,14 +265,14 @@ fn render_account_text(
     print_summary_line(
         "Space",
         format!(
-            "{}{}",
-            account.data.len().to_string().custom_color(COLOR_NUMBER),
-            " bytes".custom_color(COLOR_TEXT)
+            "{} {}",
+            account.data.len(),
+            "bytes".dimmed()
         ),
     );
     print_summary_line(
         "Rent Epoch",
-        account.rent_epoch.to_string().custom_color(COLOR_TEXT).to_string(),
+        account.rent_epoch.to_string(),
     );
 
     render_section_title(&format!("Account Data ({data_kind})"));
@@ -292,7 +284,7 @@ fn print_summary_line(label: &str, value: String) {
     const LABEL_WIDTH: usize = 12;
     println!(
         " {:<width$} {}",
-        format!("{label}:").custom_color(COLOR_LABEL),
+        format!("{label}:").dimmed(),
         value,
         width = LABEL_WIDTH
     );
@@ -311,18 +303,18 @@ fn render_json_as_yaml(value: &Value, indent: usize) {
                 if is_scalar(child) {
                     println!(
                         "{indent_str}{} {}",
-                        format!("{key}:").custom_color(COLOR_KEY),
+                        format!("{key}:").dimmed(),
                         format_scalar(Some(key.as_str()), child)
                     );
                 } else {
-                    println!("{indent_str}{}", format!("{key}:").custom_color(COLOR_KEY));
+                    println!("{indent_str}{}", format!("{key}:").dimmed());
                     render_json_as_yaml(child, indent + 2);
                 }
             }
         }
         Value::Array(items) => {
             if items.is_empty() {
-                println!("{indent_str}{}", "[]".custom_color(COLOR_LABEL));
+                println!("{indent_str}{}", "[]".dimmed());
                 return;
             }
 
@@ -330,11 +322,11 @@ fn render_json_as_yaml(value: &Value, indent: usize) {
                 if is_scalar(item) {
                     println!(
                         "{indent_str}{} {}",
-                        "-".custom_color(COLOR_LABEL),
+                        "-".dimmed(),
                         format_scalar(None, item)
                     );
                 } else {
-                    println!("{indent_str}{}", "-".custom_color(COLOR_LABEL));
+                    println!("{indent_str}{}", "-".dimmed());
                     render_json_as_yaml(item, indent + 2);
                 }
             }
@@ -349,22 +341,22 @@ fn is_scalar(value: &Value) -> bool {
 
 fn format_scalar(key: Option<&str>, value: &Value) -> String {
     match value {
-        Value::Null => "null".custom_color(COLOR_LABEL).to_string(),
+        Value::Null => "null".dimmed().to_string(),
         Value::Bool(v) => style_bool(*v),
-        Value::Number(v) => v.to_string().custom_color(COLOR_NUMBER).to_string(),
+        Value::Number(v) => v.to_string(),
         Value::String(v) => {
             let rendered = truncate_for_display(v, 120);
             if key.is_some_and(|k| k.eq_ignore_ascii_case("error")) {
-                return rendered.custom_color(COLOR_ERROR).to_string();
+                return rendered.red().to_string();
             }
             if key.is_some_and(looks_like_address_key) || looks_like_base58_pubkey(v) {
                 return rendered.cyan().to_string();
             }
 
             if rendered.is_empty() {
-                "\"\"".custom_color(COLOR_STRING).to_string()
+                "\"\"".dimmed().to_string()
             } else {
-                rendered.custom_color(COLOR_STRING).to_string()
+                rendered.to_string()
             }
         }
         _ => value.to_string(),
@@ -372,8 +364,11 @@ fn format_scalar(key: Option<&str>, value: &Value) -> String {
 }
 
 fn style_bool(value: bool) -> String {
-    let color = if value { COLOR_BOOL_TRUE } else { COLOR_BOOL_FALSE };
-    value.to_string().custom_color(color).to_string()
+    if value {
+        "true".green().to_string()
+    } else {
+        "false".red().to_string()
+    }
 }
 
 fn looks_like_address_key(key: &str) -> bool {
