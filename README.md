@@ -62,6 +62,8 @@ cargo build --release
 ### Simulate
 
 Simulate a Solana transaction locally using LiteSVM.
+`sonar simulate --help` groups options by `Input & RPC`, `State Preparation`,
+`Simulation Controls`, and `Output & Debug` for faster scanning.
 
 ```bash
 # Simulate a transaction with raw Base58/Base64 data
@@ -125,28 +127,31 @@ sonar simulate <TX> \
 #### Advanced Options
 
 ```bash
-# Patch account data before simulation
+# State Preparation: patch account data before simulation
 sonar simulate <TX> --rpc-url <RPC_URL> \
   --patch-account-data <PUBKEY>=<OFFSET>:<HEX_DATA>
 
-# Override clock timestamp and slot (Unix or RFC3339)
+# State Preparation: dump/load accounts for offline simulation
+sonar simulate <TX> --rpc-url <RPC_URL> --dump-accounts ./accounts/
+sonar simulate <TX> --load-accounts ./accounts/ --offline
+
+# Simulation Controls: override clock timestamp and slot (Unix or RFC3339)
 sonar simulate <TX> --rpc-url <RPC_URL> \
   --timestamp 1700000000 --slot 250000000
 sonar simulate <TX> --rpc-url <RPC_URL> \
   --timestamp 2024-01-01T00:00:00Z --slot 250000000
 
-# Dump/load accounts for offline simulation
-sonar simulate <TX> --rpc-url <RPC_URL> --dump-accounts ./accounts/
-sonar simulate <TX> --load-accounts ./accounts/ --offline
-
-# Always print raw instruction data, even when parser succeeds
-sonar simulate <TX> --rpc-url <RPC_URL> --raw-ix-data
-
-# Verify transaction signatures during simulation
+# Simulation Controls: verify transaction signatures during simulation
 sonar simulate <TX> --rpc-url <RPC_URL> --check-sig
 
-# Load Anchor IDL files from a custom directory
+# Simulation Controls: load Anchor IDL files from a custom directory
 sonar simulate <TX> --rpc-url <RPC_URL> --idl-dir /path/to/idl/files/
+
+# Output & Debug: always print raw instruction data, even when parser succeeds
+sonar simulate <TX> --rpc-url <RPC_URL> --raw-ix-data
+
+# Output & Debug: print raw logs and full instruction details
+sonar simulate <TX> --rpc-url <RPC_URL> --raw-log --show-ix-detail
 ```
 
 ### Decode

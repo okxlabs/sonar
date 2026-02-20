@@ -38,6 +38,29 @@ fn program_data_help_is_printed_to_stdout() {
 }
 
 #[test]
+fn simulate_help_groups_options_by_usage_scenario() {
+    let mut cmd = cargo_bin_cmd!("sonar");
+    cmd.arg("simulate").arg("--help");
+
+    let assert = cmd.assert().success();
+    let output = assert.get_output();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(stderr.trim().is_empty(), "expected no stderr for --help, got: {stderr}");
+    assert!(stdout.contains("Input & RPC"), "expected Input & RPC heading, got: {stdout}");
+    assert!(
+        stdout.contains("State Preparation"),
+        "expected State Preparation heading, got: {stdout}"
+    );
+    assert!(
+        stdout.contains("Simulation Controls"),
+        "expected Simulation Controls heading, got: {stdout}"
+    );
+    assert!(stdout.contains("Output & Debug"), "expected Output & Debug heading, got: {stdout}");
+}
+
+#[test]
 fn convert_reads_input_from_stdin_when_omitted() {
     let mut cmd = cargo_bin_cmd!("sonar");
     cmd.arg("convert").arg("hex").arg("text").write_stdin("0x48656c6c6f\n");

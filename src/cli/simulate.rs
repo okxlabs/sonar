@@ -10,16 +10,22 @@ use solana_pubkey::Pubkey;
 
 use super::RpcArgs;
 
+const HELP_HEADING_INPUT_RPC: &str = "Input & RPC";
+const HELP_HEADING_STATE_PREPARATION: &str = "State Preparation";
+const HELP_HEADING_SIMULATION_CONTROLS: &str = "Simulation Controls";
+const HELP_HEADING_OUTPUT_DEBUG: &str = "Output & Debug";
+
 #[derive(Args, Debug)]
 pub struct SimulateArgs {
-    #[command(flatten)]
+    #[command(flatten, next_help_heading = HELP_HEADING_INPUT_RPC)]
     pub transaction: TransactionInputArgs,
-    #[command(flatten)]
+    #[command(flatten, next_help_heading = HELP_HEADING_INPUT_RPC)]
     pub rpc: RpcArgs,
     /// Replace an on-chain program or account.
     /// Format: <PUBKEY>=<PATH> (.so/.elf for programs, .json for accounts)
     #[arg(
         long = "replace",
+        help_heading = HELP_HEADING_STATE_PREPARATION,
         value_name = "MAPPING",
         num_args = 1..,
         value_parser = clap::builder::NonEmptyStringValueParser::new()
@@ -28,6 +34,7 @@ pub struct SimulateArgs {
     /// Fund a system account with SOL. Format: <PUBKEY>=<LAMPORTS> or <PUBKEY>=<AMOUNT>sol
     #[arg(
         long = "fund-sol",
+        help_heading = HELP_HEADING_STATE_PREPARATION,
         value_name = "FUNDING",
         num_args = 1..,
         value_parser = clap::builder::NonEmptyStringValueParser::new()
@@ -39,57 +46,74 @@ pub struct SimulateArgs {
     /// converted using the mint's decimals (e.g. 1.5 with 6 decimals → 1500000).
     #[arg(
         long = "fund-token",
+        help_heading = HELP_HEADING_STATE_PREPARATION,
         value_name = "FUNDING",
         num_args = 1..,
         value_parser = clap::builder::NonEmptyStringValueParser::new()
     )]
     pub token_fundings: Vec<String>,
-    /// Always print raw instruction data, even when parser succeeds
-    #[arg(long = "raw-ix-data", env = "SONAR_RAW_IX_DATA")]
-    pub ix_data: bool,
-    /// Verify transaction signatures during simulation
-    #[arg(long = "check-sig", env = "SONAR_VERIFY_SIGNATURES")]
-    pub verify_signatures: bool,
-    /// Directory containing Anchor IDL JSON files
-    #[arg(long = "idl-dir", value_name = "DIR", env = "SONAR_IDL_DIR")]
-    pub idl_dir: Option<PathBuf>,
-    /// Show SOL and token balance changes after simulation
-    #[arg(short = 'b', long = "show-balance-change", env = "SONAR_SHOW_BALANCE_CHANGE")]
-    pub show_balance_change: bool,
-    /// Print raw program logs instead of structured execution trace
-    #[arg(long = "raw-log", env = "SONAR_RAW_LOG")]
-    pub raw_log: bool,
-    /// Show detailed instruction information (accounts, parsed fields, inner instructions)
-    #[arg(short = 'd', long = "show-ix-detail", env = "SONAR_SHOW_IX_DETAIL")]
-    pub show_ix_detail: bool,
-    /// Override the Clock sysvar's unix_timestamp for simulation.
-    /// Supports Unix timestamp (e.g. 1700000000) or RFC3339 (e.g. 2024-01-01T00:00:00Z).
-    #[arg(long = "timestamp", value_name = "TIMESTAMP", value_parser = parse_timestamp)]
-    pub timestamp: Option<i64>,
-    /// Override the simulation slot
-    #[arg(long = "slot", value_name = "SLOT")]
-    pub slot: Option<u64>,
     /// Patch bytes in an account data field before simulation.
     /// Format: <PUBKEY>=<OFFSET>:<HEX_DATA>
     /// HEX_DATA may optionally start with 0x.
     #[arg(
         short = 'p',
         long = "patch-account-data",
+        help_heading = HELP_HEADING_STATE_PREPARATION,
         value_name = "PATCH",
         num_args = 1..,
         value_parser = clap::builder::NonEmptyStringValueParser::new()
     )]
     pub data_patches: Vec<String>,
     /// Save fetched account data to a directory as <PUBKEY>.json before applying patches
-    #[arg(long = "dump-accounts", value_name = "DIR")]
+    #[arg(long = "dump-accounts", help_heading = HELP_HEADING_STATE_PREPARATION, value_name = "DIR")]
     pub dump_accounts: Option<PathBuf>,
     /// Load account data from a local directory (<PUBKEY>.json).
     /// Missing accounts fall back to RPC unless --offline is set
-    #[arg(long = "load-accounts", value_name = "DIR")]
+    #[arg(long = "load-accounts", help_heading = HELP_HEADING_STATE_PREPARATION, value_name = "DIR")]
     pub load_accounts: Option<PathBuf>,
     /// Disable RPC fallback; error if any account is missing from --load-accounts directory
-    #[arg(long = "offline", requires = "load_accounts")]
+    #[arg(long = "offline", help_heading = HELP_HEADING_STATE_PREPARATION, requires = "load_accounts")]
     pub offline: bool,
+    /// Override the Clock sysvar's unix_timestamp for simulation.
+    /// Supports Unix timestamp (e.g. 1700000000) or RFC3339 (e.g. 2024-01-01T00:00:00Z).
+    #[arg(
+        long = "timestamp",
+        help_heading = HELP_HEADING_SIMULATION_CONTROLS,
+        value_name = "TIMESTAMP",
+        value_parser = parse_timestamp
+    )]
+    pub timestamp: Option<i64>,
+    /// Override the simulation slot
+    #[arg(long = "slot", help_heading = HELP_HEADING_SIMULATION_CONTROLS, value_name = "SLOT")]
+    pub slot: Option<u64>,
+    /// Verify transaction signatures during simulation
+    #[arg(long = "check-sig", help_heading = HELP_HEADING_SIMULATION_CONTROLS, env = "SONAR_VERIFY_SIGNATURES")]
+    pub verify_signatures: bool,
+    /// Directory containing Anchor IDL JSON files
+    #[arg(
+        long = "idl-dir",
+        help_heading = HELP_HEADING_SIMULATION_CONTROLS,
+        value_name = "DIR",
+        env = "SONAR_IDL_DIR"
+    )]
+    pub idl_dir: Option<PathBuf>,
+    /// Always print raw instruction data, even when parser succeeds
+    #[arg(long = "raw-ix-data", help_heading = HELP_HEADING_OUTPUT_DEBUG, env = "SONAR_RAW_IX_DATA")]
+    pub ix_data: bool,
+    /// Print raw program logs instead of structured execution trace
+    #[arg(long = "raw-log", help_heading = HELP_HEADING_OUTPUT_DEBUG, env = "SONAR_RAW_LOG")]
+    pub raw_log: bool,
+    /// Show detailed instruction information (accounts, parsed fields, inner instructions)
+    #[arg(short = 'd', long = "show-ix-detail", help_heading = HELP_HEADING_OUTPUT_DEBUG, env = "SONAR_SHOW_IX_DETAIL")]
+    pub show_ix_detail: bool,
+    /// Show SOL and token balance changes after simulation
+    #[arg(
+        short = 'b',
+        long = "show-balance-change",
+        help_heading = HELP_HEADING_OUTPUT_DEBUG,
+        env = "SONAR_SHOW_BALANCE_CHANGE"
+    )]
+    pub show_balance_change: bool,
 }
 
 #[derive(Args, Debug, Clone)]
