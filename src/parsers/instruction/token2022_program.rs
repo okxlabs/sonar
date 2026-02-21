@@ -212,6 +212,16 @@ impl InstructionParser for Token2022ProgramParser {
     }
 }
 
+fn append_additional_signer_accounts(
+    account_names: &mut Vec<String>,
+    base_accounts: usize,
+    total_accounts: usize,
+) {
+    for i in base_accounts..total_accounts {
+        account_names.push(format!("additional_signer_{}", i - base_accounts + 1));
+    }
+}
+
 /// Parses a Transfer instruction: 3
 ///
 /// Accounts: 0. source pubkey, 1. destination pubkey, 2. owner pubkey
@@ -224,18 +234,22 @@ fn parse_transfer_instruction(
         return Ok(None); // Invalid data length for Transfer
     }
 
-    if instruction.accounts.len() < 2 {
-        return Ok(None); // Need at least source and destination
+    if instruction.accounts.len() < 3 {
+        return Ok(None); // Need source, destination, and owner/authority
     }
 
     let amount = u64::from_le_bytes([
         data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7],
     ]);
 
+    let mut account_names =
+        vec!["source".to_string(), "destination".to_string(), "owner".to_string()];
+    append_additional_signer_accounts(&mut account_names, 3, instruction.accounts.len());
+
     Ok(Some(ParsedInstruction {
         name: "Transfer".to_string(),
         fields: vec![ParsedField::text("amount", amount.to_string())],
-        account_names: vec!["source".to_string(), "destination".to_string(), "owner".to_string()],
+        account_names,
     }))
 }
 
@@ -256,10 +270,6 @@ fn parse_transfer_checked_instruction(
         return Ok(None); // Invalid number of accounts for TransferChecked
     }
 
-    // When owner is a multisig or PDA, additional signers are included
-    // Base setup has 4 accounts: source, mint, dest, owner
-    let has_multiple_signers = instruction.accounts.len() > 4;
-
     let amount = u64::from_le_bytes([
         data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7],
     ]);
@@ -272,12 +282,7 @@ fn parse_transfer_checked_instruction(
         "owner".to_string(),
     ];
 
-    // Add additional signer accounts if present
-    if has_multiple_signers {
-        for i in 4..instruction.accounts.len() {
-            account_names.push(format!("additional_signer_{}", i - 3));
-        }
-    }
+    append_additional_signer_accounts(&mut account_names, 4, instruction.accounts.len());
 
     Ok(Some(ParsedInstruction {
         name: "TransferChecked".to_string(),
@@ -294,19 +299,25 @@ fn parse_initialize_mint_instruction(
     data: &[u8],
     _instruction: &InstructionSummary,
 ) -> Result<Option<ParsedInstruction>> {
-    if data.len() < 4 {
+    if data.len() < 34 {
         return Ok(None); // Invalid data length for InitializeMint
     }
 
-    let decimals = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    let decimals = data[0];
 
     let mut fields = vec![ParsedField::text("decimals", decimals.to_string())];
 
-    // Check for mint authority (4 bytes + 32 bytes = 36 bytes minimum)
-    if data.len() >= 36 {
-        let has_freeze_authority = data[35] != 0;
-        fields.push(ParsedField::text("has_freeze_authority", has_freeze_authority.to_string()));
-    }
+    let has_freeze_authority = match data[33] {
+        0 => false,
+        1 => {
+            if data.len() < 66 {
+                return Ok(None);
+            }
+            true
+        }
+        _ => return Ok(None),
+    };
+    fields.push(ParsedField::text("has_freeze_authority", has_freeze_authority.to_string()));
 
     Ok(Some(ParsedInstruction {
         name: "InitializeMint".to_string(),
@@ -373,7 +384,7 @@ fn parse_approve_instruction(
         return Ok(None); // Invalid data length for Approve
     }
 
-    if instruction.accounts.len() != 3 {
+    if instruction.accounts.len() < 3 {
         return Ok(None); // Invalid number of accounts for Approve
     }
 
@@ -381,10 +392,13 @@ fn parse_approve_instruction(
         data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7],
     ]);
 
+    let mut account_names = vec!["source".to_string(), "delegate".to_string(), "owner".to_string()];
+    append_additional_signer_accounts(&mut account_names, 3, instruction.accounts.len());
+
     Ok(Some(ParsedInstruction {
         name: "Approve".to_string(),
         fields: vec![ParsedField::text("amount", amount.to_string())],
-        account_names: vec!["source".to_string(), "delegate".to_string(), "owner".to_string()],
+        account_names,
     }))
 }
 
@@ -393,24 +407,26 @@ fn parse_revoke_instruction(
     _data: &[u8],
     instruction: &InstructionSummary,
 ) -> Result<Option<ParsedInstruction>> {
-    if instruction.accounts.len() != 2 {
+    if instruction.accounts.len() < 2 {
         return Ok(None); // Invalid number of accounts for Revoke
     }
 
-    Ok(Some(ParsedInstruction {
-        name: "Revoke".to_string(),
-        fields: vec![],
-        account_names: vec!["source".to_string(), "owner".to_string()],
-    }))
+    let mut account_names = vec!["source".to_string(), "owner".to_string()];
+    append_additional_signer_accounts(&mut account_names, 2, instruction.accounts.len());
+
+    Ok(Some(ParsedInstruction { name: "Revoke".to_string(), fields: vec![], account_names }))
 }
 
 /// Parses a SetAuthority instruction: 6
 fn parse_set_authority_instruction(
     data: &[u8],
-    _instruction: &InstructionSummary,
+    instruction: &InstructionSummary,
 ) -> Result<Option<ParsedInstruction>> {
-    if data.is_empty() {
+    if data.len() < 2 {
         return Ok(None); // Invalid data length for SetAuthority
+    }
+    if instruction.accounts.len() < 2 {
+        return Ok(None); // Need account and current authority
     }
 
     let authority_type = match data[0] {
@@ -423,18 +439,22 @@ fn parse_set_authority_instruction(
 
     let mut fields = vec![ParsedField::text("authority_type", authority_type.to_string())];
 
-    // Check if new authority is present
-    if data.len() > 1 && data[1] != 0 {
-        fields.push(ParsedField::text("cleared", "false"));
-    } else {
-        fields.push(ParsedField::text("cleared", "true"));
-    }
+    let cleared = match data[1] {
+        0 => true,
+        1 => {
+            if data.len() < 34 {
+                return Ok(None);
+            }
+            false
+        }
+        _ => return Ok(None),
+    };
+    fields.push(ParsedField::text("cleared", cleared.to_string()));
 
-    Ok(Some(ParsedInstruction {
-        name: "SetAuthority".to_string(),
-        fields,
-        account_names: vec!["account".to_string()],
-    }))
+    let mut account_names = vec!["account".to_string(), "authority".to_string()];
+    append_additional_signer_accounts(&mut account_names, 2, instruction.accounts.len());
+
+    Ok(Some(ParsedInstruction { name: "SetAuthority".to_string(), fields, account_names }))
 }
 
 /// Parses a MintTo instruction: 7
@@ -446,7 +466,7 @@ fn parse_mint_to_instruction(
         return Ok(None); // Invalid data length for MintTo
     }
 
-    if instruction.accounts.len() != 3 {
+    if instruction.accounts.len() < 3 {
         return Ok(None); // Invalid number of accounts for MintTo
     }
 
@@ -454,10 +474,13 @@ fn parse_mint_to_instruction(
         data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7],
     ]);
 
+    let mut account_names = vec!["mint".to_string(), "account".to_string(), "owner".to_string()];
+    append_additional_signer_accounts(&mut account_names, 3, instruction.accounts.len());
+
     Ok(Some(ParsedInstruction {
         name: "MintTo".to_string(),
         fields: vec![ParsedField::text("amount", amount.to_string())],
-        account_names: vec!["mint".to_string(), "account".to_string(), "owner".to_string()],
+        account_names,
     }))
 }
 
@@ -470,7 +493,7 @@ fn parse_burn_instruction(
         return Ok(None); // Invalid data length for Burn
     }
 
-    if instruction.accounts.len() != 3 {
+    if instruction.accounts.len() < 3 {
         return Ok(None); // Invalid number of accounts for Burn
     }
 
@@ -478,10 +501,13 @@ fn parse_burn_instruction(
         data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7],
     ]);
 
+    let mut account_names = vec!["account".to_string(), "mint".to_string(), "owner".to_string()];
+    append_additional_signer_accounts(&mut account_names, 3, instruction.accounts.len());
+
     Ok(Some(ParsedInstruction {
         name: "Burn".to_string(),
         fields: vec![ParsedField::text("amount", amount.to_string())],
-        account_names: vec!["account".to_string(), "mint".to_string(), "owner".to_string()],
+        account_names,
     }))
 }
 
@@ -490,15 +516,15 @@ fn parse_close_account_instruction(
     _data: &[u8],
     instruction: &InstructionSummary,
 ) -> Result<Option<ParsedInstruction>> {
-    if instruction.accounts.len() != 3 {
+    if instruction.accounts.len() < 3 {
         return Ok(None); // Invalid number of accounts for CloseAccount
     }
 
-    Ok(Some(ParsedInstruction {
-        name: "CloseAccount".to_string(),
-        fields: vec![],
-        account_names: vec!["account".to_string(), "destination".to_string(), "owner".to_string()],
-    }))
+    let mut account_names =
+        vec!["account".to_string(), "destination".to_string(), "owner".to_string()];
+    append_additional_signer_accounts(&mut account_names, 3, instruction.accounts.len());
+
+    Ok(Some(ParsedInstruction { name: "CloseAccount".to_string(), fields: vec![], account_names }))
 }
 
 /// Parses a FreezeAccount instruction: 10
@@ -506,19 +532,15 @@ fn parse_freeze_account_instruction(
     _data: &[u8],
     instruction: &InstructionSummary,
 ) -> Result<Option<ParsedInstruction>> {
-    if instruction.accounts.len() != 3 {
+    if instruction.accounts.len() < 3 {
         return Ok(None); // Invalid number of accounts for FreezeAccount
     }
 
-    Ok(Some(ParsedInstruction {
-        name: "FreezeAccount".to_string(),
-        fields: vec![],
-        account_names: vec![
-            "account".to_string(),
-            "mint".to_string(),
-            "freeze_authority".to_string(),
-        ],
-    }))
+    let mut account_names =
+        vec!["account".to_string(), "mint".to_string(), "freeze_authority".to_string()];
+    append_additional_signer_accounts(&mut account_names, 3, instruction.accounts.len());
+
+    Ok(Some(ParsedInstruction { name: "FreezeAccount".to_string(), fields: vec![], account_names }))
 }
 
 /// Parses a ThawAccount instruction: 11
@@ -526,19 +548,15 @@ fn parse_thaw_account_instruction(
     _data: &[u8],
     instruction: &InstructionSummary,
 ) -> Result<Option<ParsedInstruction>> {
-    if instruction.accounts.len() != 3 {
+    if instruction.accounts.len() < 3 {
         return Ok(None); // Invalid number of accounts for ThawAccount
     }
 
-    Ok(Some(ParsedInstruction {
-        name: "ThawAccount".to_string(),
-        fields: vec![],
-        account_names: vec![
-            "account".to_string(),
-            "mint".to_string(),
-            "freeze_authority".to_string(),
-        ],
-    }))
+    let mut account_names =
+        vec!["account".to_string(), "mint".to_string(), "freeze_authority".to_string()];
+    append_additional_signer_accounts(&mut account_names, 3, instruction.accounts.len());
+
+    Ok(Some(ParsedInstruction { name: "ThawAccount".to_string(), fields: vec![], account_names }))
 }
 
 /// Parses an ApproveChecked instruction: 13
@@ -554,7 +572,6 @@ fn parse_approve_checked_instruction(
         return Ok(None); // Invalid number of accounts for ApproveChecked
     }
 
-    let has_multiple_signers = instruction.accounts.len() > 4;
     let amount = u64::from_le_bytes([
         data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7],
     ]);
@@ -563,11 +580,7 @@ fn parse_approve_checked_instruction(
     let mut account_names =
         vec!["source".to_string(), "mint".to_string(), "delegate".to_string(), "owner".to_string()];
 
-    if has_multiple_signers {
-        for i in 4..instruction.accounts.len() {
-            account_names.push(format!("additional_signer_{}", i - 3));
-        }
-    }
+    append_additional_signer_accounts(&mut account_names, 4, instruction.accounts.len());
 
     Ok(Some(ParsedInstruction {
         name: "ApproveChecked".to_string(),
@@ -588,7 +601,7 @@ fn parse_mint_to_checked_instruction(
         return Ok(None); // Invalid data length for MintToChecked
     }
 
-    if instruction.accounts.len() != 3 {
+    if instruction.accounts.len() < 3 {
         return Ok(None); // Invalid number of accounts for MintToChecked
     }
 
@@ -597,13 +610,16 @@ fn parse_mint_to_checked_instruction(
     ]);
     let decimals = data[8];
 
+    let mut account_names = vec!["mint".to_string(), "account".to_string(), "owner".to_string()];
+    append_additional_signer_accounts(&mut account_names, 3, instruction.accounts.len());
+
     Ok(Some(ParsedInstruction {
         name: "MintToChecked".to_string(),
         fields: vec![
             ParsedField::text("amount", amount.to_string()),
             ParsedField::text("decimals", decimals.to_string()),
         ],
-        account_names: vec!["mint".to_string(), "account".to_string(), "owner".to_string()],
+        account_names,
     }))
 }
 
@@ -616,7 +632,7 @@ fn parse_burn_checked_instruction(
         return Ok(None); // Invalid data length for BurnChecked
     }
 
-    if instruction.accounts.len() != 3 {
+    if instruction.accounts.len() < 3 {
         return Ok(None); // Invalid number of accounts for BurnChecked
     }
 
@@ -625,13 +641,16 @@ fn parse_burn_checked_instruction(
     ]);
     let decimals = data[8];
 
+    let mut account_names = vec!["account".to_string(), "mint".to_string(), "owner".to_string()];
+    append_additional_signer_accounts(&mut account_names, 3, instruction.accounts.len());
+
     Ok(Some(ParsedInstruction {
         name: "BurnChecked".to_string(),
         fields: vec![
             ParsedField::text("amount", amount.to_string()),
             ParsedField::text("decimals", decimals.to_string()),
         ],
-        account_names: vec!["account".to_string(), "mint".to_string(), "owner".to_string()],
+        account_names,
     }))
 }
 
@@ -644,7 +663,7 @@ fn parse_initialize_account2_instruction(
         return Ok(None); // Invalid data length for InitializeAccount2
     }
 
-    if instruction.accounts.len() != 4 {
+    if instruction.accounts.len() != 3 {
         return Ok(None); // Invalid number of accounts for InitializeAccount2
     }
 
@@ -654,12 +673,7 @@ fn parse_initialize_account2_instruction(
     Ok(Some(ParsedInstruction {
         name: "InitializeAccount2".to_string(),
         fields: vec![ParsedField::text("owner", owner_pubkey)],
-        account_names: vec![
-            "account".to_string(),
-            "mint".to_string(),
-            "owner".to_string(),
-            "rent_sysvar".to_string(),
-        ],
+        account_names: vec!["account".to_string(), "mint".to_string(), "rent_sysvar".to_string()],
     }))
 }
 
@@ -740,19 +754,25 @@ fn parse_initialize_mint2_instruction(
     data: &[u8],
     _instruction: &InstructionSummary,
 ) -> Result<Option<ParsedInstruction>> {
-    if data.len() < 4 {
+    if data.len() < 34 {
         return Ok(None); // Invalid data length for InitializeMint2
     }
 
-    let decimals = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    let decimals = data[0];
 
     let mut fields = vec![ParsedField::text("decimals", decimals.to_string())];
 
-    // Check for mint authority (4 bytes + 32 bytes = 36 bytes minimum)
-    if data.len() >= 36 {
-        let has_freeze_authority = data[35] != 0;
-        fields.push(ParsedField::text("has_freeze_authority", has_freeze_authority.to_string()));
-    }
+    let has_freeze_authority = match data[33] {
+        0 => false,
+        1 => {
+            if data.len() < 66 {
+                return Ok(None);
+            }
+            true
+        }
+        _ => return Ok(None),
+    };
+    fields.push(ParsedField::text("has_freeze_authority", has_freeze_authority.to_string()));
 
     Ok(Some(ParsedInstruction {
         name: "InitializeMint2".to_string(),
@@ -1357,6 +1377,22 @@ mod tests {
     }
 
     #[test]
+    fn test_transfer_instruction_rejects_insufficient_accounts() {
+        let parser = Token2022ProgramParser::new();
+        let accounts = vec![
+            create_test_account(0, "SourcePubkey11111111111111111111111111111111", true, true),
+            create_test_account(1, "DestPubkey1111111111111111111111111111111111", false, true),
+        ];
+
+        let mut data = vec![3];
+        data.extend_from_slice(&1_000_u64.to_le_bytes());
+
+        let instruction = create_test_instruction(data, accounts);
+        let result = parser.parse_instruction(&instruction).unwrap();
+        assert!(result.is_none());
+    }
+
+    #[test]
     fn test_initialize_mint_instruction_parsing() {
         let parser = Token2022ProgramParser::new();
 
@@ -1365,10 +1401,11 @@ mod tests {
             create_test_account(1, "RentSysvar111111111111111111111111111111111", false, false),
         ];
 
-        // InitializeMint instruction with 1-byte discriminator (0) + 4 bytes decimals + authority data
+        // InitializeMint instruction with 1-byte discriminator (0) + 1 byte decimals + authorities
         let mut data = vec![0]; // 1-byte discriminator
-        data.extend_from_slice(&9_u32.to_le_bytes()); // 4 bytes decimals
-        data.extend_from_slice(&[0u8; 33]); // 33 bytes of authority data
+        data.push(9); // 1 byte decimals
+        data.extend_from_slice(&[1u8; 32]); // mint authority pubkey
+        data.push(0); // freeze authority: None
 
         let instruction = create_test_instruction(data, accounts);
 
@@ -1502,17 +1539,16 @@ mod tests {
     fn test_set_authority_instruction_parsing() {
         let parser = Token2022ProgramParser::new();
 
-        let accounts = vec![create_test_account(
-            0,
-            "AccountPubkey11111111111111111111111111111111",
-            false,
-            true,
-        )];
+        let accounts = vec![
+            create_test_account(0, "AccountPubkey11111111111111111111111111111111", false, true),
+            create_test_account(1, "AuthorityPubkey11111111111111111111111111111", true, false),
+        ];
 
         // SetAuthority instruction with 1-byte discriminator (6) + authority_type
         let mut data = vec![6]; // 1-byte discriminator for SetAuthority
         data.push(0); // authority_type = MintTokens
         data.push(1); // new_authority_flag = present
+        data.extend_from_slice(&[7u8; 32]); // new authority pubkey
 
         let instruction = create_test_instruction(data, accounts);
 
@@ -1521,8 +1557,9 @@ mod tests {
 
         let parsed = result.unwrap();
         assert_eq!(parsed.name, "SetAuthority");
-        assert_eq!(parsed.account_names.len(), 1);
+        assert_eq!(parsed.account_names.len(), 2);
         assert_eq!(parsed.account_names[0], "account");
+        assert_eq!(parsed.account_names[1], "authority");
 
         assert!(
             parsed
@@ -1533,6 +1570,22 @@ mod tests {
         assert!(
             parsed.fields.iter().any(|field| field.name == "cleared" && field.value == "false")
         );
+    }
+
+    #[test]
+    fn test_set_authority_instruction_rejects_insufficient_accounts() {
+        let parser = Token2022ProgramParser::new();
+        let accounts = vec![create_test_account(
+            0,
+            "AccountPubkey11111111111111111111111111111111",
+            false,
+            true,
+        )];
+
+        let data = vec![6, 0, 0]; // authority_type + COption::None
+        let instruction = create_test_instruction(data, accounts);
+        let result = parser.parse_instruction(&instruction).unwrap();
+        assert!(result.is_none());
     }
 
     #[test]
@@ -1783,8 +1836,7 @@ mod tests {
         let accounts = vec![
             create_test_account(0, "AccountPubkey11111111111111111111111111111111", false, true),
             create_test_account(1, "MintPubkey111111111111111111111111111111111", false, false),
-            create_test_account(2, "OwnerPubkey111111111111111111111111111111111", false, false),
-            create_test_account(3, "RentSysvar111111111111111111111111111111111", false, false),
+            create_test_account(2, "RentSysvar111111111111111111111111111111111", false, false),
         ];
 
         // InitializeAccount2 instruction with 1-byte discriminator (16) + 32 bytes owner pubkey
@@ -1798,11 +1850,10 @@ mod tests {
 
         let parsed = result.unwrap();
         assert_eq!(parsed.name, "InitializeAccount2");
-        assert_eq!(parsed.account_names.len(), 4);
+        assert_eq!(parsed.account_names.len(), 3);
         assert_eq!(parsed.account_names[0], "account");
         assert_eq!(parsed.account_names[1], "mint");
-        assert_eq!(parsed.account_names[2], "owner");
-        assert_eq!(parsed.account_names[3], "rent_sysvar");
+        assert_eq!(parsed.account_names[2], "rent_sysvar");
 
         // Check that owner field is present
         assert!(parsed.fields.iter().any(|field| field.name == "owner"));
@@ -1903,10 +1954,11 @@ mod tests {
             true,
         )];
 
-        // InitializeMint2 instruction with 1-byte discriminator (20) + 4 bytes decimals + authority data
+        // InitializeMint2 instruction with 1-byte discriminator (20) + 1 byte decimals + authorities
         let mut data = vec![20]; // 1-byte discriminator
-        data.extend_from_slice(&6_u32.to_le_bytes()); // 4 bytes decimals
-        data.extend_from_slice(&[0u8; 33]); // 33 bytes of authority data
+        data.push(6); // 1 byte decimals
+        data.extend_from_slice(&[3u8; 32]); // mint authority pubkey
+        data.push(0); // freeze authority: None
 
         let instruction = create_test_instruction(data, accounts);
 
@@ -2067,6 +2119,95 @@ mod tests {
             parsed.fields.iter().any(|field| field.name == "amount" && field.value == "750000")
         );
         assert!(parsed.fields.iter().any(|field| field.name == "decimals" && field.value == "9"));
+    }
+
+    #[test]
+    fn test_transfer_instruction_with_multiple_signers() {
+        let parser = Token2022ProgramParser::new();
+        let accounts = vec![
+            create_test_account(0, "SourcePubkey11111111111111111111111111111111", true, true),
+            create_test_account(1, "DestPubkey1111111111111111111111111111111111", false, true),
+            create_test_account(2, "OwnerPubkey111111111111111111111111111111111", false, false),
+            create_test_account(3, "Signer1Pubkey1111111111111111111111111111111", true, false),
+            create_test_account(4, "Signer2Pubkey1111111111111111111111111111111", true, false),
+        ];
+
+        let mut data = vec![3];
+        data.extend_from_slice(&9_999_u64.to_le_bytes());
+        let instruction = create_test_instruction(data, accounts);
+        let parsed = parser.parse_instruction(&instruction).unwrap().unwrap();
+
+        assert_eq!(parsed.name, "Transfer");
+        assert_eq!(
+            parsed.account_names,
+            vec!["source", "destination", "owner", "additional_signer_1", "additional_signer_2"]
+        );
+    }
+
+    #[test]
+    fn test_set_authority_instruction_with_multiple_signers() {
+        let parser = Token2022ProgramParser::new();
+        let accounts = vec![
+            create_test_account(0, "AccountPubkey11111111111111111111111111111111", false, true),
+            create_test_account(1, "OwnerPubkey111111111111111111111111111111111", false, false),
+            create_test_account(2, "Signer1Pubkey1111111111111111111111111111111", true, false),
+            create_test_account(3, "Signer2Pubkey1111111111111111111111111111111", true, false),
+        ];
+
+        let data = vec![6, 2, 0]; // authority_type=AccountOwner, clear authority
+        let instruction = create_test_instruction(data, accounts);
+        let parsed = parser.parse_instruction(&instruction).unwrap().unwrap();
+
+        assert_eq!(parsed.name, "SetAuthority");
+        assert_eq!(
+            parsed.account_names,
+            vec!["account", "authority", "additional_signer_1", "additional_signer_2"]
+        );
+    }
+
+    #[test]
+    fn test_close_account_instruction_with_multiple_signers() {
+        let parser = Token2022ProgramParser::new();
+        let accounts = vec![
+            create_test_account(0, "AccountPubkey11111111111111111111111111111111", true, true),
+            create_test_account(1, "DestinationPubkey11111111111111111111111111111", false, true),
+            create_test_account(2, "OwnerPubkey111111111111111111111111111111111", false, false),
+            create_test_account(3, "Signer1Pubkey1111111111111111111111111111111", true, false),
+            create_test_account(4, "Signer2Pubkey1111111111111111111111111111111", true, false),
+        ];
+
+        let instruction = create_test_instruction(vec![9], accounts);
+        let parsed = parser.parse_instruction(&instruction).unwrap().unwrap();
+
+        assert_eq!(parsed.name, "CloseAccount");
+        assert_eq!(
+            parsed.account_names,
+            vec!["account", "destination", "owner", "additional_signer_1", "additional_signer_2"]
+        );
+    }
+
+    #[test]
+    fn test_mint_to_checked_instruction_with_multiple_signers() {
+        let parser = Token2022ProgramParser::new();
+        let accounts = vec![
+            create_test_account(0, "MintPubkey111111111111111111111111111111111", false, true),
+            create_test_account(1, "AccountPubkey11111111111111111111111111111111", false, true),
+            create_test_account(2, "OwnerPubkey111111111111111111111111111111111", false, false),
+            create_test_account(3, "Signer1Pubkey1111111111111111111111111111111", true, false),
+            create_test_account(4, "Signer2Pubkey1111111111111111111111111111111", true, false),
+        ];
+
+        let mut data = vec![14];
+        data.extend_from_slice(&2_500_u64.to_le_bytes());
+        data.push(6);
+        let instruction = create_test_instruction(data, accounts);
+        let parsed = parser.parse_instruction(&instruction).unwrap().unwrap();
+
+        assert_eq!(parsed.name, "MintToChecked");
+        assert_eq!(
+            parsed.account_names,
+            vec!["mint", "account", "owner", "additional_signer_1", "additional_signer_2"]
+        );
     }
 
     #[test]
