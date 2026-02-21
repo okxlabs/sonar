@@ -46,7 +46,7 @@ pub enum ColorMode {
 }
 
 #[derive(Parser, Debug)]
-#[command(name = "sonar", version, about = "Solana Developer Toolkit powered by LiteSVM")]
+#[command(name = "sonar", version, about = "Solana Developer Toolkit powered by LiteSVM", next_line_help = true)]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,
@@ -59,27 +59,31 @@ pub struct Cli {
 #[derive(Subcommand, Debug)]
 pub enum Commands {
     /// Simulate a Solana transaction locally using LiteSVM
-    #[command(alias = "sim")]
+    #[command(alias = "sim", next_line_help = true)]
     Simulate(SimulateArgs),
     /// Decode and display a raw transaction without simulation
-    #[command(alias = "dec")]
+    #[command(alias = "dec", next_line_help = true)]
     Decode(DecodeArgs),
     /// Fetch Anchor IDL from on-chain program accounts
+    #[command(next_line_help = true)]
     FetchIdl(FetchIdlArgs),
     /// Fetch and decode a Solana account (`account`, alias: `acc`)
-    #[command(name = "account", alias = "acc")]
+    #[command(name = "account", alias = "acc", next_line_help = true)]
     Account(AccountArgs),
     /// Convert data formats (int, hex, arrays, text, base64, base58, lamports, sol)
-    #[command(alias = "conv")]
+    #[command(alias = "conv", next_line_help = true)]
     Convert(ConvertArgs),
     /// Derive a PDA (Program Derived Address) from seeds
+    #[command(next_line_help = true)]
     Pda(PdaArgs),
     /// Get raw program data (ELF bytecode) from an upgradeable Program/ProgramData/Buffer account
-    #[command(name = "program-elf")]
+    #[command(name = "program-elf", next_line_help = true)]
     ProgramData(ProgramDataArgs),
     /// Send a signed transaction to the network
+    #[command(next_line_help = true)]
     Send(SendArgs),
     /// Generate shell completion scripts
+    #[command(next_line_help = true)]
     Completions(CompletionsArgs),
 }
 
