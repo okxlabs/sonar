@@ -264,9 +264,15 @@ fn render_account_text(
     print_summary_line("Space", format!("{} {}", account.data.len(), "bytes".dimmed()));
     print_summary_line("Rent Epoch", account.rent_epoch.to_string());
 
-    render_section_title(&format!("Account Data ({data_kind})"));
-    render_json_as_yaml(data, 1);
+    if should_render_account_data_section(account.data.len()) {
+        render_section_title(&format!("Account Data ({data_kind})"));
+        render_json_as_yaml(data, 1);
+    }
     println!();
+}
+
+fn should_render_account_data_section(space: usize) -> bool {
+    space > 0
 }
 
 fn print_summary_line(label: &str, value: String) {
@@ -566,7 +572,10 @@ fn fetch_metadata_for_mint(
 
 #[cfg(test)]
 mod tests {
-    use super::{resolve_metadata_output, should_enrich_with_metaplex_metadata};
+    use super::{
+        resolve_metadata_output, should_enrich_with_metaplex_metadata,
+        should_render_account_data_section,
+    };
     use crate::parsers::token_account_decoder;
     use anyhow::anyhow;
     use serde_json::json;
@@ -740,5 +749,12 @@ mod tests {
 
         assert_eq!(output, token_json);
         assert!(warning.is_some());
+    }
+
+    #[test]
+    fn account_data_section_visibility_follows_space() {
+        assert!(!should_render_account_data_section(0));
+        assert!(should_render_account_data_section(1));
+        assert!(should_render_account_data_section(128));
     }
 }
