@@ -676,7 +676,7 @@ fn render_instruction_account_marker(
 }
 
 fn account_mode_bits(signer: bool, writable: bool, executable: bool) -> String {
-    let signer_bit = if signer { 's' } else { '-' };
+    let signer_bit = if signer { 'S' } else { '-' };
     let access_bit = if writable { 'w' } else { 'r' };
     let exec_bit = if executable { 'x' } else { '-' };
     format!("{signer_bit}{access_bit}{exec_bit}")
