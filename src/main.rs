@@ -8,7 +8,7 @@ mod utils;
 use std::io::IsTerminal;
 
 use anyhow::Result;
-use clap::Parser;
+use clap::{CommandFactory, Parser};
 use cli::{Cli, ColorMode, Commands};
 
 fn main() {
@@ -20,6 +20,22 @@ fn main() {
     }
 }
 
+/// Returns true when the user typed only a subcommand name after the binary,
+/// with no subcommand-specific arguments (global flags like --color are ignored).
+fn is_bare_subcommand() -> bool {
+    let known_global_flags: &[&str] = &["--color"];
+    let mut args = std::env::args().skip(1); // skip binary name
+    let mut non_global = 0u32;
+    while let Some(arg) = args.next() {
+        if known_global_flags.contains(&arg.as_str()) {
+            args.next(); // skip the flag's value
+        } else {
+            non_global += 1;
+        }
+    }
+    non_global <= 1
+}
+
 fn run() -> Result<()> {
     env_logger::init();
 
@@ -27,7 +43,27 @@ fn run() -> Result<()> {
     // before clap parses, so that CLI arg > env var > config file > default.
     crate::utils::config::load_and_apply();
 
-    let cli = Cli::parse();
+    let cli = match Cli::try_parse() {
+        Ok(cli) => cli,
+        Err(err) => {
+            if matches!(
+                err.kind(),
+                clap::error::ErrorKind::MissingRequiredArgument
+            ) && is_bare_subcommand()
+            {
+                // User typed just the subcommand name with no further arguments;
+                // print subcommand help instead of the clap error.
+                // Exit 2 (usage error) to distinguish from explicit --help (exit 0).
+                let mut args: Vec<String> = std::env::args().collect();
+                args.push("--help".to_string());
+                if let Err(help_err) = Cli::try_parse_from(&args) {
+                    let _ = help_err.print();
+                }
+                std::process::exit(2);
+            }
+            err.exit();
+        }
+    };
 
     // Initialize color control based on --color flag, NO_COLOR env var, and TTY detection
     // Reference: https://no-color.org
@@ -41,7 +77,15 @@ fn run() -> Result<()> {
         }
     }
 
-    match cli.command {
+    let command = match cli.command {
+        Some(cmd) => cmd,
+        None => {
+            Cli::command().print_help()?;
+            std::process::exit(2);
+        }
+    };
+
+    match command {
         Commands::Simulate(args) => handlers::simulate::handle(args)?,
         Commands::Decode(args) => handlers::decode::handle(args)?,
         Commands::FetchIdl(args) => handlers::fetch_idl::handle(args)?,

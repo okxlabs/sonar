@@ -49,7 +49,7 @@ pub enum ColorMode {
 #[command(name = "sonar", version, about = "Solana Developer Toolkit powered by LiteSVM", next_line_help = true)]
 pub struct Cli {
     #[command(subcommand)]
-    pub command: Commands,
+    pub command: Option<Commands>,
 
     /// Control color output (auto, always, never)
     #[arg(long, global = true, value_enum, default_value_t = ColorMode::Auto, env = "SONAR_COLOR")]

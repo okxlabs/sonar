@@ -120,7 +120,7 @@ pub struct SimulateArgs {
 pub struct TransactionInputArgs {
     /// Raw transaction (Base58/Base64) or transaction signature.
     /// Pass multiple values for bundle mode
-    #[arg(value_name = "TX")]
+    #[arg(value_name = "TX", required = true)]
     pub tx: Vec<String>,
     /// Output as JSON instead of human-readable text
     #[arg(long, default_value_t = false)]
@@ -745,7 +745,7 @@ mod tests {
         ])
         .expect("should parse --patch-account-data");
 
-        let Commands::Simulate(args) = cli.command else {
+        let Some(Commands::Simulate(args)) = cli.command else {
             panic!("expected simulate subcommand");
         };
         assert_eq!(args.data_patches, vec![patch.to_string()]);
@@ -766,7 +766,7 @@ mod tests {
         ])
         .expect("should parse -p multiple times");
 
-        let Commands::Simulate(args) = cli.command else {
+        let Some(Commands::Simulate(args)) = cli.command else {
             panic!("expected simulate subcommand");
         };
         assert_eq!(args.data_patches, vec![patch1.to_string(), patch2.to_string()]);
@@ -793,7 +793,7 @@ mod tests {
         ])
         .expect("should parse without --input-kind");
 
-        let Commands::Simulate(args) = cli.command else {
+        let Some(Commands::Simulate(args)) = cli.command else {
             panic!("expected simulate subcommand");
         };
 

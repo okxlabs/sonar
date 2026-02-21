@@ -50,7 +50,7 @@ mod tests {
         ])
         .expect("should parse --mpl-metadata");
 
-        let Commands::Account(args) = cli.command else {
+        let Some(Commands::Account(args)) = cli.command else {
             panic!("expected account subcommand");
         };
         assert!(args.mpl_metadata);
@@ -68,7 +68,7 @@ mod tests {
         ])
         .expect("should parse -m");
 
-        let Commands::Account(args) = cli.command else {
+        let Some(Commands::Account(args)) = cli.command else {
             panic!("expected account subcommand");
         };
         assert!(args.mpl_metadata);
@@ -86,7 +86,7 @@ mod tests {
         ])
         .expect("should parse --json");
 
-        let Commands::Account(args) = cli.command else {
+        let Some(Commands::Account(args)) = cli.command else {
             panic!("expected account subcommand");
         };
         assert!(args.json);

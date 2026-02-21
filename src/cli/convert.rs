@@ -930,7 +930,7 @@ mod tests {
 
         let cli = crate::cli::Cli::try_parse_from(argv).unwrap();
         match cli.command {
-            crate::cli::Commands::Convert(args) => args,
+            Some(crate::cli::Commands::Convert(args)) => args,
             _ => panic!("expected convert command"),
         }
     }
@@ -1065,7 +1065,7 @@ mod tests {
         let cli =
             crate::cli::Cli::try_parse_from(["sonar", "convert", "hex", "int", "0x123"]).unwrap();
         match cli.command {
-            crate::cli::Commands::Convert(args) => {
+            Some(crate::cli::Commands::Convert(args)) => {
                 assert_eq!(args.from, ConvertInputFormat::Hex);
                 assert_eq!(args.to, ConvertOutputFormat::Int);
                 assert_eq!(args.input.as_deref(), Some("0x123"));
@@ -1080,7 +1080,7 @@ mod tests {
 
         let cli = crate::cli::Cli::try_parse_from(["sonar", "convert", "hex", "int"]).unwrap();
         match cli.command {
-            crate::cli::Commands::Convert(args) => {
+            Some(crate::cli::Commands::Convert(args)) => {
                 assert_eq!(args.from, ConvertInputFormat::Hex);
                 assert_eq!(args.to, ConvertOutputFormat::Int);
                 assert_eq!(args.input, None);
@@ -1155,7 +1155,7 @@ mod tests {
         let cli =
             crate::cli::Cli::try_parse_from(["sonar", "convert", "hb", "lam", "[0x01]"]).unwrap();
         match cli.command {
-            crate::cli::Commands::Convert(args) => {
+            Some(crate::cli::Commands::Convert(args)) => {
                 assert_eq!(args.from, ConvertInputFormat::HexBytes);
                 assert_eq!(args.to, ConvertOutputFormat::Lamports);
                 assert_eq!(args.input.as_deref(), Some("[0x01]"));
@@ -1171,7 +1171,7 @@ mod tests {
         let cli =
             crate::cli::Cli::try_parse_from(["sonar", "convert", "kp", "pubkey", "0x00"]).unwrap();
         match cli.command {
-            crate::cli::Commands::Convert(args) => {
+            Some(crate::cli::Commands::Convert(args)) => {
                 assert_eq!(args.from, ConvertInputFormat::Keypair);
                 assert_eq!(args.to, ConvertOutputFormat::Pubkey);
             }
@@ -1186,7 +1186,7 @@ mod tests {
         let full =
             crate::cli::Cli::try_parse_from(["sonar", "convert", "hex", "binary", "0x01"]).unwrap();
         match full.command {
-            crate::cli::Commands::Convert(args) => {
+            Some(crate::cli::Commands::Convert(args)) => {
                 assert_eq!(args.to, ConvertOutputFormat::Binary);
             }
             _ => panic!("expected convert command"),
@@ -1195,7 +1195,7 @@ mod tests {
         let alias =
             crate::cli::Cli::try_parse_from(["sonar", "convert", "hex", "bin", "0x01"]).unwrap();
         match alias.command {
-            crate::cli::Commands::Convert(args) => {
+            Some(crate::cli::Commands::Convert(args)) => {
                 assert_eq!(args.to, ConvertOutputFormat::Binary);
             }
             _ => panic!("expected convert command"),
@@ -1288,7 +1288,7 @@ mod tests {
         for args in cases {
             let cli = crate::cli::Cli::try_parse_from(args).unwrap();
             match cli.command {
-                crate::cli::Commands::Convert(_) => {}
+                Some(crate::cli::Commands::Convert(_)) => {}
                 _ => panic!("expected convert command"),
             }
         }
