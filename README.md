@@ -171,12 +171,8 @@ sonar decode <TX> --rpc-url <RPC_URL> --raw-ix-data
 Fetch and decode a Solana account (`account` or alias `acc`):
 
 ```bash
-# Default: human-readable summary + decoded data view
 sonar account <PUBKEY> --rpc-url https://api.mainnet-beta.solana.com
 sonar acc <PUBKEY> --rpc-url <RPC_URL>
-
-# JSON output (for scripting / machine parsing)
-sonar account <PUBKEY> --rpc-url <RPC_URL> --json
 
 # Output raw account data as base64 JSON (skip all decoding)
 sonar account <PUBKEY> --rpc-url <RPC_URL> --raw
