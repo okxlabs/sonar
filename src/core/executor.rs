@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::LazyLock;
 
@@ -9,10 +9,11 @@ use log::info;
 use serde::Serialize;
 use solana_account::{Account, AccountSharedData};
 use solana_clock::Clock;
+use solana_slot_hashes::SlotHashes;
 
 use solana_loader_v3_interface::state::UpgradeableLoaderState;
 use solana_pubkey::Pubkey;
-use solana_sdk_ids::bpf_loader_upgradeable;
+use solana_sdk_ids::{bpf_loader_upgradeable, system_program};
 use solana_sysvar_id::SysvarId;
 use solana_transaction::versioned::VersionedTransaction;
 use solana_transaction::versioned::VersionedTransaction as LiteVersionedTransaction;
@@ -384,22 +385,40 @@ fn is_native_owner(account: &Account) -> bool {
 ///
 /// Writes the original RPC-loaded account data (before --replace / --patch-account-data).
 /// Each account is written to `<pubkey>.json`. Native/system programs and
-/// accounts that don't exist on-chain (lamports=0, empty data) are skipped.
-pub fn dump_accounts_to_dir(accounts: &HashMap<Pubkey, Account>, dir: &Path) -> Result<()> {
+/// native-owned executable marker accounts are skipped.
+pub fn dump_accounts_to_dir(
+    resolved: &ResolvedAccounts,
+    required_accounts: &[Pubkey],
+    dir: &Path,
+) -> Result<()> {
     std::fs::create_dir_all(dir)
         .with_context(|| format!("Failed to create dump directory: {}", dir.display()))?;
 
+    let accounts = &resolved.accounts;
+    let lookup_related: HashSet<Pubkey> = resolved
+        .lookups
+        .iter()
+        .flat_map(|lookup| {
+            std::iter::once(lookup.account_key)
+                .chain(lookup.writable_addresses.iter().copied())
+                .chain(lookup.readonly_addresses.iter().copied())
+        })
+        .collect();
+    let required_keys: HashSet<Pubkey> =
+        required_accounts.iter().copied().chain(lookup_related.iter().copied()).collect();
+
     let mut dumped = 0usize;
     let mut skipped = 0usize;
+    let mut placeholders = 0usize;
+    let mut dumped_keys = HashSet::new();
 
     for (pubkey, account) in accounts {
-        if crate::utils::native_ids::is_native_or_sysvar(pubkey) {
+        // Keep Clock/SlotHashes sysvars for offline ALT resolution.
+        if crate::utils::native_ids::is_native_or_sysvar(pubkey)
+            && *pubkey != Clock::id()
+            && *pubkey != SlotHashes::id()
+        {
             skipped += 1;
-            continue;
-        }
-
-        // Skip accounts that are effectively non-existent (empty default state)
-        if account.lamports == 0 && account.data.is_empty() {
             continue;
         }
 
@@ -408,42 +427,72 @@ pub fn dump_accounts_to_dir(accounts: &HashMap<Pubkey, Account>, dir: &Path) -> 
             continue;
         }
 
-        let dump = DumpAccount {
-            pubkey: pubkey.to_string(),
-            account: DumpAccountInner {
-                lamports: account.lamports,
-                data: (
-                    base64::engine::general_purpose::STANDARD.encode(&account.data),
-                    "base64".to_string(),
-                ),
-                owner: account.owner.to_string(),
-                executable: account.executable,
-                rent_epoch: account.rent_epoch,
-                space: account.data.len(),
-            },
-        };
-
-        let json = serde_json::to_string_pretty(&dump)
-            .with_context(|| format!("Failed to serialize account {pubkey}"))?;
         let path = dir.join(format!("{pubkey}.json"));
-        std::fs::write(&path, json)
-            .with_context(|| format!("Failed to write account file: {}", path.display()))?;
+        write_dump_account(pubkey, account, &path)?;
 
         dumped += 1;
+        dumped_keys.insert(*pubkey);
+    }
+
+    // For transaction-required accounts not present in the loaded account map
+    // (non-existent on-chain), write zero-lamport placeholder JSONs so that
+    // --load-accounts can find them and the offline loader doesn't warn about
+    // missing files.
+    for pubkey in required_keys {
+        if dumped_keys.contains(&pubkey) || crate::utils::native_ids::is_native_or_sysvar(&pubkey) {
+            continue;
+        }
+
+        let placeholder = Account {
+            lamports: 0,
+            data: Vec::new(),
+            owner: system_program::id(),
+            executable: false,
+            rent_epoch: 0,
+        };
+        let path = dir.join(format!("{pubkey}.json"));
+        write_dump_account(&pubkey, &placeholder, &path)?;
+        dumped += 1;
+        placeholders += 1;
     }
 
     eprintln!(
-        "Dumped {} accounts to {} ({} native accounts skipped)",
+        "Dumped {} accounts to {} ({} native accounts skipped, {} placeholders)",
         dumped,
         dir.display(),
-        skipped
+        skipped,
+        placeholders
     );
+    Ok(())
+}
+
+fn write_dump_account(pubkey: &Pubkey, account: &Account, path: &Path) -> Result<()> {
+    let dump = DumpAccount {
+        pubkey: pubkey.to_string(),
+        account: DumpAccountInner {
+            lamports: account.lamports,
+            data: (
+                base64::engine::general_purpose::STANDARD.encode(&account.data),
+                "base64".to_string(),
+            ),
+            owner: account.owner.to_string(),
+            executable: account.executable,
+            rent_epoch: account.rent_epoch,
+            space: account.data.len(),
+        },
+    };
+
+    let json =
+        serde_json::to_string_pretty(&dump).with_context(|| format!("Failed to serialize account {pubkey}"))?;
+    std::fs::write(path, json)
+        .with_context(|| format!("Failed to write account file: {}", path.display()))?;
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
     use solana_hash::Hash;
     use solana_keypair::Keypair;
     use solana_message::Message;
@@ -499,5 +548,55 @@ mod tests {
 
         // Should have 2 results for 2 transactions
         assert_eq!(results.len(), 2);
+    }
+
+    #[test]
+    fn dump_accounts_writes_lookup_placeholders_for_missing_accounts() {
+        let temp_dir = std::env::temp_dir().join(format!(
+            "sonar_dump_lookup_placeholders_{}_{}",
+            std::process::id(),
+            std::thread::current().name().unwrap_or("unnamed")
+        ));
+        let _ = std::fs::remove_dir_all(&temp_dir);
+
+        let lookup_table_key = Pubkey::new_unique();
+        let missing_lookup_account = Pubkey::new_unique();
+
+        let mut accounts = HashMap::new();
+        accounts.insert(
+            lookup_table_key,
+            Account {
+                lamports: 1,
+                data: vec![1, 2, 3],
+                owner: solana_sdk_ids::system_program::id(),
+                executable: false,
+                rent_epoch: 0,
+            },
+        );
+
+        let resolved = ResolvedAccounts {
+            accounts,
+            lookups: vec![ResolvedLookup {
+                account_key: lookup_table_key,
+                writable_indexes: vec![0],
+                readonly_indexes: vec![],
+                writable_addresses: vec![missing_lookup_account],
+                readonly_addresses: vec![],
+            }],
+        };
+
+        dump_accounts_to_dir(&resolved, &[lookup_table_key], &temp_dir).expect("dump should succeed");
+
+        let placeholder_path = temp_dir.join(format!("{missing_lookup_account}.json"));
+        assert!(placeholder_path.exists(), "missing lookup placeholder should be written");
+
+        let parsed =
+            crate::cli::parse_account_json(&PathBuf::from(&placeholder_path)).expect("valid placeholder json");
+        assert_eq!(parsed.lamports, 0);
+        assert!(parsed.data.is_empty());
+        assert_eq!(parsed.owner, solana_sdk_ids::system_program::id());
+        assert!(!parsed.executable);
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
     }
 }

@@ -160,7 +160,11 @@ pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
 
     // Dump original RPC account data before --replace / --patch-account-data
     if let Some(ref dump_dir) = dump_accounts {
-        executor::dump_accounts_to_dir(&resolved_accounts.accounts, dump_dir)
+        executor::dump_accounts_to_dir(
+            &resolved_accounts,
+            &parsed_tx.account_plan.static_accounts,
+            dump_dir,
+        )
             .context("Failed to dump accounts")?;
     }
 
@@ -283,7 +287,12 @@ fn handle_bundle(
 
     // Dump original RPC account data before --replace / --patch-account-data
     if let Some(ref dump_dir) = dump_accounts {
-        executor::dump_accounts_to_dir(&resolved_accounts.accounts, dump_dir)
+        let required_accounts: std::collections::HashSet<_> = parsed_txs
+            .iter()
+            .flat_map(|tx| tx.account_plan.static_accounts.iter().copied())
+            .collect();
+        let required_accounts: Vec<_> = required_accounts.into_iter().collect();
+        executor::dump_accounts_to_dir(&resolved_accounts, &required_accounts, dump_dir)
             .context("Failed to dump accounts")?;
     }
 
