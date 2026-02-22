@@ -103,6 +103,24 @@ pub fn render_transaction_only(
     }
 }
 
+/// Render multiple decoded transactions as a single JSON array `[{...}, {...}]`.
+/// Used for bundle decode with `--json`; output is a valid JSON document parseable by jq.
+#[allow(clippy::too_many_arguments)]
+pub fn render_decode_bundle_json(
+    parsed_txs: &[ParsedTransaction],
+    resolved: &ResolvedAccounts,
+    parser_registry: &mut ParserRegistry,
+) -> Result<()> {
+    let resolver = LookupResolver::new(resolved.lookup_details());
+    let sections: Vec<TransactionSection> = parsed_txs
+        .iter()
+        .map(|parsed| {
+            TransactionSection::from_sources(parsed, resolved, &resolver, parser_registry, false)
+        })
+        .collect();
+    json::render_json_array(&sections)
+}
+
 /// Render multiple transaction simulation results (bundle simulation).
 #[allow(clippy::too_many_arguments)]
 pub fn render_bundle(

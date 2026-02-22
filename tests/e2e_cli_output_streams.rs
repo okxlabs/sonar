@@ -3,6 +3,36 @@ use assert_cmd::cargo::cargo_bin_cmd;
 const VALID_PUBKEY: &str = "11111111111111111111111111111111";
 
 #[test]
+#[ignore = "requires mainnet RPC"]
+fn program_elf_file_success_confirmation_on_stdout_stderr_empty() {
+    use std::fs;
+
+    let temp =
+        std::env::temp_dir().join(format!("sonar_program_elf_e2e_{}.so", std::process::id()));
+
+    let mut cmd = cargo_bin_cmd!("sonar");
+    cmd.arg("program-elf")
+        .arg("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA")
+        .arg("--rpc-url")
+        .arg("https://api.mainnet-beta.solana.com")
+        .arg("-o")
+        .arg(&temp);
+
+    let assert = cmd.assert().success();
+    let output = assert.get_output();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        stdout.contains("Wrote ") && stdout.contains(" bytes to "),
+        "success path: write confirmation on stdout, got: {stdout}"
+    );
+    assert!(stderr.trim().is_empty(), "success path: stderr empty, got: {stderr}");
+
+    let _ = fs::remove_file(&temp);
+}
+
+#[test]
 fn program_data_requires_explicit_output_mode_for_raw_binary() {
     let mut cmd = cargo_bin_cmd!("sonar");
     cmd.arg("program-elf").arg(VALID_PUBKEY).arg("--rpc-url").arg("http://127.0.0.1:1");
@@ -141,6 +171,200 @@ fn convert_keypair_rejects_non_64_byte_input() {
 }
 
 #[test]
+fn simulate_omitted_tx_empty_stdin_fails_with_actionable_message() {
+    let mut cmd = cargo_bin_cmd!("sonar");
+    cmd.arg("simulate").arg("--rpc-url").arg("https://api.mainnet-beta.solana.com").write_stdin("");
+
+    let assert = cmd.assert().failure();
+    let output = assert.get_output();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        stderr.contains("No transaction data received from stdin")
+            || stderr.contains("No transaction provided"),
+        "expected actionable error about missing TX, got: {stderr}"
+    );
+}
+
+#[test]
+fn decode_omitted_tx_empty_stdin_fails_with_actionable_message() {
+    let mut cmd = cargo_bin_cmd!("sonar");
+    cmd.arg("decode").arg("--rpc-url").arg("https://api.mainnet-beta.solana.com").write_stdin("");
+
+    let assert = cmd.assert().failure();
+    let output = assert.get_output();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        stderr.contains("No transaction data received from stdin")
+            || stderr.contains("No transaction provided"),
+        "expected actionable error about missing TX, got: {stderr}"
+    );
+}
+
+#[test]
+#[ignore = "requires mainnet RPC"]
+fn simulate_omitted_tx_reads_from_stdin() {
+    const V0_RAW_TX: &str = "GPdrKqMbYtzsysuEJhYG4bpUB9xQFpdQ8ps9s8XorbfD5SA5FrFfMAL2oznLNP9Ah4wXPe6Y9BVkAXM7Gw47whMxuK5TCKvpKtkyDEiuYfaRZCmv1mk5u16HvPzQqXGHzmf3iFUraHA2yEghbqaJsUW27PmXWvs2xPhK1WtFBvF4PNxtFBNa7sGwHZPmT88zk5pwpVnseAu48HhDvY6Nj7qjTzRAAFczubznScT4aT1m5CNyYjVwYjR5iqc7PrpTzyAxevb1Zk1ndXgHfwnQAhZfKfV712i5z352Jbf96WdQFGva3f22NGSVWtSFjp6agEBDTvWVUa3Db4WvArURczERDymqEEhX5EfMSZTUYenfgRXL2kgjWoXkuFaDyumgapdyqzQFixL4aJZCEDp6yfq7V5g2WYqwqNXHBsKbfpTfqKsqCV1niunXSZfGTTRgXjFWXuQNbtLrbd9TTJmUhsTMJuPzhohT89yX292vmUDGvHv3YqkJGynKcEGT6cPrB6ayWiBGybsJ2fUiax7QFPKT1hscSm5HDJPV3HmrC3DyHQAWq6hrPzGMeUcEBfSEtkvPFtNe9kpw4N9x2bJwuiGRgHbVmzDnRGMdXpu9KWigYb3uebLTFLUDeDq1CfD377AzdxBkBJQkdQ3peTjAz1kW3pEQQLiE57p16Wf8oUgxCveHpGr73RCoveDsjeF7puENGkM2aFkmKLBRvW3yJHL9mCP6ZkuScMy9VCWkh554yEs72DEZU25Upj7RAAhc7zG7iWyP6m2gZg6gGZ5hqjrCasQXUjJkaPT4LgBeLS9W5scn7QA51QMZi95DgAvD9mQeSFixnFofpqNDTNWVnisoQQ2eAEPVwKC1sfKjBdMgrMJKG1JjzDM7DWRzR7xPYSyjPfHXHx5aZJ8LdyYjYXjS6dViihtH3sNebZzqLdDzERDEe6bAFAkB5tGcRdqF1kcdPN3HNeRgeA7xvJg5r3kaDkAQQ9yjZV2stexZ1eDa4KiRwBY3MsgujEntBT992CrU4uAtHKkSXUbusXHMjbx9Dn57HD9GEdzAnDq53Gmmz7xU2qKZ3hKhLZg3ZtYVTeAysqUSfZTRPp87VjdyrG2Msk32ufPdQbAZ2x9FYbUCPpRvLMPsNhDe5D4fMt9X63bQTsk9VQNx39j5Mo6NkYvcKmKiz3pb5J19bHnnSKixEKa89typqcbNFunudMMmAAT3egyok3WRCqwC83EwNBWwrdm5zs1mRefEDu77arj7E";
+
+    let mut cmd = cargo_bin_cmd!("sonar");
+    cmd.arg("simulate")
+        .arg("--rpc-url")
+        .arg("https://api.mainnet-beta.solana.com")
+        .arg("--replace")
+        .arg("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA=tests/fixtures/spl_token.so")
+        .write_stdin(V0_RAW_TX);
+
+    let assert = cmd.assert().success();
+    let output = assert.get_output();
+    assert!(!output.stdout.is_empty(), "expected simulate output on stdout");
+}
+
+#[test]
+#[ignore = "requires mainnet RPC"]
+fn decode_omitted_tx_reads_from_stdin() {
+    const V0_RAW_TX: &str = "GPdrKqMbYtzsysuEJhYG4bpUB9xQFpdQ8ps9s8XorbfD5SA5FrFfMAL2oznLNP9Ah4wXPe6Y9BVkAXM7Gw47whMxuK5TCKvpKtkyDEiuYfaRZCmv1mk5u16HvPzQqXGHzmf3iFUraHA2yEghbqaJsUW27PmXWvs2xPhK1WtFBvF4PNxtFBNa7sGwHZPmT88zk5pwpVnseAu48HhDvY6Nj7qjTzRAAFczubznScT4aT1m5CNyYjVwYjR5iqc7PrpTzyAxevb1Zk1ndXgHfwnQAhZfKfV712i5z352Jbf96WdQFGva3f22NGSVWtSFjp6agEBDTvWVUa3Db4WvArURczERDymqEEhX5EfMSZTUYenfgRXL2kgjWoXkuFaDyumgapdyqzQFixL4aJZCEDp6yfq7V5g2WYqwqNXHBsKbfpTfqKsqCV1niunXSZfGTTRgXjFWXuQNbtLrbd9TTJmUhsTMJuPzhohT89yX292vmUDGvHv3YqkJGynKcEGT6cPrB6ayWiBGybsJ2fUiax7QFPKT1hscSm5HDJPV3HmrC3DyHQAWq6hrPzGMeUcEBfSEtkvPFtNe9kpw4N9x2bJwuiGRgHbVmzDnRGMdXpu9KWigYb3uebLTFLUDeDq1CfD377AzdxBkBJQkdQ3peTjAz1kW3pEQQLiE57p16Wf8oUgxCveHpGr73RCoveDsjeF7puENGkM2aFkmKLBRvW3yJHL9mCP6ZkuScMy9VCWkh554yEs72DEZU25Upj7RAAhc7zG7iWyP6m2gZg6gGZ5hqjrCasQXUjJkaPT4LgBeLS9W5scn7QA51QMZi95DgAvD9mQeSFixnFofpqNDTNWVnisoQQ2eAEPVwKC1sfKjBdMgrMJKG1JjzDM7DWRzR7xPYSyjPfHXHx5aZJ8LdyYjYXjS6dViihtH3sNebZzqLdDzERDEe6bAFAkB5tGcRdqF1kcdPN3HNeRgeA7xvJg5r3kaDkAQQ9yjZV2stexZ1eDa4KiRwBY3MsgujEntBT992CrU4uAtHKkSXUbusXHMjbx9Dn57HD9GEdzAnDq53Gmmz7xU2qKZ3hKhLZg3ZtYVTeAysqUSfZTRPp87VjdyrG2Msk32ufPdQbAZ2x9FYbUCPpRvLMPsNhDe5D4fMt9X63bQTsk9VQNx39j5Mo6NkYvcKmKiz3pb5J19bHnnSKixEKa89typqcbNFunudMMmAAT3egyok3WRCqwC83EwNBWwrdm5zs1mRefEDu77arj7E";
+
+    let mut cmd = cargo_bin_cmd!("sonar");
+    cmd.arg("decode")
+        .arg("--rpc-url")
+        .arg("https://api.mainnet-beta.solana.com")
+        .write_stdin(V0_RAW_TX);
+
+    let assert = cmd.assert().success();
+    let output = assert.get_output();
+    assert!(!output.stdout.is_empty(), "expected decode output on stdout");
+}
+
+#[test]
+#[ignore = "requires mainnet RPC"]
+fn decode_bundle_json_outputs_single_valid_json_array() {
+    const V0_RAW_TX: &str = "GPdrKqMbYtzsysuEJhYG4bpUB9xQFpdQ8ps9s8XorbfD5SA5FrFfMAL2oznLNP9Ah4wXPe6Y9BVkAXM7Gw47whMxuK5TCKvpKtkyDEiuYfaRZCmv1mk5u16HvPzQqXGHzmf3iFUraHA2yEghbqaJsUW27PmXWvs2xPhK1WtFBvF4PNxtFBNa7sGwHZPmT88zk5pwpVnseAu48HhDvY6Nj7qjTzRAAFczubznScT4aT1m5CNyYjVwYjR5iqc7PrpTzyAxevb1Zk1ndXgHfwnQAhZfKfV712i5z352Jbf96WdQFGva3f22NGSVWtSFjp6agEBDTvWVUa3Db4WvArURczERDymqEEhX5EfMSZTUYenfgRXL2kgjWoXkuFaDyumgapdyqzQFixL4aJZCEDp6yfq7V5g2WYqwqNXHBsKbfpTfqKsqCV1niunXSZfGTTRgXjFWXuQNbtLrbd9TTJmUhsTMJuPzhohT89yX292vmUDGvHv3YqkJGynKcEGT6cPrB6ayWiBGybsJ2fUiax7QFPKT1hscSm5HDJPV3HmrC3DyHQAWq6hrPzGMeUcEBfSEtkvPFtNe9kpw4N9x2bJwuiGRgHbVmzDnRGMdXpu9KWigYb3uebLTFLUDeDq1CfD377AzdxBkBJQkdQ3peTjAz1kW3pEQQLiE57p16Wf8oUgxCveHpGr73RCoveDsjeF7puENGkM2aFkmKLBRvW3yJHL9mCP6ZkuScMy9VCWkh554yEs72DEZU25Upj7RAAhc7zG7iWyP6m2gZg6gGZ5hqjrCasQXUjJkaPT4LgBeLS9W5scn7QA51QMZi95DgAvD9mQeSFixnFofpqNDTNWVnisoQQ2eAEPVwKC1sfKjBdMgrMJKG1JjzDM7DWRzR7xPYSyjPfHXHx5aZJ8LdyYjYXjS6dViihtH3sNebZzqLdDzERDEe6bAFAkB5tGcRdqF1kcdPN3HNeRgeA7xvJg5r3kaDkAQQ9yjZV2stexZ1eDa4KiRwBY3MsgujEntBT992CrU4uAtHKkSXUbusXHMjbx9Dn57HD9GEdzAnDq53Gmmz7xU2qKZ3hKhLZg3ZtYVTeAysqUSfZTRPp87VjdyrG2Msk32ufPdQbAZ2x9FYbUCPpRvLMPsNhDe5D4fMt9X63bQTsk9VQNx39j5Mo6NkYvcKmKiz3pb5J19bHnnSKixEKa89typqcbNFunudMMmAAT3egyok3WRCqwC83EwNBWwrdm5zs1mRefEDu77arj7E";
+
+    let mut cmd = cargo_bin_cmd!("sonar");
+    cmd.arg("decode")
+        .arg(V0_RAW_TX)
+        .arg(V0_RAW_TX)
+        .arg("--json")
+        .arg("--rpc-url")
+        .arg("https://api.mainnet-beta.solana.com");
+
+    let assert = cmd.assert().success();
+    let output = assert.get_output();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // Must parse as a single JSON array (jq-compatible)
+    let arr: Vec<serde_json::Value> = serde_json::from_str(stdout.trim())
+        .expect("bundle decode --json must output a single valid JSON array parseable by jq");
+    assert_eq!(arr.len(), 2, "expected 2 decoded transactions in array, got {}", arr.len());
+}
+
+#[test]
+fn offline_missing_account_does_not_trigger_strict_offline_error() {
+    use std::fs;
+
+    // Create an empty directory so no accounts are available
+    let temp = std::env::temp_dir().join(format!("sonar_offline_test_{}", std::process::id()));
+    let _ = fs::remove_dir_all(&temp);
+    fs::create_dir_all(&temp).expect("create temp dir");
+
+    // V0_RAW_TX references SPL Token and other non-native accounts.
+    // With --load-accounts pointing to empty dir and --offline, missing
+    // non-native accounts should emit warning (not strict offline error).
+    let mut cmd = cargo_bin_cmd!("sonar");
+    cmd.arg("simulate")
+        .arg("GPdrKqMbYtzsysuEJhYG4bpUB9xQFpdQ8ps9s8XorbfD5SA5FrFfMAL2oznLNP9Ah4wXPe6Y9BVkAXM7Gw47whMxuK5TCKvpKtkyDEiuYfaRZCmv1mk5u16HvPzQqXGHzmf3iFUraHA2yEghbqaJsUW27PmXWvs2xPhK1WtFBvF4PNxtFBNa7sGwHZPmT88zk5pwpVnseAu48HhDvY6Nj7qjTzRAAFczubznScT4aT1m5CNyYjVwYjR5iqc7PrpTzyAxevb1Zk1ndXgHfwnQAhZfKfV712i5z352Jbf96WdQFGva3f22NGSVWtSFjp6agEBDTvWVUa3Db4WvArURczERDymqEEhX5EfMSZTUYenfgRXL2kgjWoXkuFaDyumgapdyqzQFixL4aJZCEDp6yfq7V5g2WYqwqNXHBsKbfpTfqKsqCV1niunXSZfGTTRgXjFWXuQNbtLrbd9TTJmUhsTMJuPzhohT89yX292vmUDGvHv3YqkJGynKcEGT6cPrB6ayWiBGybsJ2fUiax7QFPKT1hscSm5HDJPV3HmrC3DyHQAWq6hrPzGMeUcEBfSEtkvPFtNe9kpw4N9x2bJwuiGRgHbVmzDnRGMdXpu9KWigYb3uebLTFLUDeDq1CfD377AzdxBkBJQkdQ3peTjAz1kW3pEQQLiE57p16Wf8oUgxCveHpGr73RCoveDsjeF7puENGkM2aFkmKLBRvW3yJHL9mCP6ZkuScMy9VCWkh554yEs72DEZU25Upj7RAAhc7zG7iWyP6m2gZg6gGZ5hqjrCasQXUjJkaPT4LgBeLS9W5scn7QA51QMZi95DgAvD9mQeSFixnFofpqNDTNWVnisoQQ2eAEPVwKC1sfKjBdMgrMJKG1JjzDM7DWRzR7xPYSyjPfHXHx5aZJ8LdyYjYXjS6dViihtH3sNebZzqLdDzERDEe6bAFAkB5tGcRdqF1kcdPN3HNeRgeA7xvJg5r3kaDkAQQ9yjZV2stexZ1eDa4KiRwBY3MsgujEntBT992CrU4uAtHKkSXUbusXHMjbx9Dn57HD9GEdzAnDq53Gmmz7xU2qKZ3hKhLZg3ZtYVTeAysqUSfZTRPp87VjdyrG2Msk32ufPdQbAZ2x9FYbUCPpRvLMPsNhDe5D4fMt9X63bQTsk9VQNx39j5Mo6NkYvcKmKiz3pb5J19bHnnSKixEKa89typqcbNFunudMMmAAT3egyok3WRCqwC83EwNBWwrdm5zs1mRefEDu77arj7E")
+        .arg("--load-accounts")
+        .arg(&temp)
+        .arg("--offline")
+        .arg("--replace")
+        .arg("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA=tests/fixtures/spl_token.so");
+
+    let assert = cmd.assert().failure();
+    let output = assert.get_output();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        stderr.contains("Warning: offline mode") && stderr.contains("treated as non-existent"),
+        "expected offline missing-account warning in stderr, got: {stderr}"
+    );
+    assert!(
+        !stderr.contains("Error: offline mode:"),
+        "strict offline error should not be returned, got: {stderr}"
+    );
+
+    let _ = fs::remove_dir_all(&temp);
+}
+
+#[test]
+fn idl_fetch_failure_exits_nonzero() {
+    // Unreachable RPC causes fetch to fail for all programs
+    let mut cmd = cargo_bin_cmd!("sonar");
+    cmd.arg("idl")
+        .arg("fetch")
+        .arg("11111111111111111111111111111111")
+        .arg("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA")
+        .arg("--rpc-url")
+        .arg("http://127.0.0.1:1")
+        .arg("-o")
+        .arg(std::env::temp_dir());
+
+    let assert = cmd.assert().failure();
+    let output = assert.get_output();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(stdout.trim().is_empty(), "stdout should be empty on failure, got: {stdout}");
+    assert!(stderr.contains("Summary:"), "expected Summary in stderr, got: {stderr}");
+    assert!(
+        stderr.contains("error") || stderr.contains("Error:"),
+        "expected error info in stderr, got: {stderr}"
+    );
+}
+
+#[test]
+fn idl_fetch_allow_partial_exits_zero_on_failure() {
+    let mut cmd = cargo_bin_cmd!("sonar");
+    cmd.arg("idl")
+        .arg("fetch")
+        .arg("11111111111111111111111111111111")
+        .arg("--rpc-url")
+        .arg("http://127.0.0.1:1")
+        .arg("--allow-partial")
+        .arg("-o")
+        .arg(std::env::temp_dir());
+
+    let assert = cmd.assert().success();
+    let output = assert.get_output();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        stderr.contains("Summary:"),
+        "expected Summary in stderr when allow-partial, got: {stderr}"
+    );
+}
+
+#[test]
+fn idl_fetch_success_paths_go_to_stdout() {
+    // System program has no IDL -> not_found. Unreachable RPC -> error.
+    // Both trigger failure; we just verify stdout is empty (no successes)
+    let mut cmd = cargo_bin_cmd!("sonar");
+    cmd.arg("idl")
+        .arg("fetch")
+        .arg("11111111111111111111111111111111")
+        .arg("--rpc-url")
+        .arg("http://127.0.0.1:1")
+        .arg("-o")
+        .arg(std::env::temp_dir());
+
+    let assert = cmd.assert().failure();
+    let output = assert.get_output();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    // No successful fetches -> stdout empty
+    assert!(stdout.trim().is_empty(), "stdout should be empty when all fail, got: {stdout}");
+}
+
+#[test]
 fn config_without_subcommand_prints_config_help() {
     let mut cmd = cargo_bin_cmd!("sonar");
     cmd.arg("config");
@@ -158,4 +382,25 @@ fn config_without_subcommand_prints_config_help() {
     assert!(stdout.contains("list"), "expected list subcommand help, got: {stdout}");
     assert!(stdout.contains("get"), "expected get subcommand help, got: {stdout}");
     assert!(stdout.contains("set"), "expected set subcommand help, got: {stdout}");
+}
+
+#[test]
+fn cnofig_alias_is_rejected() {
+    let mut cmd = cargo_bin_cmd!("sonar");
+    cmd.arg("cnofig").arg("list");
+
+    let assert = cmd.assert().failure();
+    let output = assert.get_output();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(stdout.trim().is_empty(), "expected no stdout when alias is rejected, got: {stdout}");
+    assert!(
+        stderr.contains("cnofig"),
+        "expected error mentioning removed alias cnofig, got: {stderr}"
+    );
+    assert!(
+        stderr.contains("unrecognized subcommand"),
+        "expected clap unknown subcommand error, got: {stderr}"
+    );
 }

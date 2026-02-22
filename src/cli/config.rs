@@ -54,14 +54,9 @@ mod tests {
     }
 
     #[test]
-    fn parses_config_list_with_compat_alias() {
-        let cli = Cli::try_parse_from(["sonar", "cnofig", "list"]).unwrap();
-        match cli.command {
-            Some(Commands::Config(args)) => {
-                assert!(matches!(args.command, super::ConfigSubcommands::List));
-            }
-            _ => panic!("expected config command"),
-        }
+    fn rejects_removed_cnofig_alias() {
+        let parse_result = Cli::try_parse_from(["sonar", "cnofig", "list"]);
+        assert!(parse_result.is_err(), "expected removed alias `cnofig` to be rejected");
     }
 
     #[test]

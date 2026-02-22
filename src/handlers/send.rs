@@ -21,7 +21,7 @@ pub(crate) fn handle(args: SendArgs) -> Result<()> {
         .context("Failed to send transaction")?;
 
     let signature_text = signature.to_string();
-    let explorer_url = build_explorer_url(&signature_text);
+    let explorer_url = build_explorer_url(&signature_text, &args.rpc.rpc_url);
     let wait_info = if args.wait {
         let wait_commitment = args.wait_commitment.unwrap_or(WaitCommitmentArg::Confirmed);
         let wait_timeout = Duration::from_secs(args.wait_timeout_secs.unwrap_or(30));
@@ -31,29 +31,51 @@ pub(crate) fn handle(args: SendArgs) -> Result<()> {
     };
 
     let output = render_send_output(&signature_text, &explorer_url, wait_info.as_deref());
-    println!("{}", output.stdout);
-    if let Some(stderr) = output.stderr {
-        eprintln!("{stderr}");
-    }
+    println!("{}", output);
 
     Ok(())
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct SendOutput {
-    stdout: String,
-    stderr: Option<String>,
+/// Inferred network cluster from RPC URL. Mainnet uses no query param.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum ExplorerCluster {
+    Mainnet,
+    Devnet,
+    Testnet,
 }
 
-fn build_explorer_url(signature: &str) -> String {
-    format!("https://explorer.solana.com/tx/{signature}")
-}
-
-fn render_send_output(signature: &str, explorer_url: &str, wait_info: Option<&str>) -> SendOutput {
-    SendOutput {
-        stdout: format!("{signature}\n{explorer_url}"),
-        stderr: wait_info.map(ToOwned::to_owned),
+fn infer_cluster_from_rpc_url(rpc_url: &str) -> ExplorerCluster {
+    let lower = rpc_url.to_lowercase();
+    // Match host patterns: api.devnet.solana.com, rpc.ankr.com/solana_devnet, etc.
+    if lower.contains("devnet") {
+        ExplorerCluster::Devnet
+    } else if lower.contains("testnet") {
+        ExplorerCluster::Testnet
+    } else {
+        ExplorerCluster::Mainnet
     }
+}
+
+fn build_explorer_url(signature: &str, rpc_url: &str) -> String {
+    let cluster = infer_cluster_from_rpc_url(rpc_url);
+    match cluster {
+        ExplorerCluster::Mainnet => format!("https://explorer.solana.com/tx/{signature}"),
+        ExplorerCluster::Devnet => {
+            format!("https://explorer.solana.com/tx/{signature}?cluster=devnet")
+        }
+        ExplorerCluster::Testnet => {
+            format!("https://explorer.solana.com/tx/{signature}?cluster=testnet")
+        }
+    }
+}
+
+fn render_send_output(signature: &str, explorer_url: &str, wait_info: Option<&str>) -> String {
+    let mut out = format!("{signature}\n{explorer_url}");
+    if let Some(info) = wait_info {
+        out.push('\n');
+        out.push_str(info);
+    }
+    out
 }
 
 fn wait_for_confirmation(
@@ -133,17 +155,76 @@ fn status_commitment_label(status: &TransactionStatus) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use super::{build_explorer_url, render_send_output};
+    use super::{
+        ExplorerCluster, build_explorer_url, infer_cluster_from_rpc_url, render_send_output,
+    };
 
     #[test]
-    fn build_explorer_url_returns_solana_explorer_tx_link() {
+    fn build_explorer_url_mainnet_no_cluster_param() {
         let signature = "4sGjMW1sUnHzSxGspuhpqLDx6wiyjNtZ";
-        let explorer_url = build_explorer_url(signature);
+        let explorer_url = build_explorer_url(signature, "https://api.mainnet-beta.solana.com");
         assert_eq!(explorer_url, "https://explorer.solana.com/tx/4sGjMW1sUnHzSxGspuhpqLDx6wiyjNtZ");
     }
 
     #[test]
-    fn render_send_output_default_mode_keeps_stderr_empty() {
+    fn build_explorer_url_devnet_adds_cluster_param() {
+        let signature = "4sGjMW1sUnHzSxGspuhpqLDx6wiyjNtZ";
+        let explorer_url = build_explorer_url(signature, "https://api.devnet.solana.com");
+        assert_eq!(
+            explorer_url,
+            "https://explorer.solana.com/tx/4sGjMW1sUnHzSxGspuhpqLDx6wiyjNtZ?cluster=devnet"
+        );
+    }
+
+    #[test]
+    fn build_explorer_url_testnet_adds_cluster_param() {
+        let signature = "4sGjMW1sUnHzSxGspuhpqLDx6wiyjNtZ";
+        let explorer_url = build_explorer_url(signature, "https://api.testnet.solana.com");
+        assert_eq!(
+            explorer_url,
+            "https://explorer.solana.com/tx/4sGjMW1sUnHzSxGspuhpqLDx6wiyjNtZ?cluster=testnet"
+        );
+    }
+
+    #[test]
+    fn build_explorer_url_unrecognized_defaults_to_mainnet() {
+        let signature = "4sGjMW1sUnHzSxGspuhpqLDx6wiyjNtZ";
+        let explorer_url =
+            build_explorer_url(signature, "https://my-custom-rpc.example.com/v1/abc123");
+        assert_eq!(explorer_url, "https://explorer.solana.com/tx/4sGjMW1sUnHzSxGspuhpqLDx6wiyjNtZ");
+    }
+
+    #[test]
+    fn infer_cluster_devnet() {
+        assert_eq!(
+            infer_cluster_from_rpc_url("https://api.devnet.solana.com"),
+            ExplorerCluster::Devnet
+        );
+        assert_eq!(
+            infer_cluster_from_rpc_url("https://rpc.ankr.com/solana_devnet"),
+            ExplorerCluster::Devnet
+        );
+    }
+
+    #[test]
+    fn infer_cluster_testnet() {
+        assert_eq!(
+            infer_cluster_from_rpc_url("https://api.testnet.solana.com"),
+            ExplorerCluster::Testnet
+        );
+    }
+
+    #[test]
+    fn infer_cluster_mainnet() {
+        assert_eq!(
+            infer_cluster_from_rpc_url("https://api.mainnet-beta.solana.com"),
+            ExplorerCluster::Mainnet
+        );
+        assert_eq!(infer_cluster_from_rpc_url("https://example.com/rpc"), ExplorerCluster::Mainnet);
+    }
+
+    #[test]
+    fn render_send_output_default_mode_stdout_only() {
         let rendered = render_send_output(
             "4sGjMW1sUnHzSxGspuhpqLDx6wiyjNtZ",
             "https://explorer.solana.com/tx/4sGjMW1sUnHzSxGspuhpqLDx6wiyjNtZ",
@@ -151,14 +232,13 @@ mod tests {
         );
 
         assert_eq!(
-            rendered.stdout,
+            rendered,
             "4sGjMW1sUnHzSxGspuhpqLDx6wiyjNtZ\nhttps://explorer.solana.com/tx/4sGjMW1sUnHzSxGspuhpqLDx6wiyjNtZ"
         );
-        assert_eq!(rendered.stderr, None);
     }
 
     #[test]
-    fn render_send_output_wait_mode_puts_confirmation_into_stderr() {
+    fn render_send_output_wait_mode_appends_confirmation_to_stdout() {
         let rendered = render_send_output(
             "4sGjMW1sUnHzSxGspuhpqLDx6wiyjNtZ",
             "https://explorer.solana.com/tx/4sGjMW1sUnHzSxGspuhpqLDx6wiyjNtZ",
@@ -166,12 +246,8 @@ mod tests {
         );
 
         assert_eq!(
-            rendered.stdout,
-            "4sGjMW1sUnHzSxGspuhpqLDx6wiyjNtZ\nhttps://explorer.solana.com/tx/4sGjMW1sUnHzSxGspuhpqLDx6wiyjNtZ"
-        );
-        assert_eq!(
-            rendered.stderr,
-            Some("Transaction confirmed at finalized commitment.".to_string())
+            rendered,
+            "4sGjMW1sUnHzSxGspuhpqLDx6wiyjNtZ\nhttps://explorer.solana.com/tx/4sGjMW1sUnHzSxGspuhpqLDx6wiyjNtZ\nTransaction confirmed at finalized commitment."
         );
     }
 }

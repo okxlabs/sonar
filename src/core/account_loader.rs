@@ -38,7 +38,7 @@ pub struct AccountLoader {
     progress: Option<Progress>,
     /// Optional local directory to load account JSON files from.
     local_dir: Option<PathBuf>,
-    /// When true, never fetch from RPC; error if account not found locally.
+    /// When true, never fetch from RPC; missing accounts are treated as non-existent.
     offline: bool,
 }
 
@@ -351,17 +351,15 @@ impl AccountLoader {
             return Ok(());
         }
 
-        // Layer 3: Offline mode — skip RPC, treat missing accounts as non-existent
-        // (just like RPC returning null). This is correct because:
-        // - Native programs/sysvars are built into LiteSVM, no need to load them
-        // - Accounts not found are treated as non-existent (same as on-chain behavior)
+        // Layer 3: Offline mode — never fetch from RPC.
+        // Native programs/sysvars are built into LiteSVM and need not be loaded from disk.
+        // Missing non-native accounts are treated as non-existent and simulation continues.
         if self.offline {
-            // Warn about non-native missing accounts so the user knows their dump may be incomplete
             let non_native_missing: Vec<_> =
                 to_fetch.iter().filter(|k| !is_native_or_sysvar(k)).collect();
             if !non_native_missing.is_empty() {
                 eprintln!(
-                    "Warning: offline mode — {} account(s) not found in local directory: [{}]",
+                    "Warning: offline mode: {} account(s) not found in --load-accounts directory (treated as non-existent): [{}]",
                     non_native_missing.len(),
                     non_native_missing.iter().map(|k| k.to_string()).collect::<Vec<_>>().join(", ")
                 );

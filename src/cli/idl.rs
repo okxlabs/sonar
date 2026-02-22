@@ -33,6 +33,9 @@ pub struct IdlFetchArgs {
     /// Output directory for IDL files
     #[arg(short = 'o', long = "output-dir", value_name = "DIR")]
     pub output_dir: Option<PathBuf>,
+    /// Exit 0 even when some IDLs are not found or fail (default: strict, exit non-zero on any failure)
+    #[arg(long = "allow-partial")]
+    pub allow_partial: bool,
 }
 
 #[derive(Args, Debug)]
@@ -45,6 +48,9 @@ pub struct IdlSyncArgs {
     /// Output directory for IDL files
     #[arg(short = 'o', long = "output-dir", value_name = "DIR")]
     pub output_dir: Option<PathBuf>,
+    /// Exit 0 even when some IDLs are not found or fail (default: strict, exit non-zero on any failure)
+    #[arg(long = "allow-partial")]
+    pub allow_partial: bool,
 }
 
 #[derive(Args, Debug)]
@@ -134,13 +140,9 @@ mod tests {
 
     #[test]
     fn parses_idl_address() {
-        let cli = Cli::try_parse_from([
-            "sonar",
-            "idl",
-            "address",
-            "11111111111111111111111111111111",
-        ])
-        .unwrap();
+        let cli =
+            Cli::try_parse_from(["sonar", "idl", "address", "11111111111111111111111111111111"])
+                .unwrap();
         match cli.command {
             Some(Commands::Idl(args)) => match args.command {
                 super::IdlSubcommands::Address(addr) => {
@@ -154,12 +156,8 @@ mod tests {
 
     #[test]
     fn rejects_removed_fetch_idl_command() {
-        let err = Cli::try_parse_from([
-            "sonar",
-            "fetch-idl",
-            "11111111111111111111111111111111",
-        ])
-        .unwrap_err();
+        let err = Cli::try_parse_from(["sonar", "fetch-idl", "11111111111111111111111111111111"])
+            .unwrap_err();
         assert!(err.to_string().contains("unrecognized subcommand 'fetch-idl'"));
     }
 }

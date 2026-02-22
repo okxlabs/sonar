@@ -12,7 +12,7 @@ A CLI tool for local Solana transaction simulation (LiteSVM) plus common develop
 - Replace program/account data with local files
 - Fund SOL or token accounts before simulation
 - Patch account data; override timestamp and slot
-- Dump/load accounts for offline replay
+- Dump/load accounts for offline replay (with `--offline`, RPC fallback is disabled and missing accounts are treated as non-existent)
 - Decode-only mode via `decode`
 - Supports ALT and text/JSON output
 
@@ -58,8 +58,11 @@ cargo build --release
 
 ### Output Stream Convention
 
-- Primary command results are written to `stdout`.
-- Warnings, prompts, and errors are written to `stderr`.
+- **stdout**: Machine-consumable primary results (stable fields, success output, confirmation messages).
+  - `send`: signature, cluster-aware explorer URL (inferred from `--rpc-url`), and `--wait` confirmation (when used).
+  - `program-elf -o <file>`: success message (bytes written, path).
+  - Other commands: main structured output.
+- **stderr**: Warnings, diagnostics, and errors only.
 
 ### Simulate
 
@@ -78,7 +81,7 @@ sonar simulate 2gTzNX3zLNhhmJaY44LycEgF8UMadrKeDLHz8rgcQVbXWVU4bs8fLBzWKhvAqKBeo
 # Bundle simulation (multiple transactions)
 sonar simulate <TX1> <TX2> <TX3> --rpc-url https://api.mainnet-beta.solana.com
 
-# Read transaction from file via stdin
+# Read transaction from stdin (omit TX to read from pipe)
 cat ./transaction.txt | sonar simulate --rpc-url <RPC_URL>
 
 # Show balance changes and instruction details
@@ -135,7 +138,7 @@ sonar simulate <TX> --rpc-url <RPC_URL> \
 
 # State Preparation: dump/load accounts for offline simulation
 sonar simulate <TX> --rpc-url <RPC_URL> --dump-accounts ./accounts/
-sonar simulate <TX> --load-accounts ./accounts/ --offline
+sonar simulate <TX> --load-accounts ./accounts/ --offline  # no RPC fallback; missing accounts are treated as non-existent
 
 # Simulation Controls: override clock timestamp and slot (Unix or RFC3339)
 sonar simulate <TX> --rpc-url <RPC_URL> \
@@ -163,6 +166,13 @@ Decode and display a raw transaction without simulation:
 ```bash
 sonar decode <TX> --rpc-url https://api.mainnet-beta.solana.com
 sonar decode <TX> --rpc-url <RPC_URL> --json
+
+# Bundle decode (multiple TXs): --json outputs a single JSON array [{...}, {...}]
+# Parseable by jq: sonar decode <TX1> <TX2> --json --rpc-url <RPC_URL> | jq .
+sonar decode <TX1> <TX2> --rpc-url <RPC_URL> --json
+
+# Read transaction from stdin (omit TX to read from pipe)
+cat ./transaction.txt | sonar decode --rpc-url <RPC_URL>
 
 # Always print raw instruction data, even when parser succeeds
 sonar decode <TX> --rpc-url <RPC_URL> --raw-ix-data
@@ -261,7 +271,7 @@ sonar program-elf <BUFFER_ADDRESS> --rpc-url <RPC_URL> -o buffer.so
 
 ### IDL
 
-Manage Anchor IDLs (fetch/sync/address):
+Manage Anchor IDLs (fetch/sync/address). By default, `idl fetch` and `idl sync` exit with a non-zero code if any program fails (not found or RPC error). stdout contains only successfully written file paths; failure details and a summary go to stderr. Use `--allow-partial` to exit 0 even when some programs fail.
 
 ```bash
 # Fetch one IDL
@@ -269,6 +279,9 @@ sonar idl fetch <PROGRAM_ID> --rpc-url <RPC_URL>
 
 # Fetch multiple IDLs
 sonar idl fetch <PROGRAM_ID_1> <PROGRAM_ID_2> --rpc-url <RPC_URL> -o ./idls/
+
+# Allow partial success (exit 0 when some fail)
+sonar idl fetch <PROGRAM_ID_1> <PROGRAM_ID_2> --rpc-url <RPC_URL> --allow-partial
 
 # Sync using an existing IDL directory (scan `<PUBKEY>.json` names)
 sonar idl sync ./idls/ --rpc-url <RPC_URL>
@@ -282,10 +295,13 @@ sonar idl address <PROGRAM_ID>
 
 ### Send
 
-Send a signed transaction to the network:
+Send a signed transaction to the network. Outputs the transaction signature and an explorer URL. The explorer URL infers the cluster from `--rpc-url` (devnet/testnet get `?cluster=devnet` or `?cluster=testnet`; mainnet and unrecognized RPCs use the default mainnet view):
 
 ```bash
 sonar send <SIGNED_TX> --rpc-url <RPC_URL>
+
+# Devnet / testnet: explorer link includes cluster param
+sonar send <SIGNED_TX> --rpc-url https://api.devnet.solana.com
 
 # Skip preflight checks
 sonar send <SIGNED_TX> --rpc-url <RPC_URL> --skip-preflight
@@ -321,9 +337,8 @@ sonar config get show_ix_detail
 # Set one config value
 sonar config set show_ix_detail=true
 
-# Compatible forms
+# Alternative assignment form
 sonar config set show_ix_detail true
-sonar cnofig list
 ```
 
 ## Configuration

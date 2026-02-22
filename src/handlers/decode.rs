@@ -126,17 +126,21 @@ fn handle_bundle(
         }
     }
 
-    let total = parsed_txs.len();
     progress.finish();
-    for (i, parsed_tx) in parsed_txs.iter().enumerate() {
-        output::render_transaction_only(
-            parsed_tx,
-            &resolved_accounts,
-            parser_registry,
-            json,
-            ix_data,
-            Some((i + 1, total)),
-        )?;
+
+    if json {
+        output::render_decode_bundle_json(&parsed_txs, &resolved_accounts, parser_registry)?;
+    } else {
+        for (i, parsed_tx) in parsed_txs.iter().enumerate() {
+            output::render_transaction_only(
+                parsed_tx,
+                &resolved_accounts,
+                parser_registry,
+                false,
+                ix_data,
+                Some((i + 1, parsed_txs.len())),
+            )?;
+        }
     }
 
     Ok(())

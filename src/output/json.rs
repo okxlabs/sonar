@@ -13,3 +13,10 @@ pub(super) fn render_bundle_json(bundle: &BundleReport) -> Result<()> {
     println!("{json}");
     Ok(())
 }
+
+/// Render a slice of serializable values as a single JSON array.
+pub(super) fn render_json_array<T: serde::Serialize>(items: &[T]) -> Result<()> {
+    let json = serde_json::to_string_pretty(items)?;
+    println!("{json}");
+    Ok(())
+}

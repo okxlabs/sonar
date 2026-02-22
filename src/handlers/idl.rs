@@ -20,13 +20,13 @@ pub(crate) fn handle(args: IdlArgs) -> Result<()> {
 fn handle_fetch(args: IdlFetchArgs) -> Result<()> {
     let program_ids = parse_program_ids(&args.programs)?;
     let output_dir = resolve_output_dir(args.output_dir, None);
-    fetch_and_write_idls(program_ids, args.rpc.rpc_url, output_dir)
+    fetch_and_write_idls(program_ids, args.rpc.rpc_url, output_dir, args.allow_partial)
 }
 
 fn handle_sync(args: IdlSyncArgs) -> Result<()> {
     let (program_ids, default_output_dir) = collect_program_ids_from_sync_path(&args.path)?;
     let output_dir = resolve_output_dir(args.output_dir, default_output_dir.as_deref());
-    fetch_and_write_idls(program_ids, args.rpc.rpc_url, output_dir)
+    fetch_and_write_idls(program_ids, args.rpc.rpc_url, output_dir, args.allow_partial)
 }
 
 fn handle_address(args: IdlAddressArgs) -> Result<()> {
@@ -41,8 +41,7 @@ fn parse_program_ids(raw_programs: &[String]) -> Result<Vec<Pubkey>> {
     let program_ids = raw_programs
         .iter()
         .map(|s| {
-            Pubkey::from_str(s.trim())
-                .with_context(|| format!("Invalid program ID: {}", s.trim()))
+            Pubkey::from_str(s.trim()).with_context(|| format!("Invalid program ID: {}", s.trim()))
         })
         .collect::<Result<Vec<_>>>()?;
     if program_ids.is_empty() {
@@ -55,6 +54,7 @@ fn fetch_and_write_idls(
     program_ids: Vec<Pubkey>,
     rpc_url: String,
     output_dir: PathBuf,
+    allow_partial: bool,
 ) -> Result<()> {
     fs::create_dir_all(&output_dir)
         .with_context(|| format!("Failed to create output directory: {}", output_dir.display()))?;
@@ -64,6 +64,7 @@ fn fetch_and_write_idls(
     let results = loader.fetch_idls(&program_ids);
     progress.finish();
 
+    let mut fetched = 0usize;
     let mut not_found = Vec::new();
     let mut errors = Vec::new();
 
@@ -80,6 +81,7 @@ fn fetch_and_write_idls(
                 fs::write(&path, &formatted)
                     .with_context(|| format!("Failed to write IDL file: {}", path.display()))?;
                 println!("{}", path.display());
+                fetched += 1;
             }
             Ok(None) => not_found.push(program_id),
             Err(e) => errors.push((program_id, e)),
@@ -91,6 +93,25 @@ fn fetch_and_write_idls(
     }
     for (id, e) in &errors {
         eprintln!("error {}: {:#}", id, e);
+    }
+
+    let has_failures = !not_found.is_empty() || !errors.is_empty();
+    if has_failures {
+        eprintln!(
+            "Summary: {} fetched, {} not found, {} error(s)",
+            fetched,
+            not_found.len(),
+            errors.len()
+        );
+
+        if !allow_partial {
+            return Err(anyhow::anyhow!(
+                "IDL fetch/sync had failures ({} fetched, {} not found, {} error). Use --allow-partial to exit 0 when some programs fail.",
+                fetched,
+                not_found.len(),
+                errors.len()
+            ));
+        }
     }
 
     Ok(())
@@ -135,10 +156,7 @@ fn collect_program_ids_from_sync_path(path: &Path) -> Result<(Vec<Pubkey>, Optio
         return Ok((vec![program_id], output_dir));
     }
 
-    Err(anyhow::anyhow!(
-        "Sync path does not exist or is not readable: {}",
-        path.display()
-    ))
+    Err(anyhow::anyhow!("Sync path does not exist or is not readable: {}", path.display()))
 }
 
 /// Scans a directory for existing IDL files and extracts program IDs from filenames.
@@ -146,8 +164,8 @@ fn collect_program_ids_from_sync_path(path: &Path) -> Result<(Vec<Pubkey>, Optio
 fn scan_idl_directory(dir: &Path) -> Result<Vec<Pubkey>> {
     let mut program_ids = Vec::new();
 
-    let entries =
-        fs::read_dir(dir).with_context(|| format!("Failed to read directory: {}", dir.display()))?;
+    let entries = fs::read_dir(dir)
+        .with_context(|| format!("Failed to read directory: {}", dir.display()))?;
 
     for entry in entries {
         let entry = entry?;
@@ -163,17 +181,14 @@ fn scan_idl_directory(dir: &Path) -> Result<Vec<Pubkey>> {
     }
 
     if program_ids.is_empty() {
-        return Err(anyhow::anyhow!(
-            "No valid IDL files found in directory: {}",
-            dir.display()
-        ));
+        return Err(anyhow::anyhow!("No valid IDL files found in directory: {}", dir.display()));
     }
 
     Ok(program_ids)
 }
 
 fn parse_program_id_from_idl_file(path: &Path) -> Result<Pubkey> {
-    if !path.extension().is_some_and(|ext| ext == "json") {
+    if path.extension().is_none_or(|ext| ext != "json") {
         return Err(anyhow::anyhow!(
             "Sync file must be a .json file named <PUBKEY>.json: {}",
             path.display()
@@ -184,10 +199,7 @@ fn parse_program_id_from_idl_file(path: &Path) -> Result<Pubkey> {
         .and_then(|s| s.to_str())
         .ok_or_else(|| anyhow::anyhow!("Invalid sync file name: {}", path.display()))?;
     Pubkey::from_str(stem).with_context(|| {
-        format!(
-            "Sync file name must be <PUBKEY>.json, got invalid pubkey stem: {}",
-            stem
-        )
+        format!("Sync file name must be <PUBKEY>.json, got invalid pubkey stem: {}", stem)
     })
 }
 
@@ -257,4 +269,3 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 }
-

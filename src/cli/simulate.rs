@@ -71,7 +71,7 @@ pub struct SimulateArgs {
     /// Missing accounts fall back to RPC unless --offline is set
     #[arg(long = "load-accounts", help_heading = HELP_HEADING_STATE_PREPARATION, value_name = "DIR")]
     pub load_accounts: Option<PathBuf>,
-    /// Disable RPC fallback; error if any account is missing from --load-accounts directory
+    /// Disable RPC fallback; missing accounts from --load-accounts are treated as non-existent
     #[arg(long = "offline", help_heading = HELP_HEADING_STATE_PREPARATION, requires = "load_accounts")]
     pub offline: bool,
     /// Override the Clock sysvar's unix_timestamp for simulation.
@@ -126,8 +126,9 @@ pub struct SimulateArgs {
 #[derive(Args, Debug, Clone)]
 pub struct TransactionInputArgs {
     /// Raw transaction (Base58/Base64) or transaction signature.
-    /// Pass multiple values for bundle mode
-    #[arg(value_name = "TX", required = true)]
+    /// Omit to read from stdin (when stdin is not a TTY).
+    /// Pass multiple values for bundle mode.
+    #[arg(value_name = "TX", required = false)]
     pub tx: Vec<String>,
     /// Output as JSON instead of human-readable text
     #[arg(long, default_value_t = false)]
@@ -805,6 +806,40 @@ mod tests {
         };
 
         assert_eq!(args.transaction.tx.len(), 1);
+    }
+
+    #[test]
+    fn simulate_parses_with_omitted_tx_for_stdin() {
+        let cli = Cli::try_parse_from([
+            "sonar",
+            "simulate",
+            "--rpc-url",
+            "https://api.mainnet-beta.solana.com",
+        ])
+        .expect("should parse with omitted TX for stdin");
+
+        let Some(Commands::Simulate(args)) = cli.command else {
+            panic!("expected simulate subcommand");
+        };
+
+        assert!(args.transaction.tx.is_empty());
+    }
+
+    #[test]
+    fn decode_parses_with_omitted_tx_for_stdin() {
+        let cli = Cli::try_parse_from([
+            "sonar",
+            "decode",
+            "--rpc-url",
+            "https://api.mainnet-beta.solana.com",
+        ])
+        .expect("should parse with omitted TX for stdin");
+
+        let Some(Commands::Decode(args)) = cli.command else {
+            panic!("expected decode subcommand");
+        };
+
+        assert!(args.transaction.tx.is_empty());
     }
 
     #[test]

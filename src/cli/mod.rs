@@ -94,7 +94,7 @@ pub enum Commands {
     #[command(next_line_help = true)]
     Completions(CompletionsArgs),
     /// View or modify sonar configuration file
-    #[command(alias = "cnofig", next_line_help = true)]
+    #[command(next_line_help = true)]
     Config(ConfigArgs),
 }
 

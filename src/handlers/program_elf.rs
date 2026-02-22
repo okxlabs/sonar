@@ -77,7 +77,7 @@ pub(crate) fn handle(args: ProgramDataArgs) -> Result<()> {
             std::fs::write(&output_path, &elf_data).with_context(|| {
                 format!("Failed to write program data to {}", output_path.display())
             })?;
-            eprintln!("Wrote {} bytes to {}", elf_data.len(), output_path.display());
+            println!("Wrote {} bytes to {}", elf_data.len(), output_path.display());
             Ok(())
         }
     } else {
