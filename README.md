@@ -23,7 +23,7 @@ A CLI tool for local Solana transaction simulation (LiteSVM) plus common develop
 - **pda**: derive program addresses from seeds
 - **program-elf**: extract ELF from Program/ProgramData/Buffer accounts
 - **send**: submit signed transactions
-- **fetch-idl**: fetch Anchor IDL from chain
+- **idl**: fetch/sync Anchor IDLs and derive IDL account address
 - **completions**: generate shell completions
 - **config**: list/get/set local sonar config values
 
@@ -50,7 +50,7 @@ cargo build --release
 | `decode` | You only need transaction structure (instructions/accounts) without execution |
 | `account` | You want decoded account metadata/data for a pubkey |
 | `program-elf` | You need raw ELF bytes from upgradeable program/buffer accounts |
-| `fetch-idl` | You want to download and persist Anchor IDLs locally |
+| `idl` | You want to fetch/sync Anchor IDLs or derive an IDL account address |
 | `send` | You want to submit a signed transaction to the network |
 | `convert` | You want explicit and deterministic format conversion |
 | `pda` | You want to derive a PDA from seeds |
@@ -259,18 +259,25 @@ sonar program-elf <PROGRAM_DATA_ADDRESS> --rpc-url <RPC_URL> -o program.so
 sonar program-elf <BUFFER_ADDRESS> --rpc-url <RPC_URL> -o buffer.so
 ```
 
-### Fetch IDL
+### IDL
 
-Fetch Anchor IDL from on-chain program accounts:
+Manage Anchor IDLs (fetch/sync/address):
 
 ```bash
-sonar fetch-idl <PROGRAM_ID> --rpc-url <RPC_URL>
+# Fetch one IDL
+sonar idl fetch <PROGRAM_ID> --rpc-url <RPC_URL>
 
 # Fetch multiple IDLs
-sonar fetch-idl <PROGRAM_ID_1> <PROGRAM_ID_2> --rpc-url <RPC_URL> --output-dir ./idls/
+sonar idl fetch <PROGRAM_ID_1> <PROGRAM_ID_2> --rpc-url <RPC_URL> -o ./idls/
 
-# Sync existing IDL directory
-sonar fetch-idl --sync-dir ./idls/ --rpc-url <RPC_URL>
+# Sync using an existing IDL directory (scan `<PUBKEY>.json` names)
+sonar idl sync ./idls/ --rpc-url <RPC_URL>
+
+# Sync one IDL by filename
+sonar idl sync ./idls/<PROGRAM_ID>.json --rpc-url <RPC_URL>
+
+# Derive Anchor IDL account address for a program
+sonar idl address <PROGRAM_ID>
 ```
 
 ### Send

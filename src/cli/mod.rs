@@ -4,7 +4,7 @@ mod account;
 mod config;
 mod convert;
 mod decode;
-mod fetch_idl;
+mod idl;
 mod pda;
 mod program_elf;
 mod send;
@@ -15,7 +15,7 @@ pub use account::*;
 pub use config::*;
 pub use convert::*;
 pub use decode::*;
-pub use fetch_idl::*;
+pub use idl::*;
 pub use pda::*;
 pub use program_elf::*;
 pub use send::*;
@@ -72,9 +72,9 @@ pub enum Commands {
     /// Decode and display a raw transaction without simulation
     #[command(alias = "dec", next_line_help = true)]
     Decode(DecodeArgs),
-    /// Fetch Anchor IDL from on-chain program accounts
+    /// Manage Anchor IDLs (fetch, sync, address)
     #[command(next_line_help = true)]
-    FetchIdl(FetchIdlArgs),
+    Idl(IdlArgs),
     /// Fetch and decode a Solana account (`account`, alias: `acc`)
     #[command(name = "account", alias = "acc", next_line_help = true)]
     Account(AccountArgs),

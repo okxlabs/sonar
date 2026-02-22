@@ -89,7 +89,7 @@ fn run() -> Result<()> {
     match command {
         Commands::Simulate(args) => handlers::simulate::handle(args)?,
         Commands::Decode(args) => handlers::decode::handle(args)?,
-        Commands::FetchIdl(args) => handlers::fetch_idl::handle(args)?,
+        Commands::Idl(args) => handlers::idl::handle(args)?,
         Commands::Account(args) => handlers::account::handle(args)?,
         Commands::Convert(args) => handlers::convert::handle(args)?,
         Commands::Pda(args) => handlers::pda::handle(args)?,

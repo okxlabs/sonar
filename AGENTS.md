@@ -36,7 +36,7 @@ cargo run -- convert hex text 0x48656c6c6f
 cargo run -- pda <PROGRAM_ID> string:hello pubkey:<PUBKEY>
 cargo run -- program-elf <PROGRAM_ID> --rpc-url <RPC_URL>
 cargo run -- send <SIGNED_TX> --rpc-url <RPC_URL>
-cargo run -- fetch-idl <PROGRAM_ID> --rpc-url <RPC_URL>
+cargo run -- idl fetch <PROGRAM_ID> --rpc-url <RPC_URL>
 cargo run -- completions zsh
 ```
 
