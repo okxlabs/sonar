@@ -15,8 +15,9 @@
 //! show_ix_detail = true
 //! ```
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
+use anyhow::{Context, Result};
 use serde::Deserialize;
 
 /// User configuration loaded from `~/.config/sonar/config.toml`.
@@ -44,10 +45,119 @@ pub struct SonarConfig {
     pub skip_preflight: Option<bool>,
 }
 
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum ConfigKey {
+    RpcUrl,
+    IdlDir,
+    NoIdlFetch,
+    Color,
+    ShowBalanceChange,
+    ShowIxDetail,
+    RawLog,
+    RawIxData,
+    VerifySignatures,
+    SkipPreflight,
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+enum ConfigValueKind {
+    Bool,
+    String,
+}
+
+const ALL_CONFIG_KEYS: [ConfigKey; 10] = [
+    ConfigKey::RpcUrl,
+    ConfigKey::IdlDir,
+    ConfigKey::NoIdlFetch,
+    ConfigKey::Color,
+    ConfigKey::ShowBalanceChange,
+    ConfigKey::ShowIxDetail,
+    ConfigKey::RawLog,
+    ConfigKey::RawIxData,
+    ConfigKey::VerifySignatures,
+    ConfigKey::SkipPreflight,
+];
+
+impl ConfigKey {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::RpcUrl => "rpc_url",
+            Self::IdlDir => "idl_dir",
+            Self::NoIdlFetch => "no_idl_fetch",
+            Self::Color => "color",
+            Self::ShowBalanceChange => "show_balance_change",
+            Self::ShowIxDetail => "show_ix_detail",
+            Self::RawLog => "raw_log",
+            Self::RawIxData => "raw_ix_data",
+            Self::VerifySignatures => "verify_signatures",
+            Self::SkipPreflight => "skip_preflight",
+        }
+    }
+
+    fn value_kind(self) -> ConfigValueKind {
+        match self {
+            Self::RpcUrl | Self::IdlDir | Self::Color => ConfigValueKind::String,
+            Self::NoIdlFetch
+            | Self::ShowBalanceChange
+            | Self::ShowIxDetail
+            | Self::RawLog
+            | Self::RawIxData
+            | Self::VerifySignatures
+            | Self::SkipPreflight => ConfigValueKind::Bool,
+        }
+    }
+}
+
+impl SonarConfig {
+    pub fn value_for_key(&self, key: ConfigKey) -> Option<String> {
+        match key {
+            ConfigKey::RpcUrl => self.rpc_url.clone(),
+            ConfigKey::IdlDir => self.idl_dir.clone(),
+            ConfigKey::NoIdlFetch => self.no_idl_fetch.map(|v| v.to_string()),
+            ConfigKey::Color => self.color.clone(),
+            ConfigKey::ShowBalanceChange => self.show_balance_change.map(|v| v.to_string()),
+            ConfigKey::ShowIxDetail => self.show_ix_detail.map(|v| v.to_string()),
+            ConfigKey::RawLog => self.raw_log.map(|v| v.to_string()),
+            ConfigKey::RawIxData => self.raw_ix_data.map(|v| v.to_string()),
+            ConfigKey::VerifySignatures => self.verify_signatures.map(|v| v.to_string()),
+            ConfigKey::SkipPreflight => self.skip_preflight.map(|v| v.to_string()),
+        }
+    }
+}
+
+pub fn all_config_keys() -> &'static [ConfigKey] {
+    &ALL_CONFIG_KEYS
+}
+
+pub fn supported_config_key_names() -> Vec<&'static str> {
+    all_config_keys().iter().map(|k| k.as_str()).collect()
+}
+
+pub fn parse_config_key(key: &str) -> Option<ConfigKey> {
+    match key {
+        "rpc_url" => Some(ConfigKey::RpcUrl),
+        "idl_dir" => Some(ConfigKey::IdlDir),
+        "no_idl_fetch" => Some(ConfigKey::NoIdlFetch),
+        "color" => Some(ConfigKey::Color),
+        "show_balance_change" => Some(ConfigKey::ShowBalanceChange),
+        "show_ix_detail" => Some(ConfigKey::ShowIxDetail),
+        "raw_log" => Some(ConfigKey::RawLog),
+        "raw_ix_data" => Some(ConfigKey::RawIxData),
+        "verify_signatures" => Some(ConfigKey::VerifySignatures),
+        "skip_preflight" => Some(ConfigKey::SkipPreflight),
+        _ => None,
+    }
+}
+
 /// Returns the default config file path: `$HOME/.config/sonar/config.toml`.
 fn default_config_path() -> Option<PathBuf> {
     let home = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).ok()?;
     Some(PathBuf::from(home).join(".config").join("sonar").join("config.toml"))
+}
+
+/// Returns the default config file path as a fallible API.
+pub fn config_path() -> Result<PathBuf> {
+    default_config_path().context("Unable to determine home directory for config file path")
 }
 
 /// Expand a leading `~` to the user's home directory.
@@ -89,6 +199,66 @@ pub fn load_config() -> SonarConfig {
             SonarConfig::default()
         }
     }
+}
+
+fn parse_value_for_key(key: ConfigKey, raw_value: &str) -> Result<(toml::Value, String)> {
+    match key.value_kind() {
+        ConfigValueKind::Bool => {
+            let normalized = raw_value.trim().to_ascii_lowercase();
+            let parsed = normalized.parse::<bool>().with_context(|| {
+                format!("Invalid boolean value for '{}': expected true or false", key.as_str())
+            })?;
+            Ok((toml::Value::Boolean(parsed), parsed.to_string()))
+        }
+        ConfigValueKind::String => {
+            if key == ConfigKey::Color {
+                let normalized = raw_value.trim().to_ascii_lowercase();
+                if !matches!(normalized.as_str(), "auto" | "always" | "never") {
+                    anyhow::bail!("Invalid value for 'color': expected one of auto, always, never");
+                }
+                return Ok((toml::Value::String(normalized.clone()), normalized));
+            }
+            Ok((toml::Value::String(raw_value.to_string()), raw_value.to_string()))
+        }
+    }
+}
+
+fn load_config_table(path: &Path) -> Result<toml::Table> {
+    if !path.exists() {
+        return Ok(toml::Table::new());
+    }
+
+    let contents = std::fs::read_to_string(path)
+        .with_context(|| format!("Failed to read config file {}", path.display()))?;
+    if contents.trim().is_empty() {
+        return Ok(toml::Table::new());
+    }
+
+    toml::from_str::<toml::Table>(&contents)
+        .with_context(|| format!("Failed to parse config file {}", path.display()))
+}
+
+fn upsert_config_value_at_path(path: &Path, key: ConfigKey, value: toml::Value) -> Result<()> {
+    let mut table = load_config_table(path)?;
+    table.insert(key.as_str().to_string(), value);
+
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("Failed to create config directory {}", parent.display()))?;
+    }
+
+    let serialized = toml::to_string_pretty(&table)
+        .with_context(|| format!("Failed to serialize config file {}", path.display()))?;
+    std::fs::write(path, serialized)
+        .with_context(|| format!("Failed to write config file {}", path.display()))?;
+    Ok(())
+}
+
+pub fn set_config_key_value(key: ConfigKey, raw_value: &str) -> Result<String> {
+    let path = config_path()?;
+    let (value, normalized) = parse_value_for_key(key, raw_value)?;
+    upsert_config_value_at_path(&path, key, value)?;
+    Ok(normalized)
 }
 
 /// Apply config values to environment variables.
@@ -153,6 +323,7 @@ pub fn load_and_apply() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
     fn expand_tilde_expands_home() {
@@ -242,5 +413,69 @@ mod tests {
         assert!(config.raw_ix_data.is_none());
         assert!(config.verify_signatures.is_none());
         assert!(config.skip_preflight.is_none());
+    }
+
+    #[test]
+    fn parse_config_key_recognizes_known_key() {
+        let key = parse_config_key("show_ix_detail");
+        assert_eq!(key, Some(ConfigKey::ShowIxDetail));
+    }
+
+    #[test]
+    fn parse_value_for_bool_key_rejects_invalid_value() {
+        let err = parse_value_for_key(ConfigKey::ShowIxDetail, "yes").unwrap_err();
+        assert!(err.to_string().contains("expected true or false"));
+    }
+
+    #[test]
+    fn parse_value_for_color_enforces_supported_values() {
+        let err = parse_value_for_key(ConfigKey::Color, "rainbow").unwrap_err();
+        assert!(err.to_string().contains("expected one of auto, always, never"));
+    }
+
+    #[test]
+    fn upsert_config_value_writes_toml_file() {
+        let path = unique_temp_path("write");
+        upsert_config_value_at_path(&path, ConfigKey::ShowIxDetail, toml::Value::Boolean(true))
+            .unwrap();
+
+        let contents = std::fs::read_to_string(&path).unwrap();
+        let table: toml::Table = toml::from_str(&contents).unwrap();
+        assert_eq!(table.get("show_ix_detail"), Some(&toml::Value::Boolean(true)));
+
+        cleanup_temp_path(&path);
+    }
+
+    #[test]
+    fn upsert_config_value_fails_when_existing_toml_is_invalid() {
+        let path = unique_temp_path("invalid");
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).unwrap();
+        }
+        std::fs::write(&path, "this is not valid toml = [").unwrap();
+
+        let err =
+            upsert_config_value_at_path(&path, ConfigKey::ShowIxDetail, toml::Value::Boolean(true))
+                .unwrap_err();
+        assert!(err.to_string().contains("Failed to parse config file"));
+
+        cleanup_temp_path(&path);
+    }
+
+    fn unique_temp_path(suffix: &str) -> PathBuf {
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        std::env::temp_dir().join(format!(
+            "sonar-config-tests-{}-{}-{suffix}/config.toml",
+            std::process::id(),
+            now
+        ))
+    }
+
+    fn cleanup_temp_path(path: &Path) {
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::remove_dir_all(parent);
+        } else {
+            let _ = std::fs::remove_file(path);
+        }
     }
 }

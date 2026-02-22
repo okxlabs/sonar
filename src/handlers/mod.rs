@@ -1,5 +1,6 @@
 pub(crate) mod account;
 pub(crate) mod completions;
+pub(crate) mod config;
 pub(crate) mod convert;
 pub(crate) mod decode;
 pub(crate) mod fetch_idl;

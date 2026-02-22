@@ -46,8 +46,11 @@ fn run() -> Result<()> {
     let cli = match Cli::try_parse() {
         Ok(cli) => cli,
         Err(err) => {
-            if matches!(err.kind(), clap::error::ErrorKind::MissingRequiredArgument)
-                && is_bare_subcommand()
+            if matches!(
+                err.kind(),
+                clap::error::ErrorKind::MissingRequiredArgument
+                    | clap::error::ErrorKind::MissingSubcommand
+            ) && is_bare_subcommand()
             {
                 // User typed just the subcommand name with no further arguments;
                 // print subcommand help instead of the clap error.
@@ -92,6 +95,7 @@ fn run() -> Result<()> {
         Commands::Pda(args) => handlers::pda::handle(args)?,
         Commands::ProgramData(args) => handlers::program_elf::handle(args)?,
         Commands::Send(args) => handlers::send::handle(args)?,
+        Commands::Config(args) => handlers::config::handle(args)?,
         Commands::Completions(args) => {
             handlers::completions::handle(args);
             return Ok(());

@@ -139,3 +139,23 @@ fn convert_keypair_rejects_non_64_byte_input() {
         "expected keypair length error in stderr, got: {stderr}"
     );
 }
+
+#[test]
+fn config_without_subcommand_prints_config_help() {
+    let mut cmd = cargo_bin_cmd!("sonar");
+    cmd.arg("config");
+
+    let assert = cmd.assert().failure();
+    let output = assert.get_output();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        stderr.trim().is_empty(),
+        "expected no stderr for config subcommand help, got: {stderr}"
+    );
+    assert!(stdout.contains("Usage:"), "expected usage help, got: {stdout}");
+    assert!(stdout.contains("list"), "expected list subcommand help, got: {stdout}");
+    assert!(stdout.contains("get"), "expected get subcommand help, got: {stdout}");
+    assert!(stdout.contains("set"), "expected set subcommand help, got: {stdout}");
+}

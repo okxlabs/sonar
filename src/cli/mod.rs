@@ -1,6 +1,7 @@
 //! CLI argument parsing and validation.
 
 mod account;
+mod config;
 mod convert;
 mod decode;
 mod fetch_idl;
@@ -11,6 +12,7 @@ mod simulate;
 
 // Re-export all public types from submodules
 pub use account::*;
+pub use config::*;
 pub use convert::*;
 pub use decode::*;
 pub use fetch_idl::*;
@@ -90,6 +92,9 @@ pub enum Commands {
     /// Generate shell completion scripts
     #[command(next_line_help = true)]
     Completions(CompletionsArgs),
+    /// View or modify sonar configuration file
+    #[command(alias = "cnofig", next_line_help = true)]
+    Config(ConfigArgs),
 }
 
 #[derive(Args, Debug)]

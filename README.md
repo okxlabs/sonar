@@ -25,6 +25,7 @@ A CLI tool for local Solana transaction simulation (LiteSVM) plus common develop
 - **send**: submit signed transactions
 - **fetch-idl**: fetch Anchor IDL from chain
 - **completions**: generate shell completions
+- **config**: list/get/set local sonar config values
 
 ## Installation
 
@@ -53,6 +54,7 @@ cargo build --release
 | `send` | You want to submit a signed transaction to the network |
 | `convert` | You want explicit and deterministic format conversion |
 | `pda` | You want to derive a PDA from seeds |
+| `config` | You want to inspect or update `~/.config/sonar/config.toml` |
 
 ### Output Stream Convention
 
@@ -296,6 +298,25 @@ Generate shell completion scripts:
 sonar completions bash > ~/.local/share/bash-completion/completions/sonar
 sonar completions zsh > ~/.zsh/completions/_sonar
 sonar completions fish > ~/.config/fish/completions/sonar.fish
+```
+
+### Config
+
+View or modify `~/.config/sonar/config.toml`:
+
+```bash
+# List all supported config items
+sonar config list
+
+# Get one config value
+sonar config get show_ix_detail
+
+# Set one config value
+sonar config set show_ix_detail=true
+
+# Compatible forms
+sonar config set show_ix_detail true
+sonar cnofig list
 ```
 
 ## Configuration
