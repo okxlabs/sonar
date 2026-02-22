@@ -7,7 +7,7 @@ CLI for local Solana transaction simulation (LiteSVM) plus utility subcommands.
 - `src/main.rs`: command entry and dispatch
 - `src/cli/`: argument definitions for each subcommand
 - `src/handlers/`: subcommand execution logic
-- Core simulation flow (`src/core/`): `transaction.rs`, `account_loader.rs`, `executor.rs`, `funding.rs`, `balance_changes.rs`
+- Core simulation flow (`src/core/`): `transaction.rs`, `account_loader.rs`, `executor.rs`, `funding.rs`, `balance_changes.rs`, `cache.rs`
 - Output presentation: `src/output/`
 - Parsing and Decoders (`src/parsers/`): `instruction/`, `log_parser.rs`, `metaplex_metadata_decoder.rs`, `token_account_decoder.rs`
 - Utilities (`src/utils/`): `native_ids.rs`, `config.rs`, `progress.rs`
@@ -30,6 +30,8 @@ cargo test --test e2e_simulation -- --ignored --nocapture
 
 # Run
 cargo run -- simulate <TX> --rpc-url <RPC_URL>
+cargo run -- simulate <TX> --rpc-url <RPC_URL> --cache
+cargo run -- simulate <TX> --cache
 cargo run -- decode <TX> --rpc-url <RPC_URL>
 cargo run -- account <PUBKEY> --rpc-url <RPC_URL>
 cargo run -- convert hex text 0x48656c6c6f
@@ -37,6 +39,9 @@ cargo run -- pda <PROGRAM_ID> string:hello pubkey:<PUBKEY>
 cargo run -- program-elf <PROGRAM_ID> --rpc-url <RPC_URL>
 cargo run -- send <SIGNED_TX> --rpc-url <RPC_URL>
 cargo run -- idl fetch <PROGRAM_ID> --rpc-url <RPC_URL>
+cargo run -- cache list
+cargo run -- cache clean --older-than 7d
+cargo run -- cache info <KEY>
 cargo run -- completions zsh
 ```
 

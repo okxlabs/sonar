@@ -1,4 +1,5 @@
 pub(crate) mod account;
+pub(crate) mod cache;
 pub(crate) mod completions;
 pub(crate) mod config;
 pub(crate) mod convert;

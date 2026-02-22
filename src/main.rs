@@ -91,6 +91,7 @@ fn run() -> Result<()> {
         Commands::Decode(args) => handlers::decode::handle(args)?,
         Commands::Idl(args) => handlers::idl::handle(args)?,
         Commands::Account(args) => handlers::account::handle(args)?,
+        Commands::Cache(args) => handlers::cache::handle(args)?,
         Commands::Convert(args) => handlers::convert::handle(args)?,
         Commands::Pda(args) => handlers::pda::handle(args)?,
         Commands::ProgramData(args) => handlers::program_elf::handle(args)?,

@@ -36,7 +36,7 @@ pub(crate) fn handle(args: DecodeArgs) -> Result<()> {
     let parsed_tx = transaction::parse_transaction_input(&raw_input, &rpc_url, Some(&progress))?;
 
     let account_loader =
-        account_loader::AccountLoader::new(rpc_url, None, false, Some(progress.clone()))?;
+        account_loader::AccountLoader::new(rpc_url, None, None, false, Some(progress.clone()))?;
     let resolved_accounts = account_loader.load_for_transaction(&parsed_tx.transaction, &[])?;
 
     let program_ids = collect_program_ids(&resolved_accounts);
@@ -97,6 +97,7 @@ fn handle_bundle(
 
     let account_loader = account_loader::AccountLoader::new(
         rpc_url.to_string(),
+        None,
         None,
         false,
         Some(progress.clone()),

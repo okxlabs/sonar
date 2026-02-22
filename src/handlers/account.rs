@@ -110,7 +110,8 @@ fn decode_account_output(
     let owner = account.owner;
     let idl_json = try_load_idl_from_dir(&args.idl_dir, &owner).or_else(|| {
         let loader =
-            account_loader::AccountLoader::new(args.rpc.rpc_url.clone(), None, false, None).ok()?;
+            account_loader::AccountLoader::new(args.rpc.rpc_url.clone(), None, None, false, None)
+                .ok()?;
         loader.fetch_idl(&owner).ok().flatten()
     });
 

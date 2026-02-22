@@ -147,7 +147,7 @@ pub fn fetch_transaction_from_rpc(
 ) -> Result<String> {
     use crate::core::account_loader::AccountLoader;
 
-    let loader = AccountLoader::new(rpc_url.to_string(), None, false, progress.cloned())?;
+    let loader = AccountLoader::new(rpc_url.to_string(), None, None, false, progress.cloned())?;
     let tx = loader.fetch_transaction_by_signature(signature)?;
 
     let serialized = bincode::serialize(&tx).context("Failed to serialize transaction")?;

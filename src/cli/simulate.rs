@@ -64,16 +64,16 @@ pub struct SimulateArgs {
         value_parser = clap::builder::NonEmptyStringValueParser::new()
     )]
     pub data_patches: Vec<String>,
-    /// Save fetched account data to a directory as <PUBKEY>.json before applying patches
-    #[arg(long = "dump-accounts", help_heading = HELP_HEADING_STATE_PREPARATION, value_name = "DIR")]
-    pub dump_accounts: Option<PathBuf>,
-    /// Load account data from a local directory (<PUBKEY>.json).
-    /// Missing accounts fall back to RPC unless --offline is set
-    #[arg(long = "load-accounts", help_heading = HELP_HEADING_STATE_PREPARATION, value_name = "DIR")]
-    pub load_accounts: Option<PathBuf>,
-    /// Disable RPC fallback; missing accounts from --load-accounts are treated as non-existent
-    #[arg(long = "offline", help_heading = HELP_HEADING_STATE_PREPARATION, requires = "load_accounts")]
-    pub offline: bool,
+    /// Enable account caching: load from cache on repeat runs, save to cache on first run.
+    /// Cache is stored per-transaction under ~/.sonar/cache/<KEY>/
+    #[arg(long, help_heading = HELP_HEADING_STATE_PREPARATION, env = "SONAR_CACHE")]
+    pub cache: bool,
+    /// Override the cache root directory (default: ~/.sonar/cache)
+    #[arg(long, help_heading = HELP_HEADING_STATE_PREPARATION, value_name = "DIR", env = "SONAR_CACHE_DIR", requires = "cache")]
+    pub cache_dir: Option<PathBuf>,
+    /// Force re-fetch all accounts from RPC, overwriting existing cache
+    #[arg(long, help_heading = HELP_HEADING_STATE_PREPARATION, requires = "cache")]
+    pub refresh_cache: bool,
     /// Override the Clock sysvar's unix_timestamp for simulation.
     /// Supports Unix timestamp (e.g. 1700000000) or RFC3339 (e.g. 2024-01-01T00:00:00Z).
     #[arg(

@@ -60,7 +60,8 @@ fn fetch_and_write_idls(
         .with_context(|| format!("Failed to create output directory: {}", output_dir.display()))?;
 
     let progress = Progress::new();
-    let loader = account_loader::AccountLoader::new(rpc_url, None, false, Some(progress.clone()))?;
+    let loader =
+        account_loader::AccountLoader::new(rpc_url, None, None, false, Some(progress.clone()))?;
     let results = loader.fetch_idls(&program_ids);
     progress.finish();
 

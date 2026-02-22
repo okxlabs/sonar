@@ -386,7 +386,7 @@ fn is_native_owner(account: &Account) -> bool {
 /// Writes the original RPC-loaded account data (before --replace / --patch-account-data).
 /// Each account is written to `<pubkey>.json`. Native/system programs and
 /// native-owned executable marker accounts are skipped.
-pub fn dump_accounts_to_dir(
+pub(crate) fn dump_accounts_to_dir(
     resolved: &ResolvedAccounts,
     required_accounts: &[Pubkey],
     dir: &Path,
@@ -482,8 +482,8 @@ fn write_dump_account(pubkey: &Pubkey, account: &Account, path: &Path) -> Result
         },
     };
 
-    let json =
-        serde_json::to_string_pretty(&dump).with_context(|| format!("Failed to serialize account {pubkey}"))?;
+    let json = serde_json::to_string_pretty(&dump)
+        .with_context(|| format!("Failed to serialize account {pubkey}"))?;
     std::fs::write(path, json)
         .with_context(|| format!("Failed to write account file: {}", path.display()))?;
     Ok(())
@@ -492,13 +492,13 @@ fn write_dump_account(pubkey: &Pubkey, account: &Account, path: &Path) -> Result
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
     use solana_hash::Hash;
     use solana_keypair::Keypair;
     use solana_message::Message;
     use solana_signer::Signer;
     use solana_system_interface::instruction as system_instruction;
     use solana_transaction::Transaction;
+    use std::path::PathBuf;
 
     fn create_transfer_transaction(
         payer: &Keypair,
@@ -585,13 +585,14 @@ mod tests {
             }],
         };
 
-        dump_accounts_to_dir(&resolved, &[lookup_table_key], &temp_dir).expect("dump should succeed");
+        dump_accounts_to_dir(&resolved, &[lookup_table_key], &temp_dir)
+            .expect("dump should succeed");
 
         let placeholder_path = temp_dir.join(format!("{missing_lookup_account}.json"));
         assert!(placeholder_path.exists(), "missing lookup placeholder should be written");
 
-        let parsed =
-            crate::cli::parse_account_json(&PathBuf::from(&placeholder_path)).expect("valid placeholder json");
+        let parsed = crate::cli::parse_account_json(&PathBuf::from(&placeholder_path))
+            .expect("valid placeholder json");
         assert_eq!(parsed.lamports, 0);
         assert!(parsed.data.is_empty());
         assert_eq!(parsed.owner, solana_sdk_ids::system_program::id());

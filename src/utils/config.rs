@@ -13,6 +13,8 @@
 //! color = "auto"
 //! show_balance_change = true
 //! show_ix_detail = true
+//! cache = true
+//! cache_dir = "~/.sonar/cache"
 //! ```
 
 use std::path::{Path, PathBuf};
@@ -43,6 +45,10 @@ pub struct SonarConfig {
     pub verify_signatures: Option<bool>,
     /// Default for `--skip-preflight`. Maps to `SONAR_SKIP_PREFLIGHT` env var.
     pub skip_preflight: Option<bool>,
+    /// Default for `--cache`. Maps to `SONAR_CACHE` env var.
+    pub cache: Option<bool>,
+    /// Default cache directory. Maps to `SONAR_CACHE_DIR` env var.
+    pub cache_dir: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -57,6 +63,8 @@ pub enum ConfigKey {
     RawIxData,
     VerifySignatures,
     SkipPreflight,
+    Cache,
+    CacheDir,
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -65,7 +73,7 @@ enum ConfigValueKind {
     String,
 }
 
-const ALL_CONFIG_KEYS: [ConfigKey; 10] = [
+const ALL_CONFIG_KEYS: [ConfigKey; 12] = [
     ConfigKey::RpcUrl,
     ConfigKey::IdlDir,
     ConfigKey::NoIdlFetch,
@@ -76,6 +84,8 @@ const ALL_CONFIG_KEYS: [ConfigKey; 10] = [
     ConfigKey::RawIxData,
     ConfigKey::VerifySignatures,
     ConfigKey::SkipPreflight,
+    ConfigKey::Cache,
+    ConfigKey::CacheDir,
 ];
 
 impl ConfigKey {
@@ -91,19 +101,22 @@ impl ConfigKey {
             Self::RawIxData => "raw_ix_data",
             Self::VerifySignatures => "verify_signatures",
             Self::SkipPreflight => "skip_preflight",
+            Self::Cache => "cache",
+            Self::CacheDir => "cache_dir",
         }
     }
 
     fn value_kind(self) -> ConfigValueKind {
         match self {
-            Self::RpcUrl | Self::IdlDir | Self::Color => ConfigValueKind::String,
+            Self::RpcUrl | Self::IdlDir | Self::Color | Self::CacheDir => ConfigValueKind::String,
             Self::NoIdlFetch
             | Self::ShowBalanceChange
             | Self::ShowIxDetail
             | Self::RawLog
             | Self::RawIxData
             | Self::VerifySignatures
-            | Self::SkipPreflight => ConfigValueKind::Bool,
+            | Self::SkipPreflight
+            | Self::Cache => ConfigValueKind::Bool,
         }
     }
 }
@@ -121,6 +134,8 @@ impl SonarConfig {
             ConfigKey::RawIxData => self.raw_ix_data.map(|v| v.to_string()),
             ConfigKey::VerifySignatures => self.verify_signatures.map(|v| v.to_string()),
             ConfigKey::SkipPreflight => self.skip_preflight.map(|v| v.to_string()),
+            ConfigKey::Cache => self.cache.map(|v| v.to_string()),
+            ConfigKey::CacheDir => self.cache_dir.clone(),
         }
     }
 }
@@ -145,6 +160,8 @@ pub fn parse_config_key(key: &str) -> Option<ConfigKey> {
         "raw_ix_data" => Some(ConfigKey::RawIxData),
         "verify_signatures" => Some(ConfigKey::VerifySignatures),
         "skip_preflight" => Some(ConfigKey::SkipPreflight),
+        "cache" => Some(ConfigKey::Cache),
+        "cache_dir" => Some(ConfigKey::CacheDir),
         _ => None,
     }
 }
@@ -310,6 +327,14 @@ fn apply_config_to_env(config: &SonarConfig) {
     if let Some(value) = config.skip_preflight {
         set_bool_env("SONAR_SKIP_PREFLIGHT", value);
     }
+    if let Some(value) = config.cache {
+        set_bool_env("SONAR_CACHE", value);
+    }
+    if let Some(ref cache_dir) = config.cache_dir {
+        if std::env::var("SONAR_CACHE_DIR").is_err() {
+            std::env::set_var("SONAR_CACHE_DIR", expand_tilde(cache_dir));
+        }
+    }
 }
 
 /// Load configuration and inject values into the environment.
@@ -368,6 +393,8 @@ mod tests {
             raw_ix_data = true
             verify_signatures = false
             skip_preflight = true
+            cache = true
+            cache_dir = "~/.sonar/cache"
         "#;
         let config: SonarConfig = toml::from_str(toml_str).unwrap();
         assert_eq!(config.rpc_url.as_deref(), Some("https://example.com"));
@@ -380,6 +407,8 @@ mod tests {
         assert_eq!(config.raw_ix_data, Some(true));
         assert_eq!(config.verify_signatures, Some(false));
         assert_eq!(config.skip_preflight, Some(true));
+        assert_eq!(config.cache, Some(true));
+        assert_eq!(config.cache_dir.as_deref(), Some("~/.sonar/cache"));
     }
 
     #[test]
@@ -398,6 +427,8 @@ mod tests {
         assert!(config.raw_ix_data.is_none());
         assert!(config.verify_signatures.is_none());
         assert!(config.skip_preflight.is_none());
+        assert!(config.cache.is_none());
+        assert!(config.cache_dir.is_none());
     }
 
     #[test]
@@ -413,6 +444,8 @@ mod tests {
         assert!(config.raw_ix_data.is_none());
         assert!(config.verify_signatures.is_none());
         assert!(config.skip_preflight.is_none());
+        assert!(config.cache.is_none());
+        assert!(config.cache_dir.is_none());
     }
 
     #[test]

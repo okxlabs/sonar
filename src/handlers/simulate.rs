@@ -31,9 +31,9 @@ pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
         timestamp,
         slot,
         data_patches: data_patch_args,
-        dump_accounts,
-        load_accounts,
-        offline,
+        cache,
+        cache_dir,
+        refresh_cache,
         no_idl_fetch,
     } = args;
     let rpc_url = rpc.rpc_url;
@@ -89,9 +89,9 @@ pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
             sim_opts,
             &render_opts,
             &mut parser_registry,
-            dump_accounts,
-            load_accounts,
-            offline,
+            cache,
+            cache_dir,
+            refresh_cache,
             no_idl_fetch,
             &progress,
         );
@@ -103,9 +103,14 @@ pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
 
     let parsed_tx = transaction::parse_transaction_input(&raw_input, &rpc_url, Some(&progress))?;
 
+    let cache_key = crate::core::cache::derive_cache_key_single(&raw_input, &parsed_tx.transaction);
+    let (tx_cache_dir, offline) =
+        crate::core::cache::resolve_cache_state(cache, &cache_dir, refresh_cache, &cache_key);
+
     let account_loader = account_loader::AccountLoader::new(
-        rpc_url,
-        load_accounts,
+        rpc_url.clone(),
+        tx_cache_dir.clone(),
+        if offline { None } else { tx_cache_dir.clone() },
         offline,
         Some(progress.clone()),
     )?;
@@ -158,14 +163,27 @@ pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
         }
     }
 
-    // Dump original RPC account data before --replace / --patch-account-data
-    if let Some(ref dump_dir) = dump_accounts {
-        executor::dump_accounts_to_dir(
-            &resolved_accounts,
-            &parsed_tx.account_plan.static_accounts,
-            dump_dir,
-        )
-            .context("Failed to dump accounts")?;
+    if !offline {
+        if let Some(ref dir) = tx_cache_dir {
+            executor::dump_accounts_to_dir(
+                &resolved_accounts,
+                &parsed_tx.account_plan.static_accounts,
+                dir,
+            )
+            .context("Failed to write account cache")?;
+            crate::core::cache::write_meta_json(
+                dir,
+                &crate::core::cache::CacheMeta {
+                    created_at: chrono::Utc::now().to_rfc3339(),
+                    sonar_version: env!("CARGO_PKG_VERSION").to_string(),
+                    cache_type: "single".to_string(),
+                    inputs: vec![raw_input.clone()],
+                    rpc_url: rpc_url.clone(),
+                    account_count: resolved_accounts.accounts.len(),
+                },
+            )
+            .context("Failed to write cache metadata")?;
+        }
     }
 
     let sim_opts = executor::SimulationOptions {
@@ -213,26 +231,28 @@ fn handle_bundle(
     mut sim_opts: executor::SimulationOptions,
     render_opts: &output::RenderOptions,
     parser_registry: &mut ParserRegistry,
-    dump_accounts: Option<PathBuf>,
-    load_accounts: Option<PathBuf>,
-    offline: bool,
+    cache: bool,
+    cache_dir: Option<PathBuf>,
+    refresh_cache: bool,
     no_idl_fetch: bool,
     progress: &Progress,
 ) -> Result<()> {
     log::info!("Bundle simulation mode: {} transactions", tx_inputs.len());
 
-    // Parse all transactions
     let parsed_txs =
         transaction::parse_multi_raw_transactions(&tx_inputs, rpc_url, Some(progress))?;
     log::info!("Successfully parsed {} transactions", parsed_txs.len());
 
-    // Collect transaction references for account loading
+    let cache_key = crate::core::cache::derive_cache_key_bundle(&tx_inputs, &parsed_txs);
+    let (bundle_cache_dir, offline) =
+        crate::core::cache::resolve_cache_state(cache, &cache_dir, refresh_cache, &cache_key);
+
     let tx_refs: Vec<_> = parsed_txs.iter().map(|p| &p.transaction).collect();
 
-    // Load accounts for all transactions
     let account_loader = account_loader::AccountLoader::new(
         rpc_url.to_string(),
-        load_accounts,
+        bundle_cache_dir.clone(),
+        if offline { None } else { bundle_cache_dir.clone() },
         offline,
         Some(progress.clone()),
     )?;
@@ -285,15 +305,28 @@ fn handle_bundle(
         }
     }
 
-    // Dump original RPC account data before --replace / --patch-account-data
-    if let Some(ref dump_dir) = dump_accounts {
-        let required_accounts: std::collections::HashSet<_> = parsed_txs
-            .iter()
-            .flat_map(|tx| tx.account_plan.static_accounts.iter().copied())
-            .collect();
-        let required_accounts: Vec<_> = required_accounts.into_iter().collect();
-        executor::dump_accounts_to_dir(&resolved_accounts, &required_accounts, dump_dir)
-            .context("Failed to dump accounts")?;
+    if !offline {
+        if let Some(ref dir) = bundle_cache_dir {
+            let required_accounts: std::collections::HashSet<_> = parsed_txs
+                .iter()
+                .flat_map(|tx| tx.account_plan.static_accounts.iter().copied())
+                .collect();
+            let required_accounts: Vec<_> = required_accounts.into_iter().collect();
+            executor::dump_accounts_to_dir(&resolved_accounts, &required_accounts, dir)
+                .context("Failed to write account cache")?;
+            crate::core::cache::write_meta_json(
+                dir,
+                &crate::core::cache::CacheMeta {
+                    created_at: chrono::Utc::now().to_rfc3339(),
+                    sonar_version: env!("CARGO_PKG_VERSION").to_string(),
+                    cache_type: "bundle".to_string(),
+                    inputs: tx_inputs.clone(),
+                    rpc_url: rpc_url.to_string(),
+                    account_count: resolved_accounts.accounts.len(),
+                },
+            )
+            .context("Failed to write cache metadata")?;
+        }
     }
 
     // Execute bundle simulation

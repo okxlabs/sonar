@@ -1,6 +1,7 @@
 //! CLI argument parsing and validation.
 
 mod account;
+mod cache;
 mod config;
 mod convert;
 mod decode;
@@ -12,6 +13,7 @@ mod simulate;
 
 // Re-export all public types from submodules
 pub use account::*;
+pub use cache::*;
 pub use config::*;
 pub use convert::*;
 pub use decode::*;
@@ -78,6 +80,9 @@ pub enum Commands {
     /// Fetch and decode a Solana account (`account`, alias: `acc`)
     #[command(name = "account", alias = "acc", next_line_help = true)]
     Account(AccountArgs),
+    /// Manage account cache for offline simulation replay
+    #[command(next_line_help = true)]
+    Cache(CacheArgs),
     /// Convert data formats (int, hex, arrays, text, base64, base58, lamports, sol)
     #[command(alias = "conv", next_line_help = true)]
     Convert(ConvertArgs),

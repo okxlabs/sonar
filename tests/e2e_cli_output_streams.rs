@@ -262,21 +262,32 @@ fn decode_bundle_json_outputs_single_valid_json_array() {
 #[test]
 fn offline_missing_account_does_not_trigger_strict_offline_error() {
     use std::fs;
+    use std::io::Write;
 
-    // Create an empty directory so no accounts are available
     let temp = std::env::temp_dir().join(format!("sonar_offline_test_{}", std::process::id()));
     let _ = fs::remove_dir_all(&temp);
     fs::create_dir_all(&temp).expect("create temp dir");
 
-    // V0_RAW_TX references SPL Token and other non-native accounts.
-    // With --load-accounts pointing to empty dir and --offline, missing
-    // non-native accounts should emit warning (not strict offline error).
+    let cache_key = "9afd5d16ef71a846c79292a284ab625a";
+    let cache_dir = temp.join(cache_key);
+    fs::create_dir_all(&cache_dir).expect("create cache key dir");
+    let meta = serde_json::json!({
+        "created_at": "2026-02-22T10:00:00Z",
+        "sonar_version": "0.2.0",
+        "type": "single",
+        "inputs": ["GPdrKqMbYtzsysuEJhYG4bpUB9xQFpdQ8ps9s8XorbfD5SA5FrFfMAL2oznLNP9Ah4wXPe6Y9BVkAXM7Gw47whMxuK5TCKvpKtkyDEiuYfaRZCmv1mk5u16HvPzQqXGHzmf3iFUraHA2yEghbqaJsUW27PmXWvs2xPhK1WtFBvF4PNxtFBNa7sGwHZPmT88zk5pwpVnseAu48HhDvY6Nj7qjTzRAAFczubznScT4aT1m5CNyYjVwYjR5iqc7PrpTzyAxevb1Zk1ndXgHfwnQAhZfKfV712i5z352Jbf96WdQFGva3f22NGSVWtSFjp6agEBDTvWVUa3Db4WvArURczERDymqEEhX5EfMSZTUYenfgRXL2kgjWoXkuFaDyumgapdyqzQFixL4aJZCEDp6yfq7V5g2WYqwqNXHBsKbfpTfqKsqCV1niunXSZfGTTRgXjFWXuQNbtLrbd9TTJmUhsTMJuPzhohT89yX292vmUDGvHv3YqkJGynKcEGT6cPrB6ayWiBGybsJ2fUiax7QFPKT1hscSm5HDJPV3HmrC3DyHQAWq6hrPzGMeUcEBfSEtkvPFtNe9kpw4N9x2bJwuiGRgHbVmzDnRGMdXpu9KWigYb3uebLTFLUDeDq1CfD377AzdxBkBJQkdQ3peTjAz1kW3pEQQLiE57p16Wf8oUgxCveHpGr73RCoveDsjeF7puENGkM2aFkmKLBRvW3yJHL9mCP6ZkuScMy9VCWkh554yEs72DEZU25Upj7RAAhc7zG7iWyP6m2gZg6gGZ5hqjrCasQXUjJkaPT4LgBeLS9W5scn7QA51QMZi95DgAvD9mQeSFixnFofpqNDTNWVnisoQQ2eAEPVwKC1sfKjBdMgrMJKG1JjzDM7DWRzR7xPYSyjPfHXHx5aZJ8LdyYjYXjS6dViihtH3sNebZzqLdDzERDEe6bAFAkB5tGcRdqF1kcdPN3HNeRgeA7xvJg5r3kaDkAQQ9yjZV2stexZ1eDa4KiRwBY3MsgujEntBT992CrU4uAtHKkSXUbusXHMjbx9Dn57HD9GEdzAnDq53Gmmz7xU2qKZ3hKhLZg3ZtYVTeAysqUSfZTRPp87VjdyrG2Msk32ufPdQbAZ2x9FYbUCPpRvLMPsNhDe5D4fMt9X63bQTsk9VQNx39j5Mo6NkYvcKmKiz3pb5J19bHnnSKixEKa89typqcbNFunudMMmAAT3egyok3WRCqwC83EwNBWwrdm5zs1mRefEDu77arj7E"],
+        "rpc_url": "https://api.mainnet-beta.solana.com",
+        "account_count": 0
+    });
+    let mut f = fs::File::create(cache_dir.join("_meta.json")).expect("create _meta.json");
+    f.write_all(meta.to_string().as_bytes()).expect("write _meta.json");
+
     let mut cmd = cargo_bin_cmd!("sonar");
     cmd.arg("simulate")
         .arg("GPdrKqMbYtzsysuEJhYG4bpUB9xQFpdQ8ps9s8XorbfD5SA5FrFfMAL2oznLNP9Ah4wXPe6Y9BVkAXM7Gw47whMxuK5TCKvpKtkyDEiuYfaRZCmv1mk5u16HvPzQqXGHzmf3iFUraHA2yEghbqaJsUW27PmXWvs2xPhK1WtFBvF4PNxtFBNa7sGwHZPmT88zk5pwpVnseAu48HhDvY6Nj7qjTzRAAFczubznScT4aT1m5CNyYjVwYjR5iqc7PrpTzyAxevb1Zk1ndXgHfwnQAhZfKfV712i5z352Jbf96WdQFGva3f22NGSVWtSFjp6agEBDTvWVUa3Db4WvArURczERDymqEEhX5EfMSZTUYenfgRXL2kgjWoXkuFaDyumgapdyqzQFixL4aJZCEDp6yfq7V5g2WYqwqNXHBsKbfpTfqKsqCV1niunXSZfGTTRgXjFWXuQNbtLrbd9TTJmUhsTMJuPzhohT89yX292vmUDGvHv3YqkJGynKcEGT6cPrB6ayWiBGybsJ2fUiax7QFPKT1hscSm5HDJPV3HmrC3DyHQAWq6hrPzGMeUcEBfSEtkvPFtNe9kpw4N9x2bJwuiGRgHbVmzDnRGMdXpu9KWigYb3uebLTFLUDeDq1CfD377AzdxBkBJQkdQ3peTjAz1kW3pEQQLiE57p16Wf8oUgxCveHpGr73RCoveDsjeF7puENGkM2aFkmKLBRvW3yJHL9mCP6ZkuScMy9VCWkh554yEs72DEZU25Upj7RAAhc7zG7iWyP6m2gZg6gGZ5hqjrCasQXUjJkaPT4LgBeLS9W5scn7QA51QMZi95DgAvD9mQeSFixnFofpqNDTNWVnisoQQ2eAEPVwKC1sfKjBdMgrMJKG1JjzDM7DWRzR7xPYSyjPfHXHx5aZJ8LdyYjYXjS6dViihtH3sNebZzqLdDzERDEe6bAFAkB5tGcRdqF1kcdPN3HNeRgeA7xvJg5r3kaDkAQQ9yjZV2stexZ1eDa4KiRwBY3MsgujEntBT992CrU4uAtHKkSXUbusXHMjbx9Dn57HD9GEdzAnDq53Gmmz7xU2qKZ3hKhLZg3ZtYVTeAysqUSfZTRPp87VjdyrG2Msk32ufPdQbAZ2x9FYbUCPpRvLMPsNhDe5D4fMt9X63bQTsk9VQNx39j5Mo6NkYvcKmKiz3pb5J19bHnnSKixEKa89typqcbNFunudMMmAAT3egyok3WRCqwC83EwNBWwrdm5zs1mRefEDu77arj7E")
-        .arg("--load-accounts")
+        .arg("--cache")
+        .arg("--cache-dir")
         .arg(&temp)
-        .arg("--offline")
         .arg("--replace")
         .arg("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA=tests/fixtures/spl_token.so");
 

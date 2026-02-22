@@ -38,6 +38,8 @@ pub struct AccountLoader {
     progress: Option<Progress>,
     /// Optional local directory to load account JSON files from.
     local_dir: Option<PathBuf>,
+    #[allow(dead_code)]
+    cache_write_dir: Option<PathBuf>,
     /// When true, never fetch from RPC; missing accounts are treated as non-existent.
     offline: bool,
 }
@@ -46,22 +48,22 @@ impl AccountLoader {
     pub fn new(
         rpc_url: String,
         local_dir: Option<PathBuf>,
+        cache_write_dir: Option<PathBuf>,
         offline: bool,
         progress: Option<Progress>,
     ) -> Result<Self> {
-        // In offline mode, rpc_url may be empty
         if rpc_url.is_empty() && !offline {
             return Err(anyhow!(
-                "RPC URL cannot be empty (use --offline with --load-accounts for local-only mode)"
+                "RPC URL cannot be empty (use --cache for local-only mode when cache exists)"
             ));
         }
-        // Create RpcClient even in offline mode (placeholder URL, won't be called)
         let url = if rpc_url.is_empty() { "http://localhost:8899".to_string() } else { rpc_url };
         Ok(Self {
             client: Arc::new(RpcClient::new(url)),
             cache: Mutex::new(HashMap::new()),
             progress,
             local_dir,
+            cache_write_dir,
             offline,
         })
     }
@@ -359,7 +361,7 @@ impl AccountLoader {
                 to_fetch.iter().filter(|k| !is_native_or_sysvar(k)).collect();
             if !non_native_missing.is_empty() {
                 eprintln!(
-                    "Warning: offline mode: {} account(s) not found in --load-accounts directory (treated as non-existent): [{}]",
+                    "Warning: offline mode: {} account(s) not found in cache directory (treated as non-existent): [{}]",
                     non_native_missing.len(),
                     non_native_missing.iter().map(|k| k.to_string()).collect::<Vec<_>>().join(", ")
                 );

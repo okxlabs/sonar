@@ -12,7 +12,7 @@ A CLI tool for local Solana transaction simulation (LiteSVM) plus common develop
 - Replace program/account data with local files
 - Fund SOL or token accounts before simulation
 - Patch account data; override timestamp and slot
-- Dump/load accounts for offline replay (with `--offline`, RPC fallback is disabled and missing accounts are treated as non-existent)
+- Cache accounts for offline replay (`--cache` stores to `~/.sonar/cache/`; replay without RPC when cache is complete)
 - Decode-only mode via `decode`
 - Supports ALT and text/JSON output
 
@@ -26,6 +26,7 @@ A CLI tool for local Solana transaction simulation (LiteSVM) plus common develop
 - **idl**: fetch/sync Anchor IDLs and derive IDL account address
 - **completions**: generate shell completions
 - **config**: list/get/set local sonar config values
+- **cache**: list, clean, or inspect cached account data
 
 ## Installation
 
@@ -55,6 +56,7 @@ cargo build --release
 | `convert` | You want explicit and deterministic format conversion |
 | `pda` | You want to derive a PDA from seeds |
 | `config` | You want to inspect or update `~/.config/sonar/config.toml` |
+| `cache` | You want to list, clean, or inspect cached account data |
 
 ### Output Stream Convention
 
@@ -136,9 +138,12 @@ sonar simulate <TX> \
 sonar simulate <TX> --rpc-url <RPC_URL> \
   --patch-account-data <PUBKEY>=<OFFSET>:<HEX_DATA>
 
-# State Preparation: dump/load accounts for offline simulation
-sonar simulate <TX> --rpc-url <RPC_URL> --dump-accounts ./accounts/
-sonar simulate <TX> --load-accounts ./accounts/ --offline  # no RPC fallback; missing accounts are treated as non-existent
+# Cache: store accounts for offline replay
+sonar simulate <TX> --rpc-url <RPC_URL> --cache
+# Replay from cache (no network; uses ~/.sonar/cache/ when cache is complete)
+sonar simulate <TX> --cache
+# Force refresh cache
+sonar simulate <TX> --rpc-url <RPC_URL> --cache --refresh-cache
 
 # Simulation Controls: override clock timestamp and slot (Unix or RFC3339)
 sonar simulate <TX> --rpc-url <RPC_URL> \
@@ -339,6 +344,29 @@ sonar config set show_ix_detail=true
 
 # Alternative assignment form
 sonar config set show_ix_detail true
+```
+
+### Cache
+
+Manage cached account data for offline simulation:
+
+```bash
+# Cache accounts for offline replay (writes to ~/.sonar/cache/ by default)
+sonar simulate <TX> --rpc-url <RPC_URL> --cache
+
+# Replay from cache (no network access when cache is complete)
+sonar simulate <TX> --cache
+
+# Force refresh cache
+sonar simulate <TX> --rpc-url <RPC_URL> --cache --refresh-cache
+
+# Custom cache directory
+sonar simulate <TX> --rpc-url <RPC_URL> --cache --cache-dir /path/to/cache
+
+# Manage cache
+sonar cache list
+sonar cache clean --older-than 7d
+sonar cache info <KEY>
 ```
 
 ## Configuration

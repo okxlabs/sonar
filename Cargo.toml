@@ -48,7 +48,8 @@ spl-token-group-interface = "0.7.1"
 toml = "0.9.12"
 terminal_size = "0.4"
 unicode-width = "0.2.2"
-chrono = { version = "0.4.43", default-features = false, features = ["std"] }
+chrono = { version = "0.4.43", default-features = false, features = ["std", "clock"] }
 
 [dev-dependencies]
 assert_cmd = "2.0"
+serde_json = "1.0"
