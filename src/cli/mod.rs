@@ -28,6 +28,7 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 pub struct RpcArgs {
     /// Solana RPC node URL
     #[arg(
+        short = 'u',
         long = "rpc-url",
         env = "RPC_URL",
         default_value = "https://api.mainnet-beta.solana.com"

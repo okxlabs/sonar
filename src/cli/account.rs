@@ -71,6 +71,23 @@ mod tests {
     }
 
     #[test]
+    fn account_accepts_short_rpc_url_flag() {
+        let cli = Cli::try_parse_from([
+            "sonar",
+            "account",
+            "11111111111111111111111111111111",
+            "-u",
+            "http://localhost:8899",
+        ])
+        .expect("should parse -u for rpc-url");
+
+        let Some(Commands::Account(args)) = cli.command else {
+            panic!("expected account subcommand");
+        };
+        assert_eq!(args.rpc.rpc_url, "http://localhost:8899");
+    }
+
+    #[test]
     fn account_rejects_removed_json_flag() {
         let result = Cli::try_parse_from([
             "sonar",
