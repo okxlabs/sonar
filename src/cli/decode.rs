@@ -20,4 +20,7 @@ pub struct DecodeArgs {
     /// Directory containing Anchor IDL JSON files
     #[arg(long = "idl-dir", value_name = "DIR", env = "SONAR_IDL_DIR")]
     pub idl_dir: Option<PathBuf>,
+    /// Skip auto-fetching missing IDLs from chain
+    #[arg(long = "no-idl-fetch", env = "SONAR_NO_IDL_FETCH")]
+    pub no_idl_fetch: bool,
 }

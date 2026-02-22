@@ -9,6 +9,7 @@
 //! ```toml
 //! rpc_url = "https://my-custom-rpc.example.com"
 //! idl_dir = "~/.sonar/idls"
+//! no_idl_fetch = false
 //! color = "auto"
 //! show_balance_change = true
 //! show_ix_detail = true
@@ -25,6 +26,8 @@ pub struct SonarConfig {
     pub rpc_url: Option<String>,
     /// Default directory for Anchor IDL JSON files.  Maps to `SONAR_IDL_DIR` env var.
     pub idl_dir: Option<String>,
+    /// Default for `--no-idl-fetch`. Maps to `SONAR_NO_IDL_FETCH` env var.
+    pub no_idl_fetch: Option<bool>,
     /// Default color mode (`auto`, `always`, `never`).  Maps to `SONAR_COLOR` env var.
     pub color: Option<String>,
     /// Default for `--show-balance-change`. Maps to `SONAR_SHOW_BALANCE_CHANGE` env var.
@@ -111,6 +114,9 @@ fn apply_config_to_env(config: &SonarConfig) {
             std::env::set_var("SONAR_IDL_DIR", expand_tilde(idl_dir));
         }
     }
+    if let Some(value) = config.no_idl_fetch {
+        set_bool_env("SONAR_NO_IDL_FETCH", value);
+    }
     if let Some(ref color) = config.color {
         if std::env::var("SONAR_COLOR").is_err() {
             std::env::set_var("SONAR_COLOR", color);
@@ -183,6 +189,7 @@ mod tests {
         let toml_str = r#"
             rpc_url = "https://example.com"
             idl_dir = "~/.sonar/idls"
+            no_idl_fetch = true
             color = "never"
             show_balance_change = true
             show_ix_detail = true
@@ -194,6 +201,7 @@ mod tests {
         let config: SonarConfig = toml::from_str(toml_str).unwrap();
         assert_eq!(config.rpc_url.as_deref(), Some("https://example.com"));
         assert_eq!(config.idl_dir.as_deref(), Some("~/.sonar/idls"));
+        assert_eq!(config.no_idl_fetch, Some(true));
         assert_eq!(config.color.as_deref(), Some("never"));
         assert_eq!(config.show_balance_change, Some(true));
         assert_eq!(config.show_ix_detail, Some(true));
@@ -211,6 +219,7 @@ mod tests {
         let config: SonarConfig = toml::from_str(toml_str).unwrap();
         assert_eq!(config.rpc_url.as_deref(), Some("https://example.com"));
         assert!(config.idl_dir.is_none());
+        assert!(config.no_idl_fetch.is_none());
         assert!(config.color.is_none());
         assert!(config.show_balance_change.is_none());
         assert!(config.show_ix_detail.is_none());
@@ -225,6 +234,7 @@ mod tests {
         let config: SonarConfig = toml::from_str("").unwrap();
         assert!(config.rpc_url.is_none());
         assert!(config.idl_dir.is_none());
+        assert!(config.no_idl_fetch.is_none());
         assert!(config.color.is_none());
         assert!(config.show_balance_change.is_none());
         assert!(config.show_ix_detail.is_none());

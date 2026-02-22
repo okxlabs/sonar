@@ -7,10 +7,10 @@ use crate::parsers::instruction::ParserRegistry;
 use crate::utils::progress::Progress;
 use crate::{core::account_loader, core::executor, core::funding, core::transaction, output};
 
-use super::{collect_program_ids, warn_unmatched_addresses};
+use super::{auto_fetch_missing_idls, collect_program_ids, warn_unmatched_addresses};
 
 pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
-    // Only attempt IDL-based parsing when the user explicitly supplies a directory
+    // Initialize instruction parser registry (uses configured/default IDL directory).
     let idl_dir = args.idl_dir.clone();
     let mut parser_registry = ParserRegistry::new(idl_dir);
 
@@ -34,6 +34,7 @@ pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
         dump_accounts,
         load_accounts,
         offline,
+        no_idl_fetch,
     } = args;
     let rpc_url = rpc.rpc_url;
 
@@ -91,6 +92,7 @@ pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
             dump_accounts,
             load_accounts,
             offline,
+            no_idl_fetch,
             &progress,
         );
     }
@@ -134,6 +136,20 @@ pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
     if program_ids.is_empty() {
         log::error!("No executable accounts found after RPC load; skipping IDL parsing");
     } else {
+        if !no_idl_fetch && !offline {
+            match auto_fetch_missing_idls(
+                &account_loader,
+                &parser_registry,
+                &program_ids,
+                &resolved_accounts,
+                Some(&progress),
+            ) {
+                Ok(count) if count > 0 => log::info!("Auto-fetched {} missing IDLs", count),
+                Ok(_) => {}
+                Err(err) => log::warn!("Failed to auto-fetch missing IDLs: {:#}", err),
+            }
+        }
+
         // Load IDL parsers for all programs used in this transaction
         match parser_registry.load_idl_parsers_for_programs(program_ids) {
             Ok(count) if count > 0 => log::info!("Lazy-loaded {} IDL parsers", count),
@@ -196,6 +212,7 @@ fn handle_bundle(
     dump_accounts: Option<PathBuf>,
     load_accounts: Option<PathBuf>,
     offline: bool,
+    no_idl_fetch: bool,
     progress: &Progress,
 ) -> Result<()> {
     log::info!("Bundle simulation mode: {} transactions", tx_inputs.len());
@@ -243,6 +260,20 @@ fn handle_bundle(
     // Load IDL parsers for all programs
     let program_ids = collect_program_ids(&resolved_accounts);
     if !program_ids.is_empty() {
+        if !no_idl_fetch && !offline {
+            match auto_fetch_missing_idls(
+                &account_loader,
+                parser_registry,
+                &program_ids,
+                &resolved_accounts,
+                Some(progress),
+            ) {
+                Ok(count) if count > 0 => log::info!("Auto-fetched {} missing IDLs", count),
+                Ok(_) => {}
+                Err(err) => log::warn!("Failed to auto-fetch missing IDLs: {:#}", err),
+            }
+        }
+
         match parser_registry.load_idl_parsers_for_programs(program_ids) {
             Ok(count) if count > 0 => log::info!("Lazy-loaded {} IDL parsers", count),
             Ok(_) => {}

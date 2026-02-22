@@ -97,6 +97,13 @@ pub struct SimulateArgs {
         env = "SONAR_IDL_DIR"
     )]
     pub idl_dir: Option<PathBuf>,
+    /// Skip auto-fetching missing IDLs from chain
+    #[arg(
+        long = "no-idl-fetch",
+        help_heading = HELP_HEADING_SIMULATION_CONTROLS,
+        env = "SONAR_NO_IDL_FETCH"
+    )]
+    pub no_idl_fetch: bool,
     /// Always print raw instruction data, even when parser succeeds
     #[arg(long = "raw-ix-data", help_heading = HELP_HEADING_OUTPUT_DEBUG, env = "SONAR_RAW_IX_DATA")]
     pub ix_data: bool,

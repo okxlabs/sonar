@@ -4,7 +4,9 @@ use anyhow::{Context, Result};
 use serde::{Serialize, Serializer, ser::SerializeMap, ser::SerializeSeq};
 use serde_json::Number as JsonNumber;
 use solana_pubkey::Pubkey;
+use solana_sdk_ids::bpf_loader_upgradeable;
 
+use crate::core::account_loader::ResolvedAccounts;
 use crate::core::transaction::InstructionSummary;
 
 /// Represents a parsed instruction with human-readable data and account names
@@ -165,7 +167,10 @@ pub struct ParserRegistry {
 impl ParserRegistry {
     /// Creates a new parser registry with default parsers
     pub fn new(idl_directory: Option<std::path::PathBuf>) -> Self {
-        let mut registry = Self { parsers: HashMap::new(), idl_directory };
+        let mut registry = Self {
+            parsers: HashMap::new(),
+            idl_directory: idl_directory.or_else(default_idl_cache_dir),
+        };
 
         // Register default parsers
         let system_parser = SystemProgramParser::new();
@@ -200,6 +205,35 @@ impl ParserRegistry {
         registry
     }
 
+    /// Returns the configured IDL directory used for lazy loading.
+    pub fn idl_directory(&self) -> Option<&std::path::Path> {
+        self.idl_directory.as_deref()
+    }
+
+    /// Returns program IDs that can be fetched from chain for IDL auto-download.
+    pub fn find_fetchable_programs(
+        &self,
+        program_ids: &[Pubkey],
+        resolved_accounts: &ResolvedAccounts,
+    ) -> Vec<Pubkey> {
+        let Some(idl_dir) = self.idl_directory() else {
+            return Vec::new();
+        };
+
+        program_ids
+            .iter()
+            .filter(|program_id| {
+                !self.parsers.contains_key(program_id)
+                    && !idl_dir.join(format!("{}.json", program_id)).exists()
+                    && resolved_accounts
+                        .accounts
+                        .get(program_id)
+                        .is_some_and(|account| account.owner == bpf_loader_upgradeable::id())
+            })
+            .copied()
+            .collect()
+    }
+
     /// Attempts to parse an instruction using the parser registered for the given program ID
     /// Returns the parsed instruction if successful, None otherwise
     pub fn parse_instruction(
@@ -232,6 +266,11 @@ impl Default for ParserRegistry {
     fn default() -> Self {
         Self::new(None)
     }
+}
+
+fn default_idl_cache_dir() -> Option<std::path::PathBuf> {
+    let home = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).ok()?;
+    Some(std::path::PathBuf::from(home).join(".sonar").join("idls"))
 }
 
 impl ParserRegistry {
@@ -384,7 +423,12 @@ impl ParserRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::account_loader::ResolvedAccounts;
+    use solana_account::Account;
     use solana_pubkey::Pubkey;
+    use solana_sdk_ids::{bpf_loader_upgradeable, system_program};
+    use std::collections::HashMap;
+    use std::path::PathBuf;
 
     #[test]
     fn test_token2022_parser_registration() {
@@ -435,6 +479,77 @@ mod tests {
         let expected_id = Pubkey::from_str_const("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb");
 
         assert_eq!(*parser.program_id(), expected_id);
+    }
+
+    #[test]
+    fn test_default_idl_cache_dir_uses_home() {
+        let registry = ParserRegistry::new(None);
+        let expected = std::env::var("HOME")
+            .or_else(|_| std::env::var("USERPROFILE"))
+            .ok()
+            .map(|home| PathBuf::from(home).join(".sonar").join("idls"));
+        assert_eq!(registry.idl_directory(), expected.as_deref());
+    }
+
+    #[test]
+    fn test_find_fetchable_programs_only_returns_upgradeable_missing_idls() {
+        let test_dir = std::env::temp_dir().join(format!(
+            "sonar-idl-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock should be valid")
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&test_dir).expect("create temp idl dir");
+
+        let with_local_idl = Pubkey::new_unique();
+        let fetchable = Pubkey::new_unique();
+        let not_upgradeable = Pubkey::new_unique();
+        let existing_path = test_dir.join(format!("{}.json", with_local_idl));
+        std::fs::write(&existing_path, "{}").expect("create existing idl file");
+
+        let mut accounts = HashMap::new();
+        accounts.insert(
+            with_local_idl,
+            Account {
+                lamports: 0,
+                data: Vec::new(),
+                owner: bpf_loader_upgradeable::id(),
+                executable: true,
+                rent_epoch: 0,
+            },
+        );
+        accounts.insert(
+            fetchable,
+            Account {
+                lamports: 0,
+                data: Vec::new(),
+                owner: bpf_loader_upgradeable::id(),
+                executable: true,
+                rent_epoch: 0,
+            },
+        );
+        accounts.insert(
+            not_upgradeable,
+            Account {
+                lamports: 0,
+                data: Vec::new(),
+                owner: system_program::id(),
+                executable: true,
+                rent_epoch: 0,
+            },
+        );
+        let resolved_accounts = ResolvedAccounts { accounts, lookups: vec![] };
+
+        let registry = ParserRegistry::new(Some(test_dir.clone()));
+        let candidates = vec![with_local_idl, fetchable, not_upgradeable];
+
+        let fetchable_programs = registry.find_fetchable_programs(&candidates, &resolved_accounts);
+        assert_eq!(fetchable_programs, vec![fetchable]);
+
+        std::fs::remove_file(existing_path).ok();
+        std::fs::remove_dir_all(test_dir).ok();
     }
 }
 

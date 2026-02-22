@@ -8,7 +8,10 @@ pub(crate) mod program_elf;
 pub(crate) mod send;
 pub(crate) mod simulate;
 
+use crate::parsers::instruction::ParserRegistry;
+use crate::utils::progress::Progress;
 use crate::{cli, core::account_loader, core::transaction};
+use anyhow::{Context, Result};
 use solana_pubkey::Pubkey;
 
 /// Collects executable program IDs from resolved accounts for IDL loading.
@@ -30,6 +33,58 @@ pub(crate) fn collect_program_ids(
     }
 
     program_ids
+}
+
+/// Auto-fetch missing IDLs for fetchable upgradeable programs and persist them to local cache.
+pub(crate) fn auto_fetch_missing_idls(
+    account_loader: &account_loader::AccountLoader,
+    parser_registry: &ParserRegistry,
+    program_ids: &[Pubkey],
+    resolved_accounts: &account_loader::ResolvedAccounts,
+    progress: Option<&Progress>,
+) -> Result<usize> {
+    let missing = parser_registry.find_fetchable_programs(program_ids, resolved_accounts);
+    if missing.is_empty() {
+        return Ok(0);
+    }
+
+    let Some(idl_dir) = parser_registry.idl_directory() else {
+        return Ok(0);
+    };
+
+    std::fs::create_dir_all(idl_dir)
+        .with_context(|| format!("Failed to create IDL cache directory: {}", idl_dir.display()))?;
+
+    if let Some(progress) = progress {
+        progress.set_message(format!("Fetching missing IDLs... ({})", missing.len()));
+    }
+
+    let mut fetched = 0usize;
+    for (program_id, result) in account_loader.fetch_idls(&missing) {
+        match result {
+            Ok(Some(idl_json)) => {
+                let formatted = match serde_json::from_str::<serde_json::Value>(&idl_json) {
+                    Ok(value) => {
+                        serde_json::to_string_pretty(&value).unwrap_or_else(|_| idl_json.clone())
+                    }
+                    Err(_) => idl_json,
+                };
+                let idl_path = idl_dir.join(format!("{}.json", program_id));
+                std::fs::write(&idl_path, formatted).with_context(|| {
+                    format!("Failed to write auto-fetched IDL: {}", idl_path.display())
+                })?;
+                fetched += 1;
+            }
+            Ok(None) => {
+                log::debug!("No on-chain IDL found for program {}", program_id);
+            }
+            Err(err) => {
+                log::warn!("Failed to auto-fetch IDL for {}: {:#}", program_id, err);
+            }
+        }
+    }
+
+    Ok(fetched)
 }
 
 /// Builds a set of all account keys referenced by the parsed transactions and their

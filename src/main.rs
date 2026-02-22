@@ -46,10 +46,8 @@ fn run() -> Result<()> {
     let cli = match Cli::try_parse() {
         Ok(cli) => cli,
         Err(err) => {
-            if matches!(
-                err.kind(),
-                clap::error::ErrorKind::MissingRequiredArgument
-            ) && is_bare_subcommand()
+            if matches!(err.kind(), clap::error::ErrorKind::MissingRequiredArgument)
+                && is_bare_subcommand()
             {
                 // User typed just the subcommand name with no further arguments;
                 // print subcommand help instead of the clap error.

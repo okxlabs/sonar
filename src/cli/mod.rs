@@ -46,7 +46,12 @@ pub enum ColorMode {
 }
 
 #[derive(Parser, Debug)]
-#[command(name = "sonar", version, about = "Solana Developer Toolkit powered by LiteSVM", next_line_help = true)]
+#[command(
+    name = "sonar",
+    version,
+    about = "Solana Developer Toolkit powered by LiteSVM",
+    next_line_help = true
+)]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Option<Commands>,
