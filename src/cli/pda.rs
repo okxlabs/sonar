@@ -11,7 +11,7 @@ pub struct PdaArgs {
     pub program_id: String,
 
     /// Seeds in format: type:value (repeatable), e.g. string:hello pubkey:<PUBKEY>
-    /// Types: string, pubkey, u64, u8
+    /// Types: string (str), pubkey (pk), u64, u8
     #[arg(value_name = "SEED", num_args = 1.., required = true)]
     pub seeds: Vec<String>,
 }
@@ -39,7 +39,7 @@ impl FromStr for SeedType {
             "u64" => Ok(SeedType::U64),
             "u8" => Ok(SeedType::U8),
             _ => {
-                Err(format!("Unknown seed type: '{}'. Supported types: string, pubkey, u64, u8", s))
+                Err(format!("Unknown seed type: '{}'. Supported types: string (str), pubkey (pk), u64, u8", s))
             }
         }
     }

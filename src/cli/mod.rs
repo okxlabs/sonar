@@ -64,7 +64,7 @@ pub enum Commands {
     /// Fetch and decode a Solana account (`account`, alias: `acc`)
     #[command(name = "account", alias = "acc", next_line_help = true)]
     Account(AccountArgs),
-    /// Manage account cache for offline simulation replay
+    /// List, clean, or inspect cached account data for offline simulation
     #[command(next_line_help = true)]
     Cache(CacheArgs),
     /// Convert data formats (int, hex, arrays, text, base64, base58, lamports, sol)
@@ -82,7 +82,7 @@ pub enum Commands {
     /// Generate shell completion scripts
     #[command(next_line_help = true)]
     Completions(CompletionsArgs),
-    /// View or modify sonar configuration file
+    /// View or modify ~/.config/sonar/config.toml
     #[command(next_line_help = true)]
     Config(ConfigArgs),
 }

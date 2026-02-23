@@ -57,6 +57,7 @@ cargo build --release
 | `pda` | You want to derive a PDA from seeds |
 | `config` | You want to inspect or update `~/.config/sonar/config.toml` |
 | `cache` | You want to list, clean, or inspect cached account data |
+| `completions` | You want to generate shell completion scripts |
 
 ### Output Stream Convention
 
@@ -68,7 +69,7 @@ cargo build --release
 
 ### Simulate
 
-Simulate a Solana transaction locally using LiteSVM.
+Simulate a Solana transaction locally using LiteSVM (`simulate`, alias: `sim`).
 `sonar simulate --help` groups options by `Input & RPC`, `State Preparation`,
 `Simulation Controls`, and `Output & Debug` for faster scanning.
 
@@ -129,6 +130,16 @@ sonar simulate <TX> \
 sonar simulate <TX> \
   --rpc-url https://api.mainnet-beta.solana.com \
   --fund-token <TOKEN_ACCOUNT>=1000000
+
+# Fund a token account with explicit mint (mint auto-detected if account exists on-chain)
+sonar simulate <TX> \
+  --rpc-url https://api.mainnet-beta.solana.com \
+  --fund-token <ACCOUNT>:<MINT>=1000000
+
+# Fund using decimal amount (uses mint decimals, e.g. 1.5 USDC = 1500000 raw units)
+sonar simulate <TX> \
+  --rpc-url https://api.mainnet-beta.solana.com \
+  --fund-token <TOKEN_ACCOUNT>=1.5
 ```
 
 #### Advanced Options
@@ -166,7 +177,7 @@ sonar simulate <TX> --rpc-url <RPC_URL> --raw-log --show-ix-detail
 
 ### Decode
 
-Decode and display a raw transaction without simulation:
+Decode and display a raw transaction without simulation (`decode`, alias: `dec`):
 
 ```bash
 sonar decode <TX> --rpc-url https://api.mainnet-beta.solana.com
@@ -204,7 +215,7 @@ sonar account <MINT_PUBKEY> --rpc-url <RPC_URL> -m
 
 ### Convert
 
-Format conversion with explicit syntax:
+Format conversion with explicit syntax (`convert`, alias: `conv`):
 
 ```bash
 # Syntax
@@ -226,12 +237,15 @@ echo "0x48656c6c6f" | sonar convert hex text
 sonar convert int hex 305419896 --le
 sonar convert hex bytes 0x48656c6c6f --sep " "
 sonar convert hex hex-bytes 0x48656c6c6f --no-prefix
+sonar convert hex text 0x48656cff6f --escape
 ```
 
 Supported formats:
 
-- Generic: `int`, `hex`, `hex-bytes`, `bytes`, `text`, `binary`, `base64`, `base58`, `lamports`, `sol`
-- Solana: `pubkey` (32-byte), `signature` (64-byte), `keypair` (64-byte; alias `kp`)
+- Generic (input & output): `int`, `hex`, `hex-bytes` (`hb`), `bytes`, `text`, `base64` (`b64`), `base58` (`b58`), `lamports` (`lam`), `sol`
+- Generic (output only): `binary` (`bin`)
+- Solana (input & output): `pubkey` (`pk`, 32-byte), `signature` (`sig`, 64-byte)
+- Solana (input only): `keypair` (`kp`, 64-byte)
 - Fixed-width integers: `u8`, `u16`, `u32`, `u64`, `u128`, `i8`, `i16`, `i32`, `i64`, `i128`
 
 Validation rules:
@@ -244,6 +258,8 @@ Validation rules:
 ### PDA
 
 Derive a Program Derived Address from seeds:
+
+Seed types: `string` (`str`), `pubkey` (`pk`), `u64`, `u8`.
 
 ```bash
 sonar pda <PROGRAM_ID> string:hello pubkey:<PUBKEY>
@@ -377,6 +393,8 @@ Sonar reads configuration from `~/.config/sonar/config.toml`:
 rpc_url = "https://api.mainnet-beta.solana.com"
 idl_dir = "~/.sonar/idls"
 
+# Default for `simulate/decode --no-idl-fetch`
+no_idl_fetch = false
 # Default for `simulate --show-balance-change`
 show_balance_change = false
 # Default for `simulate --show-ix-detail`
@@ -389,6 +407,10 @@ raw_ix_data = false
 verify_signatures = false
 # Default for `send --skip-preflight`
 skip_preflight = false
+# Default for `simulate --cache`
+cache = false
+# Default for `simulate --cache-dir`
+cache_dir = "~/.sonar/cache"
 ```
 
 Priority: CLI arguments > environment variables > config file > defaults.
