@@ -22,12 +22,6 @@ pub struct AccountArgs {
     #[arg(long)]
     pub raw: bool,
 
-    /// For SPL Token legacy or Token-2022 mint accounts, decode Metaplex metadata PDA.
-    /// Using this on token accounts (non-mint) returns an error.
-    /// If metadata is missing or invalid, prints a warning to stderr and falls back to mint data.
-    #[arg(short = 'm', long = "mpl-metadata")]
-    pub mpl_metadata: bool,
-
     /// Output as JSON instead of the default colored text format
     #[arg(short = 'j', long)]
     pub json: bool,
@@ -39,39 +33,17 @@ mod tests {
     use clap::Parser;
 
     #[test]
-    fn account_accepts_long_mpl_metadata_flag() {
-        let cli = Cli::try_parse_from([
+    fn account_rejects_removed_mpl_metadata_flag() {
+        let result = Cli::try_parse_from([
             "sonar",
             "account",
             "11111111111111111111111111111111",
             "--rpc-url",
             "http://localhost:8899",
             "--mpl-metadata",
-        ])
-        .expect("should parse --mpl-metadata");
+        ]);
 
-        let Some(Commands::Account(args)) = cli.command else {
-            panic!("expected account subcommand");
-        };
-        assert!(args.mpl_metadata);
-    }
-
-    #[test]
-    fn account_accepts_short_mpl_metadata_flag() {
-        let cli = Cli::try_parse_from([
-            "sonar",
-            "account",
-            "11111111111111111111111111111111",
-            "--rpc-url",
-            "http://localhost:8899",
-            "-m",
-        ])
-        .expect("should parse -m");
-
-        let Some(Commands::Account(args)) = cli.command else {
-            panic!("expected account subcommand");
-        };
-        assert!(args.mpl_metadata);
+        assert!(result.is_err());
     }
 
     #[test]

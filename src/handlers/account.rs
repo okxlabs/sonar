@@ -26,12 +26,26 @@ pub(crate) fn handle(args: AccountArgs) -> Result<()> {
         return Ok(());
     }
 
-    let (output, account_type) = decode_account_output(&args, &client, &account_pubkey, &account)?;
+    let (mut output, account_type, metadata_output) =
+        decode_account_output(&args, &client, &account_pubkey, &account)?;
+
+    if let Some(meta) = &metadata_output {
+        output
+            .as_object_mut()
+            .expect("output must be a JSON object")
+            .insert("metaplexMetadata".into(), meta.clone());
+    }
 
     if args.json {
         println!("{}", serde_json::to_string_pretty(&output)?);
     } else {
-        crate::output::render_account_text(&args.account, &account, &account_type, &output)?;
+        crate::output::render_account_text(
+            &args.account,
+            &account,
+            &account_type,
+            &output,
+            metadata_output.as_ref(),
+        )?;
     }
 
     Ok(())
@@ -42,7 +56,7 @@ fn decode_account_output(
     client: &solana_client::rpc_client::RpcClient,
     account_pubkey: &Pubkey,
     account: &solana_account::Account,
-) -> Result<(Value, String)> {
+) -> Result<(Value, String, Option<Value>)> {
     use crate::parsers::instruction::anchor_idl::{IdlRegistry, RawAnchorIdl, parse_account_data};
     use solana_address_lookup_table_interface::state::AddressLookupTable;
     use solana_loader_v3_interface::state::UpgradeableLoaderState;
@@ -59,6 +73,7 @@ fn decode_account_output(
                     return Ok((
                         wrap_account_data_output(account, data_json),
                         "BPF Upgradeable Program".into(),
+                        None,
                     ));
                 }
                 UpgradeableLoaderState::ProgramData { .. } => {
@@ -66,6 +81,7 @@ fn decode_account_output(
                     return Ok((
                         wrap_account_data_output(account, data_json),
                         "Program Data".into(),
+                        None,
                     ));
                 }
                 UpgradeableLoaderState::Buffer { authority_address, .. } => {
@@ -79,6 +95,7 @@ fn decode_account_output(
                     return Ok((
                         wrap_account_data_output(account, data_json),
                         "Buffer".into(),
+                        None,
                     ));
                 }
                 _ => {}
@@ -102,32 +119,32 @@ fn decode_account_output(
             return Ok((
                 wrap_account_data_output(account, data_json),
                 "Address Lookup Table".into(),
+                None,
             ));
         }
     }
 
     if let Some(token_json) = token_account_decoder::decode_spl_token_account(account) {
-        if args.mpl_metadata {
-            if !should_enrich_with_metaplex_metadata(account, &token_json) {
-                anyhow::bail!("--mpl-metadata requires a SPL Token or Token-2022 mint account");
-            }
-
-            let metadata_result = fetch_metadata_for_mint(client, account_pubkey);
-            let (output, warning) = resolve_metadata_output(&token_json, metadata_result)?;
-            if let Some(message) = warning {
-                eprintln!("Warning: {message}");
-            }
-
-            let account_type = if output.get("data").is_some() {
-                detect_token_type(account, &output)
-            } else {
-                "Metaplex Metadata".into()
-            };
-            return Ok((output, account_type));
-        }
-
         let account_type = detect_token_type(account, &token_json);
-        return Ok((token_json, account_type));
+
+        let metadata_output = if should_enrich_with_metaplex_metadata(account, &token_json) {
+            match fetch_metadata_for_mint(client, account_pubkey) {
+                Ok((meta_account, decoded)) => {
+                    Some(wrap_account_data_output(&meta_account, decoded))
+                }
+                Err(error) => {
+                    eprintln!(
+                        "Warning: Metaplex metadata enrichment failed ({error}). \
+                         Showing mint account data only."
+                    );
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
+        return Ok((token_json, account_type, metadata_output));
     }
 
     let owner = account.owner;
@@ -141,7 +158,7 @@ fn decode_account_output(
     let idl_json = match idl_json {
         Some(json) => json,
         None => {
-            return Ok((raw_account_data_json(account), "Unknown".into()));
+            return Ok((raw_account_data_json(account), "Unknown".into(), None));
         }
     };
 
@@ -154,6 +171,7 @@ fn decode_account_output(
         Some((type_name, parsed_value)) => Ok((
             wrap_account_data_output(account, &parsed_value),
             format!("Anchor ({})", type_name),
+            None,
         )),
         None => {
             let json = if account.data.len() >= 8 {
@@ -178,17 +196,14 @@ fn decode_account_output(
                     "raw_data": hex::encode(&account.data)
                 })
             };
-            Ok((json, "Unknown".into()))
+            Ok((json, "Unknown".into(), None))
         }
     }
 }
 
 fn detect_token_type(account: &solana_account::Account, token_json: &Value) -> String {
     let is_2022 = account.owner.to_bytes() == spl_token_2022::ID.to_bytes();
-    let is_mint = token_json
-        .get("data")
-        .and_then(|d| d.get("supply"))
-        .is_some();
+    let is_mint = token_json.get("data").and_then(|d| d.get("supply")).is_some();
 
     match (is_2022, is_mint) {
         (false, true) => "SPL Token Mint",
@@ -301,26 +316,10 @@ fn should_enrich_with_metaplex_metadata(
         .unwrap_or(false)
 }
 
-fn resolve_metadata_output(
-    token_json: &Value,
-    metadata_result: Result<Value>,
-) -> Result<(Value, Option<String>)> {
-    match metadata_result {
-        Ok(metadata_json) => Ok((metadata_json, None)),
-        Err(error) => {
-            let fallback = token_json.clone();
-            let warning = format!(
-                "--mpl-metadata enrichment failed ({error}). Falling back to parsed mint account data."
-            );
-            Ok((fallback, Some(warning)))
-        }
-    }
-}
-
 fn fetch_metadata_for_mint(
     client: &solana_client::rpc_client::RpcClient,
     mint_pubkey: &Pubkey,
-) -> Result<Value> {
+) -> Result<(solana_account::Account, Value)> {
     use solana_commitment_config::CommitmentConfig;
 
     let metadata_pda = metaplex_metadata_decoder::derive_metadata_pda(mint_pubkey);
@@ -343,22 +342,21 @@ fn fetch_metadata_for_mint(
         );
     }
 
-    metaplex_metadata_decoder::decode_metadata_account_data(&metadata_account.data).with_context(
-        || {
-            format!(
-                "Failed to decode metaplex metadata account {} for mint {}",
-                metadata_pda, mint_pubkey
-            )
-        },
-    )
+    let decoded = metaplex_metadata_decoder::decode_metadata_account_data(&metadata_account.data)
+        .with_context(|| {
+        format!(
+            "Failed to decode metaplex metadata account {} for mint {}",
+            metadata_pda, mint_pubkey
+        )
+    })?;
+
+    Ok((metadata_account, decoded))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{resolve_metadata_output, should_enrich_with_metaplex_metadata};
+    use super::should_enrich_with_metaplex_metadata;
     use crate::parsers::token_account_decoder;
-    use anyhow::anyhow;
-    use serde_json::json;
     use solana_pubkey::Pubkey;
     use spl_token::solana_program::program_option::COption;
     use spl_token::solana_program::program_pack::Pack;
@@ -448,86 +446,5 @@ mod tests {
         };
         let token_json = token_account_decoder::decode_spl_token_account(&account).unwrap();
         assert!(!should_enrich_with_metaplex_metadata(&account, &token_json));
-    }
-
-    #[test]
-    fn metadata_missing_is_non_fatal_without_strict_mode() {
-        let token_json = json!({
-            "lamports": 123,
-            "space": 82,
-            "owner": spl_token::ID.to_string(),
-            "executable": false,
-            "rentEpoch": 0,
-            "data": {
-                "mintAuthority": null,
-                "supply": "1000",
-                "decimals": 6,
-                "isInitialized": true,
-                "freezeAuthority": null
-            }
-        });
-
-        let (output, warning) = resolve_metadata_output(
-            &token_json,
-            Err(anyhow!("Metadata PDA account not found for mint ...")),
-        )
-        .expect("metadata failure should fallback");
-
-        assert_eq!(output, token_json);
-        assert!(warning.is_some());
-    }
-
-    #[test]
-    fn metadata_decode_failure_falls_back_to_full_token_output() {
-        let token_json = json!({
-            "lamports": 123,
-            "space": 82,
-            "owner": spl_token::ID.to_string(),
-            "executable": false,
-            "rentEpoch": 0,
-            "data": {
-                "mintAuthority": null,
-                "supply": "1000",
-                "decimals": 6,
-                "isInitialized": true,
-                "freezeAuthority": null
-            }
-        });
-
-        let (output, warning) = resolve_metadata_output(
-            &token_json,
-            Err(anyhow!("Failed to decode metaplex metadata account ...")),
-        )
-        .expect("metadata decode failure should fallback");
-
-        assert_eq!(output, token_json);
-        assert!(warning.is_some());
-    }
-
-    #[test]
-    fn metadata_failure_still_falls_back() {
-        let token_json = json!({
-            "lamports": 123,
-            "space": 82,
-            "owner": spl_token::ID.to_string(),
-            "executable": false,
-            "rentEpoch": 0,
-            "data": {
-                "mintAuthority": null,
-                "supply": "1000",
-                "decimals": 6,
-                "isInitialized": true,
-                "freezeAuthority": null
-            }
-        });
-
-        let (output, warning) = resolve_metadata_output(
-            &token_json,
-            Err(anyhow!("Metadata PDA account not found for mint ...")),
-        )
-        .expect("metadata failure should always fallback");
-
-        assert_eq!(output, token_json);
-        assert!(warning.is_some());
     }
 }

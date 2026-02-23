@@ -207,10 +207,6 @@ sonar account <PUBKEY> --rpc-url <RPC_URL> --raw
 
 # Load local IDLs first (<OWNER_PROGRAM_ID>.json), then fallback to on-chain fetch
 sonar account <PUBKEY> --rpc-url <RPC_URL> --idl-dir /path/to/idls
-
-# For SPL Token / Token-2022 mint accounts, opt-in Metaplex metadata PDA decoding
-sonar account <MINT_PUBKEY> --rpc-url <RPC_URL> --mpl-metadata
-sonar account <MINT_PUBKEY> --rpc-url <RPC_URL> -m
 ```
 
 ### Convert

@@ -12,15 +12,23 @@ const DIM_GRAY: colored::CustomColor = colored::CustomColor { r: 128, g: 128, b:
 const INFO_LABEL_WIDTH: usize = 12;
 
 const WRAPPER_FIELDS: &[&str] = &["lamports", "space", "owner", "executable", "rentEpoch"];
+const METADATA_SKIP_FIELDS: &[&str] =
+    &["lamports", "space", "owner", "executable", "rentEpoch", "metaplexMetadata"];
 
 pub(crate) fn render_account_text(
     pubkey: &str,
     account: &solana_account::Account,
     account_type: &str,
     decoded: &Value,
+    metadata: Option<&Value>,
 ) -> Result<()> {
     render_account_info(pubkey, account);
-    render_account_data(account_type, decoded);
+    render_account_data(account_type, decoded, METADATA_SKIP_FIELDS);
+
+    if let Some(meta) = metadata {
+        render_metadata_section(meta);
+    }
+
     println!();
     Ok(())
 }
@@ -38,21 +46,11 @@ fn render_account_info(pubkey: &str, account: &solana_account::Account) {
     print_info_row("Address", pubkey);
     print_info_row(
         "Balance",
-        &format!(
-            "{:.9} SOL ({} lamports)",
-            sol,
-            format_with_commas(account.lamports)
-        ),
+        &format!("{:.9} SOL ({} lamports)", sol, format_with_commas(account.lamports)),
     );
     print_info_row("Owner", &owner_display);
-    print_info_row(
-        "Space",
-        &format!("{} bytes", format_with_commas(account.data.len() as u64)),
-    );
-    print_info_row(
-        "Executable",
-        if account.executable { "Yes" } else { "No" },
-    );
+    print_info_row("Space", &format!("{} bytes", format_with_commas(account.data.len() as u64)));
+    print_info_row("Executable", if account.executable { "Yes" } else { "No" });
 }
 
 fn print_info_row(label: &str, value: &str) {
@@ -60,7 +58,7 @@ fn print_info_row(label: &str, value: &str) {
     println!("{}{}   {}", INDENT, padded.custom_color(DIM_GRAY), value);
 }
 
-fn render_account_data(account_type: &str, decoded: &Value) {
+fn render_account_data(account_type: &str, decoded: &Value, extra_skip: &[&str]) {
     if account_type == "Address Lookup Table" {
         render_lookup_table_data(decoded);
         return;
@@ -68,10 +66,15 @@ fn render_account_data(account_type: &str, decoded: &Value) {
 
     let data = decoded.get("data").unwrap_or(decoded);
     let extensions = data.get("extensions").and_then(Value::as_array);
-    let skip = if decoded.get("data").is_some() {
-        vec!["extensions"]
+    let skip: Vec<&str> = if decoded.get("data").is_some() {
+        extra_skip.iter().copied().chain(["extensions"]).collect()
     } else {
-        WRAPPER_FIELDS.iter().copied().chain(["extensions"]).collect()
+        WRAPPER_FIELDS
+            .iter()
+            .copied()
+            .chain(extra_skip.iter().copied())
+            .chain(["extensions"])
+            .collect()
     };
 
     render_section_title(&format!("Account Data ({})", account_type));
@@ -85,6 +88,16 @@ fn render_account_data(account_type: &str, decoded: &Value) {
             render_section_title("Extensions");
             render_extensions(exts);
         }
+    }
+}
+
+fn render_metadata_section(metadata: &Value) {
+    let data = metadata.get("data").unwrap_or(metadata);
+
+    render_section_title("Metaplex Metadata");
+
+    if let Some(obj) = data.as_object() {
+        render_kv_pairs(obj, INDENT, &[]);
     }
 }
 
@@ -105,15 +118,8 @@ fn render_lookup_table_data(decoded: &Value) {
     }
 }
 
-fn render_kv_pairs(
-    obj: &serde_json::Map<String, Value>,
-    indent: &str,
-    skip_keys: &[&str],
-) {
-    let entries: Vec<_> = obj
-        .iter()
-        .filter(|(k, _)| !skip_keys.contains(&k.as_str()))
-        .collect();
+fn render_kv_pairs(obj: &serde_json::Map<String, Value>, indent: &str, skip_keys: &[&str]) {
+    let entries: Vec<_> = obj.iter().filter(|(k, _)| !skip_keys.contains(&k.as_str())).collect();
 
     if entries.is_empty() {
         return;
@@ -134,8 +140,7 @@ fn render_kv_pairs(
                 let nested = format!("{}  ", indent);
                 for (i, item) in arr.iter().enumerate() {
                     if let Some(inner_obj) = item.as_object() {
-                        let label =
-                            format!("[{}]", i + 1).custom_color(DIM_GRAY).to_string();
+                        let label = format!("[{}]", i + 1).custom_color(DIM_GRAY).to_string();
                         println!("{}{}", nested, label);
                         let deep = format!("{}  ", nested);
                         render_kv_pairs(inner_obj, &deep, &[]);
@@ -143,12 +148,7 @@ fn render_kv_pairs(
                 }
             }
             _ => {
-                println!(
-                    "{}{}   {}",
-                    indent,
-                    padded_key.custom_color(DIM_GRAY),
-                    format_value(val)
-                );
+                println!("{}{}   {}", indent, padded_key.custom_color(DIM_GRAY), format_value(val));
             }
         }
     }
@@ -163,9 +163,7 @@ fn render_address_list(addresses: &[Value]) {
 
     for (i, addr) in addresses.iter().enumerate() {
         if let Some(s) = addr.as_str() {
-            let label = format!("[{:>w$}]", i, w = index_width)
-                .custom_color(DIM_GRAY)
-                .to_string();
+            let label = format!("[{:>w$}]", i, w = index_width).custom_color(DIM_GRAY).to_string();
             println!("{}{} {}", INDENT, label, s);
         }
     }
@@ -177,10 +175,7 @@ fn render_extensions(extensions: &[Value]) {
             println!();
         }
 
-        let type_name = ext
-            .get("type")
-            .and_then(Value::as_str)
-            .unwrap_or("Unknown");
+        let type_name = ext.get("type").and_then(Value::as_str).unwrap_or("Unknown");
 
         let label = format!("[{}]", i + 1).custom_color(DIM_GRAY);
         println!("{}{} {}", INDENT, label, type_name.bold());
@@ -213,9 +208,7 @@ fn format_value(value: &Value) -> String {
             let items: Vec<String> = arr.iter().map(format_value).collect();
             format!("[{}]", items.join(", "))
         }
-        Value::Object(_) => {
-            serde_json::to_string(value).unwrap_or_else(|_| "{}".to_string())
-        }
+        Value::Object(_) => serde_json::to_string(value).unwrap_or_else(|_| "{}".to_string()),
     }
 }
 

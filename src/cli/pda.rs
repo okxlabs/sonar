@@ -38,9 +38,10 @@ impl FromStr for SeedType {
             "pubkey" | "publickey" | "pk" => Ok(SeedType::Pubkey),
             "u64" => Ok(SeedType::U64),
             "u8" => Ok(SeedType::U8),
-            _ => {
-                Err(format!("Unknown seed type: '{}'. Supported types: string (str), pubkey (pk), u64, u8", s))
-            }
+            _ => Err(format!(
+                "Unknown seed type: '{}'. Supported types: string (str), pubkey (pk), u64, u8",
+                s
+            )),
         }
     }
 }
