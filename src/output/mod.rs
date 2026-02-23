@@ -1,7 +1,10 @@
+mod account_text;
 mod json;
 mod report;
 pub(crate) mod terminal;
 mod text;
+
+pub(crate) use account_text::render_account_text;
 
 use anyhow::Result;
 

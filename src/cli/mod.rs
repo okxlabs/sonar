@@ -92,7 +92,8 @@ pub enum Commands {
 EXAMPLES:
   sonar completions bash > ~/.local/share/bash-completion/completions/sonar
   sonar completions zsh > ~/.zsh/completions/_sonar
-  sonar completions fish > ~/.config/fish/completions/sonar.fish")]
+  sonar completions fish > ~/.config/fish/completions/sonar.fish
+")]
 pub struct CompletionsArgs {
     /// The shell to generate completions for (bash, zsh, fish, elvish, powershell)
     pub shell: clap_complete::Shell,

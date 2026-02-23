@@ -26,8 +26,13 @@ pub(crate) fn handle(args: AccountArgs) -> Result<()> {
         return Ok(());
     }
 
-    let output = decode_account_output(&args, &client, &account_pubkey, &account)?;
-    println!("{}", serde_json::to_string_pretty(&output)?);
+    let (output, account_type) = decode_account_output(&args, &client, &account_pubkey, &account)?;
+
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&output)?);
+    } else {
+        crate::output::render_account_text(&args.account, &account, &account_type, &output)?;
+    }
 
     Ok(())
 }
@@ -37,7 +42,7 @@ fn decode_account_output(
     client: &solana_client::rpc_client::RpcClient,
     account_pubkey: &Pubkey,
     account: &solana_account::Account,
-) -> Result<Value> {
+) -> Result<(Value, String)> {
     use crate::parsers::instruction::anchor_idl::{IdlRegistry, RawAnchorIdl, parse_account_data};
     use solana_address_lookup_table_interface::state::AddressLookupTable;
     use solana_loader_v3_interface::state::UpgradeableLoaderState;
@@ -51,11 +56,17 @@ fn decode_account_output(
                     let data_json = serde_json::json!({
                         "programdataAddress": programdata_pubkey.to_string()
                     });
-                    return Ok(wrap_account_data_output(account, data_json));
+                    return Ok((
+                        wrap_account_data_output(account, data_json),
+                        "BPF Upgradeable Program".into(),
+                    ));
                 }
                 UpgradeableLoaderState::ProgramData { .. } => {
                     let data_json = build_programdata_json(account)?;
-                    return Ok(wrap_account_data_output(account, data_json));
+                    return Ok((
+                        wrap_account_data_output(account, data_json),
+                        "Program Data".into(),
+                    ));
                 }
                 UpgradeableLoaderState::Buffer { authority_address, .. } => {
                     const BUFFER_HEADER_SIZE: usize = 37;
@@ -65,7 +76,10 @@ fn decode_account_output(
                             .map(|a| Pubkey::new_from_array(a.to_bytes()).to_string()),
                         "dataSize": data_size
                     });
-                    return Ok(wrap_account_data_output(account, data_json));
+                    return Ok((
+                        wrap_account_data_output(account, data_json),
+                        "Buffer".into(),
+                    ));
                 }
                 _ => {}
             }
@@ -85,7 +99,10 @@ fn decode_account_output(
                 },
                 "addresses": lookup_table.addresses.iter().map(|k| k.to_string()).collect::<Vec<_>>()
             });
-            return Ok(wrap_account_data_output(account, data_json));
+            return Ok((
+                wrap_account_data_output(account, data_json),
+                "Address Lookup Table".into(),
+            ));
         }
     }
 
@@ -101,10 +118,16 @@ fn decode_account_output(
                 eprintln!("Warning: {message}");
             }
 
-            return Ok(output);
+            let account_type = if output.get("data").is_some() {
+                detect_token_type(account, &output)
+            } else {
+                "Metaplex Metadata".into()
+            };
+            return Ok((output, account_type));
         }
 
-        return Ok(token_json);
+        let account_type = detect_token_type(account, &token_json);
+        return Ok((token_json, account_type));
     }
 
     let owner = account.owner;
@@ -118,7 +141,7 @@ fn decode_account_output(
     let idl_json = match idl_json {
         Some(json) => json,
         None => {
-            return Ok(raw_account_data_json(account));
+            return Ok((raw_account_data_json(account), "Unknown".into()));
         }
     };
 
@@ -128,10 +151,13 @@ fn decode_account_output(
     let registry = IdlRegistry::new();
 
     match parse_account_data(&idl, &account.data, &registry)? {
-        Some((_type_name, parsed_value)) => Ok(wrap_account_data_output(account, &parsed_value)),
+        Some((type_name, parsed_value)) => Ok((
+            wrap_account_data_output(account, &parsed_value),
+            format!("Anchor ({})", type_name),
+        )),
         None => {
-            if account.data.len() >= 8 {
-                Ok(serde_json::json!({
+            let json = if account.data.len() >= 8 {
+                serde_json::json!({
                     "lamports": account.lamports,
                     "space": account.data.len(),
                     "owner": account.owner.to_string(),
@@ -140,9 +166,9 @@ fn decode_account_output(
                     "error": "No matching account type found",
                     "discriminator": hex::encode(&account.data[..8]),
                     "raw_data": hex::encode(&account.data)
-                }))
+                })
             } else {
-                Ok(serde_json::json!({
+                serde_json::json!({
                     "lamports": account.lamports,
                     "space": account.data.len(),
                     "owner": account.owner.to_string(),
@@ -150,10 +176,27 @@ fn decode_account_output(
                     "rentEpoch": account.rent_epoch,
                     "error": "Account data too short",
                     "raw_data": hex::encode(&account.data)
-                }))
-            }
+                })
+            };
+            Ok((json, "Unknown".into()))
         }
     }
+}
+
+fn detect_token_type(account: &solana_account::Account, token_json: &Value) -> String {
+    let is_2022 = account.owner.to_bytes() == spl_token_2022::ID.to_bytes();
+    let is_mint = token_json
+        .get("data")
+        .and_then(|d| d.get("supply"))
+        .is_some();
+
+    match (is_2022, is_mint) {
+        (false, true) => "SPL Token Mint",
+        (false, false) => "SPL Token Account",
+        (true, true) => "Token-2022 Mint",
+        (true, false) => "Token-2022 Account",
+    }
+    .to_string()
 }
 
 /// Try to load IDL from local directory (if specified).
