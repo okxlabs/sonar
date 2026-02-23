@@ -24,16 +24,23 @@ fn main() {
 /// with no subcommand-specific arguments (global flags like --color are ignored).
 fn is_bare_subcommand() -> bool {
     let known_global_flags: &[&str] = &["--color"];
-    let mut args = std::env::args().skip(1); // skip binary name
+    let mut args = std::env::args().skip(1);
     let mut non_global = 0u32;
     while let Some(arg) = args.next() {
         if known_global_flags.contains(&arg.as_str()) {
-            args.next(); // skip the flag's value
+            args.next();
         } else {
             non_global += 1;
         }
     }
     non_global <= 1
+}
+
+fn print_subcommand_help(name: &str) -> Result<()> {
+    let mut cmd = Cli::command();
+    let sub = cmd.find_subcommand_mut(name).expect("known subcommand");
+    sub.print_help()?;
+    std::process::exit(2);
 }
 
 fn run() -> Result<()> {
@@ -52,9 +59,6 @@ fn run() -> Result<()> {
                     | clap::error::ErrorKind::MissingSubcommand
             ) && is_bare_subcommand()
             {
-                // User typed just the subcommand name with no further arguments;
-                // print subcommand help instead of the clap error.
-                // Exit 2 (usage error) to distinguish from explicit --help (exit 0).
                 let mut args: Vec<String> = std::env::args().collect();
                 args.push("--help".to_string());
                 if let Err(help_err) = Cli::try_parse_from(&args) {
@@ -87,8 +91,18 @@ fn run() -> Result<()> {
     };
 
     match command {
-        Commands::Simulate(args) => handlers::simulate::handle(args)?,
-        Commands::Decode(args) => handlers::decode::handle(args)?,
+        Commands::Simulate(args) => {
+            if args.transaction.tx.is_empty() && std::io::stdin().is_terminal() {
+                print_subcommand_help("simulate")?;
+            }
+            handlers::simulate::handle(args)?
+        }
+        Commands::Decode(args) => {
+            if args.transaction.tx.is_empty() && std::io::stdin().is_terminal() {
+                print_subcommand_help("decode")?;
+            }
+            handlers::decode::handle(args)?
+        }
         Commands::Idl(args) => handlers::idl::handle(args)?,
         Commands::Account(args) => handlers::account::handle(args)?,
         Commands::Cache(args) => handlers::cache::handle(args)?,
