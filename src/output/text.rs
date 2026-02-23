@@ -14,7 +14,7 @@ use crate::{
     },
 };
 
-use super::{BalanceChangeOptions, LogDisplayOptions};
+use super::LogDisplayOptions;
 use super::report::{
     BundleReport, BundleTransactionReport, InstructionAccountEntry, InstructionAccountSource,
     Report, SimulationSection, SimulationStatusReport, SolBalanceChangeSection,
@@ -39,7 +39,6 @@ pub(super) fn render_text(
     show_ix_data: bool,
     show_ix_detail: bool,
     log_opts: LogDisplayOptions,
-    balance_opts: BalanceChangeOptions,
 ) -> Result<()> {
     // Summary header (status + CU)
     render_summary_header(&report.simulation, &report.transaction);
@@ -61,17 +60,13 @@ pub(super) fn render_text(
     // SOL Balance Changes
     if !report.sol_balance_changes.is_empty() {
         render_section_title("SOL Balance Changes");
-        render_sol_balance_changes(&report.sol_balance_changes, "", balance_opts.full_pubkey);
+        render_sol_balance_changes(&report.sol_balance_changes, "");
     }
 
     // Token Balance Changes
     if !report.token_balance_changes.is_empty() {
         render_section_title("Token Balance Changes");
-        render_token_balance_changes(
-            &report.token_balance_changes,
-            "",
-            balance_opts.full_pubkey,
-        );
+        render_token_balance_changes(&report.token_balance_changes, "");
     }
 
     // Final empty line
@@ -87,7 +82,6 @@ pub(super) fn render_bundle_text(
     show_ix_data: bool,
     show_ix_detail: bool,
     log_opts: LogDisplayOptions,
-    balance_opts: BalanceChangeOptions,
 ) -> Result<()> {
     // Bundle summary header (status + per-TX overview)
     render_bundle_summary_header(bundle, total_count);
@@ -120,21 +114,13 @@ pub(super) fn render_bundle_text(
     // SOL Balance Changes
     if !bundle.sol_balance_changes.is_empty() {
         render_section_title("SOL Balance Changes");
-        render_sol_balance_changes(
-            &bundle.sol_balance_changes,
-            INDENT_L1,
-            balance_opts.full_pubkey,
-        );
+        render_sol_balance_changes(&bundle.sol_balance_changes, INDENT_L1);
     }
 
     // Token Balance Changes
     if !bundle.token_balance_changes.is_empty() {
         render_section_title("Token Balance Changes");
-        render_token_balance_changes(
-            &bundle.token_balance_changes,
-            INDENT_L1,
-            balance_opts.full_pubkey,
-        );
+        render_token_balance_changes(&bundle.token_balance_changes, INDENT_L1);
     }
 
     println!();
@@ -359,34 +345,17 @@ fn render_no_trace_hint(simulation: &SimulationSection, indent: &str) {
     }
 }
 
-fn shorten_pubkey(pubkey: &str, n: usize) -> String {
-    if pubkey.len() <= n * 2 + 2 {
-        pubkey.to_string()
-    } else {
-        format!("{}..{}", &pubkey[..n], &pubkey[pubkey.len() - n..])
-    }
-}
-
-fn display_pubkey(pubkey: &str, full: bool) -> String {
-    if full { pubkey.to_string() } else { shorten_pubkey(pubkey, 4) }
-}
-
-fn render_sol_balance_changes(
-    sol_changes: &[SolBalanceChangeSection],
-    indent: &str,
-    full_pubkey: bool,
-) {
+fn render_sol_balance_changes(sol_changes: &[SolBalanceChangeSection], indent: &str) {
     let rows: Vec<_> = sol_changes
         .iter()
         .map(|c| {
             let sol_before = c.before as f64 / 1_000_000_000.0;
             let sol_after = c.after as f64 / 1_000_000_000.0;
             let sign = if c.change >= 0 { "+" } else { "" };
-            let col_account = display_pubkey(&c.account, full_pubkey);
             let col_range = format!("({:.9} → {:.9})", sol_before, sol_after);
             let col_delta = format!("{}{:.9}", sign, c.change_sol);
             let color = if c.change >= 0 { (152, 195, 121) } else { (224, 108, 117) };
-            (col_account, col_range, col_delta, color)
+            (c.account.as_str(), col_range, col_delta, color)
         })
         .collect();
 
@@ -407,11 +376,7 @@ fn render_sol_balance_changes(
     }
 }
 
-fn render_token_balance_changes(
-    token_changes: &[TokenBalanceChangeSection],
-    indent: &str,
-    full_pubkey: bool,
-) {
+fn render_token_balance_changes(token_changes: &[TokenBalanceChangeSection], indent: &str) {
     let rows: Vec<_> = token_changes
         .iter()
         .map(|c| {
@@ -420,14 +385,12 @@ fn render_token_balance_changes(
             let ui_after = c.after as f64 / divisor;
             let prec = c.decimals as usize;
             let sign = if c.change >= 0 { "+" } else { "" };
-            let col_ta = display_pubkey(&c.token_account, full_pubkey);
-            let col_owner = format!("[{}]", display_pubkey(&c.owner, full_pubkey));
-            let col_mint = display_pubkey(&c.mint, full_pubkey);
+            let col_owner = format!("[{}]", &c.owner);
             let col_range =
                 format!("({:.prec$} → {:.prec$})", ui_before, ui_after, prec = prec);
             let col_delta = format!("{}{:.prec$}", sign, c.ui_change, prec = prec);
             let color = if c.change >= 0 { (152, 195, 121) } else { (224, 108, 117) };
-            (col_ta, col_owner, col_mint, col_range, col_delta, color)
+            (c.token_account.as_str(), col_owner, c.mint.as_str(), col_range, col_delta, color)
         })
         .collect();
 

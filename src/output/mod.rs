@@ -23,7 +23,6 @@ use report::{BundleReport, LookupResolver, Report, TransactionSection};
 #[derive(Debug, Clone, Copy, Default)]
 pub struct BalanceChangeOptions {
     pub show_balance_change: bool,
-    pub full_pubkey: bool,
 }
 
 /// Log display options.
@@ -76,7 +75,6 @@ pub fn render(
             opts.show_ix_data,
             opts.show_ix_detail,
             opts.log_opts,
-            opts.balance_opts,
         )
     }
 }
@@ -161,7 +159,6 @@ pub fn render_bundle(
             opts.show_ix_data,
             opts.show_ix_detail,
             opts.log_opts,
-            opts.balance_opts,
         )
     }
 }

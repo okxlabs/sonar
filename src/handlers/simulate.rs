@@ -26,7 +26,6 @@ pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
         verify_signatures,
         idl_dir: _,
         show_balance_change,
-        full_pubkey,
         raw_log,
         show_ix_detail,
         timestamp,
@@ -67,7 +66,7 @@ pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
         show_ix_data: ix_data,
         show_ix_detail,
         verify_signatures,
-        balance_opts: output::BalanceChangeOptions { show_balance_change, full_pubkey },
+        balance_opts: output::BalanceChangeOptions { show_balance_change },
         log_opts: output::LogDisplayOptions { raw_log },
     };
 
