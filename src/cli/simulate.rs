@@ -24,6 +24,7 @@ pub struct SimulateArgs {
     /// Replace an on-chain program or account.
     /// Format: <PUBKEY>=<PATH> (.so/.elf for programs, .json for accounts)
     #[arg(
+        short = 'R',
         long = "replace",
         help_heading = HELP_HEADING_STATE_PREPARATION,
         value_name = "MAPPING",
@@ -33,6 +34,7 @@ pub struct SimulateArgs {
     pub replacements: Vec<String>,
     /// Fund a system account with SOL. Format: <PUBKEY>=<LAMPORTS> or <PUBKEY>=<AMOUNT>sol
     #[arg(
+        short = 'f',
         long = "fund-sol",
         help_heading = HELP_HEADING_STATE_PREPARATION,
         value_name = "FUNDING",
@@ -66,17 +68,18 @@ pub struct SimulateArgs {
     pub data_patches: Vec<String>,
     /// Enable account caching: load from cache on repeat runs, save to cache on first run.
     /// Cache is stored per-transaction under ~/.sonar/cache/<KEY>/
-    #[arg(long, help_heading = HELP_HEADING_STATE_PREPARATION, env = "SONAR_CACHE")]
+    #[arg(short = 'c', long, help_heading = HELP_HEADING_STATE_PREPARATION, env = "SONAR_CACHE")]
     pub cache: bool,
     /// Override the cache root directory (default: ~/.sonar/cache)
-    #[arg(long, help_heading = HELP_HEADING_STATE_PREPARATION, value_name = "DIR", env = "SONAR_CACHE_DIR", requires = "cache")]
+    #[arg(short = 'D', long, help_heading = HELP_HEADING_STATE_PREPARATION, value_name = "DIR", env = "SONAR_CACHE_DIR", requires = "cache")]
     pub cache_dir: Option<PathBuf>,
     /// Force re-fetch all accounts from RPC, overwriting existing cache
-    #[arg(long, help_heading = HELP_HEADING_STATE_PREPARATION, requires = "cache")]
+    #[arg(short = 'r', long, help_heading = HELP_HEADING_STATE_PREPARATION, requires = "cache")]
     pub refresh_cache: bool,
     /// Override the Clock sysvar's unix_timestamp for simulation.
     /// Supports Unix timestamp (e.g. 1700000000) or RFC3339 (e.g. 2024-01-01T00:00:00Z).
     #[arg(
+        short = 't',
         long = "timestamp",
         help_heading = HELP_HEADING_SIMULATION_CONTROLS,
         value_name = "TIMESTAMP",
@@ -84,7 +87,7 @@ pub struct SimulateArgs {
     )]
     pub timestamp: Option<i64>,
     /// Override the simulation slot
-    #[arg(long = "slot", help_heading = HELP_HEADING_SIMULATION_CONTROLS, value_name = "SLOT")]
+    #[arg(short = 's', long = "slot", help_heading = HELP_HEADING_SIMULATION_CONTROLS, value_name = "SLOT")]
     pub slot: Option<u64>,
     /// Verify transaction signatures during simulation
     #[arg(long = "check-sig", help_heading = HELP_HEADING_SIMULATION_CONTROLS, env = "SONAR_VERIFY_SIGNATURES")]
@@ -108,7 +111,7 @@ pub struct SimulateArgs {
     #[arg(long = "raw-ix-data", help_heading = HELP_HEADING_OUTPUT_DEBUG, env = "SONAR_RAW_IX_DATA")]
     pub ix_data: bool,
     /// Print raw program logs instead of structured execution trace
-    #[arg(long = "raw-log", help_heading = HELP_HEADING_OUTPUT_DEBUG, env = "SONAR_RAW_LOG")]
+    #[arg(short = 'l', long = "raw-log", help_heading = HELP_HEADING_OUTPUT_DEBUG, env = "SONAR_RAW_LOG")]
     pub raw_log: bool,
     /// Show detailed instruction information (accounts, parsed fields, inner instructions)
     #[arg(short = 'd', long = "show-ix-detail", help_heading = HELP_HEADING_OUTPUT_DEBUG, env = "SONAR_SHOW_IX_DETAIL")]
@@ -131,7 +134,7 @@ pub struct TransactionInputArgs {
     #[arg(value_name = "TX", required = false)]
     pub tx: Vec<String>,
     /// Output as JSON instead of human-readable text
-    #[arg(long, default_value_t = false)]
+    #[arg(short = 'j', long, default_value_t = false)]
     pub json: bool,
 }
 
