@@ -376,7 +376,6 @@ Sonar reads configuration from `~/.config/sonar/config.toml`:
 ```toml
 rpc_url = "https://api.mainnet-beta.solana.com"
 idl_dir = "~/.sonar/idls"
-color = "auto"  # auto, always, never
 
 # Default for `simulate --show-balance-change`
 show_balance_change = false

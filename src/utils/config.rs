@@ -10,7 +10,6 @@
 //! rpc_url = "https://my-custom-rpc.example.com"
 //! idl_dir = "~/.sonar/idls"
 //! no_idl_fetch = false
-//! color = "auto"
 //! show_balance_change = true
 //! show_ix_detail = true
 //! cache = true
@@ -31,8 +30,6 @@ pub struct SonarConfig {
     pub idl_dir: Option<String>,
     /// Default for `--no-idl-fetch`. Maps to `SONAR_NO_IDL_FETCH` env var.
     pub no_idl_fetch: Option<bool>,
-    /// Default color mode (`auto`, `always`, `never`).  Maps to `SONAR_COLOR` env var.
-    pub color: Option<String>,
     /// Default for `--show-balance-change`. Maps to `SONAR_SHOW_BALANCE_CHANGE` env var.
     pub show_balance_change: Option<bool>,
     /// Default for `--show-ix-detail`. Maps to `SONAR_SHOW_IX_DETAIL` env var.
@@ -56,7 +53,6 @@ pub enum ConfigKey {
     RpcUrl,
     IdlDir,
     NoIdlFetch,
-    Color,
     ShowBalanceChange,
     ShowIxDetail,
     RawLog,
@@ -73,11 +69,10 @@ enum ConfigValueKind {
     String,
 }
 
-const ALL_CONFIG_KEYS: [ConfigKey; 12] = [
+const ALL_CONFIG_KEYS: [ConfigKey; 11] = [
     ConfigKey::RpcUrl,
     ConfigKey::IdlDir,
     ConfigKey::NoIdlFetch,
-    ConfigKey::Color,
     ConfigKey::ShowBalanceChange,
     ConfigKey::ShowIxDetail,
     ConfigKey::RawLog,
@@ -94,7 +89,6 @@ impl ConfigKey {
             Self::RpcUrl => "rpc_url",
             Self::IdlDir => "idl_dir",
             Self::NoIdlFetch => "no_idl_fetch",
-            Self::Color => "color",
             Self::ShowBalanceChange => "show_balance_change",
             Self::ShowIxDetail => "show_ix_detail",
             Self::RawLog => "raw_log",
@@ -108,7 +102,7 @@ impl ConfigKey {
 
     fn value_kind(self) -> ConfigValueKind {
         match self {
-            Self::RpcUrl | Self::IdlDir | Self::Color | Self::CacheDir => ConfigValueKind::String,
+            Self::RpcUrl | Self::IdlDir | Self::CacheDir => ConfigValueKind::String,
             Self::NoIdlFetch
             | Self::ShowBalanceChange
             | Self::ShowIxDetail
@@ -127,7 +121,6 @@ impl SonarConfig {
             ConfigKey::RpcUrl => self.rpc_url.clone(),
             ConfigKey::IdlDir => self.idl_dir.clone(),
             ConfigKey::NoIdlFetch => self.no_idl_fetch.map(|v| v.to_string()),
-            ConfigKey::Color => self.color.clone(),
             ConfigKey::ShowBalanceChange => self.show_balance_change.map(|v| v.to_string()),
             ConfigKey::ShowIxDetail => self.show_ix_detail.map(|v| v.to_string()),
             ConfigKey::RawLog => self.raw_log.map(|v| v.to_string()),
@@ -153,7 +146,6 @@ pub fn parse_config_key(key: &str) -> Option<ConfigKey> {
         "rpc_url" => Some(ConfigKey::RpcUrl),
         "idl_dir" => Some(ConfigKey::IdlDir),
         "no_idl_fetch" => Some(ConfigKey::NoIdlFetch),
-        "color" => Some(ConfigKey::Color),
         "show_balance_change" => Some(ConfigKey::ShowBalanceChange),
         "show_ix_detail" => Some(ConfigKey::ShowIxDetail),
         "raw_log" => Some(ConfigKey::RawLog),
@@ -228,13 +220,6 @@ fn parse_value_for_key(key: ConfigKey, raw_value: &str) -> Result<(toml::Value, 
             Ok((toml::Value::Boolean(parsed), parsed.to_string()))
         }
         ConfigValueKind::String => {
-            if key == ConfigKey::Color {
-                let normalized = raw_value.trim().to_ascii_lowercase();
-                if !matches!(normalized.as_str(), "auto" | "always" | "never") {
-                    anyhow::bail!("Invalid value for 'color': expected one of auto, always, never");
-                }
-                return Ok((toml::Value::String(normalized.clone()), normalized));
-            }
             Ok((toml::Value::String(raw_value.to_string()), raw_value.to_string()))
         }
     }
@@ -303,11 +288,6 @@ fn apply_config_to_env(config: &SonarConfig) {
     }
     if let Some(value) = config.no_idl_fetch {
         set_bool_env("SONAR_NO_IDL_FETCH", value);
-    }
-    if let Some(ref color) = config.color {
-        if std::env::var("SONAR_COLOR").is_err() {
-            std::env::set_var("SONAR_COLOR", color);
-        }
     }
     if let Some(value) = config.show_balance_change {
         set_bool_env("SONAR_SHOW_BALANCE_CHANGE", value);
@@ -386,7 +366,6 @@ mod tests {
             rpc_url = "https://example.com"
             idl_dir = "~/.sonar/idls"
             no_idl_fetch = true
-            color = "never"
             show_balance_change = true
             show_ix_detail = true
             raw_log = false
@@ -400,7 +379,6 @@ mod tests {
         assert_eq!(config.rpc_url.as_deref(), Some("https://example.com"));
         assert_eq!(config.idl_dir.as_deref(), Some("~/.sonar/idls"));
         assert_eq!(config.no_idl_fetch, Some(true));
-        assert_eq!(config.color.as_deref(), Some("never"));
         assert_eq!(config.show_balance_change, Some(true));
         assert_eq!(config.show_ix_detail, Some(true));
         assert_eq!(config.raw_log, Some(false));
@@ -420,7 +398,6 @@ mod tests {
         assert_eq!(config.rpc_url.as_deref(), Some("https://example.com"));
         assert!(config.idl_dir.is_none());
         assert!(config.no_idl_fetch.is_none());
-        assert!(config.color.is_none());
         assert!(config.show_balance_change.is_none());
         assert!(config.show_ix_detail.is_none());
         assert!(config.raw_log.is_none());
@@ -437,7 +414,6 @@ mod tests {
         assert!(config.rpc_url.is_none());
         assert!(config.idl_dir.is_none());
         assert!(config.no_idl_fetch.is_none());
-        assert!(config.color.is_none());
         assert!(config.show_balance_change.is_none());
         assert!(config.show_ix_detail.is_none());
         assert!(config.raw_log.is_none());
@@ -458,12 +434,6 @@ mod tests {
     fn parse_value_for_bool_key_rejects_invalid_value() {
         let err = parse_value_for_key(ConfigKey::ShowIxDetail, "yes").unwrap_err();
         assert!(err.to_string().contains("expected true or false"));
-    }
-
-    #[test]
-    fn parse_value_for_color_enforces_supported_values() {
-        let err = parse_value_for_key(ConfigKey::Color, "rainbow").unwrap_err();
-        assert!(err.to_string().contains("expected one of auto, always, never"));
     }
 
     #[test]

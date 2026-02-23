@@ -9,7 +9,7 @@ use std::io::IsTerminal;
 
 use anyhow::Result;
 use clap::{CommandFactory, Parser};
-use cli::{Cli, ColorMode, Commands};
+use cli::{Cli, Commands};
 
 fn main() {
     if let Err(err) = run() {
@@ -21,19 +21,10 @@ fn main() {
 }
 
 /// Returns true when the user typed only a subcommand name after the binary,
-/// with no subcommand-specific arguments (global flags like --color are ignored).
+/// with no subcommand-specific arguments.
 fn is_bare_subcommand() -> bool {
-    let known_global_flags: &[&str] = &["--color"];
-    let mut args = std::env::args().skip(1);
-    let mut non_global = 0u32;
-    while let Some(arg) = args.next() {
-        if known_global_flags.contains(&arg.as_str()) {
-            args.next();
-        } else {
-            non_global += 1;
-        }
-    }
-    non_global <= 1
+    let arg_count = std::env::args().skip(1).count();
+    arg_count <= 1
 }
 
 fn print_subcommand_help(name: &str) -> Result<()> {
@@ -57,6 +48,7 @@ fn run() -> Result<()> {
                 err.kind(),
                 clap::error::ErrorKind::MissingRequiredArgument
                     | clap::error::ErrorKind::MissingSubcommand
+                    | clap::error::ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand
             ) && is_bare_subcommand()
             {
                 let mut args: Vec<String> = std::env::args().collect();
@@ -70,16 +62,9 @@ fn run() -> Result<()> {
         }
     };
 
-    // Initialize color control based on --color flag, NO_COLOR env var, and TTY detection
-    // Reference: https://no-color.org
-    match cli.color {
-        ColorMode::Never => colored::control::set_override(false),
-        ColorMode::Always => colored::control::set_override(true),
-        ColorMode::Auto => {
-            if std::env::var_os("NO_COLOR").is_some() || !std::io::stdout().is_terminal() {
-                colored::control::set_override(false);
-            }
-        }
+    // Disable color when NO_COLOR is set (https://no-color.org) or stdout is not a TTY
+    if std::env::var_os("NO_COLOR").is_some() || !std::io::stdout().is_terminal() {
+        colored::control::set_override(false);
     }
 
     let command = match cli.command {

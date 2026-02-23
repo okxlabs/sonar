@@ -23,7 +23,7 @@ pub use program_elf::*;
 pub use send::*;
 pub use simulate::*;
 
-use clap::{Args, Parser, Subcommand, ValueEnum};
+use clap::{Args, Parser, Subcommand};
 
 /// Shared RPC connection arguments for all subcommands that need RPC access.
 #[derive(Args, Debug, Clone)]
@@ -38,18 +38,6 @@ pub struct RpcArgs {
     pub rpc_url: String,
 }
 
-/// Color output mode.
-#[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum, Default)]
-pub enum ColorMode {
-    /// Auto-detect: enable color when stdout is a terminal and NO_COLOR is not set
-    #[default]
-    Auto,
-    /// Always enable color output
-    Always,
-    /// Never use color output
-    Never,
-}
-
 #[derive(Parser, Debug)]
 #[command(
     name = "sonar",
@@ -60,10 +48,6 @@ pub enum ColorMode {
 pub struct Cli {
     #[command(subcommand)]
     pub command: Option<Commands>,
-
-    /// Control color output (auto, always, never)
-    #[arg(long, global = true, value_enum, default_value_t = ColorMode::Auto, env = "SONAR_COLOR")]
-    pub color: ColorMode,
 }
 
 #[derive(Subcommand, Debug)]
