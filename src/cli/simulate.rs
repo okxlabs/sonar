@@ -124,6 +124,13 @@ pub struct SimulateArgs {
         env = "SONAR_SHOW_BALANCE_CHANGE"
     )]
     pub show_balance_change: bool,
+    /// Show full pubkeys instead of shortened form in balance changes
+    #[arg(
+        long = "full-pubkey",
+        help_heading = HELP_HEADING_OUTPUT_DEBUG,
+        env = "SONAR_FULL_PUBKEY"
+    )]
+    pub full_pubkey: bool,
 }
 
 #[derive(Args, Debug, Clone)]

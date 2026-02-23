@@ -48,7 +48,8 @@ pub(super) struct SolBalanceChangeSection {
 
 #[derive(Serialize)]
 pub(super) struct TokenBalanceChangeSection {
-    pub(super) account: String,
+    pub(super) owner: String,
+    pub(super) token_account: String,
     pub(super) mint: String,
     pub(super) before: u64,
     pub(super) after: u64,
@@ -275,7 +276,8 @@ fn compute_balance_changes_for_single_tx(
             .map(|c| {
                 let divisor = 10f64.powi(c.decimals as i32);
                 TokenBalanceChangeSection {
-                    account: c.account.to_string(),
+                    owner: c.owner.to_string(),
+                    token_account: c.account.to_string(),
                     mint: c.mint.to_string(),
                     before: c.before,
                     after: c.after,
@@ -354,7 +356,8 @@ fn compute_bundle_overall_balance_changes(
             .map(|c| {
                 let divisor = 10f64.powi(c.decimals as i32);
                 TokenBalanceChangeSection {
-                    account: c.account.to_string(),
+                    owner: c.owner.to_string(),
+                    token_account: c.account.to_string(),
                     mint: c.mint.to_string(),
                     before: c.before,
                     after: c.after,
