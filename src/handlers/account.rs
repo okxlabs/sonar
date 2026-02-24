@@ -164,11 +164,56 @@ fn decode_account_output(
                     "epochStartTimestamp": format_timestamp_with_utc(clock.epoch_start_timestamp),
                 })
             };
+            return Ok((wrap_account_data_output(account, data_json), "Sysvar Clock".into(), None));
+        }
+    }
+
+    if *account_pubkey == solana_sdk_ids::sysvar::rent::id() {
+        if let Ok(rent) = bincode::deserialize::<solana_rent::Rent>(account.data.as_slice()) {
+            let data_json = serde_json::json!({
+                "lamportsPerByteYear": rent.lamports_per_byte_year,
+                "exemptionThreshold": rent.exemption_threshold,
+                "burnPercent": rent.burn_percent,
+            });
+            return Ok((wrap_account_data_output(account, data_json), "Sysvar Rent".into(), None));
+        }
+    }
+
+    if *account_pubkey == solana_sdk_ids::sysvar::epoch_schedule::id() {
+        if let Ok(schedule) =
+            bincode::deserialize::<solana_epoch_schedule::EpochSchedule>(account.data.as_slice())
+        {
+            let data_json = serde_json::json!({
+                "slotsPerEpoch": schedule.slots_per_epoch,
+                "leaderScheduleSlotOffset": schedule.leader_schedule_slot_offset,
+                "warmup": schedule.warmup,
+                "firstNormalEpoch": schedule.first_normal_epoch,
+                "firstNormalSlot": schedule.first_normal_slot,
+            });
             return Ok((
                 wrap_account_data_output(account, data_json),
-                "Sysvar Clock".into(),
+                "Sysvar Epoch Schedule".into(),
                 None,
             ));
+        }
+    }
+
+    if account.owner == solana_sdk_ids::system_program::id() && account.data.len() == 80 {
+        if let Ok(versions) =
+            bincode::deserialize::<solana_nonce::versions::Versions>(account.data.as_slice())
+        {
+            if let solana_nonce::state::State::Initialized(data) = versions.state() {
+                let data_json = serde_json::json!({
+                    "authority": data.authority.to_string(),
+                    "blockhash": data.blockhash().to_string(),
+                    "lamportsPerSignature": data.fee_calculator.lamports_per_signature,
+                });
+                return Ok((
+                    wrap_account_data_output(account, data_json),
+                    "Nonce Account".into(),
+                    None,
+                ));
+            }
         }
     }
 

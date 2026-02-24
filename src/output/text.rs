@@ -375,8 +375,7 @@ fn render_sol_balance_changes(sol_changes: &[SolBalanceChangeSection], indent: &
 
     println!(
         "\n{}",
-        "  account  ±Δ(SOL)  before → after | (+) increase  (-) decrease"
-            .custom_color(DIM_GRAY)
+        "  account  ±Δ(SOL)  before → after | (+) increase  (-) decrease".custom_color(DIM_GRAY)
     );
 }
 
