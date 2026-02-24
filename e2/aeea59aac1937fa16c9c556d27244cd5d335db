@@ -1,0 +1,11 @@
+src/handlers/account.rs
+Cargo.toml
+src/output/text.rs
+Cargo.lock
+---
+{
+  "metadata": {
+    "base_commit_sha": "e2aeea59aac1937fa16c9c556d27244cd5d335db",
+    "prompts": {}
+  }
+}
