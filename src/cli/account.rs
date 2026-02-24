@@ -8,7 +8,8 @@ use super::RpcArgs;
 
 #[derive(Args, Debug)]
 pub struct AccountArgs {
-    /// Solana account address (base58 pubkey)
+    /// Solana account address (base58 pubkey) or path to a local JSON file
+    /// exported via `solana account --output json`
     pub account: String,
 
     #[command(flatten)]

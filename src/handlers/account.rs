@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 use anyhow::{Context, Result};
@@ -12,19 +12,31 @@ use crate::{
 };
 
 pub(crate) fn handle(args: AccountArgs) -> Result<()> {
-    let account_pubkey = Pubkey::from_str(&args.account)
-        .with_context(|| format!("Invalid account pubkey: {}", args.account))?;
+    let path = Path::new(&args.account);
+    let is_file = path.is_file();
 
-    use solana_client::rpc_client::RpcClient;
-    let client = RpcClient::new(&args.rpc.rpc_url);
-    let account = client
-        .get_account(&account_pubkey)
-        .with_context(|| format!("Failed to fetch account: {}", account_pubkey))?;
+    let (pubkey_str, account_pubkey, account) = if is_file {
+        let (pk_str, acct) = load_account_from_file(path)?;
+        let pk = Pubkey::from_str(&pk_str)
+            .with_context(|| format!("Invalid pubkey in account file: {pk_str}"))?;
+        (pk_str, pk, acct)
+    } else {
+        let pk = Pubkey::from_str(&args.account)
+            .with_context(|| format!("Invalid account pubkey: {}", args.account))?;
+        use solana_client::rpc_client::RpcClient;
+        let client = RpcClient::new(&args.rpc.rpc_url);
+        let acct =
+            client.get_account(&pk).with_context(|| format!("Failed to fetch account: {pk}"))?;
+        (pk.to_string(), pk, acct)
+    };
 
     if args.raw {
         print_raw_account_data(&account);
         return Ok(());
     }
+
+    use solana_client::rpc_client::RpcClient;
+    let client = RpcClient::new(&args.rpc.rpc_url);
 
     let (mut output, account_type, metadata_output) =
         decode_account_output(&args, &client, &account_pubkey, &account)?;
@@ -40,7 +52,7 @@ pub(crate) fn handle(args: AccountArgs) -> Result<()> {
         println!("{}", serde_json::to_string_pretty(&output)?);
     } else {
         crate::output::render_account_text(
-            &args.account,
+            &pubkey_str,
             &account,
             &account_type,
             &output,
@@ -49,6 +61,77 @@ pub(crate) fn handle(args: AccountArgs) -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Load a Solana account from a local JSON file (Solana CLI `--output json` format).
+///
+/// Expected format:
+/// ```json
+/// {
+///   "pubkey": "<base58>",
+///   "account": {
+///     "lamports": 1141440,
+///     "data": ["<base64>", "base64"],
+///     "owner": "<base58>",
+///     "executable": false,
+///     "rentEpoch": 361,
+///     "space": 36
+///   }
+/// }
+/// ```
+fn load_account_from_file(path: &Path) -> Result<(String, solana_account::Account)> {
+    let content = fs::read_to_string(path)
+        .with_context(|| format!("Failed to read file: {}", path.display()))?;
+    let json: Value = serde_json::from_str(&content)
+        .with_context(|| format!("Invalid JSON in {}", path.display()))?;
+
+    let pubkey_str = json
+        .get("pubkey")
+        .and_then(Value::as_str)
+        .map(String::from)
+        .unwrap_or_else(|| "Unknown".into());
+
+    let acct = json.get("account").unwrap_or(&json);
+
+    let lamports = acct
+        .get("lamports")
+        .and_then(Value::as_u64)
+        .with_context(|| "Missing or invalid 'lamports' field")?;
+
+    let owner_str =
+        acct.get("owner").and_then(Value::as_str).with_context(|| "Missing 'owner' field")?;
+    let owner = Pubkey::from_str(owner_str)
+        .with_context(|| format!("Invalid owner pubkey: {owner_str}"))?;
+
+    let executable = acct.get("executable").and_then(Value::as_bool).unwrap_or(false);
+
+    let rent_epoch = acct.get("rentEpoch").and_then(Value::as_u64).unwrap_or(0);
+
+    let data = parse_account_data_field(acct).with_context(|| "Failed to parse 'data' field")?;
+
+    Ok((pubkey_str, solana_account::Account { lamports, data, owner, executable, rent_epoch }))
+}
+
+/// Parse the `data` field which can be either `["<base64>", "base64"]` or a raw base64 string.
+fn parse_account_data_field(acct: &Value) -> Result<Vec<u8>> {
+    use base64::{Engine as _, engine::general_purpose};
+
+    match acct.get("data") {
+        Some(Value::Array(arr)) => {
+            let b64 = arr
+                .first()
+                .and_then(Value::as_str)
+                .with_context(|| "data array must contain a base64 string as the first element")?;
+            general_purpose::STANDARD
+                .decode(b64)
+                .with_context(|| "Failed to decode base64 account data")
+        }
+        Some(Value::String(s)) => general_purpose::STANDARD
+            .decode(s)
+            .with_context(|| "Failed to decode base64 account data"),
+        Some(_) => anyhow::bail!("'data' field has unexpected type"),
+        None => Ok(Vec::new()),
+    }
 }
 
 fn decode_account_output(
@@ -355,7 +438,9 @@ fn fetch_metadata_for_mint(
 
 #[cfg(test)]
 mod tests {
-    use super::should_enrich_with_metaplex_metadata;
+    use super::{
+        load_account_from_file, parse_account_data_field, should_enrich_with_metaplex_metadata,
+    };
     use crate::parsers::token_account_decoder;
     use solana_pubkey::Pubkey;
     use spl_token::solana_program::program_option::COption;
@@ -446,5 +531,88 @@ mod tests {
         };
         let token_json = token_account_decoder::decode_spl_token_account(&account).unwrap();
         assert!(!should_enrich_with_metaplex_metadata(&account, &token_json));
+    }
+
+    #[test]
+    fn load_account_from_solana_cli_json() {
+        use base64::{Engine as _, engine::general_purpose};
+        use std::io::Write;
+
+        let raw_data = vec![1u8, 2, 3, 4, 5];
+        let b64 = general_purpose::STANDARD.encode(&raw_data);
+        let owner = "11111111111111111111111111111111";
+        let pubkey = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
+        let json = serde_json::json!({
+            "pubkey": pubkey,
+            "account": {
+                "lamports": 1_000_000,
+                "data": [b64, "base64"],
+                "owner": owner,
+                "executable": false,
+                "rentEpoch": 42,
+                "space": 5
+            }
+        });
+
+        let mut tmp = tempfile::NamedTempFile::with_suffix(".json").unwrap();
+        write!(tmp, "{}", serde_json::to_string(&json).unwrap()).unwrap();
+
+        let (pk, acct) = load_account_from_file(tmp.path()).unwrap();
+        assert_eq!(pk, pubkey);
+        assert_eq!(acct.lamports, 1_000_000);
+        assert_eq!(acct.data, raw_data);
+        assert_eq!(acct.owner.to_string(), owner);
+        assert!(!acct.executable);
+        assert_eq!(acct.rent_epoch, 42);
+    }
+
+    #[test]
+    fn load_account_flat_json_without_pubkey() {
+        use base64::{Engine as _, engine::general_purpose};
+        use std::io::Write;
+
+        let raw_data = vec![10u8, 20, 30];
+        let b64 = general_purpose::STANDARD.encode(&raw_data);
+        let json = serde_json::json!({
+            "lamports": 500,
+            "data": [b64, "base64"],
+            "owner": "11111111111111111111111111111111",
+            "executable": true,
+            "rentEpoch": 0
+        });
+
+        let mut tmp = tempfile::NamedTempFile::with_suffix(".json").unwrap();
+        write!(tmp, "{}", serde_json::to_string(&json).unwrap()).unwrap();
+
+        let (pk, acct) = load_account_from_file(tmp.path()).unwrap();
+        assert_eq!(pk, "Unknown");
+        assert_eq!(acct.lamports, 500);
+        assert_eq!(acct.data, raw_data);
+        assert!(acct.executable);
+    }
+
+    #[test]
+    fn parse_data_field_base64_string() {
+        use base64::{Engine as _, engine::general_purpose};
+
+        let raw = vec![0xDE, 0xAD, 0xBE, 0xEF];
+        let b64 = general_purpose::STANDARD.encode(&raw);
+        let json = serde_json::json!({ "data": b64 });
+        let parsed = parse_account_data_field(&json).unwrap();
+        assert_eq!(parsed, raw);
+    }
+
+    #[test]
+    fn parse_data_field_missing_returns_empty() {
+        let json = serde_json::json!({ "lamports": 1 });
+        let parsed = parse_account_data_field(&json).unwrap();
+        assert!(parsed.is_empty());
+    }
+
+    #[test]
+    fn load_account_file_not_found() {
+        let result =
+            load_account_from_file(std::path::Path::new("/tmp/nonexistent_sonar_test.json"));
+        assert!(result.is_err());
     }
 }
