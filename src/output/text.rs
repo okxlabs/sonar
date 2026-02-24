@@ -618,6 +618,12 @@ fn render_instruction_details_text(
             }
         }
     }
+
+    println!(
+        "\n{}",
+        "  [source:SignerAccessExec] source: s=static l=lookup | S=signer w=writable r=readonly x=executable"
+            .custom_color(DIM_GRAY)
+    );
 }
 
 fn render_instruction_account_text(
