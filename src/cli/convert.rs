@@ -27,6 +27,9 @@ pub enum ConvertInputFormat {
     /// Base64 encoded string (alias: b64)
     #[value(alias = "b64")]
     Base64,
+    /// Binary bitstring with 0b prefix, e.g. 0b01010101 (alias: bin)
+    #[value(alias = "bin")]
+    Binary,
     /// Base58 encoded string, e.g. Solana pubkey (alias: b58)
     #[value(alias = "b58")]
     Base58,
@@ -137,7 +140,7 @@ EXAMPLES:
   echo '0x48656c6c6f' | sonar convert hex text Pipe via stdin
 
 FORMATS:
-  Generic:  int, hex, hex-bytes (hb), bytes, text, base64 (b64), base58 (b58), binary (bin, output only)
+  Generic:  int, hex, hex-bytes (hb), bytes, text, binary (bin), base64 (b64), base58 (b58)
   Solana:   pubkey (pk), signature (sig), keypair (kp, input only), lamports (lam), sol
   Fixed:    u8, u16, u32, u64, u128, i8, i16, i32, i64, i128
 ")]
@@ -465,6 +468,33 @@ fn parse_fixed_integer(input: &str, spec: FixedIntSpec) -> Result<ConvertValue, 
     }
 }
 
+fn parse_binary_input(input: &str) -> Result<Vec<u8>, String> {
+    let trimmed = input.trim();
+    let body = if trimmed.starts_with("0b") || trimmed.starts_with("0B") {
+        &trimmed[2..]
+    } else {
+        trimmed
+    };
+
+    let bits: String = body.chars().filter(|c| !c.is_whitespace() && *c != '_').collect();
+    if bits.is_empty() {
+        return Err("Binary string cannot be empty".to_string());
+    }
+    if !bits.chars().all(|c| c == '0' || c == '1') {
+        return Err("Binary string must contain only 0 and 1".to_string());
+    }
+
+    let padded_len = bits.len().next_multiple_of(8);
+    let padded = format!("{:0>width$}", bits, width = padded_len);
+
+    let mut bytes = Vec::with_capacity(padded_len / 8);
+    for chunk in padded.as_bytes().chunks(8) {
+        let byte_str = std::str::from_utf8(chunk).unwrap();
+        bytes.push(u8::from_str_radix(byte_str, 2).unwrap());
+    }
+    Ok(bytes)
+}
+
 fn parse_input_with_format(
     input: &str,
     format: ConvertInputFormat,
@@ -485,6 +515,7 @@ fn parse_input_with_format(
             Ok(ConvertValue::Bytes(parse_bytes_input(input, Some(ByteFormat::Bytes))?))
         }
         ConvertInputFormat::Text => Ok(ConvertValue::Bytes(input.as_bytes().to_vec())),
+        ConvertInputFormat::Binary => Ok(ConvertValue::Bytes(parse_binary_input(input)?)),
         ConvertInputFormat::Base64 => {
             let value = base64::engine::general_purpose::STANDARD
                 .decode(input)
@@ -1297,13 +1328,7 @@ mod tests {
             vec!["sonar", "convert", "i16", "hex", "-32768"],
             vec!["sonar", "convert", "i32", "hex", "-2147483648"],
             vec!["sonar", "convert", "i64", "hex", "-9223372036854775808"],
-            vec![
-                "sonar",
-                "convert",
-                "i128",
-                "hex",
-                "-170141183460469231731687303715884105728",
-            ],
+            vec!["sonar", "convert", "i128", "hex", "-170141183460469231731687303715884105728"],
             vec![
                 "sonar",
                 "convert",
@@ -1513,5 +1538,79 @@ mod tests {
         let mut le = parse_convert_args(&["sonar", "convert", "hex", "i16", "0xfeff"]);
         le.le = true;
         assert_eq!(convert(&le).unwrap(), "-2");
+    }
+
+    #[test]
+    fn convert_binary_to_hex() {
+        let output =
+            convert(&args(ConvertInputFormat::Binary, "0b01001000", ConvertOutputFormat::Hex))
+                .unwrap();
+        assert_eq!(output, "0x48");
+    }
+
+    #[test]
+    fn convert_binary_to_text() {
+        let output = convert(&args(
+            ConvertInputFormat::Binary,
+            "0b0100100001100101011011000110110001101111",
+            ConvertOutputFormat::Text,
+        ))
+        .unwrap();
+        assert_eq!(output, "Hello");
+    }
+
+    #[test]
+    fn convert_binary_input_with_underscores() {
+        let output =
+            convert(&args(ConvertInputFormat::Binary, "0b0100_1000", ConvertOutputFormat::Hex))
+                .unwrap();
+        assert_eq!(output, "0x48");
+    }
+
+    #[test]
+    fn convert_binary_input_without_prefix() {
+        let output =
+            convert(&args(ConvertInputFormat::Binary, "01001000", ConvertOutputFormat::Hex))
+                .unwrap();
+        assert_eq!(output, "0x48");
+    }
+
+    #[test]
+    fn convert_binary_input_partial_byte() {
+        let output =
+            convert(&args(ConvertInputFormat::Binary, "0b1111", ConvertOutputFormat::Hex)).unwrap();
+        assert_eq!(output, "0x0f");
+    }
+
+    #[test]
+    fn convert_binary_rejects_invalid_chars() {
+        let err = convert(&args(ConvertInputFormat::Binary, "0b012", ConvertOutputFormat::Hex))
+            .unwrap_err();
+        assert!(err.contains("must contain only 0 and 1"));
+    }
+
+    #[test]
+    fn cli_accepts_binary_input_format() {
+        let parsed = parse_convert_args(&["sonar", "convert", "binary", "hex", "0b01001000"]);
+        assert_eq!(parsed.from, ConvertInputFormat::Binary);
+        assert_eq!(convert(&parsed).unwrap(), "0x48");
+    }
+
+    #[test]
+    fn cli_accepts_bin_alias_as_input() {
+        let parsed = parse_convert_args(&["sonar", "convert", "bin", "hex", "0b11111111"]);
+        assert_eq!(parsed.from, ConvertInputFormat::Binary);
+        assert_eq!(convert(&parsed).unwrap(), "0xff");
+    }
+
+    #[test]
+    fn convert_binary_roundtrip() {
+        let to_binary =
+            convert(&args(ConvertInputFormat::Hex, "0xff", ConvertOutputFormat::Binary)).unwrap();
+        assert_eq!(to_binary, "0b11111111");
+
+        let back = convert(&args(ConvertInputFormat::Binary, &to_binary, ConvertOutputFormat::Hex))
+            .unwrap();
+        assert_eq!(back, "0xff");
     }
 }
