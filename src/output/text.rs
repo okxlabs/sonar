@@ -372,6 +372,12 @@ fn render_sol_balance_changes(sol_changes: &[SolBalanceChangeSection], indent: &
             wa = w_account,
         );
     }
+
+    println!(
+        "\n{}",
+        "  account  ±Δ(SOL)  before → after | (+) increase  (-) decrease"
+            .custom_color(DIM_GRAY)
+    );
 }
 
 fn render_token_balance_changes(token_changes: &[TokenBalanceChangeSection], indent: &str) {
@@ -416,6 +422,12 @@ fn render_token_balance_changes(token_changes: &[TokenBalanceChangeSection], ind
             wo = w_owner,
         );
     }
+
+    println!(
+        "\n{}",
+        "  token-account  owner  ±Δ(amount)  before → after  mint | (+) increase  (-) decrease"
+            .custom_color(DIM_GRAY)
+    );
 }
 
 fn render_lookup_tables_text(transaction: &TransactionSection) {
