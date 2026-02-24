@@ -145,6 +145,33 @@ fn decode_account_output(
     use solana_loader_v3_interface::state::UpgradeableLoaderState;
     use solana_sdk_ids::{address_lookup_table, bpf_loader_upgradeable};
 
+    if *account_pubkey == solana_sdk_ids::sysvar::clock::id() {
+        if let Ok(clock) = bincode::deserialize::<solana_clock::Clock>(account.data.as_slice()) {
+            let data_json = if args.json {
+                serde_json::json!({
+                    "slot": clock.slot,
+                    "epoch": clock.epoch,
+                    "leaderScheduleEpoch": clock.leader_schedule_epoch,
+                    "unixTimestamp": clock.unix_timestamp,
+                    "epochStartTimestamp": clock.epoch_start_timestamp,
+                })
+            } else {
+                serde_json::json!({
+                    "slot": clock.slot,
+                    "epoch": clock.epoch,
+                    "leaderScheduleEpoch": clock.leader_schedule_epoch,
+                    "unixTimestamp": format_timestamp_with_utc(clock.unix_timestamp),
+                    "epochStartTimestamp": format_timestamp_with_utc(clock.epoch_start_timestamp),
+                })
+            };
+            return Ok((
+                wrap_account_data_output(account, data_json),
+                "Sysvar Clock".into(),
+                None,
+            ));
+        }
+    }
+
     if account.owner == bpf_loader_upgradeable::id() {
         if let Ok(state) = bincode::deserialize::<UpgradeableLoaderState>(account.data.as_slice()) {
             match state {
@@ -322,6 +349,13 @@ fn try_load_idl_from_dir(idl_dir: &Option<PathBuf>, owner: &Pubkey) -> Option<St
 
 /// Build ProgramData account payload.
 /// Deserializes the UpgradeableLoaderState::ProgramData to extract upgrade authority and slot.
+fn format_timestamp_with_utc(ts: i64) -> String {
+    match chrono::DateTime::from_timestamp(ts, 0) {
+        Some(dt) => format!("{} ({})", ts, dt.format("%Y-%m-%d %H:%M:%S UTC")),
+        None => ts.to_string(),
+    }
+}
+
 fn build_programdata_json(account: &solana_account::Account) -> Result<Value> {
     use solana_loader_v3_interface::state::UpgradeableLoaderState;
 
