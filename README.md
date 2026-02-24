@@ -414,18 +414,19 @@ Priority: CLI arguments > environment variables > config file > defaults.
 ## Account Permission Markers
 
 In the text output of `simulate` and `decode`, each account is annotated with a compact
-permission marker in the form `[<src>:<sig><perm><exe>]`:
+permission marker in the form `[<sig><perm><exe>]`:
 
 | Position | Values | Meaning |
 |----------|--------|---------|
-| **src**  | `s` / `l` | Account source: **s**tatic (in transaction) or **l**ookup table |
-| **sig**  | `S` / `-` | **S**igner or not |
+| **sig**  | `s` / `-` | **s**igner or not |
 | **perm** | `w` / `r` | **w**ritable or **r**ead-only |
 | **exe**  | `x` / `-` | e**x**ecutable (program) or not |
 
-Examples: `[s:Sw-]` = static, signer, writable; `[l:-r-]` = lookup table, non-signer, read-only.
+Examples: `[sw-]` = signer, writable; `[-r-]` = non-signer, read-only.
 
-The `[n]` label next to a marker refers to the account's index in the Account List section.
+The `[n]` label next to a marker refers to the account's index in the transaction's
+account list. Static accounts occupy the lower indices and lookup-table accounts follow;
+the legend at the bottom of the Instruction Details section shows the exact ranges.
 
 ## Technology Stack
 

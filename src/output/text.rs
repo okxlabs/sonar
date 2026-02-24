@@ -16,9 +16,8 @@ use crate::{
 
 use super::LogDisplayOptions;
 use super::report::{
-    BundleReport, BundleTransactionReport, InstructionAccountEntry, InstructionAccountSource,
-    Report, SimulationSection, SimulationStatusReport, SolBalanceChangeSection,
-    TokenBalanceChangeSection, TransactionSection,
+    BundleReport, BundleTransactionReport, InstructionAccountEntry, Report, SimulationSection,
+    SimulationStatusReport, SolBalanceChangeSection, TokenBalanceChangeSection, TransactionSection,
 };
 use super::terminal::render_section_title;
 
@@ -368,8 +367,7 @@ fn render_sol_balance_changes(sol_changes: &[SolBalanceChangeSection], indent: &
             indent,
             INDENT_L1,
             col_account,
-            format!("{:<width$}", col_delta, width = w_delta)
-                .custom_color(*color),
+            format!("{:<width$}", col_delta, width = w_delta).custom_color(*color),
             col_range.custom_color((171, 178, 191)),
             wa = w_account,
         );
@@ -385,11 +383,17 @@ fn render_token_balance_changes(token_changes: &[TokenBalanceChangeSection], ind
             let ui_after = c.after as f64 / divisor;
             let prec = c.decimals as usize;
             let sign = if c.change >= 0 { "+" } else { "" };
-            let col_range =
-                format!("{:.prec$} → {:.prec$}", ui_before, ui_after, prec = prec);
+            let col_range = format!("{:.prec$} → {:.prec$}", ui_before, ui_after, prec = prec);
             let col_delta = format!("{}{:.prec$}", sign, c.ui_change, prec = prec);
             let color = if c.change >= 0 { (152, 195, 121) } else { (224, 108, 117) };
-            (c.token_account.as_str(), c.owner.as_str(), col_range, col_delta, c.mint.as_str(), color)
+            (
+                c.token_account.as_str(),
+                c.owner.as_str(),
+                col_range,
+                col_delta,
+                c.mint.as_str(),
+                color,
+            )
         })
         .collect();
 
@@ -405,10 +409,8 @@ fn render_token_balance_changes(token_changes: &[TokenBalanceChangeSection], ind
             INDENT_L1,
             col_ta,
             col_owner,
-            format!("{:<width$}", col_delta, width = w_delta)
-                .custom_color(*color),
-            format!("{:<width$}", col_range, width = w_range)
-                .custom_color((171, 178, 191)),
+            format!("{:<width$}", col_delta, width = w_delta).custom_color(*color),
+            format!("{:<width$}", col_range, width = w_range).custom_color((171, 178, 191)),
             col_mint,
             wt = w_ta,
             wo = w_owner,
@@ -440,7 +442,6 @@ fn render_account_list_text(transaction: &TransactionSection, resolved: &Resolve
         account_index = render_account_entry_text(
             account_index,
             &account.pubkey,
-            InstructionAccountSource::Static,
             account.signer,
             account.writable,
             &layout,
@@ -453,7 +454,6 @@ fn render_account_list_text(transaction: &TransactionSection, resolved: &Resolve
             account_index = render_account_entry_text(
                 account_index,
                 &entry.pubkey,
-                InstructionAccountSource::Lookup,
                 false,
                 true,
                 &layout,
@@ -467,7 +467,6 @@ fn render_account_list_text(transaction: &TransactionSection, resolved: &Resolve
             account_index = render_account_entry_text(
                 account_index,
                 &entry.pubkey,
-                InstructionAccountSource::Lookup,
                 false,
                 false,
                 &layout,
@@ -480,7 +479,6 @@ fn render_account_list_text(transaction: &TransactionSection, resolved: &Resolve
 fn render_account_entry_text(
     index: usize,
     pubkey_str: &str,
-    source: InstructionAccountSource,
     signer: bool,
     writable: bool,
     layout: &ColumnLayout,
@@ -489,9 +487,9 @@ fn render_account_entry_text(
     let pubkey = Pubkey::from_str(pubkey_str).unwrap();
     let executable = resolved.accounts.get(&pubkey).map(|acc| acc.executable).unwrap_or(false);
     let index_label = render_account_index_label(index, layout.index_width);
-    let source_marker = render_instruction_account_marker(source, signer, writable, executable);
+    let marker = render_account_marker(signer, writable, executable);
     let pubkey_display = format!("{:<width$}", pubkey_str, width = layout.pubkey_width);
-    println!("{}{} {} {}", INDENT_L1, index_label, pubkey_display, source_marker);
+    println!("{}{} {} {}", INDENT_L1, index_label, pubkey_display, marker);
     index + 1
 }
 
@@ -619,11 +617,24 @@ fn render_instruction_details_text(
         }
     }
 
-    println!(
-        "\n{}",
-        "  [source:SignerAccessExec] source: s=static l=lookup | S=signer w=writable r=readonly x=executable"
-            .custom_color(DIM_GRAY)
+    let legend = render_account_legend(transaction);
+    println!("\n{}", legend.custom_color(DIM_GRAY));
+}
+
+fn render_account_legend(transaction: &TransactionSection) -> String {
+    let static_count = transaction.static_accounts.len();
+    let lookup_count: usize =
+        transaction.lookups.iter().map(|l| l.writable.len() + l.readonly.len()).sum();
+
+    let mut legend = format!(
+        "  s=signer w=writable r=readonly x=executable | [0..{}] static",
+        static_count.saturating_sub(1)
     );
+    if lookup_count > 0 {
+        let lookup_end = static_count + lookup_count - 1;
+        legend.push_str(&format!(" [{}..{}] lookup", static_count, lookup_end));
+    }
+    legend
 }
 
 fn render_instruction_account_text(
@@ -642,33 +653,19 @@ fn render_instruction_account_text(
         Some(n) => format!(" {}", n.custom_color(DIM_GRAY)),
         None => String::new(),
     };
-    let source_marker = render_instruction_account_marker(
-        account.source,
-        account.signer,
-        account.writable,
-        executable,
-    );
+    let source_marker = render_account_marker(account.signer, account.writable, executable);
     let index_label = render_account_index_label(account.index, layout.index_width);
     let pubkey_display = format!("{:<width$}", account.pubkey, width = layout.pubkey_width);
     println!("{}{} {} {}{}", indent, index_label, pubkey_display, source_marker, name_suffix);
 }
 
-fn render_instruction_account_marker(
-    source: InstructionAccountSource,
-    signer: bool,
-    writable: bool,
-    executable: bool,
-) -> String {
+fn render_account_marker(signer: bool, writable: bool, executable: bool) -> String {
     let mode = account_mode_bits(signer, writable, executable);
-    let prefix = match source {
-        InstructionAccountSource::Static => 's',
-        InstructionAccountSource::Lookup => 'l',
-    };
-    format!("[{prefix}:{mode}]").custom_color(DIM_GRAY).to_string()
+    format!("[{mode}]").custom_color(DIM_GRAY).to_string()
 }
 
 fn account_mode_bits(signer: bool, writable: bool, executable: bool) -> String {
-    let signer_bit = if signer { 'S' } else { '-' };
+    let signer_bit = if signer { 's' } else { '-' };
     let access_bit = if writable { 'w' } else { 'r' };
     let exec_bit = if executable { 'x' } else { '-' };
     format!("{signer_bit}{access_bit}{exec_bit}")
