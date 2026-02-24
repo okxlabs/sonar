@@ -494,9 +494,9 @@ fn render_account_entry_text(
     let marker = render_account_marker(signer, writable, executable);
     let pubkey_display = format!("{:<width$}", pubkey_str, width = layout.pubkey_width);
     let lookup_suffix = match lookup_info {
-        Some((table_idx, table_inner_idx)) => format!("  ALT[{}] #{}", table_idx, table_inner_idx)
-            .custom_color(DIM_GRAY)
-            .to_string(),
+        Some((table_idx, table_inner_idx)) => {
+            format!("  ALT[{}] #{}", table_idx, table_inner_idx).custom_color(DIM_GRAY).to_string()
+        }
         None => String::new(),
     };
     println!("{}{} {} {}{}", INDENT_L1, index_label, pubkey_display, marker, lookup_suffix);
