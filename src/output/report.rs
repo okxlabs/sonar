@@ -3,7 +3,7 @@ use std::str::FromStr;
 
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
-use serde::Serialize;
+use serde::{Serialize, Serializer};
 use solana_pubkey::Pubkey;
 use solana_transaction::versioned::TransactionVersion;
 
@@ -494,6 +494,7 @@ pub(super) struct InstructionSection {
     pub(super) index: usize,
     pub(super) program: InstructionAccountEntry,
     pub(super) accounts: Vec<InstructionAccountEntry>,
+    #[serde(serialize_with = "serialize_bytes_as_hex")]
     pub(super) data: Box<[u8]>,
     pub(super) parsed: Option<ParsedInstruction>,
     pub(super) inner_instructions: Vec<InnerInstructionSection>,
@@ -562,6 +563,7 @@ pub(super) struct InnerInstructionSection {
     pub(super) label: String,
     pub(super) program: InstructionAccountEntry,
     pub(super) accounts: Vec<InstructionAccountEntry>,
+    #[serde(serialize_with = "serialize_bytes_as_hex")]
     pub(super) data: Box<[u8]>,
     pub(super) parsed: Option<ParsedInstruction>,
 }
@@ -847,6 +849,10 @@ struct ReplacementSection {
     replacement_type: String,
     pubkey: String,
     path: String,
+}
+
+fn serialize_bytes_as_hex<S: Serializer>(bytes: &[u8], serializer: S) -> Result<S::Ok, S::Error> {
+    serializer.serialize_str(&format!("0x{}", hex::encode(bytes)))
 }
 
 fn replacement_to_section(entry: &Replacement) -> ReplacementSection {
