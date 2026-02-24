@@ -140,7 +140,7 @@ pub struct ConvertArgs {
     #[arg(long)]
     pub le: bool,
 
-    /// Separator for array outputs (single character, default: ",")
+    /// Separator for array outputs (single character)
     #[arg(long, value_name = "CHAR", default_value = ",")]
     pub sep: String,
 
