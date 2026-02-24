@@ -407,9 +407,6 @@ pub(crate) fn dump_accounts_to_dir(
     let required_keys: HashSet<Pubkey> =
         required_accounts.iter().copied().chain(lookup_related.iter().copied()).collect();
 
-    let mut dumped = 0usize;
-    let mut skipped = 0usize;
-    let mut placeholders = 0usize;
     let mut dumped_keys = HashSet::new();
 
     for (pubkey, account) in accounts {
@@ -418,19 +415,16 @@ pub(crate) fn dump_accounts_to_dir(
             && *pubkey != Clock::id()
             && *pubkey != SlotHashes::id()
         {
-            skipped += 1;
             continue;
         }
 
         if is_native_owner(account) {
-            skipped += 1;
             continue;
         }
 
         let path = dir.join(format!("{pubkey}.json"));
         write_dump_account(pubkey, account, &path)?;
 
-        dumped += 1;
         dumped_keys.insert(*pubkey);
     }
 
@@ -452,17 +446,8 @@ pub(crate) fn dump_accounts_to_dir(
         };
         let path = dir.join(format!("{pubkey}.json"));
         write_dump_account(&pubkey, &placeholder, &path)?;
-        dumped += 1;
-        placeholders += 1;
     }
 
-    eprintln!(
-        "Dumped {} accounts to {} ({} native accounts skipped, {} placeholders)",
-        dumped,
-        dir.display(),
-        skipped,
-        placeholders
-    );
     Ok(())
 }
 
