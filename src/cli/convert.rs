@@ -123,6 +123,24 @@ pub enum ConvertOutputFormat {
 }
 
 #[derive(Args, Debug)]
+#[command(after_help = "\
+EXAMPLES:
+  sonar convert hex text 0x48656c6c6f          Hex → text (\"Hello\")
+  sonar convert text base64 'Hello World'      Text → Base64
+  sonar convert sol lamports 1.5               SOL → lamports (1500000000)
+  sonar convert lamports sol 1500000000        Lamports → SOL (1.5)
+  sonar convert hex bytes 0x1234abcd           Hex → decimal byte array
+  sonar convert base58 hex <PUBKEY>            Base58 pubkey → hex
+  sonar convert u32 hex 305419896              u32 → hex (0x12345678)
+  sonar convert hex u32 0x12345678             Hex → u32 (305419896)
+  sonar convert hex binary 0xff                Hex → binary bitstring
+  echo '0x48656c6c6f' | sonar convert hex text Pipe via stdin
+
+FORMATS:
+  Generic:  int, hex, hex-bytes (hb), bytes, text, base64 (b64), base58 (b58), binary (bin, output only)
+  Solana:   pubkey (pk), signature (sig), keypair (kp, input only), lamports (lam), sol
+  Fixed:    u8, u16, u32, u64, u128, i8, i16, i32, i64, i128
+")]
 pub struct ConvertArgs {
     /// Input format
     #[arg(value_name = "FROM", index = 1)]
