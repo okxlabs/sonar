@@ -470,7 +470,7 @@ fn parse_input_with_format(
         ConvertInputFormat::Base64 => {
             let value = base64::engine::general_purpose::STANDARD
                 .decode(input)
-                .map_err(|e| format!("Invalid base64 input: {}", e))?;
+                .map_err(|e| format!("Invalid base64 input: {}", format_base64_error(&e)))?;
             Ok(ConvertValue::Bytes(value))
         }
         ConvertInputFormat::Base58 => {
@@ -866,6 +866,28 @@ fn format_target(
             Ok(Signature::from(bytes).to_string())
         }
         _ => unreachable!("fixed integer formats handled before match"),
+    }
+}
+
+fn format_base64_error(err: &base64::DecodeError) -> String {
+    match err {
+        base64::DecodeError::InvalidByte(offset, byte) => {
+            let ch = *byte as char;
+            if ch.is_ascii_graphic() || ch == ' ' {
+                format!("unexpected character '{ch}' at position {offset}")
+            } else {
+                format!("unexpected byte 0x{byte:02x} at position {offset}")
+            }
+        }
+        base64::DecodeError::InvalidLastSymbol(offset, byte) => {
+            let ch = *byte as char;
+            if ch.is_ascii_graphic() || ch == ' ' {
+                format!("invalid trailing character '{ch}' at position {offset}")
+            } else {
+                format!("invalid trailing byte 0x{byte:02x} at position {offset}")
+            }
+        }
+        other => other.to_string(),
     }
 }
 
