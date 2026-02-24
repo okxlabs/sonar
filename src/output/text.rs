@@ -446,10 +446,11 @@ fn render_account_list_text(transaction: &TransactionSection, resolved: &Resolve
             account.writable,
             &layout,
             resolved,
+            None,
         );
     }
 
-    for lookup in &transaction.lookups {
+    for (table_idx, lookup) in transaction.lookups.iter().enumerate() {
         for entry in &lookup.writable {
             account_index = render_account_entry_text(
                 account_index,
@@ -458,11 +459,12 @@ fn render_account_list_text(transaction: &TransactionSection, resolved: &Resolve
                 true,
                 &layout,
                 resolved,
+                Some((table_idx, entry.index)),
             );
         }
     }
 
-    for lookup in &transaction.lookups {
+    for (table_idx, lookup) in transaction.lookups.iter().enumerate() {
         for entry in &lookup.readonly {
             account_index = render_account_entry_text(
                 account_index,
@@ -471,6 +473,7 @@ fn render_account_list_text(transaction: &TransactionSection, resolved: &Resolve
                 false,
                 &layout,
                 resolved,
+                Some((table_idx, entry.index)),
             );
         }
     }
@@ -483,13 +486,20 @@ fn render_account_entry_text(
     writable: bool,
     layout: &ColumnLayout,
     resolved: &ResolvedAccounts,
+    lookup_info: Option<(usize, u8)>,
 ) -> usize {
     let pubkey = Pubkey::from_str(pubkey_str).unwrap();
     let executable = resolved.accounts.get(&pubkey).map(|acc| acc.executable).unwrap_or(false);
     let index_label = render_account_index_label(index, layout.index_width);
     let marker = render_account_marker(signer, writable, executable);
     let pubkey_display = format!("{:<width$}", pubkey_str, width = layout.pubkey_width);
-    println!("{}{} {} {}", INDENT_L1, index_label, pubkey_display, marker);
+    let lookup_suffix = match lookup_info {
+        Some((table_idx, table_inner_idx)) => format!("  ALT[{}] #{}", table_idx, table_inner_idx)
+            .custom_color(DIM_GRAY)
+            .to_string(),
+        None => String::new(),
+    };
+    println!("{}{} {} {}{}", INDENT_L1, index_label, pubkey_display, marker, lookup_suffix);
     index + 1
 }
 
