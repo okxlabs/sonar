@@ -22,7 +22,7 @@ fn build_section_title_block(title: &str, width: usize) -> String {
     format!(
         "\n {}{}{} \n\n",
         "─".repeat(left).dimmed(),
-        title_with_padding.dimmed(),
+        title_with_padding.bold(),
         "─".repeat(right).dimmed(),
     )
 }
