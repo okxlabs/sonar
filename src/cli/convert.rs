@@ -151,7 +151,7 @@ pub struct ConvertArgs {
     pub to: ConvertOutputFormat,
 
     /// Input value (omit to read from stdin)
-    #[arg(value_name = "INPUT", index = 3, required = false)]
+    #[arg(value_name = "INPUT", index = 3, required = false, allow_hyphen_values = true)]
     pub input: Option<String>,
 
     /// Use little-endian byte order; default is big-endian
@@ -1293,16 +1293,15 @@ mod tests {
             vec!["sonar", "convert", "u32", "hex", "4294967295"],
             vec!["sonar", "convert", "u64", "hex", "18446744073709551615"],
             vec!["sonar", "convert", "u128", "hex", "340282366920938463463374607431768211455"],
-            vec!["sonar", "convert", "i8", "hex", "--", "-128"],
-            vec!["sonar", "convert", "i16", "hex", "--", "-32768"],
-            vec!["sonar", "convert", "i32", "hex", "--", "-2147483648"],
-            vec!["sonar", "convert", "i64", "hex", "--", "-9223372036854775808"],
+            vec!["sonar", "convert", "i8", "hex", "-128"],
+            vec!["sonar", "convert", "i16", "hex", "-32768"],
+            vec!["sonar", "convert", "i32", "hex", "-2147483648"],
+            vec!["sonar", "convert", "i64", "hex", "-9223372036854775808"],
             vec![
                 "sonar",
                 "convert",
                 "i128",
                 "hex",
-                "--",
                 "-170141183460469231731687303715884105728",
             ],
             vec![
@@ -1453,15 +1452,25 @@ mod tests {
 
     #[test]
     fn convert_fixed_signed_boundaries() {
-        let min = parse_convert_args(&["sonar", "convert", "i8", "hex", "--", "-128"]);
+        let min = parse_convert_args(&["sonar", "convert", "i8", "hex", "-128"]);
         assert_eq!(convert(&min).unwrap(), "0x80");
 
         let max = parse_convert_args(&["sonar", "convert", "i8", "hex", "127"]);
         assert_eq!(convert(&max).unwrap(), "0x7f");
 
-        let overflow = parse_convert_args(&["sonar", "convert", "i8", "hex", "--", "-129"]);
+        let overflow = parse_convert_args(&["sonar", "convert", "i8", "hex", "-129"]);
         let err = convert(&overflow).unwrap_err();
         assert!(err.contains("i8 value -129 is out of range"));
+    }
+
+    #[test]
+    fn cli_accepts_negative_input_without_separator() {
+        let args = parse_convert_args(&["sonar", "convert", "i16", "hex", "-32768"]);
+        assert_eq!(args.input.as_deref(), Some("-32768"));
+
+        let args = parse_convert_args(&["sonar", "convert", "sol", "lamports", "-1.5"]);
+        let err = convert(&args).unwrap_err();
+        assert!(err.contains("SOL amount cannot be negative"));
     }
 
     #[test]
