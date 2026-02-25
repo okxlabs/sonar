@@ -9,8 +9,9 @@ use super::RpcArgs;
 #[derive(Args, Debug)]
 pub struct AccountArgs {
     /// Solana account address (base58 pubkey) or path to a local JSON file
-    /// exported via `solana account --output json`
-    pub account: String,
+    /// exported via `solana account --output json`.
+    /// Omit to read JSON from stdin (e.g. `solana account <PUBKEY> --output json | sonar account`).
+    pub account: Option<String>,
 
     #[command(flatten)]
     pub rpc: RpcArgs,
@@ -108,5 +109,16 @@ mod tests {
         ]);
 
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn account_parses_without_positional_for_stdin() {
+        let cli = Cli::try_parse_from(["sonar", "account", "--rpc-url", "http://localhost:8899"])
+            .expect("should parse with omitted account for stdin");
+
+        let Some(Commands::Account(args)) = cli.command else {
+            panic!("expected account subcommand");
+        };
+        assert!(args.account.is_none());
     }
 }

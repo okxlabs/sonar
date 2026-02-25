@@ -1,8 +1,9 @@
 use std::fs;
+use std::io::{IsTerminal, Read};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, anyhow};
 use serde_json::Value;
 use solana_pubkey::Pubkey;
 
@@ -12,22 +13,35 @@ use crate::{
 };
 
 pub(crate) fn handle(args: AccountArgs) -> Result<()> {
-    let path = Path::new(&args.account);
-    let is_file = path.is_file();
-
-    let (pubkey_str, account_pubkey, account) = if is_file {
-        let (pk_str, acct) = load_account_from_file(path)?;
-        let pk = Pubkey::from_str(&pk_str)
-            .with_context(|| format!("Invalid pubkey in account file: {pk_str}"))?;
-        (pk_str, pk, acct)
-    } else {
-        let pk = Pubkey::from_str(&args.account)
-            .with_context(|| format!("Invalid account pubkey: {}", args.account))?;
-        use solana_client::rpc_client::RpcClient;
-        let client = RpcClient::new(&args.rpc.rpc_url);
-        let acct =
-            client.get_account(&pk).with_context(|| format!("Failed to fetch account: {pk}"))?;
-        (pk.to_string(), pk, acct)
+    let (pubkey_str, account_pubkey, account) = match &args.account {
+        Some(input) if input == "-" => load_account_json(std::io::stdin().lock())?,
+        Some(input) => {
+            let path = Path::new(input);
+            if path.is_file() {
+                let file = fs::File::open(path)
+                    .with_context(|| format!("Failed to open file: {}", path.display()))?;
+                load_account_json(file)?
+            } else {
+                let pk = Pubkey::from_str(input)
+                    .with_context(|| format!("Invalid account pubkey: {input}"))?;
+                use solana_client::rpc_client::RpcClient;
+                let client = RpcClient::new(&args.rpc.rpc_url);
+                let acct = client
+                    .get_account(&pk)
+                    .with_context(|| format!("Failed to fetch account: {pk}"))?;
+                (pk.to_string(), pk, acct)
+            }
+        }
+        None => {
+            if std::io::stdin().is_terminal() {
+                return Err(anyhow!(
+                    "No account specified and stdin is a terminal.\n\
+                     Usage: sonar account <PUBKEY_OR_FILE>\n\
+                     Or pipe JSON: solana account <PUBKEY> --output json | sonar account"
+                ));
+            }
+            load_account_json(std::io::stdin().lock())?
+        }
     };
 
     if args.raw {
@@ -63,9 +77,9 @@ pub(crate) fn handle(args: AccountArgs) -> Result<()> {
     Ok(())
 }
 
-/// Load a Solana account from a local JSON file (Solana CLI `--output json` format).
+/// Parse a Solana account from any `Read` source (file, stdin, etc.).
 ///
-/// Expected format:
+/// Accepts the Solana CLI `--output json` format:
 /// ```json
 /// {
 ///   "pubkey": "<base58>",
@@ -79,19 +93,28 @@ pub(crate) fn handle(args: AccountArgs) -> Result<()> {
 ///   }
 /// }
 /// ```
-fn load_account_from_file(path: &Path) -> Result<(String, solana_account::Account)> {
-    let content = fs::read_to_string(path)
-        .with_context(|| format!("Failed to read file: {}", path.display()))?;
-    let json: Value = serde_json::from_str(&content)
-        .with_context(|| format!("Invalid JSON in {}", path.display()))?;
+fn load_account_json<R: Read>(mut reader: R) -> Result<(String, Pubkey, solana_account::Account)> {
+    let mut buf = String::new();
+    reader.read_to_string(&mut buf).context("Failed to read account JSON")?;
+    let trimmed = buf.trim();
+    if trimmed.is_empty() {
+        return Err(anyhow!("No account data received"));
+    }
+    let json: Value = serde_json::from_str(trimmed).context("Invalid account JSON")?;
+    let (pk_str, acct) = parse_solana_account_json(&json)?;
+    let pk = Pubkey::from_str(&pk_str).unwrap_or_default();
+    Ok((pk_str, pk, acct))
+}
 
+/// Parse the Solana CLI JSON format into a pubkey string and Account.
+fn parse_solana_account_json(json: &Value) -> Result<(String, solana_account::Account)> {
     let pubkey_str = json
         .get("pubkey")
         .and_then(Value::as_str)
         .map(String::from)
         .unwrap_or_else(|| "Unknown".into());
 
-    let acct = json.get("account").unwrap_or(&json);
+    let acct = json.get("account").unwrap_or(json);
 
     let lamports = acct
         .get("lamports")
@@ -518,7 +541,8 @@ fn fetch_metadata_for_mint(
 #[cfg(test)]
 mod tests {
     use super::{
-        load_account_from_file, parse_account_data_field, should_enrich_with_metaplex_metadata,
+        load_account_json, parse_account_data_field, parse_solana_account_json,
+        should_enrich_with_metaplex_metadata,
     };
     use crate::parsers::token_account_decoder;
     use solana_pubkey::Pubkey;
@@ -613,7 +637,7 @@ mod tests {
     }
 
     #[test]
-    fn load_account_from_solana_cli_json() {
+    fn load_account_from_solana_cli_json_file() {
         use base64::{Engine as _, engine::general_purpose};
         use std::io::Write;
 
@@ -636,8 +660,10 @@ mod tests {
         let mut tmp = tempfile::NamedTempFile::with_suffix(".json").unwrap();
         write!(tmp, "{}", serde_json::to_string(&json).unwrap()).unwrap();
 
-        let (pk, acct) = load_account_from_file(tmp.path()).unwrap();
-        assert_eq!(pk, pubkey);
+        let file = std::fs::File::open(tmp.path()).unwrap();
+        let (pk_str, pk, acct) = load_account_json(file).unwrap();
+        assert_eq!(pk_str, pubkey);
+        assert_eq!(pk.to_string(), pubkey);
         assert_eq!(acct.lamports, 1_000_000);
         assert_eq!(acct.data, raw_data);
         assert_eq!(acct.owner.to_string(), owner);
@@ -663,8 +689,9 @@ mod tests {
         let mut tmp = tempfile::NamedTempFile::with_suffix(".json").unwrap();
         write!(tmp, "{}", serde_json::to_string(&json).unwrap()).unwrap();
 
-        let (pk, acct) = load_account_from_file(tmp.path()).unwrap();
-        assert_eq!(pk, "Unknown");
+        let file = std::fs::File::open(tmp.path()).unwrap();
+        let (pk_str, _pk, acct) = load_account_json(file).unwrap();
+        assert_eq!(pk_str, "Unknown");
         assert_eq!(acct.lamports, 500);
         assert_eq!(acct.data, raw_data);
         assert!(acct.executable);
@@ -689,9 +716,30 @@ mod tests {
     }
 
     #[test]
-    fn load_account_file_not_found() {
-        let result =
-            load_account_from_file(std::path::Path::new("/tmp/nonexistent_sonar_test.json"));
+    fn load_account_json_empty_fails() {
+        let result = load_account_json("".as_bytes());
         assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(msg.contains("No account data"), "unexpected error: {msg}");
+    }
+
+    #[test]
+    fn parse_solana_account_json_flat_format() {
+        use base64::{Engine as _, engine::general_purpose};
+
+        let raw_data = vec![10u8, 20, 30];
+        let b64 = general_purpose::STANDARD.encode(&raw_data);
+        let json = serde_json::json!({
+            "lamports": 500,
+            "data": [b64, "base64"],
+            "owner": "11111111111111111111111111111111",
+            "executable": true,
+            "rentEpoch": 0
+        });
+        let (pk_str, acct) = parse_solana_account_json(&json).unwrap();
+        assert_eq!(pk_str, "Unknown");
+        assert_eq!(acct.lamports, 500);
+        assert_eq!(acct.data, raw_data);
+        assert!(acct.executable);
     }
 }
