@@ -5878,6 +5878,7 @@ dependencies = [
  "solana-sysvar-id",
  "solana-transaction",
  "solana-transaction-status-client-types",
+ "sonar-sim",
  "spl-pod",
  "spl-token",
  "spl-token-2022",
@@ -5887,6 +5888,37 @@ dependencies = [
  "terminal_size",
  "toml",
  "unicode-width",
+]
+
+[[package]]
+name = "sonar-sim"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64 0.22.1",
+ "bincode",
+ "bs58",
+ "litesvm",
+ "log",
+ "serde",
+ "solana-account",
+ "solana-address-lookup-table-interface",
+ "solana-client",
+ "solana-clock",
+ "solana-hash 3.1.0",
+ "solana-keypair",
+ "solana-loader-v3-interface",
+ "solana-message",
+ "solana-pubkey 3.0.0",
+ "solana-sdk-ids",
+ "solana-signature",
+ "solana-signer",
+ "solana-slot-hashes",
+ "solana-system-interface 3.0.0",
+ "solana-sysvar-id",
+ "solana-transaction",
+ "spl-token",
+ "spl-token-2022",
 ]
 
 [[package]]

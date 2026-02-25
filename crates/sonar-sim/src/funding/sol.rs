@@ -3,7 +3,7 @@ use litesvm::LiteSVM;
 use log::info;
 use solana_account::{AccountSharedData, WritableAccount};
 
-use crate::core::types::Funding;
+use crate::types::Funding;
 
 const LAMPORTS_PER_SOL: u64 = 1_000_000_000;
 

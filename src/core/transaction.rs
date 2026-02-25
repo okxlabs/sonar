@@ -1,23 +1,24 @@
+// Re-export shared types from sonar-sim
+pub use sonar_sim::transaction::{
+    AddressLookupPlan, LookupLocation, MessageAccountPlan, RawTransactionEncoding,
+    build_lookup_locations, collect_account_plan,
+};
+
 use anyhow::{Context, Result, anyhow};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
-use bs58::decode::Error as Base58Error;
 use serde::Serialize;
 use solana_message::VersionedMessage;
 use solana_message::inner_instruction::InnerInstructionsList;
-use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_transaction::versioned::{TransactionVersion, VersionedTransaction};
 use std::str::FromStr;
 
 use crate::utils::progress::Progress;
 
-#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
-pub enum RawTransactionEncoding {
-    Base58,
-    Base64,
-}
+// ---------------------------------------------------------------------------
+// CLI-specific ParsedTransaction (adds `summary` field not present in sonar-sim)
+// ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone)]
 pub struct ParsedTransaction {
@@ -28,26 +29,9 @@ pub struct ParsedTransaction {
     pub account_plan: MessageAccountPlan,
 }
 
-#[derive(Debug, Clone)]
-pub struct MessageAccountPlan {
-    pub static_accounts: Vec<Pubkey>,
-    pub address_lookups: Vec<AddressLookupPlan>,
-}
-
-impl MessageAccountPlan {
-    pub fn from_transaction(tx: &VersionedTransaction) -> Self {
-        let static_accounts = tx.message.static_account_keys().to_vec();
-        let address_lookups = build_address_lookup_plan(&tx.message);
-        Self { static_accounts, address_lookups }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct AddressLookupPlan {
-    pub account_key: Pubkey,
-    pub writable_indexes: Vec<u8>,
-    pub readonly_indexes: Vec<u8>,
-}
+// ---------------------------------------------------------------------------
+// Transaction summary types (CLI-only, String-based for human-readable output)
+// ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Serialize)]
 pub struct TransactionSummary {
@@ -99,12 +83,9 @@ pub struct AddressLookupSummary {
     pub readonly_indexes: Vec<u8>,
 }
 
-#[derive(Debug, Clone)]
-pub struct LookupLocation {
-    pub table_account: Pubkey,
-    pub table_index: u8,
-    pub writable: bool,
-}
+// ---------------------------------------------------------------------------
+// CLI-only I/O functions
+// ---------------------------------------------------------------------------
 
 pub fn read_raw_transaction(inline: Option<String>) -> Result<String> {
     if let Some(tx) = inline {
@@ -176,47 +157,24 @@ pub fn fetch_transaction_from_rpc(
     Ok(BASE64_STANDARD.encode(serialized))
 }
 
+// ---------------------------------------------------------------------------
+// Transaction parsing (wraps sonar-sim, adds summary)
+// ---------------------------------------------------------------------------
+
 pub fn parse_raw_transaction(raw: &str) -> Result<ParsedTransaction> {
-    let trimmed = raw.trim();
-    if trimmed.is_empty() {
-        return Err(anyhow!("Raw transaction string is empty"));
-    }
-
-    let mut errors = Vec::new();
-
-    for encoding in [RawTransactionEncoding::Base64, RawTransactionEncoding::Base58] {
-        match decode_bytes(trimmed, encoding) {
-            Ok(bytes) => match bincode::deserialize::<VersionedTransaction>(&bytes) {
-                Ok(transaction) => {
-                    let version = transaction.version();
-                    let account_plan = MessageAccountPlan::from_transaction(&transaction);
-                    let summary = TransactionSummary::from_transaction(
-                        &transaction,
-                        &account_plan,
-                        Vec::new(),
-                    );
-                    return Ok(ParsedTransaction {
-                        encoding,
-                        version,
-                        transaction,
-                        summary,
-                        account_plan,
-                    });
-                }
-                Err(err) => errors.push(anyhow!(
-                    "{} deserialization failed: {err}",
-                    match encoding {
-                        RawTransactionEncoding::Base58 => "Base58",
-                        RawTransactionEncoding::Base64 => "Base64",
-                    }
-                )),
-            },
-            Err(err) => errors.push(err),
-        }
-    }
-
-    let merged = errors.into_iter().map(|err| err.to_string()).collect::<Vec<_>>().join("； ");
-    Err(anyhow!("Failed to parse raw transaction: {merged}"))
+    let sim_parsed = sonar_sim::transaction::parse_raw_transaction(raw)?;
+    let summary = TransactionSummary::from_transaction(
+        &sim_parsed.transaction,
+        &sim_parsed.account_plan,
+        Vec::new(),
+    );
+    Ok(ParsedTransaction {
+        encoding: sim_parsed.encoding,
+        version: sim_parsed.version,
+        transaction: sim_parsed.transaction,
+        summary,
+        account_plan: sim_parsed.account_plan,
+    })
 }
 
 pub fn parse_transaction_input(
@@ -251,10 +209,6 @@ pub fn parse_transaction_input(
     }
 }
 
-pub fn collect_account_plan(tx: &VersionedTransaction) -> MessageAccountPlan {
-    MessageAccountPlan::from_transaction(tx)
-}
-
 /// Parse multiple transaction inputs, each using auto strategy:
 /// try raw parse first, then fallback to signature fetch when applicable.
 pub fn parse_multi_raw_transactions(
@@ -271,35 +225,9 @@ pub fn parse_multi_raw_transactions(
         .collect()
 }
 
-fn decode_bytes(input: &str, encoding: RawTransactionEncoding) -> Result<Vec<u8>> {
-    match encoding {
-        RawTransactionEncoding::Base58 => {
-            bs58::decode(input).into_vec().map_err(|err| map_base58_error(input, err))
-        }
-        RawTransactionEncoding::Base64 => BASE64_STANDARD
-            .decode(input.as_bytes())
-            .map_err(|err| anyhow!("Base64 decode failed: {err}")),
-    }
-}
-
-fn map_base58_error(input: &str, err: Base58Error) -> anyhow::Error {
-    let base_message = match err {
-        Base58Error::InvalidCharacter { character, index } => {
-            format!(
-                "Base58 decode failed: position {index} contains invalid character `{character}`"
-            )
-        }
-        other => format!("Base58 decode failed: {other}"),
-    };
-
-    if input.contains(['+', '/', '=']) {
-        anyhow!(
-            "{base_message}. Base64 characteristic characters detected, you may need to try Base64 encoding"
-        )
-    } else {
-        anyhow!(base_message)
-    }
-}
+// ---------------------------------------------------------------------------
+// TransactionSummary construction
+// ---------------------------------------------------------------------------
 
 impl TransactionSummary {
     pub fn from_transaction(
@@ -370,29 +298,7 @@ impl TransactionSummary {
     }
 }
 
-/// Classifies account index as static account or lookup table account
-///
-/// Account index rules in Solana V0 transactions:
-/// - Account indexes in Instructions are **global indexes**, ranging [0, total_accounts)
-/// - total_accounts = static_accounts.len() + lookup_accounts.len()
-///
-/// Global index to account mapping rules:
-/// 1. Indexes [0, static_accounts.len()) map to static accounts
-/// 2. Indexes [static_accounts.len(), total_accounts) map to lookup table accounts
-///
-/// Lookup table account order:
-/// - For each address_table_lookup (in transaction order):
-///   a. First all accounts corresponding to writable_indexes of that table
-///   b. Then all accounts corresponding to readonly_indexes of that table
-///
-/// # Parameters
-/// * `message` - Transaction message for querying account attributes
-/// * `index` - Global account index referenced in instruction
-/// * `plan` - Account plan containing static accounts and lookup table info
-/// * `lookup_locations` - Position mapping table for lookup table accounts
-///
-/// # Returns
-/// Returns account reference summary containing account source, pubkey, signer, and writable attributes
+/// Classifies account index as static account or lookup table account (CLI String-based version).
 pub(crate) fn classify_account_reference(
     message: &VersionedMessage,
     index: usize,
@@ -430,67 +336,6 @@ pub(crate) fn classify_account_reference(
             },
         }
     }
-}
-
-fn build_address_lookup_plan(message: &VersionedMessage) -> Vec<AddressLookupPlan> {
-    message
-        .address_table_lookups()
-        .map(|lookups| {
-            lookups
-                .iter()
-                .map(|lookup| AddressLookupPlan {
-                    account_key: lookup.account_key,
-                    writable_indexes: lookup.writable_indexes.clone(),
-                    readonly_indexes: lookup.readonly_indexes.clone(),
-                })
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
-/// Builds lookup table account position mapping table
-///
-/// This function builds account index mapping according to Solana V0 transaction spec. In V0 transactions, global account order is:
-/// 1. Static accounts (static_account_keys)
-/// 2. Accounts from address lookup tables, in the following order:
-///    a. All accounts corresponding to writable_indexes from all address lookup tables (in address_table_lookups order)
-///    b. All accounts corresponding to readonly_indexes from all address lookup tables (in address_table_lookups order)
-///
-/// The index of returned Vec<LookupLocation> corresponds to (global account index - static account count)
-///
-/// # Parameters
-/// * `plan` - Address lookup table plan list, order must match address_table_lookups in transaction
-///
-/// # Returns
-/// Returns a lookup location list sorted by global account index
-pub fn build_lookup_locations(plan: &[AddressLookupPlan]) -> Vec<LookupLocation> {
-    let mut locations = Vec::new();
-
-    // Iterate through each lookup table (maintaining transaction order)
-    for entry in plan {
-        // Add all writable accounts first (order required by Solana spec)
-        for &idx in &entry.writable_indexes {
-            locations.push(LookupLocation {
-                table_account: entry.account_key,
-                table_index: idx, // Index within lookup table
-                writable: true,
-            });
-        }
-    }
-
-    // Iterate through each lookup table (maintaining transaction order)
-    for entry in plan {
-        // Then add all readonly accounts
-        for &idx in &entry.readonly_indexes {
-            locations.push(LookupLocation {
-                table_account: entry.account_key,
-                table_index: idx, // Index within lookup table
-                writable: false,
-            });
-        }
-    }
-
-    locations
 }
 
 #[cfg(test)]
@@ -569,38 +414,26 @@ mod tests {
 
     #[test]
     fn test_build_lookup_locations_ordering() {
-        // Create two lookup tables, each with writable and readonly indexes
         let table1 = Pubkey::new_unique();
         let table2 = Pubkey::new_unique();
 
         let plan = vec![
             AddressLookupPlan {
                 account_key: table1,
-                writable_indexes: vec![0, 1], // table1 writable indexes: 0, 1
-                readonly_indexes: vec![2, 3], // table1 readonly indexes: 2, 3
+                writable_indexes: vec![0, 1],
+                readonly_indexes: vec![2, 3],
             },
             AddressLookupPlan {
                 account_key: table2,
-                writable_indexes: vec![5, 6], // table2 writable indexes: 5, 6
-                readonly_indexes: vec![7],    // table2 readonly indexes: 7
+                writable_indexes: vec![5, 6],
+                readonly_indexes: vec![7],
             },
         ];
 
         let locations = build_lookup_locations(&plan);
 
-        // Verify order complies with Solana spec (per new implementation):
-        // First all tables' writable indexes, then all tables' readonly indexes
-        // Global index 0: table1[0] writable
-        // Global index 1: table1[1] writable
-        // Global index 2: table2[5] writable
-        // Global index 3: table2[6] writable
-        // Global index 4: table1[2] readonly
-        // Global index 5: table1[3] readonly
-        // Global index 6: table2[7] readonly
-
         assert_eq!(locations.len(), 7, "Should have 7 lookup accounts");
 
-        // Verify table1 writable accounts
         assert_eq!(locations[0].table_account, table1);
         assert_eq!(locations[0].table_index, 0);
         assert_eq!(locations[0].writable, true);
@@ -609,7 +442,6 @@ mod tests {
         assert_eq!(locations[1].table_index, 1);
         assert_eq!(locations[1].writable, true);
 
-        // Verify table2 writable accounts
         assert_eq!(locations[2].table_account, table2);
         assert_eq!(locations[2].table_index, 5);
         assert_eq!(locations[2].writable, true);
@@ -618,7 +450,6 @@ mod tests {
         assert_eq!(locations[3].table_index, 6);
         assert_eq!(locations[3].writable, true);
 
-        // Verify table1 readonly accounts
         assert_eq!(locations[4].table_account, table1);
         assert_eq!(locations[4].table_index, 2);
         assert_eq!(locations[4].writable, false);
@@ -627,7 +458,6 @@ mod tests {
         assert_eq!(locations[5].table_index, 3);
         assert_eq!(locations[5].writable, false);
 
-        // Verify table2 readonly accounts
         assert_eq!(locations[6].table_account, table2);
         assert_eq!(locations[6].table_index, 7);
         assert_eq!(locations[6].writable, false);
@@ -652,11 +482,9 @@ mod tests {
 
         assert_eq!(locations.len(), 3);
 
-        // Writable accounts should be first
         assert_eq!(locations[0].table_index, 10);
         assert_eq!(locations[0].writable, true);
 
-        // Readonly accounts after
         assert_eq!(locations[1].table_index, 20);
         assert_eq!(locations[1].writable, false);
 

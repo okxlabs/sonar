@@ -3,7 +3,7 @@ use solana_account::Account;
 use solana_pubkey::Pubkey;
 use spl_token::solana_program::program_pack::Pack;
 
-use crate::core::account_loader::ResolvedAccounts;
+use crate::types::ResolvedAccounts;
 
 use super::{
     PreparedTokenFunding, TokenProgramKind, ensure_same_program, legacy_program_id,
@@ -97,7 +97,7 @@ mod tests {
     use solana_pubkey::Pubkey;
     use spl_token::solana_program::program_pack::Pack;
 
-    use crate::core::account_loader::ResolvedAccounts;
+    use crate::types::ResolvedAccounts;
 
     use super::*;
 

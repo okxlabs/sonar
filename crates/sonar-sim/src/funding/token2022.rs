@@ -4,7 +4,7 @@ use solana_pubkey::Pubkey;
 use spl_token::solana_program::program_pack::Pack;
 use spl_token_2022::extension::{BaseStateWithExtensions, BaseStateWithExtensionsMut};
 
-use crate::core::account_loader::ResolvedAccounts;
+use crate::types::ResolvedAccounts;
 
 use super::{
     PreparedTokenFunding, TokenProgramKind, ensure_same_program, raw_to_ui_amount,
@@ -133,7 +133,7 @@ mod tests {
     };
     use spl_token_2022::state::{Account as Token2022Account, Mint as Token2022Mint};
 
-    use crate::core::account_loader::ResolvedAccounts;
+    use crate::types::ResolvedAccounts;
 
     use super::*;
 

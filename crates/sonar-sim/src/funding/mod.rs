@@ -3,33 +3,21 @@ mod token2022;
 mod token_legacy;
 
 pub use sol::apply_sol_fundings;
+pub use crate::types::PreparedTokenFunding;
 
 use anyhow::{Context, Result, anyhow};
 use solana_account::Account;
 use solana_pubkey::Pubkey;
 
-use crate::{
-    core::{
-        account_loader::{AccountLoader, ResolvedAccounts},
-        types::{TokenAmount, TokenFunding},
-    },
-    utils::progress::Progress,
+use crate::account_loader::AccountLoader;
+use crate::types::{
+    ResolvedAccounts, TokenAmount, TokenFunding,
 };
-
-#[derive(Clone, Debug)]
-pub struct PreparedTokenFunding {
-    pub account: Pubkey,
-    pub mint: Pubkey,
-    pub decimals: u8,
-    pub amount_raw: u64,
-    pub ui_amount: f64,
-}
 
 pub fn prepare_token_fundings(
     loader: &AccountLoader,
     resolved: &mut ResolvedAccounts,
     requests: &[TokenFunding],
-    progress: Option<&Progress>,
 ) -> Result<Vec<PreparedTokenFunding>> {
     let mut prepared = Vec::new();
     if requests.is_empty() {
@@ -38,9 +26,7 @@ pub fn prepare_token_fundings(
 
     let total = requests.len();
     for (index, request) in requests.iter().enumerate() {
-        if let Some(progress) = progress {
-            progress.set_message(format!("Preparing token fundings... ({}/{})", index + 1, total));
-        }
+        log::debug!("Preparing token fundings ({}/{})", index + 1, total);
         let summary = process_single(loader, resolved, request)
             .with_context(|| format!("Failed to prepare token funding for {}", request.account))?;
         prepared.push(summary);
@@ -264,17 +250,15 @@ mod tests {
     use solana_pubkey::Pubkey;
     use spl_token::solana_program::program_pack::Pack;
 
-    use crate::core::{
-        account_loader::{AccountLoader, ResolvedAccounts},
-        types::{TokenAmount, TokenFunding},
-    };
+    use crate::account_loader::AccountLoader;
+    use crate::types::{ResolvedAccounts, TokenAmount, TokenFunding};
 
     use super::*;
 
     #[test]
     fn prepares_spl_token_funding_and_updates_account_data() {
         let loader =
-            AccountLoader::new("http://localhost:8899".into(), None, None, false, None).unwrap();
+            AccountLoader::new("http://localhost:8899".into()).unwrap();
         let mint = Pubkey::new_unique();
         let token = Pubkey::new_unique();
         let owner = Pubkey::new_unique();
@@ -287,7 +271,7 @@ mod tests {
 
         let funding =
             TokenFunding { account: token, mint: Some(mint), amount: TokenAmount::Raw(1_500_000) };
-        let prepared = prepare_token_fundings(&loader, &mut resolved, &[funding], None)
+        let prepared = prepare_token_fundings(&loader, &mut resolved, &[funding])
             .expect("prepares funding");
         assert_eq!(prepared.len(), 1);
         let summary = &prepared[0];

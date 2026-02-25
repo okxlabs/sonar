@@ -128,11 +128,11 @@ pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
     let prepared_token_fundings = if token_funding_requests.is_empty() {
         Vec::new()
     } else {
+        let sim_loader = sonar_sim::account_loader::AccountLoader::with_provider(account_loader.provider());
         funding::prepare_token_fundings(
-            &account_loader,
+            &sim_loader,
             &mut resolved_accounts,
             &token_funding_requests,
-            Some(&progress),
         )?
     };
 
@@ -273,11 +273,11 @@ fn handle_bundle(
     let prepared_token_fundings = if token_funding_requests.is_empty() {
         Vec::new()
     } else {
+        let sim_loader = sonar_sim::account_loader::AccountLoader::with_provider(account_loader.provider());
         funding::prepare_token_fundings(
-            &account_loader,
+            &sim_loader,
             &mut resolved_accounts,
             &token_funding_requests,
-            Some(progress),
         )?
     };
     sim_opts.token_fundings = prepared_token_fundings;

@@ -1,9 +1,13 @@
+[workspace]
+members = [".", "crates/sonar-sim"]
+
 [package]
 name = "sonar"
 version = "0.3.0"
 edition = "2021"
 
 [dependencies]
+sonar-sim = { path = "crates/sonar-sim" }
 anyhow = "1.0"
 base64 = "0.22"
 bs58 = "0.5"
