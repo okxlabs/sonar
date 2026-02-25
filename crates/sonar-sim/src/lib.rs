@@ -17,8 +17,8 @@ pub(crate) mod types;
 // ── Types ──
 
 pub use types::{
-    AccountDataPatch, Funding, PreparedTokenFunding, Replacement, ResolvedAccounts, ResolvedLookup,
-    TokenAmount, TokenFunding,
+    AccountAppender, AccountDataPatch, Funding, PreparedTokenFunding, Replacement,
+    ResolvedAccounts, ResolvedLookup, TokenAmount, TokenFunding,
 };
 
 // ── Transaction parsing ──
@@ -40,7 +40,8 @@ pub use rpc_provider::{FakeAccountProvider, RpcAccountProvider, SolanaRpcProvide
 // ── Simulation execution ──
 
 pub use executor::{
-    ExecutionStatus, SimulationOptions, SimulationResult, TransactionExecutor, is_native_or_sysvar,
+    ExecutionStatus, SimulationOptions, SimulationResult, TransactionExecutor, apply_data_patches,
+    apply_replacements, apply_slot, apply_timestamp, is_native_or_sysvar, load_accounts,
 };
 
 // ── Balance change computation ──

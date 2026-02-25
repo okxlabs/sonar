@@ -59,6 +59,123 @@ pub struct SimulationOptions {
     pub timestamp: Option<i64>,
 }
 
+// ── Pipeline steps ──
+//
+// Each function performs a single, testable stage of executor preparation.
+// `TransactionExecutor::prepare` orchestrates them in order.
+
+/// Load resolved accounts into SVM, ordered so that BPF upgradeable
+/// ProgramData accounts are set before Program accounts that reference them.
+pub fn load_accounts(svm: &mut LiteSVM, resolved: &ResolvedAccounts) -> Result<()> {
+    let mut ordered: Vec<_> = resolved.accounts.iter().collect();
+    ordered.sort_by_key(|(_, account)| account_priority(account));
+    for (pubkey, account) in ordered {
+        svm.set_account(*pubkey, account.clone())?;
+    }
+    Ok(())
+}
+
+/// Apply program (.so) and account (.json) replacements into SVM.
+pub fn apply_replacements(
+    svm: &mut LiteSVM,
+    replacements: &[Replacement],
+    resolved: &ResolvedAccounts,
+) -> Result<()> {
+    for replacement in replacements {
+        match replacement {
+            Replacement::Program { program_id, so_path } => {
+                if let Some(existing) = resolved.accounts.get(program_id) {
+                    if !existing.executable {
+                        warn!(
+                            "--replace target {} does not appear to be a program on-chain. Loading .so file anyway.",
+                            program_id
+                        );
+                    }
+                }
+                info!("Loading custom program {} => {}", program_id, so_path.display());
+                svm.add_program_from_file(*program_id, so_path).with_context(|| {
+                    format!(
+                        "Failed to load replacement program `{}`, path: {}",
+                        program_id,
+                        so_path.display()
+                    )
+                })?;
+            }
+            Replacement::Account { pubkey, account, source_path } => {
+                if let Some(existing) = resolved.accounts.get(pubkey) {
+                    if existing.executable {
+                        warn!(
+                            "--replace target {} appears to be a program on-chain, but replacing as a regular account from JSON file.",
+                            pubkey
+                        );
+                    }
+                }
+                info!("Loading custom account {} => {}", pubkey, source_path.display());
+                svm.set_account(*pubkey, account.clone()).with_context(|| {
+                    format!(
+                        "Failed to set replacement account `{}`, path: {}",
+                        pubkey,
+                        source_path.display()
+                    )
+                })?;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Apply byte-level data patches to accounts already loaded in SVM.
+pub fn apply_data_patches(svm: &mut LiteSVM, patches: &[AccountDataPatch]) -> Result<()> {
+    for patch in patches {
+        let mut account = svm.get_account(&patch.pubkey).ok_or_else(|| {
+            anyhow!("--patch-account-data target {} not found in SVM", patch.pubkey)
+        })?;
+        let end = patch.offset + patch.data.len();
+        if end > account.data.len() {
+            return Err(anyhow!(
+                "Patch range [{}..{}) exceeds account data length {} for {}",
+                patch.offset,
+                end,
+                account.data.len(),
+                patch.pubkey
+            ));
+        }
+        info!(
+            "Patching account {} data[{}..{}] ({} bytes)",
+            patch.pubkey,
+            patch.offset,
+            end,
+            patch.data.len()
+        );
+        account.data[patch.offset..end].copy_from_slice(&patch.data);
+        svm.set_account(patch.pubkey, account)
+            .with_context(|| format!("Failed to set patched account `{}`", patch.pubkey))?;
+    }
+    Ok(())
+}
+
+/// Warp SVM clock to the given slot number.
+pub fn apply_slot(svm: &mut LiteSVM, slot: u64) {
+    info!("Warping SVM clock to slot {}", slot);
+    svm.warp_to_slot(slot);
+}
+
+/// Override the Clock sysvar's `unix_timestamp` field.
+pub fn apply_timestamp(svm: &mut LiteSVM, ts: i64) -> Result<()> {
+    let clock_id = Clock::id();
+    let clock_account = svm
+        .get_account(&clock_id)
+        .ok_or_else(|| anyhow!("Clock sysvar account not found in SVM"))?;
+    let mut clock: Clock =
+        bincode::deserialize(&clock_account.data).context("Failed to deserialize Clock sysvar")?;
+    info!("Overriding Clock unix_timestamp: {} -> {}", clock.unix_timestamp, ts);
+    clock.unix_timestamp = ts;
+    let data = bincode::serialize(&clock).context("Failed to serialize modified Clock sysvar")?;
+    let updated_account = Account { data, ..clock_account };
+    svm.set_account(clock_id, updated_account).context("Failed to set modified Clock sysvar")?;
+    Ok(())
+}
+
 pub struct TransactionExecutor {
     svm: LiteSVM,
     resolved: ResolvedAccounts,
@@ -71,121 +188,31 @@ pub struct TransactionExecutor {
 
 impl TransactionExecutor {
     pub fn prepare(resolved: ResolvedAccounts, opts: SimulationOptions) -> Result<Self> {
-        let SimulationOptions {
-            replacements,
-            fundings,
-            token_fundings,
-            data_patches,
-            verify_signatures,
-            slot,
-            timestamp,
-        } = opts;
         let mut svm = LiteSVM::new()
             .with_log_bytes_limit(Some(1024 * 1024 * 10)) // 10M
             .with_blockhash_check(false)
-            .with_sigverify(verify_signatures);
+            .with_sigverify(opts.verify_signatures);
 
-        let mut ordered_accounts: Vec<_> = resolved.accounts.iter().collect();
-        ordered_accounts.sort_by_key(|(_, account)| account_priority(account));
+        load_accounts(&mut svm, &resolved)?;
+        apply_replacements(&mut svm, &opts.replacements, &resolved)?;
+        apply_sol_fundings(&mut svm, &opts.fundings)?;
+        apply_data_patches(&mut svm, &opts.data_patches)?;
 
-        for (pubkey, account) in ordered_accounts {
-            svm.set_account(*pubkey, account.clone())?;
+        if let Some(slot) = opts.slot {
+            apply_slot(&mut svm, slot);
+        }
+        if let Some(ts) = opts.timestamp {
+            apply_timestamp(&mut svm, ts)?;
         }
 
-        for replacement in &replacements {
-            match replacement {
-                Replacement::Program { program_id, so_path } => {
-                    if let Some(existing) = resolved.accounts.get(program_id) {
-                        if !existing.executable {
-                            warn!(
-                                "--replace target {} does not appear to be a program on-chain. Loading .so file anyway.",
-                                program_id
-                            );
-                        }
-                    }
-                    info!("Loading custom program {} => {}", program_id, so_path.display());
-                    svm.add_program_from_file(*program_id, so_path).with_context(|| {
-                        format!(
-                            "Failed to load replacement program `{}`, path: {}",
-                            program_id,
-                            so_path.display()
-                        )
-                    })?;
-                }
-                Replacement::Account { pubkey, account, source_path } => {
-                    if let Some(existing) = resolved.accounts.get(pubkey) {
-                        if existing.executable {
-                            warn!(
-                                "--replace target {} appears to be a program on-chain, but replacing as a regular account from JSON file.",
-                                pubkey
-                            );
-                        }
-                    }
-                    info!("Loading custom account {} => {}", pubkey, source_path.display());
-                    svm.set_account(*pubkey, account.clone()).with_context(|| {
-                        format!(
-                            "Failed to set replacement account `{}`, path: {}",
-                            pubkey,
-                            source_path.display()
-                        )
-                    })?;
-                }
-            }
-        }
-
-        apply_sol_fundings(&mut svm, &fundings)?;
-
-        // Apply data patches (byte-level writes to account data)
-        for patch in &data_patches {
-            let mut account = svm.get_account(&patch.pubkey).ok_or_else(|| {
-                anyhow!("--patch-account-data target {} not found in SVM", patch.pubkey)
-            })?;
-            let end = patch.offset + patch.data.len();
-            if end > account.data.len() {
-                return Err(anyhow!(
-                    "Patch range [{}..{}) exceeds account data length {} for {}",
-                    patch.offset,
-                    end,
-                    account.data.len(),
-                    patch.pubkey
-                ));
-            }
-            info!(
-                "Patching account {} data[{}..{}] ({} bytes)",
-                patch.pubkey,
-                patch.offset,
-                end,
-                patch.data.len()
-            );
-            account.data[patch.offset..end].copy_from_slice(&patch.data);
-            svm.set_account(patch.pubkey, account)
-                .with_context(|| format!("Failed to set patched account `{}`", patch.pubkey))?;
-        }
-
-        // Apply slot override (warp SVM clock to specified slot)
-        if let Some(slot) = slot {
-            info!("Warping SVM clock to slot {}", slot);
-            svm.warp_to_slot(slot);
-        }
-
-        // Apply timestamp override (modify Clock sysvar's unix_timestamp)
-        if let Some(ts) = timestamp {
-            let clock_id = Clock::id();
-            let clock_account = svm
-                .get_account(&clock_id)
-                .ok_or_else(|| anyhow!("Clock sysvar account not found in SVM"))?;
-            let mut clock: Clock = bincode::deserialize(&clock_account.data)
-                .context("Failed to deserialize Clock sysvar")?;
-            info!("Overriding Clock unix_timestamp: {} -> {}", clock.unix_timestamp, ts);
-            clock.unix_timestamp = ts;
-            let data =
-                bincode::serialize(&clock).context("Failed to serialize modified Clock sysvar")?;
-            let updated_account = Account { data, ..clock_account };
-            svm.set_account(clock_id, updated_account)
-                .context("Failed to set modified Clock sysvar")?;
-        }
-
-        Ok(Self { svm, resolved, replacements, fundings, token_fundings, data_patches })
+        Ok(Self {
+            svm,
+            resolved,
+            replacements: opts.replacements,
+            fundings: opts.fundings,
+            token_fundings: opts.token_fundings,
+            data_patches: opts.data_patches,
+        })
     }
 
     pub fn simulate(&mut self, tx: &VersionedTransaction) -> Result<SimulationResult> {
@@ -521,5 +548,173 @@ mod tests {
 
         let result = executor.simulate(&tx).expect("simulate should not error");
         assert!(matches!(result.status, ExecutionStatus::Succeeded));
+    }
+
+    // ── Pipeline step tests ──
+
+    fn new_svm() -> LiteSVM {
+        LiteSVM::new().with_blockhash_check(false).with_sigverify(false)
+    }
+
+    #[test]
+    fn pipeline_load_accounts_sets_all_accounts() {
+        let mut svm = new_svm();
+        let key1 = Pubkey::new_unique();
+        let key2 = Pubkey::new_unique();
+
+        let mut accounts = HashMap::new();
+        accounts.insert(
+            key1,
+            Account {
+                lamports: 100,
+                data: vec![1, 2],
+                owner: solana_sdk_ids::system_program::id(),
+                executable: false,
+                rent_epoch: 0,
+            },
+        );
+        accounts.insert(
+            key2,
+            Account {
+                lamports: 200,
+                data: vec![3, 4],
+                owner: solana_sdk_ids::system_program::id(),
+                executable: false,
+                rent_epoch: 0,
+            },
+        );
+        let resolved = ResolvedAccounts { accounts, lookups: vec![] };
+
+        load_accounts(&mut svm, &resolved).expect("load_accounts should succeed");
+
+        let loaded1 = svm.get_account(&key1).expect("key1 should exist");
+        assert_eq!(loaded1.lamports, 100);
+        assert_eq!(loaded1.data, vec![1, 2]);
+
+        let loaded2 = svm.get_account(&key2).expect("key2 should exist");
+        assert_eq!(loaded2.lamports, 200);
+    }
+
+    #[test]
+    fn pipeline_apply_replacements_account() {
+        let mut svm = new_svm();
+        let key = Pubkey::new_unique();
+
+        let original = Account {
+            lamports: 100,
+            data: vec![0],
+            owner: solana_sdk_ids::system_program::id(),
+            executable: false,
+            rent_epoch: 0,
+        };
+        let replacement_account = Account {
+            lamports: 999,
+            data: vec![42],
+            owner: solana_sdk_ids::system_program::id(),
+            executable: false,
+            rent_epoch: 0,
+        };
+
+        let mut accounts = HashMap::new();
+        accounts.insert(key, original);
+        let resolved = ResolvedAccounts { accounts, lookups: vec![] };
+
+        load_accounts(&mut svm, &resolved).unwrap();
+
+        let replacements = vec![Replacement::Account {
+            pubkey: key,
+            account: replacement_account,
+            source_path: std::path::PathBuf::from("test.json"),
+        }];
+        apply_replacements(&mut svm, &replacements, &resolved).expect("should apply replacement");
+
+        let loaded = svm.get_account(&key).expect("key should exist");
+        assert_eq!(loaded.lamports, 999);
+        assert_eq!(loaded.data, vec![42]);
+    }
+
+    #[test]
+    fn pipeline_apply_data_patches_success() {
+        let mut svm = new_svm();
+        let key = Pubkey::new_unique();
+
+        let account = Account {
+            lamports: 100,
+            data: vec![0, 0, 0, 0, 0],
+            owner: solana_sdk_ids::system_program::id(),
+            executable: false,
+            rent_epoch: 0,
+        };
+        svm.set_account(key, account).unwrap();
+
+        let patches = vec![AccountDataPatch { pubkey: key, offset: 1, data: vec![0xAA, 0xBB] }];
+        apply_data_patches(&mut svm, &patches).expect("patches should apply");
+
+        let loaded = svm.get_account(&key).expect("key should exist");
+        assert_eq!(loaded.data, vec![0, 0xAA, 0xBB, 0, 0]);
+    }
+
+    #[test]
+    fn pipeline_apply_data_patches_out_of_bounds() {
+        let mut svm = new_svm();
+        let key = Pubkey::new_unique();
+
+        let account = Account {
+            lamports: 100,
+            data: vec![0, 0],
+            owner: solana_sdk_ids::system_program::id(),
+            executable: false,
+            rent_epoch: 0,
+        };
+        svm.set_account(key, account).unwrap();
+
+        let patches =
+            vec![AccountDataPatch { pubkey: key, offset: 1, data: vec![0xAA, 0xBB, 0xCC] }];
+        let err = apply_data_patches(&mut svm, &patches).unwrap_err();
+        assert!(err.to_string().contains("exceeds account data length"));
+    }
+
+    #[test]
+    fn pipeline_apply_data_patches_missing_account() {
+        let mut svm = new_svm();
+        let key = Pubkey::new_unique();
+
+        let patches = vec![AccountDataPatch { pubkey: key, offset: 0, data: vec![1] }];
+        let err = apply_data_patches(&mut svm, &patches).unwrap_err();
+        assert!(err.to_string().contains("not found in SVM"));
+    }
+
+    #[test]
+    fn pipeline_apply_slot() {
+        let mut svm = new_svm();
+        apply_slot(&mut svm, 12345);
+
+        let clock_account = svm.get_account(&Clock::id()).expect("Clock sysvar should exist");
+        let clock: Clock = bincode::deserialize(&clock_account.data).expect("valid Clock");
+        assert_eq!(clock.slot, 12345);
+    }
+
+    #[test]
+    fn pipeline_apply_timestamp() {
+        let mut svm = new_svm();
+        let target_ts: i64 = 1_700_000_000;
+
+        apply_timestamp(&mut svm, target_ts).expect("apply_timestamp should succeed");
+
+        let clock_account = svm.get_account(&Clock::id()).expect("Clock sysvar should exist");
+        let clock: Clock = bincode::deserialize(&clock_account.data).expect("valid Clock");
+        assert_eq!(clock.unix_timestamp, target_ts);
+    }
+
+    #[test]
+    fn pipeline_slot_then_timestamp() {
+        let mut svm = new_svm();
+        apply_slot(&mut svm, 500);
+        apply_timestamp(&mut svm, 1_600_000_000).expect("timestamp after slot should work");
+
+        let clock_account = svm.get_account(&Clock::id()).expect("Clock sysvar should exist");
+        let clock: Clock = bincode::deserialize(&clock_account.data).expect("valid Clock");
+        assert_eq!(clock.slot, 500);
+        assert_eq!(clock.unix_timestamp, 1_600_000_000);
     }
 }
