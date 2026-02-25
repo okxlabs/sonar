@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use solana_account::{AccountSharedData, ReadableAccount};
 use solana_loader_v3_interface::state::UpgradeableLoaderState;
@@ -44,9 +44,10 @@ pub struct TokenMintResolver;
 impl AccountDependencyResolver for TokenMintResolver {
     fn resolve_dependencies(&self, accounts: &HashMap<Pubkey, AccountSharedData>) -> Vec<Pubkey> {
         let mut missing = Vec::new();
+        let mut seen = HashSet::new();
         for account in accounts.values() {
             if let Some(mint) = token_account_mint(account) {
-                if !accounts.contains_key(&mint) && !missing.contains(&mint) {
+                if !accounts.contains_key(&mint) && seen.insert(mint) {
                     missing.push(mint);
                 }
             }
