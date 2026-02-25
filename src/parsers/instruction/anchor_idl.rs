@@ -313,14 +313,13 @@ pub struct IdlEnumVariant {
 /// Registry for loading and managing IDL files
 #[derive(Debug, Clone)]
 pub struct IdlRegistry {
-    pub(crate) inner: Arc<IdlRegistryInner>,
+    inner: Arc<IdlRegistryInner>,
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct IdlRegistryInner {
-    pub(crate) idls: HashMap<Pubkey, Idl>,
-    // Maps (program_id, type_name) to type definition to avoid conflicts between programs
-    pub(crate) types_by_program_and_name: HashMap<(Pubkey, String), IdlTypeDefinition>,
+struct IdlRegistryInner {
+    idls: HashMap<Pubkey, Idl>,
+    types_by_program_and_name: HashMap<(Pubkey, String), IdlTypeDefinition>,
 }
 
 impl IdlRegistry {
@@ -329,6 +328,27 @@ impl IdlRegistry {
             inner: Arc::new(IdlRegistryInner {
                 idls: HashMap::new(),
                 types_by_program_and_name: HashMap::new(),
+            }),
+        }
+    }
+
+    /// Create a registry pre-populated with a single IDL and its type definitions
+    pub fn with_idl(program_id: Pubkey, idl: &Idl) -> Self {
+        let mut idls = HashMap::new();
+        idls.insert(program_id, idl.clone());
+
+        let mut types_by_program_and_name = HashMap::new();
+        if let Some(types) = &idl.types {
+            for type_def in types {
+                types_by_program_and_name
+                    .insert((program_id, type_def.name.clone()), type_def.clone());
+            }
+        }
+
+        Self {
+            inner: Arc::new(IdlRegistryInner {
+                idls,
+                types_by_program_and_name,
             }),
         }
     }

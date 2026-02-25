@@ -322,37 +322,13 @@ impl ParserRegistry {
         // Convert to canonical Idl
         let idl_data = raw_idl.convert(&program_id.to_string());
 
-        // The IdlRegistry needs to be populated - use a temporary approach
-        // by creating a wrapper that contains both the IDL and an empty registry
         let parser = Box::new(crate::parsers::instruction::anchor_idl::AnchorIdlParser::new(
             *program_id,
-            idl_data.clone(), // Clone for the parser
-            // Create a registry with just this IDL for event lookup
-            {
-                // We need to populate the registry with this IDL
-                // Since IdlRegistry doesn't have a simple insert method,
-                // we'll create a minimal one
-                use std::collections::HashMap;
-                use std::sync::Arc;
-
-                // Create a minimal registry with just this IDL
-                let mut inner = crate::parsers::instruction::anchor_idl::IdlRegistryInner {
-                    idls: HashMap::new(),
-                    types_by_program_and_name: HashMap::new(),
-                };
-                inner.idls.insert(*program_id, idl_data.clone());
-
-                // Add types if they exist
-                if let Some(types) = &idl_data.types {
-                    for type_def in types {
-                        inner
-                            .types_by_program_and_name
-                            .insert((*program_id, type_def.name.clone()), type_def.clone());
-                    }
-                }
-
-                crate::parsers::instruction::anchor_idl::IdlRegistry { inner: Arc::new(inner) }
-            },
+            idl_data.clone(),
+            crate::parsers::instruction::anchor_idl::IdlRegistry::with_idl(
+                *program_id,
+                &idl_data,
+            ),
         ));
 
         self.parsers.insert(*program_id, parser);
