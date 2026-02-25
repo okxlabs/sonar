@@ -5,5 +5,6 @@ pub mod cache;
 pub mod executor;
 pub mod funding;
 pub mod idl_fetcher;
+pub mod rpc_provider;
 pub mod transaction;
 pub mod types;

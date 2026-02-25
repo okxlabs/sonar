@@ -143,12 +143,33 @@ pub fn is_transaction_signature(s: &str) -> bool {
 pub fn fetch_transaction_from_rpc(
     rpc_url: &str,
     signature: &str,
-    progress: Option<&Progress>,
+    _progress: Option<&Progress>,
 ) -> Result<String> {
-    use crate::core::account_loader::AccountLoader;
+    use solana_client::rpc_client::RpcClient;
+    use solana_client::rpc_config::RpcTransactionConfig;
+    use solana_commitment_config::CommitmentConfig;
+    use solana_transaction_status_client_types::UiTransactionEncoding;
 
-    let loader = AccountLoader::new(rpc_url.to_string(), None, None, false, progress.cloned())?;
-    let tx = loader.fetch_transaction_by_signature(signature)?;
+    let parsed_sig =
+        signature.parse().with_context(|| format!("Invalid signature format: {}", signature))?;
+
+    let client = RpcClient::new(rpc_url);
+    let config = RpcTransactionConfig {
+        encoding: Some(UiTransactionEncoding::Base64),
+        commitment: Some(CommitmentConfig::confirmed()),
+        max_supported_transaction_version: Some(0),
+    };
+
+    let response = client.get_transaction_with_config(&parsed_sig, config).map_err(|e| {
+        log::error!("RPC get_transaction error: {:?}", e);
+        anyhow!("Failed to fetch transaction for signature: {}. Error: {}", signature, e)
+    })?;
+
+    let tx = response
+        .transaction
+        .transaction
+        .decode()
+        .ok_or_else(|| anyhow!("Failed to decode transaction from RPC response"))?;
 
     let serialized = bincode::serialize(&tx).context("Failed to serialize transaction")?;
 

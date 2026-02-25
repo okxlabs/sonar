@@ -4,15 +4,15 @@ use anyhow::{Context, Result, anyhow};
 use flate2::read::ZlibDecoder;
 use log::debug;
 use solana_account::Account;
-use solana_client::rpc_client::RpcClient;
 use solana_pubkey::Pubkey;
 
+use crate::core::rpc_provider::{RpcAccountProvider, SolanaRpcProvider};
 use crate::utils::progress::Progress;
 
 const MAX_ACCOUNTS_PER_REQUEST: usize = 100;
 
 pub struct IdlFetcher {
-    client: Arc<RpcClient>,
+    provider: Arc<dyn RpcAccountProvider>,
     progress: Option<Progress>,
 }
 
@@ -21,11 +21,14 @@ impl IdlFetcher {
         if rpc_url.is_empty() {
             return Err(anyhow!("RPC URL cannot be empty"));
         }
-        Ok(Self { client: Arc::new(RpcClient::new(rpc_url)), progress })
+        Ok(Self { provider: Arc::new(SolanaRpcProvider::new(rpc_url)), progress })
     }
 
-    pub fn with_client(client: Arc<RpcClient>, progress: Option<Progress>) -> Self {
-        Self { client, progress }
+    pub fn with_provider(
+        provider: Arc<dyn RpcAccountProvider>,
+        progress: Option<Progress>,
+    ) -> Self {
+        Self { provider, progress }
     }
 
     /// Fetches and parses the Anchor IDL for a given program ID.
@@ -35,7 +38,12 @@ impl IdlFetcher {
     /// or an error if something goes wrong during fetching/parsing.
     pub fn fetch_idl(&self, program_id: &Pubkey) -> Result<Option<String>> {
         self.fetch_idl_with(program_id, |idl_address| {
-            self.client.get_account(idl_address).map_err(anyhow::Error::from)
+            let results = self.provider.get_multiple_accounts(&[*idl_address])?;
+            results
+                .into_iter()
+                .next()
+                .flatten()
+                .ok_or_else(|| anyhow!("AccountNotFound: {}", idl_address))
         })
     }
 
@@ -44,9 +52,7 @@ impl IdlFetcher {
     /// Uses `get_multiple_accounts` to minimize RPC round-trips.
     /// Returns one `(program_id, result)` entry per input, preserving order.
     pub fn fetch_idls(&self, program_ids: &[Pubkey]) -> Vec<(Pubkey, Result<Option<String>>)> {
-        self.fetch_idls_with(program_ids, |chunk| {
-            self.client.get_multiple_accounts(chunk).map_err(anyhow::Error::from)
-        })
+        self.fetch_idls_with(program_ids, |chunk| self.provider.get_multiple_accounts(chunk))
     }
 
     fn fetch_idl_with<F>(&self, program_id: &Pubkey, fetch_account: F) -> Result<Option<String>>
@@ -219,13 +225,13 @@ mod tests {
     use flate2::Compression;
     use flate2::write::ZlibEncoder;
     use solana_account::Account;
-    use solana_client::rpc_client::RpcClient;
     use solana_pubkey::Pubkey;
 
     use super::{IdlFetcher, MAX_ACCOUNTS_PER_REQUEST, get_idl_address, parse_idl_account_data};
+    use crate::core::rpc_provider::FakeAccountProvider;
 
     fn dummy_fetcher() -> IdlFetcher {
-        IdlFetcher::with_client(Arc::new(RpcClient::new("http://127.0.0.1:1".to_string())), None)
+        IdlFetcher::with_provider(Arc::new(FakeAccountProvider::empty()), None)
     }
 
     fn build_idl_account(idl_json: &str) -> Account {

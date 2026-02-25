@@ -534,6 +534,128 @@ mod tests {
     }
 
     #[test]
+    fn bundle_fail_fast_stops_on_first_failure() {
+        let payer = Keypair::new();
+        let recipient1 = Pubkey::new_unique();
+        let recipient2 = Pubkey::new_unique();
+
+        let tx1 = create_transfer_transaction(&payer, &recipient1, 999_999_999_999);
+        let tx2 = create_transfer_transaction(&payer, &recipient2, 1000);
+
+        let tx_refs: Vec<&VersionedTransaction> = vec![&tx1, &tx2];
+
+        let mut accounts = HashMap::new();
+        accounts.insert(
+            payer.pubkey(),
+            Account {
+                lamports: 1_000_000, // not enough for tx1
+                data: vec![],
+                owner: solana_sdk_ids::system_program::id(),
+                executable: false,
+                rent_epoch: 0,
+            },
+        );
+
+        let resolved = ResolvedAccounts { accounts, lookups: vec![] };
+        let mut executor = TransactionExecutor::prepare(resolved, SimulationOptions::default())
+            .expect("prepare should succeed");
+
+        let results = executor.execute_bundle(&tx_refs);
+
+        assert_eq!(results.len(), 1, "bundle should stop after first failure");
+        assert!(matches!(results[0].status, ExecutionStatus::Failed(_)), "first tx should fail");
+    }
+
+    #[test]
+    fn bundle_sequential_state_propagation() {
+        let payer = Keypair::new();
+        let recipient = Pubkey::new_unique();
+
+        // Two identical transfers — the second depends on state from the first
+        let tx1 = create_transfer_transaction(&payer, &recipient, 1_000);
+        let tx2 = create_transfer_transaction(&payer, &recipient, 2_000);
+
+        let tx_refs: Vec<&VersionedTransaction> = vec![&tx1, &tx2];
+
+        let mut accounts = HashMap::new();
+        accounts.insert(
+            payer.pubkey(),
+            Account {
+                lamports: 10_000_000_000,
+                data: vec![],
+                owner: solana_sdk_ids::system_program::id(),
+                executable: false,
+                rent_epoch: 0,
+            },
+        );
+
+        let resolved = ResolvedAccounts { accounts, lookups: vec![] };
+        let mut executor = TransactionExecutor::prepare(resolved, SimulationOptions::default())
+            .expect("prepare should succeed");
+
+        let results = executor.execute_bundle(&tx_refs);
+        assert_eq!(results.len(), 2, "both txs should execute");
+        assert!(matches!(results[0].status, ExecutionStatus::Succeeded));
+        assert!(matches!(results[1].status, ExecutionStatus::Succeeded));
+    }
+
+    #[test]
+    fn simulate_single_transaction_succeeds() {
+        let payer = Keypair::new();
+        let recipient = Pubkey::new_unique();
+
+        let tx = create_transfer_transaction(&payer, &recipient, 1_000);
+
+        let mut accounts = HashMap::new();
+        accounts.insert(
+            payer.pubkey(),
+            Account {
+                lamports: 10_000_000_000,
+                data: vec![],
+                owner: solana_sdk_ids::system_program::id(),
+                executable: false,
+                rent_epoch: 0,
+            },
+        );
+
+        let resolved = ResolvedAccounts { accounts, lookups: vec![] };
+        let mut executor = TransactionExecutor::prepare(resolved, SimulationOptions::default())
+            .expect("prepare should succeed");
+
+        let result = executor.simulate(&tx).expect("simulate should not error");
+        assert!(matches!(result.status, ExecutionStatus::Succeeded), "simulation should succeed");
+    }
+
+    #[test]
+    fn simulate_with_fundings() {
+        let payer = Keypair::new();
+        let recipient = Pubkey::new_unique();
+
+        // Payer has 0 lamports but we fund them
+        let tx = create_transfer_transaction(&payer, &recipient, 1_000);
+
+        let accounts = HashMap::new();
+        let resolved = ResolvedAccounts { accounts, lookups: vec![] };
+
+        let opts = SimulationOptions {
+            fundings: vec![crate::core::types::Funding {
+                pubkey: payer.pubkey(),
+                amount_lamports: 10_000_000_000,
+            }],
+            ..Default::default()
+        };
+
+        let mut executor =
+            TransactionExecutor::prepare(resolved, opts).expect("prepare should succeed");
+
+        let result = executor.simulate(&tx).expect("simulate should not error");
+        assert!(
+            matches!(result.status, ExecutionStatus::Succeeded),
+            "simulation with funding should succeed"
+        );
+    }
+
+    #[test]
     fn dump_accounts_writes_lookup_placeholders_for_missing_accounts() {
         let temp_dir = std::env::temp_dir().join(format!(
             "sonar_dump_lookup_placeholders_{}_{}",

@@ -8,8 +8,6 @@ use anyhow::{Context, Result, anyhow};
 use log::{debug, trace};
 use solana_account::{Account, ReadableAccount};
 use solana_address_lookup_table_interface::state::AddressLookupTable;
-use solana_client::rpc_client::RpcClient;
-use solana_commitment_config::CommitmentConfig;
 
 use solana_clock::Clock;
 use solana_loader_v3_interface::state::UpgradeableLoaderState;
@@ -24,6 +22,7 @@ use std::sync::Mutex;
 use crate::{
     core::{
         idl_fetcher::IdlFetcher,
+        rpc_provider::{RpcAccountProvider, SolanaRpcProvider},
         transaction::{AddressLookupPlan, collect_account_plan},
         types::Replacement,
     },
@@ -33,7 +32,7 @@ use crate::{
 const MAX_ACCOUNTS_PER_REQUEST: usize = 100;
 
 pub struct AccountLoader {
-    client: Arc<RpcClient>,
+    provider: Arc<dyn RpcAccountProvider>,
     cache: Mutex<HashMap<Pubkey, Account>>,
     progress: Option<Progress>,
     /// Optional local directory to load account JSON files from.
@@ -59,7 +58,7 @@ impl AccountLoader {
         }
         let url = if rpc_url.is_empty() { "http://localhost:8899".to_string() } else { rpc_url };
         Ok(Self {
-            client: Arc::new(RpcClient::new(url)),
+            provider: Arc::new(SolanaRpcProvider::new(url)),
             cache: Mutex::new(HashMap::new()),
             progress,
             local_dir,
@@ -68,9 +67,27 @@ impl AccountLoader {
         })
     }
 
+    /// Construct an `AccountLoader` with an injected provider (for testing).
+    #[cfg(test)]
+    pub fn with_provider(
+        provider: Arc<dyn RpcAccountProvider>,
+        local_dir: Option<PathBuf>,
+        offline: bool,
+        progress: Option<Progress>,
+    ) -> Self {
+        Self {
+            provider,
+            cache: Mutex::new(HashMap::new()),
+            progress,
+            local_dir,
+            cache_write_dir: None,
+            offline,
+        }
+    }
+
     pub fn idl_fetcher(&self, progress: Option<Progress>) -> IdlFetcher {
-        IdlFetcher::with_client(
-            Arc::clone(&self.client),
+        IdlFetcher::with_provider(
+            Arc::clone(&self.provider),
             progress.or_else(|| self.progress.clone()),
         )
     }
@@ -381,7 +398,7 @@ impl AccountLoader {
         let total_count = to_fetch.len();
         let mut requested_count = 0usize;
         for chunk in to_fetch.chunks(MAX_ACCOUNTS_PER_REQUEST) {
-            let response = self.client.get_multiple_accounts(chunk).with_context(|| {
+            let response = self.provider.get_multiple_accounts(chunk).with_context(|| {
                 format!(
                     "getMultipleAccounts call failed, account list: [{}]",
                     format_pubkeys(chunk)
@@ -433,34 +450,6 @@ impl AccountLoader {
             format!("Failed to fetch token mint accounts: [{}]", format_pubkeys(&mint_pubkeys))
         })?;
         Ok(())
-    }
-
-    pub fn fetch_transaction_by_signature(&self, signature: &str) -> Result<VersionedTransaction> {
-        use solana_client::rpc_config::RpcTransactionConfig;
-        use solana_transaction_status_client_types::UiTransactionEncoding;
-
-        let signature = signature
-            .parse()
-            .with_context(|| format!("Invalid signature format: {}", signature))?;
-
-        let config = RpcTransactionConfig {
-            encoding: Some(UiTransactionEncoding::Base64),
-            commitment: Some(CommitmentConfig::confirmed()),
-            max_supported_transaction_version: Some(0),
-        };
-
-        let response =
-            self.client.get_transaction_with_config(&signature, config).map_err(|e| {
-                log::error!("RPC get_transaction error: {:?}", e);
-                anyhow!("Failed to fetch transaction for signature: {}. Error: {}", signature, e)
-            })?;
-
-        let transaction = response.transaction;
-
-        match transaction.transaction.decode() {
-            Some(tx) => Ok(tx),
-            None => Err(anyhow!("Failed to decode transaction from RPC response")),
-        }
     }
 
     fn set_progress_message(&self, message: impl Into<std::borrow::Cow<'static, str>>) {
@@ -527,4 +516,300 @@ fn format_pubkeys(pubkeys: &[Pubkey]) -> String {
 /// that is built into LiteSVM and does not need to be loaded from disk.
 fn is_native_or_sysvar(pubkey: &Pubkey) -> bool {
     crate::utils::native_ids::is_native_or_sysvar(pubkey)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::rpc_provider::FakeAccountProvider;
+    use solana_hash::Hash;
+    use solana_keypair::Keypair;
+    use solana_message::Message;
+    use solana_signer::Signer;
+    use solana_system_interface::instruction as system_instruction;
+    use solana_transaction::Transaction;
+
+    fn system_account(lamports: u64) -> Account {
+        Account {
+            lamports,
+            data: vec![],
+            owner: solana_sdk_ids::system_program::id(),
+            executable: false,
+            rent_epoch: 0,
+        }
+    }
+
+    fn create_transfer_tx(
+        payer: &Keypair,
+        recipient: &Pubkey,
+        lamports: u64,
+    ) -> VersionedTransaction {
+        let blockhash = Hash::new_unique();
+        let ix = system_instruction::transfer(&payer.pubkey(), recipient, lamports);
+        let message = Message::new(&[ix], Some(&payer.pubkey()));
+        VersionedTransaction::from(Transaction::new(&[payer], message, blockhash))
+    }
+
+    // ------------------------------------------------------------------
+    // P2.2 – offline mode tests
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn offline_loader_returns_accounts_from_provider_without_rpc() {
+        let payer = Keypair::new();
+        let recipient = Pubkey::new_unique();
+
+        let mut accounts = std::collections::HashMap::new();
+        accounts.insert(payer.pubkey(), system_account(10_000_000_000));
+        accounts.insert(recipient, system_account(0));
+
+        let loader = AccountLoader::with_provider(
+            Arc::new(FakeAccountProvider::new(accounts)),
+            None,
+            false,
+            None,
+        );
+
+        let tx = create_transfer_tx(&payer, &recipient, 1000);
+        let resolved =
+            loader.load_for_transaction(&tx, &[]).expect("should load from fake provider");
+
+        assert!(resolved.accounts.contains_key(&payer.pubkey()));
+        assert!(resolved.accounts.contains_key(&recipient));
+    }
+
+    #[test]
+    fn offline_mode_skips_rpc_and_treats_missing_as_nonexistent() {
+        let payer = Keypair::new();
+        let recipient = Pubkey::new_unique();
+
+        // In offline mode, Layer 4 (RPC/provider) is never reached.
+        // Accounts must come from the in-memory cache or local dir.
+        // We test that the loader succeeds even when accounts are missing.
+        let loader = AccountLoader::with_provider(
+            Arc::new(FakeAccountProvider::empty()),
+            None,
+            true, // offline
+            None,
+        );
+
+        let tx = create_transfer_tx(&payer, &recipient, 1000);
+        let resolved = loader
+            .load_for_transaction(&tx, &[])
+            .expect("offline should succeed even with missing accounts");
+
+        // Neither payer nor recipient are available (no local dir, no cache)
+        assert!(
+            !resolved.accounts.contains_key(&payer.pubkey()),
+            "payer should not be found in offline mode without local dir"
+        );
+        assert!(
+            !resolved.accounts.contains_key(&recipient),
+            "recipient should not be found in offline mode without local dir"
+        );
+    }
+
+    #[test]
+    fn offline_mode_does_not_call_rpc_provider() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        struct NeverCalledProvider {
+            called: Arc<AtomicBool>,
+        }
+
+        impl RpcAccountProvider for NeverCalledProvider {
+            fn get_multiple_accounts(&self, _pubkeys: &[Pubkey]) -> Result<Vec<Option<Account>>> {
+                self.called.store(true, Ordering::SeqCst);
+                panic!("RPC provider should never be called in offline mode");
+            }
+        }
+
+        let called = Arc::new(AtomicBool::new(false));
+        let provider = NeverCalledProvider { called: called.clone() };
+
+        let payer = Keypair::new();
+        let recipient = Pubkey::new_unique();
+        let tx = create_transfer_tx(&payer, &recipient, 1000);
+
+        let loader = AccountLoader::with_provider(Arc::new(provider), None, true, None);
+
+        let resolved =
+            loader.load_for_transaction(&tx, &[]).expect("offline should succeed without RPC");
+
+        assert!(!called.load(Ordering::SeqCst), "provider should not be called");
+        assert!(resolved.accounts.is_empty());
+    }
+
+    // ------------------------------------------------------------------
+    // P2.2 – cache / in-memory caching tests
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn in_memory_cache_avoids_duplicate_provider_calls() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        struct CountingProvider {
+            accounts: std::collections::HashMap<Pubkey, Account>,
+            call_count: Arc<AtomicUsize>,
+        }
+
+        impl RpcAccountProvider for CountingProvider {
+            fn get_multiple_accounts(&self, pubkeys: &[Pubkey]) -> Result<Vec<Option<Account>>> {
+                self.call_count.fetch_add(1, Ordering::SeqCst);
+                Ok(pubkeys.iter().map(|k| self.accounts.get(k).cloned()).collect())
+            }
+        }
+
+        let payer = Keypair::new();
+        let recipient = Pubkey::new_unique();
+
+        let mut accounts = std::collections::HashMap::new();
+        accounts.insert(payer.pubkey(), system_account(10_000_000_000));
+        accounts.insert(recipient, system_account(0));
+        // Include sysvars and system program so every key is "found" and
+        // cached; otherwise un-cacheable None results trigger re-fetches.
+        accounts.insert(Clock::id(), system_account(0));
+        accounts.insert(SlotHashes::id(), system_account(0));
+        accounts.insert(solana_sdk_ids::system_program::id(), system_account(0));
+
+        let call_count = Arc::new(AtomicUsize::new(0));
+        let provider = CountingProvider { accounts, call_count: call_count.clone() };
+
+        let loader = AccountLoader::with_provider(Arc::new(provider), None, false, None);
+
+        let tx = create_transfer_tx(&payer, &recipient, 1000);
+
+        // First load
+        let _ = loader.load_for_transaction(&tx, &[]).unwrap();
+        let first_call_count = call_count.load(Ordering::SeqCst);
+        assert!(first_call_count > 0);
+
+        // Second load of the same tx — should hit in-memory cache
+        let _ = loader.load_for_transaction(&tx, &[]).unwrap();
+        let second_call_count = call_count.load(Ordering::SeqCst);
+        assert_eq!(
+            first_call_count, second_call_count,
+            "second load should use cache, not call provider again"
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // P2.2 – local directory (FS cache) tests
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn local_dir_accounts_are_loaded_before_rpc() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("sonar_test_local_dir_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        let payer = Keypair::new();
+        let recipient = Pubkey::new_unique();
+
+        // Write account JSON files to temp dir
+        for (pubkey, lamports) in [(payer.pubkey(), 10_000_000_000u64), (recipient, 0)] {
+            let json = serde_json::json!({
+                "lamports": lamports,
+                "data": ["", "base64"],
+                "owner": "11111111111111111111111111111111",
+                "executable": false,
+                "rentEpoch": 0
+            });
+            std::fs::write(
+                temp_dir.join(format!("{pubkey}.json")),
+                serde_json::to_string_pretty(&json).unwrap(),
+            )
+            .unwrap();
+        }
+
+        let tx = create_transfer_tx(&payer, &recipient, 1000);
+
+        // Use offline=true so sysvars (Clock/SlotHashes) that aren't in
+        // the local dir don't attempt to call the RPC layer.
+        let loader = AccountLoader::with_provider(
+            Arc::new(FakeAccountProvider::empty()),
+            Some(temp_dir.clone()),
+            true,
+            None,
+        );
+
+        let resolved = loader.load_for_transaction(&tx, &[]).expect("should load from local dir");
+
+        assert!(resolved.accounts.contains_key(&payer.pubkey()));
+        assert!(resolved.accounts.contains_key(&recipient));
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    // ------------------------------------------------------------------
+    // P2.2 – append_accounts tests
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn append_accounts_fetches_additional_accounts() {
+        let payer = Keypair::new();
+        let extra = Pubkey::new_unique();
+
+        let mut accounts = std::collections::HashMap::new();
+        accounts.insert(payer.pubkey(), system_account(10_000_000_000));
+        accounts.insert(extra, system_account(42));
+
+        let loader = AccountLoader::with_provider(
+            Arc::new(FakeAccountProvider::new(accounts)),
+            None,
+            false,
+            None,
+        );
+
+        let mut resolved = ResolvedAccounts { accounts: HashMap::new(), lookups: vec![] };
+
+        loader.append_accounts(&mut resolved, &[extra]).unwrap();
+        assert!(resolved.accounts.contains_key(&extra));
+        assert_eq!(resolved.accounts[&extra].lamports, 42);
+    }
+
+    // ------------------------------------------------------------------
+    // P2.2 – load_for_transactions (bundle) tests
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn load_for_transactions_merges_accounts_from_multiple_txs() {
+        let payer = Keypair::new();
+        let recipient1 = Pubkey::new_unique();
+        let recipient2 = Pubkey::new_unique();
+
+        let mut accounts = std::collections::HashMap::new();
+        accounts.insert(payer.pubkey(), system_account(10_000_000_000));
+        accounts.insert(recipient1, system_account(100));
+        accounts.insert(recipient2, system_account(200));
+
+        let loader = AccountLoader::with_provider(
+            Arc::new(FakeAccountProvider::new(accounts)),
+            None,
+            false,
+            None,
+        );
+
+        let tx1 = create_transfer_tx(&payer, &recipient1, 50);
+        let tx2 = create_transfer_tx(&payer, &recipient2, 100);
+        let txs: Vec<&VersionedTransaction> = vec![&tx1, &tx2];
+
+        let resolved = loader.load_for_transactions(&txs, &[]).expect("should merge accounts");
+
+        assert!(resolved.accounts.contains_key(&payer.pubkey()));
+        assert!(resolved.accounts.contains_key(&recipient1));
+        assert!(resolved.accounts.contains_key(&recipient2));
+    }
+
+    #[test]
+    fn load_for_transactions_empty_bundle() {
+        let loader =
+            AccountLoader::with_provider(Arc::new(FakeAccountProvider::empty()), None, false, None);
+
+        let txs: Vec<&VersionedTransaction> = vec![];
+        let resolved = loader.load_for_transactions(&txs, &[]).unwrap();
+        assert!(resolved.accounts.is_empty());
+        assert!(resolved.lookups.is_empty());
+    }
 }
