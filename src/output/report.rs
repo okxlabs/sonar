@@ -19,7 +19,7 @@ use crate::core::{
 use crate::parsers::instruction::{
     ParsedInstruction, ParserRegistry, anchor_idl::is_anchor_cpi_event,
 };
-use litesvm::types::TransactionMetadata;
+use sonar_sim::SimulationMetadata;
 
 use super::BalanceChangeOptions;
 
@@ -805,7 +805,7 @@ struct ReturnDataReport {
 }
 
 impl ReturnDataReport {
-    fn from_metadata(meta: &TransactionMetadata) -> Option<Self> {
+    fn from_metadata(meta: &SimulationMetadata) -> Option<Self> {
         if meta.return_data.data.is_empty() {
             None
         } else {

@@ -5850,7 +5850,6 @@ dependencies = [
  "flate2",
  "hex",
  "indicatif 0.17.11",
- "litesvm",
  "log",
  "num-bigint 0.4.6",
  "serde",

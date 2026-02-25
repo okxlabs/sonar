@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
 
-use litesvm::{LiteSVM, types::TransactionMetadata};
+use litesvm::LiteSVM;
 use log::{info, warn};
 use solana_account::{Account, AccountSharedData, ReadableAccount};
 use solana_clock::Clock;
@@ -16,6 +16,7 @@ use crate::error::{Result, SonarSimError};
 use crate::funding::apply_sol_fundings;
 use crate::types::{
     AccountDataPatch, Funding, PreparedTokenFunding, Replacement, ResolvedAccounts, ResolvedLookup,
+    ReturnData, SimulationMetadata,
 };
 
 // ── Inlined native_ids ──
@@ -335,13 +336,13 @@ impl TransactionExecutor {
         let simulation = match outcome {
             Ok(info) => SimulationResult {
                 status: ExecutionStatus::Succeeded,
-                meta: info.meta.clone(),
+                meta: convert_metadata(&info.meta),
                 post_accounts: info.post_accounts.into_iter().collect(),
                 pre_accounts: HashMap::new(),
             },
             Err(failure) => SimulationResult {
                 status: ExecutionStatus::Failed(failure.err.to_string()),
-                meta: failure.meta.clone(),
+                meta: convert_metadata(&failure.meta),
                 post_accounts: HashMap::new(),
                 pre_accounts: HashMap::new(),
             },
@@ -364,13 +365,13 @@ impl TransactionExecutor {
         let simulation = match result {
             litesvm::types::TransactionResult::Ok(info) => SimulationResult {
                 status: ExecutionStatus::Succeeded,
-                meta: info.clone(),
+                meta: convert_metadata(&info),
                 post_accounts,
                 pre_accounts,
             },
             litesvm::types::TransactionResult::Err(failure) => SimulationResult {
                 status: ExecutionStatus::Failed(failure.err.to_string()),
-                meta: failure.meta.clone(),
+                meta: convert_metadata(&failure.meta),
                 post_accounts,
                 pre_accounts,
             },
@@ -415,7 +416,7 @@ impl TransactionExecutor {
         for tx in txs {
             let result = self.execute(tx).unwrap_or_else(|err| SimulationResult {
                 status: ExecutionStatus::Failed(err.to_string()),
-                meta: TransactionMetadata::default(),
+                meta: SimulationMetadata::default(),
                 post_accounts: HashMap::new(),
                 pre_accounts: HashMap::new(),
             });
@@ -456,9 +457,21 @@ impl TransactionExecutor {
 #[derive(Debug)]
 pub struct SimulationResult {
     pub status: ExecutionStatus,
-    pub meta: TransactionMetadata,
+    pub meta: SimulationMetadata,
     pub post_accounts: HashMap<Pubkey, AccountSharedData>,
     pub pre_accounts: HashMap<Pubkey, AccountSharedData>,
+}
+
+fn convert_metadata(m: &litesvm::types::TransactionMetadata) -> SimulationMetadata {
+    SimulationMetadata {
+        logs: m.logs.clone(),
+        inner_instructions: m.inner_instructions.clone(),
+        compute_units_consumed: m.compute_units_consumed,
+        return_data: ReturnData {
+            program_id: m.return_data.program_id,
+            data: m.return_data.data.clone(),
+        },
+    }
 }
 
 #[derive(Debug)]

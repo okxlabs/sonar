@@ -27,7 +27,8 @@ pub use error::{Result, SonarSimError};
 
 pub use types::{
     AccountAppender, AccountDataPatch, AccountFetchMiddleware, Funding, PreparedTokenFunding,
-    Replacement, ResolvedAccounts, ResolvedLookup, TokenAmount, TokenFunding,
+    Replacement, ResolvedAccounts, ResolvedLookup, ReturnData, SimulationMetadata, TokenAmount,
+    TokenFunding,
 };
 
 // ── Transaction parsing ──
