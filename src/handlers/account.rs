@@ -9,7 +9,7 @@ use solana_pubkey::Pubkey;
 
 use crate::cli::AccountArgs;
 use crate::{
-    core::account_loader, parsers::metaplex_metadata_decoder, parsers::token_account_decoder,
+    core::idl_fetcher, parsers::metaplex_metadata_decoder, parsers::token_account_decoder,
 };
 
 pub(crate) fn handle(args: AccountArgs) -> Result<()> {
@@ -327,10 +327,8 @@ fn decode_account_output(
 
     let owner = account.owner;
     let idl_json = try_load_idl_from_dir(&args.idl_dir, &owner).or_else(|| {
-        let loader =
-            account_loader::AccountLoader::new(args.rpc.rpc_url.clone(), None, None, false, None)
-                .ok()?;
-        loader.fetch_idl(&owner).ok().flatten()
+        let fetcher = idl_fetcher::IdlFetcher::new(args.rpc.rpc_url.clone(), None).ok()?;
+        fetcher.fetch_idl(&owner).ok().flatten()
     });
 
     let idl_json = match idl_json {

@@ -6,7 +6,7 @@ use anyhow::{Context, Result};
 use solana_pubkey::Pubkey;
 
 use crate::cli::{IdlAddressArgs, IdlArgs, IdlFetchArgs, IdlSubcommands, IdlSyncArgs};
-use crate::core::account_loader;
+use crate::core::idl_fetcher;
 use crate::utils::progress::Progress;
 
 pub(crate) fn handle(args: IdlArgs) -> Result<()> {
@@ -32,7 +32,7 @@ fn handle_sync(args: IdlSyncArgs) -> Result<()> {
 fn handle_address(args: IdlAddressArgs) -> Result<()> {
     let program_id = Pubkey::from_str(args.program.trim())
         .with_context(|| format!("Invalid program ID: {}", args.program.trim()))?;
-    let idl_address = account_loader::get_idl_address(&program_id)?;
+    let idl_address = idl_fetcher::get_idl_address(&program_id)?;
     println!("{idl_address}");
     Ok(())
 }
@@ -60,9 +60,8 @@ fn fetch_and_write_idls(
         .with_context(|| format!("Failed to create output directory: {}", output_dir.display()))?;
 
     let progress = Progress::new();
-    let loader =
-        account_loader::AccountLoader::new(rpc_url, None, None, false, Some(progress.clone()))?;
-    let results = loader.fetch_idls(&program_ids);
+    let fetcher = idl_fetcher::IdlFetcher::new(rpc_url, Some(progress.clone()))?;
+    let results = fetcher.fetch_idls(&program_ids);
     progress.finish();
 
     let mut fetched = 0usize;

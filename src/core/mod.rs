@@ -3,4 +3,5 @@ pub mod balance_changes;
 pub mod cache;
 pub mod executor;
 pub mod funding;
+pub mod idl_fetcher;
 pub mod transaction;

@@ -142,8 +142,9 @@ pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
         log::error!("No executable accounts found after RPC load; skipping IDL parsing");
     } else {
         if !no_idl_fetch && !offline {
+            let idl_fetcher = account_loader.idl_fetcher(Some(progress.clone()));
             match auto_fetch_missing_idls(
-                &account_loader,
+                &idl_fetcher,
                 &parser_registry,
                 &program_ids,
                 &resolved_accounts,
@@ -285,8 +286,9 @@ fn handle_bundle(
     let program_ids = collect_program_ids(&resolved_accounts);
     if !program_ids.is_empty() {
         if !no_idl_fetch && !offline {
+            let idl_fetcher = account_loader.idl_fetcher(Some(progress.clone()));
             match auto_fetch_missing_idls(
-                &account_loader,
+                &idl_fetcher,
                 parser_registry,
                 &program_ids,
                 &resolved_accounts,

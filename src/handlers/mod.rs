@@ -12,7 +12,7 @@ pub(crate) mod simulate;
 
 use crate::parsers::instruction::ParserRegistry;
 use crate::utils::progress::Progress;
-use crate::{cli, core::account_loader, core::transaction};
+use crate::{cli, core::account_loader, core::idl_fetcher, core::transaction};
 use anyhow::{Context, Result};
 use solana_pubkey::Pubkey;
 
@@ -39,7 +39,7 @@ pub(crate) fn collect_program_ids(
 
 /// Auto-fetch missing IDLs for fetchable upgradeable programs and persist them to local cache.
 pub(crate) fn auto_fetch_missing_idls(
-    account_loader: &account_loader::AccountLoader,
+    idl_fetcher: &idl_fetcher::IdlFetcher,
     parser_registry: &ParserRegistry,
     program_ids: &[Pubkey],
     resolved_accounts: &account_loader::ResolvedAccounts,
@@ -62,7 +62,7 @@ pub(crate) fn auto_fetch_missing_idls(
     }
 
     let mut fetched = 0usize;
-    for (program_id, result) in account_loader.fetch_idls(&missing) {
+    for (program_id, result) in idl_fetcher.fetch_idls(&missing) {
         match result {
             Ok(Some(idl_json)) => {
                 let formatted = match serde_json::from_str::<serde_json::Value>(&idl_json) {
