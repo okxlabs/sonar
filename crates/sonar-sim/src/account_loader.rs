@@ -3,7 +3,6 @@ use std::{
     sync::Arc,
 };
 
-use log::{debug, trace};
 use solana_account::{AccountSharedData, ReadableAccount};
 use solana_address_lookup_table_interface::state::AddressLookupTable;
 use solana_clock::Clock;
@@ -11,57 +10,40 @@ use solana_pubkey::Pubkey;
 use solana_slot_hashes::SlotHashes;
 use solana_sysvar_id::SysvarId;
 use solana_transaction::versioned::VersionedTransaction;
-use std::sync::Mutex;
 
+use crate::account_fetcher::AccountFetcher;
 use crate::error::{Result, SonarSimError};
 use crate::resolvers::{AccountDependencyResolver, default_resolvers};
-use crate::rpc_provider::{RpcAccountProvider, SolanaRpcProvider};
+use crate::rpc_provider::RpcAccountProvider;
 use crate::transaction::{AddressLookupPlan, collect_account_plan};
 use crate::types::{AccountAppender, AccountFetchMiddleware, ResolvedAccounts, ResolvedLookup};
 
-const MAX_ACCOUNTS_PER_REQUEST: usize = 100;
-
-fn lock_cache(
-    cache: &Mutex<HashMap<Pubkey, AccountSharedData>>,
-) -> Result<std::sync::MutexGuard<'_, HashMap<Pubkey, AccountSharedData>>> {
-    cache
-        .lock()
-        .map_err(|_| SonarSimError::Internal { reason: "account cache lock poisoned".into() })
-}
-
+/// High-level account loading orchestrator.
+///
+/// `AccountLoader` coordinates the full pipeline:
+/// plan → fetch initial → resolve dependencies (loop) → resolve lookups
+/// → fetch lookup accounts → resolve dependencies (loop).
+///
+/// The actual data-access work (dedup, caching, middleware, RPC calls) is
+/// delegated to the inner [`AccountFetcher`].
 pub struct AccountLoader {
-    provider: Arc<dyn RpcAccountProvider>,
-    cache: Mutex<HashMap<Pubkey, AccountSharedData>>,
-    middleware: Option<Arc<dyn AccountFetchMiddleware>>,
+    fetcher: AccountFetcher,
     resolvers: Vec<Box<dyn AccountDependencyResolver>>,
 }
 
 impl AccountLoader {
     pub fn new(rpc_url: String) -> Result<Self> {
-        if rpc_url.is_empty() {
-            return Err(SonarSimError::Validation { reason: "RPC URL cannot be empty".into() });
-        }
-        Ok(Self {
-            provider: Arc::new(SolanaRpcProvider::new(rpc_url)),
-            cache: Mutex::new(HashMap::new()),
-            middleware: None,
-            resolvers: default_resolvers(),
-        })
+        Ok(Self { fetcher: AccountFetcher::new(rpc_url)?, resolvers: default_resolvers() })
     }
 
     pub fn with_provider(provider: Arc<dyn RpcAccountProvider>) -> Self {
-        Self {
-            provider,
-            cache: Mutex::new(HashMap::new()),
-            middleware: None,
-            resolvers: default_resolvers(),
-        }
+        Self { fetcher: AccountFetcher::with_provider(provider), resolvers: default_resolvers() }
     }
 
     /// Attach an optional middleware for local account resolution,
     /// offline mode, and progress reporting. Returns `self` for chaining.
     pub fn with_middleware(mut self, middleware: Arc<dyn AccountFetchMiddleware>) -> Self {
-        self.middleware = Some(middleware);
+        self.fetcher = self.fetcher.with_middleware(middleware);
         self
     }
 
@@ -73,7 +55,12 @@ impl AccountLoader {
 
     /// Expose the underlying provider so callers can reuse the RPC connection.
     pub fn provider(&self) -> Arc<dyn RpcAccountProvider> {
-        Arc::clone(&self.provider)
+        self.fetcher.provider()
+    }
+
+    /// Expose the inner fetcher for direct low-level account access.
+    pub fn fetcher(&self) -> &AccountFetcher {
+        &self.fetcher
     }
 
     pub fn load_for_transaction(&self, tx: &VersionedTransaction) -> Result<ResolvedAccounts> {
@@ -97,16 +84,20 @@ impl AccountLoader {
         let initial = collect_initial_accounts(plans);
         let mut accounts = HashMap::new();
 
-        self.fetch_accounts(&initial, &mut accounts).map_err(|e| SonarSimError::AccountData {
-            pubkey: None,
-            reason: format!("Failed to fetch initial accounts (static + sysvars + lookups): {e}"),
+        self.fetcher.fetch_accounts(&initial, &mut accounts).map_err(|e| {
+            SonarSimError::AccountData {
+                pubkey: None,
+                reason: format!(
+                    "Failed to fetch initial accounts (static + sysvars + lookups): {e}"
+                ),
+            }
         })?;
         self.resolve_all_dependencies(&mut accounts)?;
 
         let (lookups, lookup_pubkeys) = self.resolve_all_lookups(plans, &mut accounts)?;
 
         if !lookup_pubkeys.is_empty() {
-            self.fetch_accounts(&lookup_pubkeys, &mut accounts).map_err(|e| {
+            self.fetcher.fetch_accounts(&lookup_pubkeys, &mut accounts).map_err(|e| {
                 SonarSimError::AccountData {
                     pubkey: None,
                     reason: format!(
@@ -155,7 +146,7 @@ impl AccountLoader {
         if pubkeys.is_empty() {
             return Ok(());
         }
-        self.fetch_accounts(pubkeys, &mut resolved.accounts).map_err(|e| {
+        self.fetcher.fetch_accounts(pubkeys, &mut resolved.accounts).map_err(|e| {
             SonarSimError::AccountData {
                 pubkey: None,
                 reason: format!(
@@ -189,7 +180,7 @@ impl AccountLoader {
                 break;
             }
 
-            self.fetch_accounts(&all_missing, accounts).map_err(|e| {
+            self.fetcher.fetch_accounts(&all_missing, accounts).map_err(|e| {
                 SonarSimError::AccountData {
                     pubkey: None,
                     reason: format!(
@@ -208,7 +199,7 @@ impl AccountLoader {
         plan: &AddressLookupPlan,
         accounts: &mut HashMap<Pubkey, AccountSharedData>,
     ) -> Result<ResolvedLookup> {
-        self.fetch_accounts(&[plan.account_key], accounts).map_err(|e| {
+        self.fetcher.fetch_accounts(&[plan.account_key], accounts).map_err(|e| {
             SonarSimError::LookupTable {
                 table: Some(plan.account_key),
                 reason: format!(
@@ -263,107 +254,6 @@ impl AccountLoader {
             writable_addresses,
             readonly_addresses,
         })
-    }
-
-    fn fetch_accounts(
-        &self,
-        pubkeys: &[Pubkey],
-        destination: &mut HashMap<Pubkey, AccountSharedData>,
-    ) -> Result<()> {
-        let mut unique = Vec::new();
-        let mut seen = HashSet::new();
-        for key in pubkeys {
-            if destination.contains_key(key) {
-                continue;
-            }
-            if seen.insert(*key) {
-                unique.push(*key);
-            }
-        }
-
-        if unique.is_empty() {
-            return Ok(());
-        }
-
-        trace!("Preparing to fetch {} accounts: [{}]", unique.len(), format_pubkeys(&unique));
-
-        let mut to_fetch = Vec::new();
-        {
-            let cache = lock_cache(&self.cache)?;
-            for key in unique {
-                if let Some(account) = cache.get(&key) {
-                    destination.insert(key, account.clone());
-                } else {
-                    to_fetch.push(key);
-                }
-            }
-        }
-
-        if to_fetch.is_empty() {
-            return Ok(());
-        }
-
-        if let Some(ref middleware) = self.middleware {
-            let resolved = middleware.try_resolve_local(&to_fetch)?;
-            if !resolved.is_empty() {
-                let mut still_missing = Vec::new();
-                for key in to_fetch {
-                    if let Some(account) = resolved.get(&key) {
-                        destination.insert(key, account.clone());
-                        lock_cache(&self.cache)?.insert(key, account.clone());
-                    } else {
-                        still_missing.push(key);
-                    }
-                }
-                to_fetch = still_missing;
-            }
-
-            if to_fetch.is_empty() {
-                return Ok(());
-            }
-
-            if middleware.is_offline() {
-                middleware.on_offline_missing(&to_fetch);
-                return Ok(());
-            }
-        }
-
-        let total_count = to_fetch.len();
-        let mut requested_count = 0usize;
-        for chunk in to_fetch.chunks(MAX_ACCOUNTS_PER_REQUEST) {
-            let response =
-                self.provider.get_multiple_accounts(chunk).map_err(|e| SonarSimError::Rpc {
-                    message: format!(
-                        "getMultipleAccounts call failed, account list: [{}]: {e}",
-                        format_pubkeys(chunk)
-                    ),
-                })?;
-
-            if response.len() != chunk.len() {
-                return Err(SonarSimError::Rpc {
-                    message: format!(
-                        "RPC returned count mismatch with request ({} != {})",
-                        response.len(),
-                        chunk.len()
-                    ),
-                });
-            }
-
-            for (pubkey, maybe_account) in chunk.iter().zip(response.into_iter()) {
-                requested_count += 1;
-                if let Some(ref middleware) = self.middleware {
-                    middleware.on_fetch_progress(pubkey, requested_count, total_count);
-                }
-                if let Some(account) = maybe_account {
-                    destination.insert(*pubkey, account.clone());
-                    let mut cache = lock_cache(&self.cache)?;
-                    cache.insert(*pubkey, account);
-                }
-            }
-        }
-
-        debug!("Successfully fetched {} accounts from RPC", total_count);
-        Ok(())
     }
 }
 
@@ -578,5 +468,11 @@ mod tests {
         let resolved = loader.load_for_transactions(&txs).unwrap();
         assert!(resolved.accounts.is_empty());
         assert!(resolved.lookups.is_empty());
+    }
+
+    #[test]
+    fn fetcher_accessor_returns_inner_fetcher() {
+        let loader = AccountLoader::with_provider(Arc::new(FakeAccountProvider::empty()));
+        let _fetcher = loader.fetcher();
     }
 }

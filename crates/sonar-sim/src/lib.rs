@@ -8,6 +8,7 @@
 
 pub mod error;
 
+pub(crate) mod account_fetcher;
 pub(crate) mod account_loader;
 pub(crate) mod balance_changes;
 pub(crate) mod executor;
@@ -38,6 +39,7 @@ pub use transaction::{
 
 // ── Account loading ──
 
+pub use account_fetcher::AccountFetcher;
 pub use account_loader::AccountLoader;
 
 // ── Dependency resolvers ──
