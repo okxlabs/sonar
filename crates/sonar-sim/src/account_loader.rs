@@ -19,7 +19,7 @@ use std::sync::Mutex;
 
 use crate::rpc_provider::{RpcAccountProvider, SolanaRpcProvider};
 use crate::transaction::{AddressLookupPlan, collect_account_plan};
-use crate::types::{ResolvedAccounts, ResolvedLookup};
+use crate::types::{AccountAppender, ResolvedAccounts, ResolvedLookup};
 
 const MAX_ACCOUNTS_PER_REQUEST: usize = 100;
 
@@ -165,7 +165,7 @@ impl AccountLoader {
         Ok(ResolvedAccounts { accounts, lookups: all_lookups })
     }
 
-    pub fn append_accounts(
+    fn append_accounts_inner(
         &self,
         resolved: &mut ResolvedAccounts,
         pubkeys: &[Pubkey],
@@ -345,6 +345,12 @@ impl AccountLoader {
             format!("Failed to fetch token mint accounts: [{}]", format_pubkeys(&mint_pubkeys))
         })?;
         Ok(())
+    }
+}
+
+impl AccountAppender for AccountLoader {
+    fn append_accounts(&self, resolved: &mut ResolvedAccounts, pubkeys: &[Pubkey]) -> Result<()> {
+        self.append_accounts_inner(resolved, pubkeys)
     }
 }
 

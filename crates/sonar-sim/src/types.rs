@@ -1,7 +1,17 @@
 use std::path::PathBuf;
 
+use anyhow::Result;
 use solana_account::Account;
 use solana_pubkey::Pubkey;
+
+/// Minimal abstraction for on-demand account loading.
+///
+/// `funding` and other subsystems depend on this trait instead of the
+/// concrete `AccountLoader`, allowing test doubles and alternative
+/// data sources without an RPC connection.
+pub trait AccountAppender {
+    fn append_accounts(&self, resolved: &mut ResolvedAccounts, pubkeys: &[Pubkey]) -> Result<()>;
+}
 
 // ── From core/types.rs ──
 

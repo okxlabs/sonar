@@ -9,11 +9,10 @@ use anyhow::{Context, Result, anyhow};
 use solana_account::Account;
 use solana_pubkey::Pubkey;
 
-use crate::account_loader::AccountLoader;
-use crate::types::{ResolvedAccounts, TokenAmount, TokenFunding};
+use crate::types::{AccountAppender, ResolvedAccounts, TokenAmount, TokenFunding};
 
 pub fn prepare_token_fundings(
-    loader: &AccountLoader,
+    loader: &dyn AccountAppender,
     resolved: &mut ResolvedAccounts,
     requests: &[TokenFunding],
 ) -> Result<Vec<PreparedTokenFunding>> {
@@ -34,7 +33,7 @@ pub fn prepare_token_fundings(
 }
 
 fn process_single(
-    loader: &AccountLoader,
+    loader: &dyn AccountAppender,
     resolved: &mut ResolvedAccounts,
     request: &TokenFunding,
 ) -> Result<PreparedTokenFunding> {
@@ -155,7 +154,7 @@ fn create_missing_token_account(
 }
 
 fn ensure_account_loaded(
-    loader: &AccountLoader,
+    loader: &dyn AccountAppender,
     resolved: &mut ResolvedAccounts,
     pubkey: &Pubkey,
 ) -> Result<()> {
@@ -248,14 +247,26 @@ mod tests {
     use solana_pubkey::Pubkey;
     use spl_token::solana_program::program_pack::Pack;
 
-    use crate::account_loader::AccountLoader;
-    use crate::types::{ResolvedAccounts, TokenAmount, TokenFunding};
+    use crate::types::{AccountAppender, ResolvedAccounts, TokenAmount, TokenFunding};
 
     use super::*;
 
+    /// No-op appender: assumes all required accounts are pre-populated.
+    struct NoopAppender;
+
+    impl AccountAppender for NoopAppender {
+        fn append_accounts(
+            &self,
+            _resolved: &mut ResolvedAccounts,
+            _pubkeys: &[Pubkey],
+        ) -> anyhow::Result<()> {
+            Ok(())
+        }
+    }
+
     #[test]
     fn prepares_spl_token_funding_and_updates_account_data() {
-        let loader = AccountLoader::new("http://localhost:8899".into()).unwrap();
+        let loader = NoopAppender;
         let mint = Pubkey::new_unique();
         let token = Pubkey::new_unique();
         let owner = Pubkey::new_unique();
