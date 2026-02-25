@@ -1,29 +1,11 @@
 use anyhow::{Result, anyhow};
-use solana_account::Account;
 use solana_pubkey::Pubkey;
 use spl_token::solana_program::program_pack::Pack;
 
-use crate::types::ResolvedAccounts;
-
-use super::{
-    PreparedTokenFunding, TokenProgramKind, ensure_same_program, legacy_program_id,
-    raw_to_ui_amount,
+use crate::token_utils::{
+    TokenProgramKind, ensure_same_program, legacy_program_id, raw_to_ui_amount,
 };
-
-pub(super) fn read_mint_decimals(account: &Account) -> Result<u8> {
-    use spl_token::state::Mint as SplMint;
-
-    if account.data.len() < SplMint::LEN {
-        return Err(anyhow!(
-            "Mint account data is smaller than expected: {} < {}",
-            account.data.len(),
-            SplMint::LEN
-        ));
-    }
-    let parsed = SplMint::unpack(&account.data[..SplMint::LEN])
-        .map_err(|err| anyhow!("Failed to unpack SPL mint account: {err}"))?;
-    Ok(parsed.decimals)
-}
+use crate::types::{PreparedTokenFunding, ResolvedAccounts};
 
 pub(super) fn create_token_account(
     resolved: &mut ResolvedAccounts,
@@ -48,7 +30,13 @@ pub(super) fn create_token_account(
         .map_err(|err| anyhow!("Failed to pack new SPL token account: {err}"))?;
     resolved.accounts.insert(
         *account_pubkey,
-        Account { lamports: 0, data, owner: legacy_program_id(), executable: false, rent_epoch: 0 },
+        solana_account::Account {
+            lamports: 0,
+            data,
+            owner: legacy_program_id(),
+            executable: false,
+            rent_epoch: 0,
+        },
     );
     Ok(())
 }
@@ -97,6 +85,7 @@ mod tests {
     use solana_pubkey::Pubkey;
     use spl_token::solana_program::program_pack::Pack;
 
+    use crate::token_utils::{legacy_program_id, token2022_program_id};
     use crate::types::ResolvedAccounts;
 
     use super::*;
@@ -148,7 +137,7 @@ mod tests {
             solana_account::Account {
                 lamports: 0,
                 data: vec![0u8; 165],
-                owner: super::super::token2022_program_id(),
+                owner: token2022_program_id(),
                 executable: false,
                 rent_epoch: 0,
             },
@@ -156,45 +145,5 @@ mod tests {
 
         let err = update_account(&mut resolved, &token, &mint, 100, 6).unwrap_err();
         assert!(err.to_string().contains("not owned by"));
-    }
-
-    #[test]
-    fn read_mint_decimals_returns_correct_value() {
-        use spl_token::solana_program::program_option::COption;
-        use spl_token::state::Mint as SplMint;
-
-        let mint_state = SplMint {
-            mint_authority: COption::None,
-            supply: 0,
-            decimals: 9,
-            is_initialized: true,
-            freeze_authority: COption::None,
-        };
-        let mut data = vec![0u8; SplMint::LEN];
-        SplMint::pack(mint_state, &mut data).unwrap();
-
-        let account = solana_account::Account {
-            lamports: 0,
-            data,
-            owner: legacy_program_id(),
-            executable: false,
-            rent_epoch: 0,
-        };
-
-        assert_eq!(read_mint_decimals(&account).unwrap(), 9);
-    }
-
-    #[test]
-    fn read_mint_decimals_rejects_short_data() {
-        let account = solana_account::Account {
-            lamports: 0,
-            data: vec![0u8; 10],
-            owner: legacy_program_id(),
-            executable: false,
-            rent_epoch: 0,
-        };
-
-        let err = read_mint_decimals(&account).unwrap_err();
-        assert!(err.to_string().contains("smaller than expected"));
     }
 }

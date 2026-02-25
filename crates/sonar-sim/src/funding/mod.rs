@@ -9,6 +9,7 @@ use anyhow::{Context, Result, anyhow};
 use solana_account::Account;
 use solana_pubkey::Pubkey;
 
+use crate::token_utils::{self, TokenProgramKind};
 use crate::types::{AccountAppender, ResolvedAccounts, TokenAmount, TokenFunding};
 
 pub fn prepare_token_fundings(
@@ -81,10 +82,7 @@ fn process_single(
         )
     })?;
 
-    let decimals = match program_kind {
-        TokenProgramKind::Legacy => token_legacy::read_mint_decimals(&mint_account)?,
-        TokenProgramKind::Token2022 => token2022::read_mint_decimals(&mint_account)?,
-    };
+    let decimals = token_utils::read_mint_decimals(&mint_account)?;
 
     let amount_raw = resolve_token_amount(&request.amount, decimals)
         .with_context(|| format!("Failed to resolve token amount for {}", request.account))?;
@@ -187,58 +185,6 @@ fn resolve_token_amount(amount: &TokenAmount, decimals: u8) -> Result<u64> {
     }
 }
 
-fn raw_to_ui_amount(amount_raw: u64, decimals: u8) -> f64 {
-    let factor = 10f64.powi(decimals as i32);
-    if factor == 0.0 { amount_raw as f64 } else { (amount_raw as f64) / factor }
-}
-
-fn ensure_same_program(kind: TokenProgramKind, owner: &Pubkey, label: &str) -> Result<()> {
-    if owner != &kind.program_id() {
-        return Err(anyhow!("Provided {label} is not owned by {}", kind.program_name()));
-    }
-    Ok(())
-}
-
-#[derive(Copy, Clone)]
-enum TokenProgramKind {
-    Legacy,
-    Token2022,
-}
-
-impl TokenProgramKind {
-    fn from_owner(owner: &Pubkey) -> Option<Self> {
-        if *owner == legacy_program_id() {
-            Some(TokenProgramKind::Legacy)
-        } else if *owner == token2022_program_id() {
-            Some(TokenProgramKind::Token2022)
-        } else {
-            None
-        }
-    }
-
-    fn program_id(&self) -> Pubkey {
-        match self {
-            TokenProgramKind::Legacy => legacy_program_id(),
-            TokenProgramKind::Token2022 => token2022_program_id(),
-        }
-    }
-
-    fn program_name(&self) -> &'static str {
-        match self {
-            TokenProgramKind::Legacy => "SPL Token",
-            TokenProgramKind::Token2022 => "SPL Token 2022",
-        }
-    }
-}
-
-fn legacy_program_id() -> Pubkey {
-    Pubkey::new_from_array(spl_token::ID.to_bytes())
-}
-
-fn token2022_program_id() -> Pubkey {
-    Pubkey::new_from_array(spl_token_2022::ID.to_bytes())
-}
-
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
@@ -247,6 +193,7 @@ mod tests {
     use solana_pubkey::Pubkey;
     use spl_token::solana_program::program_pack::Pack;
 
+    use crate::token_utils::{legacy_program_id, raw_to_ui_amount};
     use crate::types::{AccountAppender, ResolvedAccounts, TokenAmount, TokenFunding};
 
     use super::*;

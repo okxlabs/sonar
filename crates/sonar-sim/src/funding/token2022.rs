@@ -4,27 +4,10 @@ use solana_pubkey::Pubkey;
 use spl_token::solana_program::program_pack::Pack;
 use spl_token_2022::extension::{BaseStateWithExtensions, BaseStateWithExtensionsMut};
 
-use crate::types::ResolvedAccounts;
-
-use super::{
-    PreparedTokenFunding, TokenProgramKind, ensure_same_program, raw_to_ui_amount,
-    token2022_program_id,
+use crate::token_utils::{
+    TokenProgramKind, ensure_same_program, raw_to_ui_amount, token2022_program_id,
 };
-
-pub(super) fn read_mint_decimals(account: &Account) -> Result<u8> {
-    use spl_token_2022::state::Mint as Token2022Mint;
-
-    if account.data.len() < Token2022Mint::LEN {
-        return Err(anyhow!(
-            "Mint account data is smaller than expected: {} < {}",
-            account.data.len(),
-            Token2022Mint::LEN
-        ));
-    }
-    let parsed = Token2022Mint::unpack(&account.data[..Token2022Mint::LEN])
-        .map_err(|err| anyhow!("Failed to unpack token-2022 mint account: {err}"))?;
-    Ok(parsed.decimals)
-}
+use crate::types::{PreparedTokenFunding, ResolvedAccounts};
 
 pub(super) fn create_token_account_with_extensions(
     resolved: &mut ResolvedAccounts,
@@ -133,12 +116,14 @@ mod tests {
     };
     use spl_token_2022::state::{Account as Token2022Account, Mint as Token2022Mint};
 
+    use crate::token_utils::token2022_program_id;
     use crate::types::ResolvedAccounts;
 
     use super::*;
 
     fn mint_account_base_only() -> Account {
         use spl_token::solana_program::program_option::COption;
+        use spl_token::solana_program::program_pack::Pack;
 
         let mint = Token2022Mint {
             mint_authority: COption::None,
@@ -234,25 +219,6 @@ mod tests {
             "expected TransferFeeAmount extension, got {:?}",
             ext_types
         );
-    }
-
-    #[test]
-    fn read_mint_decimals_returns_correct_value() {
-        let account = mint_account_base_only();
-        assert_eq!(read_mint_decimals(&account).unwrap(), 6);
-    }
-
-    #[test]
-    fn read_mint_decimals_rejects_short_data() {
-        let account = Account {
-            lamports: 0,
-            data: vec![0u8; 10],
-            owner: token2022_program_id(),
-            executable: false,
-            rent_epoch: 0,
-        };
-        let err = read_mint_decimals(&account).unwrap_err();
-        assert!(err.to_string().contains("smaller than expected"));
     }
 
     #[test]

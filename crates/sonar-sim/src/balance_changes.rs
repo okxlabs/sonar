@@ -9,6 +9,8 @@ use serde::Serialize;
 use solana_account::{Account, AccountSharedData, ReadableAccount};
 use solana_pubkey::Pubkey;
 
+use crate::token_utils;
+
 /// SOL balance change for a single account.
 #[derive(Debug, Clone, Serialize)]
 pub struct SolBalanceChange {
@@ -57,7 +59,7 @@ pub fn compute_sol_changes(
 /// Compute token balance changes between pre and post account states.
 ///
 /// Only token accounts with actual balance changes (change != 0) are included.
-/// Uses SPL Token and Token-2022 decoding to extract token amounts.
+/// Uses the shared `token_utils` decoder for both SPL Token and Token-2022.
 pub fn compute_token_changes(
     pre_accounts: &HashMap<Pubkey, Account>,
     post_accounts: &HashMap<Pubkey, AccountSharedData>,
@@ -67,24 +69,24 @@ pub fn compute_token_changes(
 
     for (pubkey, post_account) in post_accounts {
         let post_owner = post_account.owner();
-        if let Some((mint, token_owner, after_amount)) =
-            try_decode_token_account(post_account.data(), post_owner)
+        if let Some(decoded) =
+            token_utils::try_decode_token_account(post_account.data(), post_owner)
         {
             let before_amount = pre_accounts
                 .get(pubkey)
-                .and_then(|acc| try_decode_token_account(&acc.data, &acc.owner))
-                .map(|(_, _, amount)| amount)
+                .and_then(|acc| token_utils::try_decode_token_account(&acc.data, &acc.owner))
+                .map(|d| d.amount)
                 .unwrap_or(0);
 
-            let change = after_amount as i128 - before_amount as i128;
+            let change = decoded.amount as i128 - before_amount as i128;
             if change != 0 {
-                let decimals = mint_decimals.get(&mint).copied().unwrap_or(0);
+                let decimals = mint_decimals.get(&decoded.mint).copied().unwrap_or(0);
                 changes.push(TokenBalanceChange {
                     account: *pubkey,
-                    owner: token_owner,
-                    mint,
+                    owner: decoded.owner,
+                    mint: decoded.mint,
                     before: before_amount,
-                    after: after_amount,
+                    after: decoded.amount,
                     change,
                     decimals,
                 });
@@ -106,114 +108,19 @@ pub fn extract_mint_decimals_combined(
 ) -> HashMap<Pubkey, u8> {
     let mut decimals = HashMap::new();
 
-    // Extract from pre accounts
-    extract_mint_decimals_from_accounts(pre_accounts, &mut decimals);
+    for (pubkey, account) in pre_accounts {
+        if let Some(d) = token_utils::try_read_mint_decimals(&account.data, &account.owner) {
+            decimals.insert(*pubkey, d);
+        }
+    }
 
-    // Extract from post accounts
-    extract_mint_decimals_from_shared_accounts(post_accounts, &mut decimals);
+    for (pubkey, account) in post_accounts {
+        if let Some(d) = token_utils::try_read_mint_decimals(account.data(), account.owner()) {
+            decimals.insert(*pubkey, d);
+        }
+    }
 
     decimals
-}
-
-fn extract_mint_decimals_from_accounts(
-    accounts: &HashMap<Pubkey, Account>,
-    decimals: &mut HashMap<Pubkey, u8>,
-) {
-    use spl_token::solana_program::program_pack::Pack;
-
-    let token_program = spl_token::ID;
-    let token2022_program = spl_token_2022::ID;
-
-    for (pubkey, account) in accounts {
-        let owner_bytes = account.owner.to_bytes();
-        if owner_bytes != token_program.to_bytes() && owner_bytes != token2022_program.to_bytes() {
-            continue;
-        }
-
-        // Try to decode as mint (legacy)
-        if account.data.len() >= spl_token::state::Mint::LEN {
-            if let Ok(mint) = spl_token::state::Mint::unpack(&account.data) {
-                if mint.is_initialized {
-                    decimals.insert(*pubkey, mint.decimals);
-                    continue;
-                }
-            }
-        }
-
-        // Try to decode as Token-2022 mint
-        use spl_token_2022::extension::StateWithExtensions;
-        use spl_token_2022::state::Mint as Token2022Mint;
-        if let Ok(state) = StateWithExtensions::<Token2022Mint>::unpack(&account.data) {
-            if state.base.is_initialized {
-                decimals.insert(*pubkey, state.base.decimals);
-            }
-        }
-    }
-}
-
-fn extract_mint_decimals_from_shared_accounts(
-    accounts: &HashMap<Pubkey, AccountSharedData>,
-    decimals: &mut HashMap<Pubkey, u8>,
-) {
-    use spl_token::solana_program::program_pack::Pack;
-
-    let token_program = spl_token::ID;
-    let token2022_program = spl_token_2022::ID;
-
-    for (pubkey, account) in accounts {
-        let owner_bytes = account.owner().to_bytes();
-        if owner_bytes != token_program.to_bytes() && owner_bytes != token2022_program.to_bytes() {
-            continue;
-        }
-
-        let data = account.data();
-
-        // Try to decode as mint (legacy)
-        if data.len() >= spl_token::state::Mint::LEN {
-            if let Ok(mint) = spl_token::state::Mint::unpack(data) {
-                if mint.is_initialized {
-                    decimals.insert(*pubkey, mint.decimals);
-                    continue;
-                }
-            }
-        }
-
-        // Try to decode as Token-2022 mint
-        use spl_token_2022::extension::StateWithExtensions;
-        use spl_token_2022::state::Mint as Token2022Mint;
-        if let Ok(state) = StateWithExtensions::<Token2022Mint>::unpack(data) {
-            if state.base.is_initialized {
-                decimals.insert(*pubkey, state.base.decimals);
-            }
-        }
-    }
-}
-
-/// Try to decode account data as a token account, returning (mint, token_owner, amount).
-fn try_decode_token_account(data: &[u8], program_owner: &Pubkey) -> Option<(Pubkey, Pubkey, u64)> {
-    use spl_token::solana_program::program_pack::Pack;
-    use spl_token::state::Account as TokenAccount;
-
-    if *program_owner == spl_token::ID {
-        if data.len() < TokenAccount::LEN {
-            return None;
-        }
-        if let Ok(token_account) = TokenAccount::unpack(data) {
-            let mint = Pubkey::new_from_array(token_account.mint.to_bytes());
-            let token_owner = Pubkey::new_from_array(token_account.owner.to_bytes());
-            return Some((mint, token_owner, token_account.amount));
-        }
-    } else if *program_owner == spl_token_2022::ID {
-        use spl_token_2022::extension::StateWithExtensions;
-        use spl_token_2022::state::Account as Token2022Account;
-        if let Ok(state) = StateWithExtensions::<Token2022Account>::unpack(data) {
-            let mint = Pubkey::new_from_array(state.base.mint.to_bytes());
-            let token_owner = Pubkey::new_from_array(state.base.owner.to_bytes());
-            return Some((mint, token_owner, state.base.amount));
-        }
-    }
-
-    None
 }
 
 #[cfg(test)]

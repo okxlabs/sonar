@@ -11,6 +11,7 @@ pub(crate) mod balance_changes;
 pub(crate) mod executor;
 pub(crate) mod funding;
 pub(crate) mod rpc_provider;
+pub(crate) mod token_utils;
 pub(crate) mod transaction;
 pub(crate) mod types;
 
