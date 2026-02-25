@@ -1,4 +1,7 @@
-pub use sonar_sim::{ExecutionStatus, SimulationOptions, SimulationResult, TransactionExecutor};
+pub use sonar_sim::{
+    ExecutionOptions, ExecutionStatus, SimulationOptions, SimulationResult, StateMutationOptions,
+    TransactionExecutor,
+};
 
 // ---------------------------------------------------------------------------
 // Account dump logic (CLI-only, Solana CLI compatible JSON format)

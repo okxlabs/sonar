@@ -72,15 +72,18 @@ pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
 
     // Check if this is a bundle (multiple positional TX arguments)
     if tx.len() > 1 {
-        // Build simulation options (token_fundings populated inside handle_bundle).
         let sim_opts = executor::SimulationOptions {
-            replacements,
-            fundings,
-            data_patches,
-            verify_signatures,
-            slot,
-            timestamp,
-            ..Default::default()
+            execution: executor::ExecutionOptions {
+                signature_verification: verify_signatures.into(),
+                slot,
+                timestamp,
+            },
+            mutations: executor::StateMutationOptions {
+                replacements,
+                fundings,
+                data_patches,
+                ..Default::default()
+            },
         };
         return handle_bundle(
             tx,
@@ -186,13 +189,17 @@ pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
     }
 
     let sim_opts = executor::SimulationOptions {
-        replacements,
-        fundings,
-        token_fundings: prepared_token_fundings,
-        data_patches,
-        verify_signatures,
-        slot,
-        timestamp,
+        execution: executor::ExecutionOptions {
+            signature_verification: verify_signatures.into(),
+            slot,
+            timestamp,
+        },
+        mutations: executor::StateMutationOptions {
+            replacements,
+            fundings,
+            token_fundings: prepared_token_fundings,
+            data_patches,
+        },
     };
     let mut executor = executor::TransactionExecutor::prepare(resolved_accounts, sim_opts)?;
 
@@ -258,8 +265,8 @@ fn handle_bundle(
 
     let parsed_tx_refs: Vec<_> = parsed_txs.iter().collect();
     warn_unmatched_addresses(
-        &sim_opts.replacements,
-        &sim_opts.fundings,
+        &sim_opts.mutations.replacements,
+        &sim_opts.mutations.fundings,
         &token_funding_requests,
         &parsed_tx_refs,
         &resolved_accounts,
@@ -275,7 +282,7 @@ fn handle_bundle(
             &token_funding_requests,
         )?
     };
-    sim_opts.token_fundings = prepared_token_fundings;
+    sim_opts.mutations.token_fundings = prepared_token_fundings;
 
     // Load IDL parsers for all programs
     let program_ids = collect_program_ids(&resolved_accounts);

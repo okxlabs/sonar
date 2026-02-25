@@ -47,16 +47,110 @@ pub fn is_native_or_sysvar(pubkey: &Pubkey) -> bool {
     NATIVE_PROGRAM_IDS.contains(pubkey)
 }
 
-/// Simulation execution options passed to `TransactionExecutor::prepare`.
-#[derive(Default)]
-pub struct SimulationOptions {
+/// Whether the simulator should verify transaction signatures.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SignatureVerification {
+    /// Verify all signatures (strict mode).
+    Verify,
+    /// Skip signature verification (default for local simulation).
+    #[default]
+    Skip,
+}
+
+impl SignatureVerification {
+    pub fn is_verify(self) -> bool {
+        matches!(self, Self::Verify)
+    }
+}
+
+impl From<bool> for SignatureVerification {
+    fn from(verify: bool) -> Self {
+        if verify { Self::Verify } else { Self::Skip }
+    }
+}
+
+/// Controls *how* the simulation VM executes the transaction.
+#[derive(Debug, Clone, Default)]
+pub struct ExecutionOptions {
+    pub signature_verification: SignatureVerification,
+    pub slot: Option<u64>,
+    pub timestamp: Option<i64>,
+}
+
+/// Pre-simulation mutations applied to the account set before execution.
+#[derive(Debug, Clone, Default)]
+pub struct StateMutationOptions {
     pub replacements: Vec<Replacement>,
     pub fundings: Vec<Funding>,
     pub token_fundings: Vec<PreparedTokenFunding>,
     pub data_patches: Vec<AccountDataPatch>,
-    pub verify_signatures: bool,
-    pub slot: Option<u64>,
-    pub timestamp: Option<i64>,
+}
+
+/// Simulation execution options passed to `TransactionExecutor::prepare`.
+///
+/// Groups two concerns:
+/// - [`ExecutionOptions`]: VM-level knobs (signature verification, slot/time override).
+/// - [`StateMutationOptions`]: pre-simulation account mutations (replace, fund, patch).
+///
+/// Construct via `Default`, struct literal, or the builder returned by
+/// [`SimulationOptions::builder`].
+#[derive(Debug, Clone, Default)]
+pub struct SimulationOptions {
+    pub execution: ExecutionOptions,
+    pub mutations: StateMutationOptions,
+}
+
+/// Incremental builder for [`SimulationOptions`].
+#[derive(Debug, Clone, Default)]
+pub struct SimulationOptionsBuilder {
+    opts: SimulationOptions,
+}
+
+impl SimulationOptions {
+    pub fn builder() -> SimulationOptionsBuilder {
+        SimulationOptionsBuilder::default()
+    }
+}
+
+impl SimulationOptionsBuilder {
+    pub fn signature_verification(mut self, sv: SignatureVerification) -> Self {
+        self.opts.execution.signature_verification = sv;
+        self
+    }
+
+    pub fn slot(mut self, slot: u64) -> Self {
+        self.opts.execution.slot = Some(slot);
+        self
+    }
+
+    pub fn timestamp(mut self, ts: i64) -> Self {
+        self.opts.execution.timestamp = Some(ts);
+        self
+    }
+
+    pub fn replacements(mut self, replacements: Vec<Replacement>) -> Self {
+        self.opts.mutations.replacements = replacements;
+        self
+    }
+
+    pub fn fundings(mut self, fundings: Vec<Funding>) -> Self {
+        self.opts.mutations.fundings = fundings;
+        self
+    }
+
+    pub fn token_fundings(mut self, token_fundings: Vec<PreparedTokenFunding>) -> Self {
+        self.opts.mutations.token_fundings = token_fundings;
+        self
+    }
+
+    pub fn data_patches(mut self, data_patches: Vec<AccountDataPatch>) -> Self {
+        self.opts.mutations.data_patches = data_patches;
+        self
+    }
+
+    pub fn build(self) -> SimulationOptions {
+        self.opts
+    }
 }
 
 // ── Pipeline steps ──
@@ -203,30 +297,33 @@ pub struct TransactionExecutor {
 
 impl TransactionExecutor {
     pub fn prepare(resolved: ResolvedAccounts, opts: SimulationOptions) -> Result<Self> {
+        let exec = &opts.execution;
+        let mutations = &opts.mutations;
+
         let mut svm = LiteSVM::new()
             .with_log_bytes_limit(Some(1024 * 1024 * 10)) // 10M
             .with_blockhash_check(false)
-            .with_sigverify(opts.verify_signatures);
+            .with_sigverify(exec.signature_verification.is_verify());
 
         load_accounts(&mut svm, &resolved)?;
-        apply_replacements(&mut svm, &opts.replacements, &resolved)?;
-        apply_sol_fundings(&mut svm, &opts.fundings)?;
-        apply_data_patches(&mut svm, &opts.data_patches)?;
+        apply_replacements(&mut svm, &mutations.replacements, &resolved)?;
+        apply_sol_fundings(&mut svm, &mutations.fundings)?;
+        apply_data_patches(&mut svm, &mutations.data_patches)?;
 
-        if let Some(slot) = opts.slot {
+        if let Some(slot) = exec.slot {
             apply_slot(&mut svm, slot);
         }
-        if let Some(ts) = opts.timestamp {
+        if let Some(ts) = exec.timestamp {
             apply_timestamp(&mut svm, ts)?;
         }
 
         Ok(Self {
             svm,
             resolved,
-            replacements: opts.replacements,
-            fundings: opts.fundings,
-            token_fundings: opts.token_fundings,
-            data_patches: opts.data_patches,
+            replacements: opts.mutations.replacements,
+            fundings: opts.mutations.fundings,
+            token_fundings: opts.mutations.token_fundings,
+            data_patches: opts.mutations.data_patches,
         })
     }
 
@@ -529,10 +626,9 @@ mod tests {
         let accounts = HashMap::new();
         let resolved = ResolvedAccounts { accounts, lookups: vec![] };
 
-        let opts = SimulationOptions {
-            fundings: vec![Funding { pubkey: payer.pubkey(), amount_lamports: 10_000_000_000 }],
-            ..Default::default()
-        };
+        let opts = SimulationOptions::builder()
+            .fundings(vec![Funding { pubkey: payer.pubkey(), amount_lamports: 10_000_000_000 }])
+            .build();
 
         let mut executor =
             TransactionExecutor::prepare(resolved, opts).expect("prepare should succeed");
