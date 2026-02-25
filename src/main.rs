@@ -36,7 +36,7 @@ fn print_subcommand_help(name: &str) -> Result<()> {
 }
 
 fn run() -> Result<()> {
-    env_logger::init();
+    init_logger();
 
     // Load ~/.config/sonar/config.toml and inject values into env vars
     // before clap parses, so that CLI arg > env var > config file > default.
@@ -103,4 +103,32 @@ fn run() -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// Initialise `env_logger` with CLI-friendly defaults.
+///
+/// * Default filter level is `warn` (overridable via `RUST_LOG`).
+/// * Format: `warning: <msg>` / `error: <msg>` for user-visible levels;
+///   debug/trace include the module target for developers.
+fn init_logger() {
+    use std::io::Write;
+
+    env_logger::Builder::new()
+        .filter_level(log::LevelFilter::Warn)
+        .parse_default_env()
+        .format(|buf, record| {
+            let label = match record.level() {
+                log::Level::Error => "error",
+                log::Level::Warn => "warning",
+                log::Level::Info => "info",
+                log::Level::Debug => "debug",
+                log::Level::Trace => "trace",
+            };
+            if record.level() <= log::Level::Info {
+                writeln!(buf, "{label}: {}", record.args())
+            } else {
+                writeln!(buf, "{label} [{}]: {}", record.target(), record.args())
+            }
+        })
+        .init();
 }

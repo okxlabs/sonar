@@ -368,8 +368,8 @@ impl AccountLoader {
             let non_native_missing: Vec<_> =
                 to_fetch.iter().filter(|k| !is_native_or_sysvar(k)).collect();
             if !non_native_missing.is_empty() {
-                eprintln!(
-                    "Warning: offline mode: {} account(s) not found in cache directory (treated as non-existent): [{}]",
+                log::warn!(
+                    "offline mode: {} account(s) not found in cache directory (treated as non-existent): [{}]",
                     non_native_missing.len(),
                     non_native_missing.iter().map(|k| k.to_string()).collect::<Vec<_>>().join(", ")
                 );

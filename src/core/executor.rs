@@ -5,7 +5,7 @@ use std::sync::LazyLock;
 use anyhow::{Context, Result, anyhow};
 use base64::Engine;
 use litesvm::{LiteSVM, types::TransactionMetadata};
-use log::info;
+use log::{info, warn};
 use serde::Serialize;
 use solana_account::{Account, AccountSharedData};
 use solana_clock::Clock;
@@ -75,8 +75,8 @@ impl TransactionExecutor {
                     // Warn if the on-chain account does not appear to be a program
                     if let Some(existing) = resolved.accounts.get(program_id) {
                         if !existing.executable {
-                            eprintln!(
-                                "Warning: --replace target {} does not appear to be a program on-chain. Loading .so file anyway.",
+                            warn!(
+                                "--replace target {} does not appear to be a program on-chain. Loading .so file anyway.",
                                 program_id
                             );
                         }
@@ -94,8 +94,8 @@ impl TransactionExecutor {
                     // Warn if the on-chain account appears to be a program
                     if let Some(existing) = resolved.accounts.get(pubkey) {
                         if existing.executable {
-                            eprintln!(
-                                "Warning: --replace target {} appears to be a program on-chain, but replacing as a regular account from JSON file.",
+                            warn!(
+                                "--replace target {} appears to be a program on-chain, but replacing as a regular account from JSON file.",
                                 pubkey
                             );
                         }

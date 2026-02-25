@@ -89,15 +89,15 @@ fn fetch_and_write_idls(
     }
 
     for id in &not_found {
-        eprintln!("no IDL found: {}", id);
+        log::warn!("no IDL found: {}", id);
     }
     for (id, e) in &errors {
-        eprintln!("error {}: {:#}", id, e);
+        log::error!("IDL fetch error for {}: {:#}", id, e);
     }
 
     let has_failures = !not_found.is_empty() || !errors.is_empty();
     if has_failures {
-        eprintln!(
+        log::warn!(
             "Summary: {} fetched, {} not found, {} error(s)",
             fetched,
             not_found.len(),
@@ -145,14 +145,14 @@ fn default_idl_dir_from_env() -> Option<PathBuf> {
 fn collect_program_ids_from_sync_path(path: &Path) -> Result<(Vec<Pubkey>, Option<PathBuf>)> {
     if path.is_dir() {
         let program_ids = scan_idl_directory(path)?;
-        eprintln!("syncing {} IDLs from {}", program_ids.len(), path.display());
+        log::info!("syncing {} IDLs from {}", program_ids.len(), path.display());
         return Ok((program_ids, Some(path.to_path_buf())));
     }
 
     if path.is_file() {
         let program_id = parse_program_id_from_idl_file(path)?;
         let output_dir = path.parent().map(|p| p.to_path_buf());
-        eprintln!("syncing 1 IDL from {}", path.display());
+        log::info!("syncing 1 IDL from {}", path.display());
         return Ok((vec![program_id], output_dir));
     }
 

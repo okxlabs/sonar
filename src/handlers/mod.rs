@@ -153,8 +153,6 @@ pub(crate) fn warn_unmatched_addresses(
     parsed_txs: &[&transaction::ParsedTransaction],
     resolved_accounts: &account_loader::ResolvedAccounts,
 ) {
-    use colored::Colorize;
-
     if replacements.is_empty() && fundings.is_empty() && token_fundings.is_empty() {
         return;
     }
@@ -162,25 +160,22 @@ pub(crate) fn warn_unmatched_addresses(
     let tx_keys = collect_transaction_account_keys(parsed_txs, resolved_accounts);
 
     for pubkey in find_unmatched_replacements(replacements, &tx_keys) {
-        eprintln!(
-            "{} --replace target {} is not referenced in the transaction's account keys. Did you mean a different address?",
-            "Warning:".yellow().bold(),
+        log::warn!(
+            "--replace target {} is not referenced in the transaction's account keys. Did you mean a different address?",
             pubkey,
         );
     }
 
     for pubkey in find_unmatched_sol_fundings(fundings, &tx_keys) {
-        eprintln!(
-            "{} --fund-sol address {} is not referenced in the transaction's account keys. Did you mean a different address?",
-            "Warning:".yellow().bold(),
+        log::warn!(
+            "--fund-sol address {} is not referenced in the transaction's account keys. Did you mean a different address?",
             pubkey,
         );
     }
 
     for pubkey in find_unmatched_token_fundings(token_fundings, &tx_keys) {
-        eprintln!(
-            "{} --fund-token address {} is not referenced in the transaction's account keys. Did you mean a different address?",
-            "Warning:".yellow().bold(),
+        log::warn!(
+            "--fund-token address {} is not referenced in the transaction's account keys. Did you mean a different address?",
             pubkey,
         );
     }

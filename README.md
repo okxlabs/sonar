@@ -428,6 +428,42 @@ The `[n]` label next to a marker refers to the account's index in the transactio
 account list. Static accounts occupy the lower indices and lookup-table accounts follow;
 the legend at the bottom of the Instruction Details section shows the exact ranges.
 
+## Output Conventions
+
+### stdout / stderr Contract
+
+| Stream   | Content                                                                                  |
+|----------|------------------------------------------------------------------------------------------|
+| **stdout** | Primary command output: simulation report (text or JSON), decoded instructions, account data, PDA results, etc. |
+| **stderr** | Diagnostics (warnings, errors), progress indicators, and utility-command informational output (e.g. `cache list`). |
+
+When `--json` is used, **stdout always contains a single valid JSON document** (object or array). Diagnostics remain on stderr so that `jq` pipelines work without filtering.
+
+### Diagnostic Levels
+
+Sonar routes all diagnostics through the `log` crate (backend: `env_logger`).
+
+| Level    | Default visibility | Examples |
+|----------|--------------------|----------|
+| `error`  | shown | Fatal errors, IDL fetch failures |
+| `warn`   | shown | Unused `--replace`/`--fund-*` addresses, offline-mode missing accounts, config-file parse errors |
+| `info`   | hidden | IDL sync progress, summary counts |
+| `debug`  | hidden | IDL parser loading, cache key derivation |
+| `trace`  | hidden | RPC request/response details |
+
+Control via `RUST_LOG`:
+
+```bash
+RUST_LOG=info  sonar simulate ...   # show info + warn + error
+RUST_LOG=error sonar simulate ...   # suppress warnings
+RUST_LOG=debug sonar simulate ...   # verbose developer output
+```
+
+### Color and Emoji
+
+- Color output is **automatically disabled** when stdout is not a TTY or `NO_COLOR` is set (see [no-color.org](https://no-color.org)).
+- No emoji is used in machine-readable output paths.
+
 ## Technology Stack
 
 - **Language**: Rust (Edition 2021)

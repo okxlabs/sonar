@@ -311,8 +311,8 @@ fn decode_account_output(
                     Some(wrap_account_data_output(&meta_account, decoded))
                 }
                 Err(error) => {
-                    eprintln!(
-                        "Warning: Metaplex metadata enrichment failed ({error}). \
+                    log::warn!(
+                        "Metaplex metadata enrichment failed ({error}). \
                          Showing mint account data only."
                     );
                     None

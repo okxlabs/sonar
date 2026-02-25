@@ -674,11 +674,6 @@ impl InnerInstructionSection {
                 );
                 cpi_result
             } else {
-                // Regular instruction parsing
-                // Try to load IDL parser if needed
-                if let Err(err) = parser_registry.load_idl_parser_if_needed(&program_id) {
-                    log::debug!("Failed to load IDL parser for {}: {}", program_id, err);
-                }
                 parse_inner_instruction_as_regular(
                     inner_ix,
                     message,

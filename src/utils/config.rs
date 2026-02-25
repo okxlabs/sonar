@@ -199,12 +199,12 @@ pub fn load_config() -> SonarConfig {
                 config
             }
             Err(e) => {
-                eprintln!("Warning: Failed to parse config file {}: {}", path.display(), e);
+                log::warn!("Failed to parse config file {}: {}", path.display(), e);
                 SonarConfig::default()
             }
         },
         Err(e) => {
-            eprintln!("Warning: Failed to read config file {}: {}", path.display(), e);
+            log::warn!("Failed to read config file {}: {}", path.display(), e);
             SonarConfig::default()
         }
     }

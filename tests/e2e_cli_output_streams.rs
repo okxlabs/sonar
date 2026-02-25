@@ -296,11 +296,12 @@ fn offline_missing_account_does_not_trigger_strict_offline_error() {
     let stderr = String::from_utf8_lossy(&output.stderr);
 
     assert!(
-        stderr.contains("Warning: offline mode") && stderr.contains("treated as non-existent"),
+        stderr.to_lowercase().contains("offline mode")
+            && stderr.contains("treated as non-existent"),
         "expected offline missing-account warning in stderr, got: {stderr}"
     );
     assert!(
-        !stderr.contains("Error: offline mode:"),
+        !stderr.contains("Error: offline mode:") && !stderr.contains("error: offline mode:"),
         "strict offline error should not be returned, got: {stderr}"
     );
 
@@ -328,7 +329,7 @@ fn idl_fetch_failure_exits_nonzero() {
     assert!(stdout.trim().is_empty(), "stdout should be empty on failure, got: {stdout}");
     assert!(stderr.contains("Summary:"), "expected Summary in stderr, got: {stderr}");
     assert!(
-        stderr.contains("error") || stderr.contains("Error:"),
+        stderr.to_lowercase().contains("error"),
         "expected error info in stderr, got: {stderr}"
     );
 }
