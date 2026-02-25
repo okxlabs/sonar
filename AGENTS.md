@@ -7,11 +7,12 @@ CLI for local Solana transaction simulation (LiteSVM) plus utility subcommands.
 - `src/main.rs`: command entry and dispatch
 - `src/cli/`: argument definitions for each subcommand
 - `src/handlers/`: subcommand execution logic
-- Core simulation flow (`src/core/`): `transaction.rs`, `account_loader.rs`, `executor.rs`, `funding.rs`, `balance_changes.rs`, `cache.rs`
-- Output presentation: `src/output/`
-- Parsing and Decoders (`src/parsers/`): `instruction/`, `log_parser.rs`, `metaplex_metadata_decoder.rs`, `token_account_decoder.rs`
+- Conversion logic (`src/converters/`): `bytes.rs`, `integers.rs`, `sol.rs`, `text.rs`, `types.rs`
+- Core simulation flow (`src/core/`): `transaction.rs`, `account_loader.rs`, `executor.rs`, `balance_changes.rs`, `cache.rs`, `account_file.rs`, `idl_fetcher.rs`, `rpc_provider.rs`, `types.rs`, `funding/` (`sol.rs`, `token_legacy.rs`, `token2022.rs`)
+- Output presentation (`src/output/`): `report.rs`, `text.rs`, `json.rs`, `account_text.rs`, `terminal.rs`
+- Parsing and Decoders (`src/parsers/`): `instruction/` (`anchor_idl.rs`, `system_program.rs`, `compute_budget_program.rs`, `memo_program.rs`, `associated_token_program.rs`, `token2022_program.rs`, `template.rs`), `log_parser.rs`, `metaplex_metadata_decoder.rs`, `token_account_decoder.rs`
 - Utilities (`src/utils/`): `native_ids.rs`, `config.rs`, `progress.rs`
-- Tests: `tests/e2e_simulation.rs`, `tests/fixtures/`
+- Tests: `tests/e2e_simulation.rs`, `tests/e2e_cli_output_streams.rs`, `tests/fixtures/`
 
 ## Common Commands
 
@@ -42,6 +43,9 @@ cargo run -- idl fetch <PROGRAM_ID> --rpc-url <RPC_URL>
 cargo run -- cache list
 cargo run -- cache clean --older-than 7d
 cargo run -- cache info <KEY>
+cargo run -- config list
+cargo run -- config get <KEY>
+cargo run -- config set <KEY> <VALUE>
 cargo run -- completions zsh
 ```
 
