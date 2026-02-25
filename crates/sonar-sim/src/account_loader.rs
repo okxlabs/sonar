@@ -24,7 +24,9 @@ const MAX_ACCOUNTS_PER_REQUEST: usize = 100;
 fn lock_cache(
     cache: &Mutex<HashMap<Pubkey, AccountSharedData>>,
 ) -> Result<std::sync::MutexGuard<'_, HashMap<Pubkey, AccountSharedData>>> {
-    cache.lock().map_err(|_| SonarSimError::Internal("account cache lock poisoned".into()))
+    cache
+        .lock()
+        .map_err(|_| SonarSimError::Internal { reason: "account cache lock poisoned".into() })
 }
 
 pub struct AccountLoader {
@@ -37,7 +39,7 @@ pub struct AccountLoader {
 impl AccountLoader {
     pub fn new(rpc_url: String) -> Result<Self> {
         if rpc_url.is_empty() {
-            return Err(SonarSimError::Validation("RPC URL cannot be empty".into()));
+            return Err(SonarSimError::Validation { reason: "RPC URL cannot be empty".into() });
         }
         Ok(Self {
             provider: Arc::new(SolanaRpcProvider::new(rpc_url)),
@@ -95,10 +97,9 @@ impl AccountLoader {
         let initial = collect_initial_accounts(plans);
         let mut accounts = HashMap::new();
 
-        self.fetch_accounts(&initial, &mut accounts).map_err(|e| {
-            SonarSimError::AccountData(format!(
-                "Failed to fetch initial accounts (static + sysvars + lookups): {e}"
-            ))
+        self.fetch_accounts(&initial, &mut accounts).map_err(|e| SonarSimError::AccountData {
+            pubkey: None,
+            reason: format!("Failed to fetch initial accounts (static + sysvars + lookups): {e}"),
         })?;
         self.resolve_all_dependencies(&mut accounts)?;
 
@@ -106,10 +107,13 @@ impl AccountLoader {
 
         if !lookup_pubkeys.is_empty() {
             self.fetch_accounts(&lookup_pubkeys, &mut accounts).map_err(|e| {
-                SonarSimError::AccountData(format!(
-                    "Failed to load accounts from address lookup tables: [{}]: {e}",
-                    format_pubkeys(&lookup_pubkeys)
-                ))
+                SonarSimError::AccountData {
+                    pubkey: None,
+                    reason: format!(
+                        "Failed to load accounts from address lookup tables: [{}]: {e}",
+                        format_pubkeys(&lookup_pubkeys)
+                    ),
+                }
             })?;
             self.resolve_all_dependencies(&mut accounts)?;
         }
@@ -152,10 +156,13 @@ impl AccountLoader {
             return Ok(());
         }
         self.fetch_accounts(pubkeys, &mut resolved.accounts).map_err(|e| {
-            SonarSimError::AccountData(format!(
-                "Failed to fetch appended accounts: [{}]: {e}",
-                format_pubkeys(pubkeys)
-            ))
+            SonarSimError::AccountData {
+                pubkey: None,
+                reason: format!(
+                    "Failed to fetch appended accounts: [{}]: {e}",
+                    format_pubkeys(pubkeys)
+                ),
+            }
         })?;
         self.resolve_all_dependencies(&mut resolved.accounts)?;
         Ok(())
@@ -183,10 +190,13 @@ impl AccountLoader {
             }
 
             self.fetch_accounts(&all_missing, accounts).map_err(|e| {
-                SonarSimError::AccountData(format!(
-                    "Failed to fetch dependency accounts: [{}]: {e}",
-                    format_pubkeys(&all_missing)
-                ))
+                SonarSimError::AccountData {
+                    pubkey: None,
+                    reason: format!(
+                        "Failed to fetch dependency accounts: [{}]: {e}",
+                        format_pubkeys(&all_missing)
+                    ),
+                }
             })?;
         }
 
@@ -199,41 +209,51 @@ impl AccountLoader {
         accounts: &mut HashMap<Pubkey, AccountSharedData>,
     ) -> Result<ResolvedLookup> {
         self.fetch_accounts(&[plan.account_key], accounts).map_err(|e| {
-            SonarSimError::LookupTable(format!(
-                "Failed to fetch address lookup table account `{}`: {e}",
-                plan.account_key
-            ))
+            SonarSimError::LookupTable {
+                table: Some(plan.account_key),
+                reason: format!(
+                    "Failed to fetch address lookup table account `{}`: {e}",
+                    plan.account_key
+                ),
+            }
         })?;
 
-        let table_account = accounts.get(&plan.account_key).ok_or_else(|| {
-            SonarSimError::LookupTable(format!(
-                "Address lookup table account `{}` missing from cache",
-                plan.account_key
-            ))
-        })?;
+        let table_account =
+            accounts.get(&plan.account_key).ok_or_else(|| SonarSimError::LookupTable {
+                table: Some(plan.account_key),
+                reason: format!(
+                    "Address lookup table account `{}` missing from cache",
+                    plan.account_key
+                ),
+            })?;
 
         let lookup_table =
             AddressLookupTable::deserialize(table_account.data()).map_err(|err| {
-                SonarSimError::LookupTable(format!(
-                    "Failed to parse address lookup table `{}`: {err}",
-                    plan.account_key
-                ))
+                SonarSimError::LookupTable {
+                    table: Some(plan.account_key),
+                    reason: format!(
+                        "Failed to parse address lookup table `{}`: {err}",
+                        plan.account_key
+                    ),
+                }
             })?;
         let all_addresses = lookup_table.addresses.to_vec();
 
         let writable_addresses = resolve_lookup_indexes(&all_addresses, &plan.writable_indexes)
-            .map_err(|e| {
-                SonarSimError::LookupTable(format!(
+            .map_err(|e| SonarSimError::LookupTable {
+                table: Some(plan.account_key),
+                reason: format!(
                     "Failed to parse writable indexes for address lookup table `{}`: {e}",
                     plan.account_key
-                ))
+                ),
             })?;
         let readonly_addresses = resolve_lookup_indexes(&all_addresses, &plan.readonly_indexes)
-            .map_err(|e| {
-                SonarSimError::LookupTable(format!(
+            .map_err(|e| SonarSimError::LookupTable {
+                table: Some(plan.account_key),
+                reason: format!(
                     "Failed to parse readonly indexes for address lookup table `{}`: {e}",
                     plan.account_key
-                ))
+                ),
             })?;
 
         Ok(ResolvedLookup {
@@ -311,25 +331,22 @@ impl AccountLoader {
         let total_count = to_fetch.len();
         let mut requested_count = 0usize;
         for chunk in to_fetch.chunks(MAX_ACCOUNTS_PER_REQUEST) {
-            let response = self.provider.get_multiple_accounts(chunk).map_err(|e| {
-                SonarSimError::Rpc(
-                    format!(
+            let response =
+                self.provider.get_multiple_accounts(chunk).map_err(|e| SonarSimError::Rpc {
+                    message: format!(
                         "getMultipleAccounts call failed, account list: [{}]: {e}",
                         format_pubkeys(chunk)
-                    )
-                    .into(),
-                )
-            })?;
+                    ),
+                })?;
 
             if response.len() != chunk.len() {
-                return Err(SonarSimError::Rpc(
-                    format!(
+                return Err(SonarSimError::Rpc {
+                    message: format!(
                         "RPC returned count mismatch with request ({} != {})",
                         response.len(),
                         chunk.len()
-                    )
-                    .into(),
-                ));
+                    ),
+                });
             }
 
             for (pubkey, maybe_account) in chunk.iter().zip(response.into_iter()) {
@@ -386,8 +403,9 @@ fn resolve_lookup_indexes(addresses: &[Pubkey], indexes: &[u8]) -> Result<Vec<Pu
     indexes
         .iter()
         .map(|idx| {
-            addresses.get(*idx as usize).copied().ok_or_else(|| {
-                SonarSimError::LookupTable(format!("Index {idx} out of address lookup table range"))
+            addresses.get(*idx as usize).copied().ok_or_else(|| SonarSimError::LookupTable {
+                table: None,
+                reason: format!("Index {idx} out of address lookup table range"),
             })
         })
         .collect()

@@ -93,8 +93,23 @@ mod tests {
     }
 
     fn make_token_account(mint: &Pubkey) -> AccountSharedData {
-        let mut data = vec![0u8; spl_token::state::Account::LEN];
-        data[0..32].copy_from_slice(&mint.to_bytes());
+        use spl_token::solana_program::program_option::COption;
+        use spl_token::solana_program::pubkey::Pubkey as ProgramPubkey;
+        use spl_token::state::{Account as SplAccount, AccountState};
+
+        let owner = Pubkey::new_unique();
+        let state = SplAccount {
+            mint: ProgramPubkey::new_from_array(mint.to_bytes()),
+            owner: ProgramPubkey::new_from_array(owner.to_bytes()),
+            amount: 0,
+            delegate: COption::None,
+            state: AccountState::Initialized,
+            is_native: COption::None,
+            delegated_amount: 0,
+            close_authority: COption::None,
+        };
+        let mut data = vec![0u8; SplAccount::LEN];
+        SplAccount::pack(state, &mut data).unwrap();
         AccountSharedData::from(Account {
             lamports: 1,
             data,

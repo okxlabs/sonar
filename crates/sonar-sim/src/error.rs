@@ -5,48 +5,58 @@ pub type Result<T> = std::result::Result<T, SonarSimError>;
 #[derive(Debug, thiserror::Error)]
 pub enum SonarSimError {
     /// Network / RPC communication failures.
-    #[error("{0}")]
-    Rpc(Box<dyn std::error::Error + Send + Sync>),
+    ///
+    /// The underlying transport error (e.g. `solana_client::ClientError`) is
+    /// stringified into `message` so that the public API does not expose
+    /// third-party client types.
+    #[error("RPC error: {message}")]
+    Rpc { message: String },
 
     /// Account not present in expected store (SVM, cache, resolved set).
-    #[error("Account not found: {0}")]
-    AccountNotFound(Pubkey),
+    #[error("Account not found: {pubkey}")]
+    AccountNotFound { pubkey: Pubkey },
 
     /// Account data format / validation issues (wrong owner, bad length, etc.).
-    #[error("{0}")]
-    AccountData(String),
+    ///
+    /// `pubkey` is populated when the error is attributable to a single account.
+    #[error("{reason}")]
+    AccountData { pubkey: Option<Pubkey>, reason: String },
 
     /// Raw transaction decoding or parsing failures.
-    #[error("{0}")]
-    TransactionParse(String),
+    #[error("{reason}")]
+    TransactionParse { reason: String },
 
     /// SPL Token / Token-2022 operation failures.
-    #[error("{0}")]
-    Token(String),
+    ///
+    /// `account` is populated when the error relates to a specific token/mint account.
+    #[error("{reason}")]
+    Token { account: Option<Pubkey>, reason: String },
 
     /// Address lookup table resolution failures.
-    #[error("{0}")]
-    LookupTable(String),
+    ///
+    /// `table` is populated when a specific lookup table address is known.
+    #[error("{reason}")]
+    LookupTable { table: Option<Pubkey>, reason: String },
 
-    /// LiteSVM engine errors.
-    #[error("{0}")]
-    Svm(String),
+    /// SVM engine errors.
+    #[error("{reason}")]
+    Svm { reason: String },
 
     /// Serialization / deserialization failures (bincode, etc.).
-    #[error("{0}")]
-    Serialization(String),
+    #[error("{reason}")]
+    Serialization { reason: String },
 
     /// User-supplied parameter validation errors.
-    #[error("{0}")]
-    Validation(String),
+    #[error("{reason}")]
+    Validation { reason: String },
 
     /// Mutex poisoning or other unexpected internal failures.
-    #[error("Internal error: {0}")]
-    Internal(String),
+    #[error("Internal error: {reason}")]
+    Internal { reason: String },
 }
 
 impl From<bincode::Error> for SonarSimError {
     fn from(err: bincode::Error) -> Self {
-        Self::Serialization(err.to_string())
+        Self::Serialization { reason: err.to_string() }
     }
 }

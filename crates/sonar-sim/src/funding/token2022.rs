@@ -18,30 +18,31 @@ pub(super) fn create_token_account_with_extensions(
 
     let mint_state =
         StateWithExtensions::<Token2022Mint>::unpack(mint_account.data()).map_err(|e| {
-            SonarSimError::Token(format!("Failed to unpack token-2022 mint {}: {}", mint, e))
+            SonarSimError::Token {
+                account: Some(*mint),
+                reason: format!("Failed to unpack token-2022 mint {}: {}", mint, e),
+            }
         })?;
-    let mint_extension_types = mint_state
-        .get_extension_types()
-        .map_err(|e| SonarSimError::Token(format!("Failed to get mint extension types: {}", e)))?;
+    let mint_extension_types =
+        mint_state.get_extension_types().map_err(|e| SonarSimError::Token {
+            account: Some(*mint),
+            reason: format!("Failed to get mint extension types: {}", e),
+        })?;
 
     let required_extensions =
         ExtensionType::get_required_init_account_extensions(&mint_extension_types);
     let account_len =
         ExtensionType::try_calculate_account_len::<Token2022Account>(&required_extensions)
-            .map_err(|e| {
-                SonarSimError::Token(format!(
-                    "Failed to calculate token-2022 account length: {}",
-                    e
-                ))
+            .map_err(|e| SonarSimError::Token {
+                account: Some(*account_pubkey),
+                reason: format!("Failed to calculate token-2022 account length: {}", e),
             })?;
 
     let mut data = vec![0u8; account_len];
     let mut state = StateWithExtensionsMut::<Token2022Account>::unpack_uninitialized(&mut data)
-        .map_err(|e| {
-            SonarSimError::Token(format!(
-                "Failed to unpack uninitialized token-2022 account buffer: {}",
-                e
-            ))
+        .map_err(|e| SonarSimError::Token {
+            account: Some(*account_pubkey),
+            reason: format!("Failed to unpack uninitialized token-2022 account buffer: {}", e),
         })?;
 
     state.base = Token2022Account {
@@ -55,13 +56,15 @@ pub(super) fn create_token_account_with_extensions(
         close_authority: COption::None,
     };
 
-    state
-        .init_account_type()
-        .map_err(|e| SonarSimError::Token(format!("Failed to init account type: {}", e)))?;
+    state.init_account_type().map_err(|e| SonarSimError::Token {
+        account: Some(*account_pubkey),
+        reason: format!("Failed to init account type: {}", e),
+    })?;
     state.pack_base();
     for ext_type in &required_extensions {
-        state.init_account_extension_from_type(*ext_type).map_err(|e| {
-            SonarSimError::Token(format!("Failed to init extension {:?}: {}", ext_type, e))
+        state.init_account_extension_from_type(*ext_type).map_err(|e| SonarSimError::Token {
+            account: Some(*account_pubkey),
+            reason: format!("Failed to init extension {:?}: {}", ext_type, e),
         })?;
     }
 

@@ -54,7 +54,9 @@ pub struct LookupLocation {
 pub fn parse_raw_transaction(raw: &str) -> Result<ParsedTransaction> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
-        return Err(SonarSimError::TransactionParse("Raw transaction string is empty".into()));
+        return Err(SonarSimError::TransactionParse {
+            reason: "Raw transaction string is empty".into(),
+        });
     }
 
     let mut errors = Vec::new();
@@ -80,7 +82,9 @@ pub fn parse_raw_transaction(raw: &str) -> Result<ParsedTransaction> {
     }
 
     let merged = errors.join("； ");
-    Err(SonarSimError::TransactionParse(format!("Failed to parse raw transaction: {merged}")))
+    Err(SonarSimError::TransactionParse {
+        reason: format!("Failed to parse raw transaction: {merged}"),
+    })
 }
 
 pub(crate) fn collect_account_plan(tx: &VersionedTransaction) -> MessageAccountPlan {
@@ -137,9 +141,9 @@ fn decode_bytes(input: &str, encoding: RawTransactionEncoding) -> Result<Vec<u8>
         RawTransactionEncoding::Base58 => {
             bs58::decode(input).into_vec().map_err(|err| map_base58_error(input, err))
         }
-        RawTransactionEncoding::Base64 => BASE64_STANDARD
-            .decode(input.as_bytes())
-            .map_err(|err| SonarSimError::TransactionParse(format!("Base64 decode failed: {err}"))),
+        RawTransactionEncoding::Base64 => BASE64_STANDARD.decode(input.as_bytes()).map_err(|err| {
+            SonarSimError::TransactionParse { reason: format!("Base64 decode failed: {err}") }
+        }),
     }
 }
 
@@ -154,11 +158,13 @@ fn map_base58_error(input: &str, err: Base58Error) -> SonarSimError {
     };
 
     if input.contains(['+', '/', '=']) {
-        SonarSimError::TransactionParse(format!(
-            "{base_message}. Base64 characteristic characters detected, you may need to try Base64 encoding"
-        ))
+        SonarSimError::TransactionParse {
+            reason: format!(
+                "{base_message}. Base64 characteristic characters detected, you may need to try Base64 encoding"
+            ),
+        }
     } else {
-        SonarSimError::TransactionParse(base_message)
+        SonarSimError::TransactionParse { reason: base_message }
     }
 }
 

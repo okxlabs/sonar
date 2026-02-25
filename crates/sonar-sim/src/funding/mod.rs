@@ -43,23 +43,28 @@ pub(super) fn update_token_amount<T: TokenAmountMut>(
     let account = resolved
         .accounts
         .get_mut(account_pubkey)
-        .ok_or(SonarSimError::AccountNotFound(*account_pubkey))?;
+        .ok_or(SonarSimError::AccountNotFound { pubkey: *account_pubkey })?;
     ensure_same_program(program_kind, account.owner(), "token account")?;
     if account.data().len() < T::LEN {
-        return Err(SonarSimError::Token(format!(
-            "Token account data is smaller than expected: {} < {}",
-            account.data().len(),
-            T::LEN
-        )));
+        return Err(SonarSimError::Token {
+            account: Some(*account_pubkey),
+            reason: format!(
+                "Token account data is smaller than expected: {} < {}",
+                account.data().len(),
+                T::LEN
+            ),
+        });
     }
     let data = account.data_as_mut_slice();
     let (account_bytes, _) = data.split_at_mut(T::LEN);
-    let mut parsed = T::unpack(account_bytes).map_err(|err| {
-        SonarSimError::Token(format!("Failed to unpack token account {account_pubkey}: {err}"))
+    let mut parsed = T::unpack(account_bytes).map_err(|err| SonarSimError::Token {
+        account: Some(*account_pubkey),
+        reason: format!("Failed to unpack token account {account_pubkey}: {err}"),
     })?;
     parsed.set_amount(amount_raw);
-    T::pack(parsed, account_bytes).map_err(|err| {
-        SonarSimError::Token(format!("Failed to update token account {account_pubkey}: {err}"))
+    T::pack(parsed, account_bytes).map_err(|err| SonarSimError::Token {
+        account: Some(*account_pubkey),
+        reason: format!("Failed to update token account {account_pubkey}: {err}"),
     })?;
     Ok(PreparedTokenFunding {
         account: *account_pubkey,
@@ -83,12 +88,11 @@ pub fn prepare_token_fundings(
     let total = requests.len();
     for (index, request) in requests.iter().enumerate() {
         log::debug!("Preparing token fundings ({}/{})", index + 1, total);
-        let summary = process_single(loader, resolved, request).map_err(|e| {
-            SonarSimError::Token(format!(
-                "Failed to prepare token funding for {}: {e}",
-                request.account
-            ))
-        })?;
+        let summary =
+            process_single(loader, resolved, request).map_err(|e| SonarSimError::Token {
+                account: Some(request.account),
+                reason: format!("Failed to prepare token funding for {}: {e}", request.account),
+            })?;
         prepared.push(summary);
     }
 
@@ -101,55 +105,73 @@ fn process_single(
     request: &TokenFunding,
 ) -> Result<PreparedTokenFunding> {
     ensure_account_loaded(loader, resolved, &request.account).map_err(|e| {
-        SonarSimError::Token(format!(
-            "Failed to load token account {} required for funding: {e}",
-            request.account
-        ))
+        SonarSimError::Token {
+            account: Some(request.account),
+            reason: format!(
+                "Failed to load token account {} required for funding: {e}",
+                request.account
+            ),
+        }
     })?;
 
     let mint = if let Some(account) = resolved.accounts.get(&request.account) {
-        let detected_mint = detect_mint_from_token_account(account).map_err(|e| {
-            SonarSimError::Token(format!(
-                "Failed to detect mint from existing token account {}: {e}",
-                request.account
-            ))
-        })?;
+        let detected_mint =
+            detect_mint_from_token_account(account).map_err(|e| SonarSimError::Token {
+                account: Some(request.account),
+                reason: format!(
+                    "Failed to detect mint from existing token account {}: {e}",
+                    request.account
+                ),
+            })?;
         if let Some(requested_mint) = request.mint {
             if detected_mint != requested_mint {
-                return Err(SonarSimError::Token(format!(
-                    "Token account {} is associated with mint {}, but CLI requested mint {}",
-                    request.account, detected_mint, requested_mint
-                )));
+                return Err(SonarSimError::Token {
+                    account: Some(request.account),
+                    reason: format!(
+                        "Token account {} is associated with mint {}, but CLI requested mint {}",
+                        request.account, detected_mint, requested_mint
+                    ),
+                });
             }
         }
         detected_mint
     } else {
-        request.mint.ok_or_else(|| {
-            SonarSimError::Token(format!(
+        request.mint.ok_or_else(|| SonarSimError::Token {
+            account: Some(request.account),
+            reason: format!(
                 "Token account {} does not exist on-chain; \
                  you must specify the mint using <ACCOUNT>:<MINT>=<AMOUNT> format",
                 request.account
-            ))
+            ),
         })?
     };
 
-    ensure_account_loaded(loader, resolved, &mint)
-        .map_err(|e| SonarSimError::Token(format!("Failed to load mint account {}: {e}", mint)))?;
-    let mint_account =
-        resolved.accounts.get(&mint).ok_or(SonarSimError::AccountNotFound(mint))?.clone();
-
-    let program_kind = TokenProgramKind::from_owner(mint_account.owner()).ok_or_else(|| {
-        SonarSimError::Token(format!(
-            "Mint account {} is not owned by the SPL Token programs; cannot prepare funding",
-            mint
-        ))
+    ensure_account_loaded(loader, resolved, &mint).map_err(|e| SonarSimError::Token {
+        account: Some(mint),
+        reason: format!("Failed to load mint account {}: {e}", mint),
     })?;
+    let mint_account = resolved
+        .accounts
+        .get(&mint)
+        .ok_or(SonarSimError::AccountNotFound { pubkey: mint })?
+        .clone();
+
+    let program_kind =
+        TokenProgramKind::from_owner(mint_account.owner()).ok_or_else(|| SonarSimError::Token {
+            account: Some(mint),
+            reason: format!(
+                "Mint account {} is not owned by the SPL Token programs; cannot prepare funding",
+                mint
+            ),
+        })?;
 
     let decimals = token_utils::read_mint_decimals(&mint_account)?;
 
-    let amount_raw = resolve_token_amount(&request.amount, decimals).map_err(|e| {
-        SonarSimError::Token(format!("Failed to resolve token amount for {}: {e}", request.account))
-    })?;
+    let amount_raw =
+        resolve_token_amount(&request.amount, decimals).map_err(|e| SonarSimError::Token {
+            account: Some(request.account),
+            reason: format!("Failed to resolve token amount for {}: {e}", request.account),
+        })?;
 
     if !resolved.accounts.contains_key(&request.account) {
         create_missing_token_account(
@@ -176,18 +198,24 @@ fn detect_mint_from_token_account(account: &AccountSharedData) -> Result<Pubkey>
     const MINT_LEN: usize = 32;
 
     if TokenProgramKind::from_owner(account.owner()).is_none() {
-        return Err(SonarSimError::Token(format!(
-            "Token account is not owned by any known SPL Token program (owner: {})",
-            account.owner()
-        )));
+        return Err(SonarSimError::Token {
+            account: None,
+            reason: format!(
+                "Token account is not owned by any known SPL Token program (owner: {})",
+                account.owner()
+            ),
+        });
     }
     let data = account.data();
     if data.len() < MINT_OFFSET + MINT_LEN {
-        return Err(SonarSimError::Token(format!(
-            "Token account data too small to read mint: {} < {}",
-            data.len(),
-            MINT_OFFSET + MINT_LEN
-        )));
+        return Err(SonarSimError::Token {
+            account: None,
+            reason: format!(
+                "Token account data too small to read mint: {} < {}",
+                data.len(),
+                MINT_OFFSET + MINT_LEN
+            ),
+        });
     }
     let mint_bytes: [u8; 32] =
         data[MINT_OFFSET..MINT_OFFSET + MINT_LEN].try_into().expect("slice length is 32");
@@ -236,14 +264,16 @@ fn resolve_token_amount(amount: &TokenAmount, decimals: u8) -> Result<u64> {
             let factor = 10u64.pow(decimals as u32);
             let raw_f64 = ui * factor as f64;
             if raw_f64 < 0.0 {
-                return Err(SonarSimError::Validation(
-                    "Token funding amount must be non-negative".into(),
-                ));
+                return Err(SonarSimError::Validation {
+                    reason: "Token funding amount must be non-negative".into(),
+                });
             }
             if raw_f64 > u64::MAX as f64 {
-                return Err(SonarSimError::Validation(format!(
-                    "Token funding amount {ui} with {decimals} decimals overflows u64"
-                )));
+                return Err(SonarSimError::Validation {
+                    reason: format!(
+                        "Token funding amount {ui} with {decimals} decimals overflows u64"
+                    ),
+                });
             }
             Ok(raw_f64.round() as u64)
         }

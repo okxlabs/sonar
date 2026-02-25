@@ -70,8 +70,9 @@ pub fn load_accounts(svm: &mut LiteSVM, resolved: &ResolvedAccounts) -> Result<(
     let mut ordered: Vec<_> = resolved.accounts.iter().collect();
     ordered.sort_by_key(|(_, account)| account_priority(account));
     for (pubkey, account) in ordered {
-        svm.set_account(*pubkey, Account::from(account.clone()))
-            .map_err(|e| SonarSimError::Svm(format!("Failed to set account {}: {}", pubkey, e)))?;
+        svm.set_account(*pubkey, Account::from(account.clone())).map_err(|e| {
+            SonarSimError::Svm { reason: format!("Failed to set account {}: {}", pubkey, e) }
+        })?;
     }
     Ok(())
 }
@@ -95,12 +96,14 @@ pub fn apply_replacements(
                 }
                 info!("Loading custom program {} => {}", program_id, so_path.display());
                 svm.add_program_from_file(*program_id, so_path).map_err(|e| {
-                    SonarSimError::Svm(format!(
-                        "Failed to load replacement program `{}`, path: {}: {}",
-                        program_id,
-                        so_path.display(),
-                        e
-                    ))
+                    SonarSimError::Svm {
+                        reason: format!(
+                            "Failed to load replacement program `{}`, path: {}: {}",
+                            program_id,
+                            so_path.display(),
+                            e
+                        ),
+                    }
                 })?;
             }
             Replacement::Account { pubkey, account, source_path } => {
@@ -113,13 +116,13 @@ pub fn apply_replacements(
                     }
                 }
                 info!("Loading custom account {} => {}", pubkey, source_path.display());
-                svm.set_account(*pubkey, account.clone()).map_err(|e| {
-                    SonarSimError::Svm(format!(
+                svm.set_account(*pubkey, account.clone()).map_err(|e| SonarSimError::Svm {
+                    reason: format!(
                         "Failed to set replacement account `{}`, path: {}: {}",
                         pubkey,
                         source_path.display(),
                         e
-                    ))
+                    ),
                 })?;
             }
         }
@@ -130,17 +133,21 @@ pub fn apply_replacements(
 /// Apply byte-level data patches to accounts already loaded in SVM.
 pub fn apply_data_patches(svm: &mut LiteSVM, patches: &[AccountDataPatch]) -> Result<()> {
     for patch in patches {
-        let mut account =
-            svm.get_account(&patch.pubkey).ok_or(SonarSimError::AccountNotFound(patch.pubkey))?;
+        let mut account = svm
+            .get_account(&patch.pubkey)
+            .ok_or(SonarSimError::AccountNotFound { pubkey: patch.pubkey })?;
         let end = patch.offset + patch.data.len();
         if end > account.data.len() {
-            return Err(SonarSimError::AccountData(format!(
-                "Patch range [{}..{}) exceeds account data length {} for {}",
-                patch.offset,
-                end,
-                account.data.len(),
-                patch.pubkey
-            )));
+            return Err(SonarSimError::AccountData {
+                pubkey: Some(patch.pubkey),
+                reason: format!(
+                    "Patch range [{}..{}) exceeds account data length {} for {}",
+                    patch.offset,
+                    end,
+                    account.data.len(),
+                    patch.pubkey
+                ),
+            });
         }
         info!(
             "Patching account {} data[{}..{}] ({} bytes)",
@@ -150,8 +157,8 @@ pub fn apply_data_patches(svm: &mut LiteSVM, patches: &[AccountDataPatch]) -> Re
             patch.data.len()
         );
         account.data[patch.offset..end].copy_from_slice(&patch.data);
-        svm.set_account(patch.pubkey, account).map_err(|e| {
-            SonarSimError::Svm(format!("Failed to set patched account `{}`: {}", patch.pubkey, e))
+        svm.set_account(patch.pubkey, account).map_err(|e| SonarSimError::Svm {
+            reason: format!("Failed to set patched account `{}`: {}", patch.pubkey, e),
         })?;
     }
     Ok(())
@@ -166,20 +173,21 @@ pub fn apply_slot(svm: &mut LiteSVM, slot: u64) {
 /// Override the Clock sysvar's `unix_timestamp` field.
 pub fn apply_timestamp(svm: &mut LiteSVM, ts: i64) -> Result<()> {
     let clock_id = Clock::id();
-    let clock_account = svm
-        .get_account(&clock_id)
-        .ok_or_else(|| SonarSimError::Svm("Clock sysvar account not found in SVM".into()))?;
+    let clock_account = svm.get_account(&clock_id).ok_or_else(|| SonarSimError::Svm {
+        reason: "Clock sysvar account not found in SVM".into(),
+    })?;
     let mut clock: Clock = bincode::deserialize(&clock_account.data).map_err(|e| {
-        SonarSimError::Serialization(format!("Failed to deserialize Clock sysvar: {e}"))
+        SonarSimError::Serialization { reason: format!("Failed to deserialize Clock sysvar: {e}") }
     })?;
     info!("Overriding Clock unix_timestamp: {} -> {}", clock.unix_timestamp, ts);
     clock.unix_timestamp = ts;
-    let data = bincode::serialize(&clock).map_err(|e| {
-        SonarSimError::Serialization(format!("Failed to serialize modified Clock sysvar: {e}"))
+    let data = bincode::serialize(&clock).map_err(|e| SonarSimError::Serialization {
+        reason: format!("Failed to serialize modified Clock sysvar: {e}"),
     })?;
     let updated_account = Account { data, ..clock_account };
-    svm.set_account(clock_id, updated_account)
-        .map_err(|e| SonarSimError::Svm(format!("Failed to set modified Clock sysvar: {e}")))?;
+    svm.set_account(clock_id, updated_account).map_err(|e| SonarSimError::Svm {
+        reason: format!("Failed to set modified Clock sysvar: {e}"),
+    })?;
     Ok(())
 }
 
@@ -369,11 +377,11 @@ impl ResolvedAccounts {
 }
 
 fn convert_versioned_transaction(tx: &VersionedTransaction) -> Result<LiteVersionedTransaction> {
-    let bytes = bincode::serialize(tx).map_err(|err| {
-        SonarSimError::Serialization(format!("Failed to serialize transaction: {err}"))
+    let bytes = bincode::serialize(tx).map_err(|err| SonarSimError::Serialization {
+        reason: format!("Failed to serialize transaction: {err}"),
     })?;
-    bincode::deserialize(&bytes).map_err(|err| {
-        SonarSimError::Serialization(format!("Failed to convert transaction format: {err}"))
+    bincode::deserialize(&bytes).map_err(|err| SonarSimError::Serialization {
+        reason: format!("Failed to convert transaction format: {err}"),
     })
 }
 

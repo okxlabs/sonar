@@ -38,7 +38,7 @@ impl sonar_sim::AccountFetchMiddleware for CliAccountMiddleware {
             let path = dir.join(format!("{key}.json"));
             if path.exists() {
                 let account = crate::core::account_file::parse_account_json(&path)
-                    .map_err(|e| sonar_sim::SonarSimError::Internal(e.to_string()))?;
+                    .map_err(|e| sonar_sim::SonarSimError::Internal { reason: e.to_string() })?;
                 debug!("Loaded account {} from local file: {}", key, path.display());
                 found.insert(*key, AccountSharedData::from(account));
             }

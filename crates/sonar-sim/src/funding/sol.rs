@@ -22,12 +22,13 @@ fn apply_single_sol_funding(svm: &mut LiteSVM, funding: &Funding) -> Result<()> 
     if let Some(existing_account) = svm.get_account(&funding.pubkey) {
         let mut updated = existing_account.clone();
         updated.set_lamports(lamports);
-        svm.set_account(funding.pubkey, updated).map_err(|e| SonarSimError::Svm(e.to_string()))?;
+        svm.set_account(funding.pubkey, updated)
+            .map_err(|e| SonarSimError::Svm { reason: e.to_string() })?;
     } else {
         let system_program_id = solana_sdk_ids::system_program::id();
         let new_account = AccountSharedData::new(lamports, 0, &system_program_id);
         svm.set_account(funding.pubkey, new_account.into())
-            .map_err(|e| SonarSimError::Svm(e.to_string()))?;
+            .map_err(|e| SonarSimError::Svm { reason: e.to_string() })?;
     }
 
     Ok(())

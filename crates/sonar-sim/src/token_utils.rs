@@ -65,22 +65,30 @@ pub(crate) fn token2022_program_id() -> Pubkey {
 /// same base layout so a single unpack path handles both.
 pub(crate) fn read_mint_decimals(account: &impl ReadableAccount) -> Result<u8> {
     if TokenProgramKind::from_owner(account.owner()).is_none() {
-        return Err(SonarSimError::Token(format!(
-            "Mint account is not owned by any known SPL Token program (owner: {})",
-            account.owner()
-        )));
+        return Err(SonarSimError::Token {
+            account: None,
+            reason: format!(
+                "Mint account is not owned by any known SPL Token program (owner: {})",
+                account.owner()
+            ),
+        });
     }
 
     let data = account.data();
     if data.len() < SplMint::LEN {
-        return Err(SonarSimError::Token(format!(
-            "Mint account data is smaller than expected: {} < {}",
-            data.len(),
-            SplMint::LEN
-        )));
+        return Err(SonarSimError::Token {
+            account: None,
+            reason: format!(
+                "Mint account data is smaller than expected: {} < {}",
+                data.len(),
+                SplMint::LEN
+            ),
+        });
     }
-    let parsed = SplMint::unpack(&data[..SplMint::LEN])
-        .map_err(|err| SonarSimError::Token(format!("Failed to unpack mint account: {err}")))?;
+    let parsed = SplMint::unpack(&data[..SplMint::LEN]).map_err(|err| SonarSimError::Token {
+        account: None,
+        reason: format!("Failed to unpack mint account: {err}"),
+    })?;
     Ok(parsed.decimals)
 }
 
@@ -144,10 +152,10 @@ pub(crate) fn ensure_same_program(
     label: &str,
 ) -> Result<()> {
     if owner != &kind.program_id() {
-        return Err(SonarSimError::Token(format!(
-            "Provided {label} is not owned by {}",
-            kind.program_name()
-        )));
+        return Err(SonarSimError::Token {
+            account: None,
+            reason: format!("Provided {label} is not owned by {}", kind.program_name()),
+        });
     }
     Ok(())
 }

@@ -24,8 +24,9 @@ pub(super) fn create_token_account(
         delegated_amount: 0,
         close_authority: COption::None,
     };
-    SplAccount::pack(state, &mut data).map_err(|err| {
-        SonarSimError::Token(format!("Failed to pack new SPL token account: {err}"))
+    SplAccount::pack(state, &mut data).map_err(|err| SonarSimError::Token {
+        account: Some(*account_pubkey),
+        reason: format!("Failed to pack new SPL token account: {err}"),
     })?;
     resolved.accounts.insert(
         *account_pubkey,
