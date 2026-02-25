@@ -1,9 +1,18 @@
-// Re-export from sonar-sim
-pub use sonar_sim::balance_changes;
-pub use sonar_sim::types;
+// Bridge modules: re-export stable items from sonar-sim's public facade
+// so that CLI code can continue to use `crate::core::{types, balance_changes, funding}::...`.
+pub mod balance_changes {
+    pub use sonar_sim::{
+        compute_sol_changes, compute_token_changes, extract_mint_decimals_combined,
+    };
+}
 
-// Funding re-exported from sonar-sim (prepare_token_fundings no longer takes progress)
-pub use sonar_sim::funding;
+pub mod types {
+    pub use sonar_sim::{AccountDataPatch, Funding, Replacement, TokenAmount, TokenFunding};
+}
+
+pub mod funding {
+    pub use sonar_sim::{PreparedTokenFunding, prepare_token_fundings};
+}
 
 // Kept in CLI (full-featured versions with progress/idl/cache/offline)
 pub mod account_file;

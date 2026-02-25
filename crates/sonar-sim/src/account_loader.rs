@@ -40,10 +40,7 @@ impl AccountLoader {
     }
 
     pub fn with_provider(provider: Arc<dyn RpcAccountProvider>) -> Self {
-        Self {
-            provider,
-            cache: Mutex::new(HashMap::new()),
-        }
+        Self { provider, cache: Mutex::new(HashMap::new()) }
     }
 
     /// Expose the underlying provider so callers can reuse the RPC connection.
@@ -51,10 +48,7 @@ impl AccountLoader {
         Arc::clone(&self.provider)
     }
 
-    pub fn load_for_transaction(
-        &self,
-        tx: &VersionedTransaction,
-    ) -> Result<ResolvedAccounts> {
+    pub fn load_for_transaction(&self, tx: &VersionedTransaction) -> Result<ResolvedAccounts> {
         let plan = collect_account_plan(tx);
         let mut accounts = HashMap::new();
 
@@ -108,10 +102,7 @@ impl AccountLoader {
 
     /// Load accounts for multiple transactions (bundle simulation).
     /// Merges all required accounts from all transactions and fetches them in a single batch.
-    pub fn load_for_transactions(
-        &self,
-        txs: &[&VersionedTransaction],
-    ) -> Result<ResolvedAccounts> {
+    pub fn load_for_transactions(&self, txs: &[&VersionedTransaction]) -> Result<ResolvedAccounts> {
         if txs.is_empty() {
             return Ok(ResolvedAccounts { accounts: HashMap::new(), lookups: Vec::new() });
         }
@@ -436,13 +427,10 @@ mod tests {
         accounts.insert(payer.pubkey(), system_account(10_000_000_000));
         accounts.insert(recipient, system_account(0));
 
-        let loader = AccountLoader::with_provider(
-            Arc::new(FakeAccountProvider::new(accounts)),
-        );
+        let loader = AccountLoader::with_provider(Arc::new(FakeAccountProvider::new(accounts)));
 
         let tx = create_transfer_tx(&payer, &recipient, 1000);
-        let resolved =
-            loader.load_for_transaction(&tx).expect("should load from fake provider");
+        let resolved = loader.load_for_transaction(&tx).expect("should load from fake provider");
 
         assert!(resolved.accounts.contains_key(&payer.pubkey()));
         assert!(resolved.accounts.contains_key(&recipient));
@@ -504,9 +492,7 @@ mod tests {
         accounts.insert(payer.pubkey(), system_account(10_000_000_000));
         accounts.insert(extra, system_account(42));
 
-        let loader = AccountLoader::with_provider(
-            Arc::new(FakeAccountProvider::new(accounts)),
-        );
+        let loader = AccountLoader::with_provider(Arc::new(FakeAccountProvider::new(accounts)));
 
         let mut resolved = ResolvedAccounts { accounts: HashMap::new(), lookups: vec![] };
 
@@ -526,9 +512,7 @@ mod tests {
         accounts.insert(recipient1, system_account(100));
         accounts.insert(recipient2, system_account(200));
 
-        let loader = AccountLoader::with_provider(
-            Arc::new(FakeAccountProvider::new(accounts)),
-        );
+        let loader = AccountLoader::with_provider(Arc::new(FakeAccountProvider::new(accounts)));
 
         let tx1 = create_transfer_tx(&payer, &recipient1, 50);
         let tx2 = create_transfer_tx(&payer, &recipient2, 100);

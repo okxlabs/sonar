@@ -1,5 +1,4 @@
-// Re-export shared types from sonar-sim
-pub use sonar_sim::transaction::{
+pub use sonar_sim::{
     AddressLookupPlan, LookupLocation, MessageAccountPlan, RawTransactionEncoding,
     build_lookup_locations, collect_account_plan,
 };
@@ -162,7 +161,7 @@ pub fn fetch_transaction_from_rpc(
 // ---------------------------------------------------------------------------
 
 pub fn parse_raw_transaction(raw: &str) -> Result<ParsedTransaction> {
-    let sim_parsed = sonar_sim::transaction::parse_raw_transaction(raw)?;
+    let sim_parsed = sonar_sim::parse_raw_transaction(raw)?;
     let summary = TransactionSummary::from_transaction(
         &sim_parsed.transaction,
         &sim_parsed.account_plan,

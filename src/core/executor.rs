@@ -1,5 +1,4 @@
-// Re-export everything from sonar-sim's executor
-pub use sonar_sim::executor::*;
+pub use sonar_sim::{ExecutionStatus, SimulationOptions, SimulationResult, TransactionExecutor};
 
 // ---------------------------------------------------------------------------
 // Account dump logic (CLI-only, Solana CLI compatible JSON format)
@@ -19,7 +18,7 @@ use solana_sdk_ids::system_program;
 use solana_slot_hashes::SlotHashes;
 use solana_sysvar_id::SysvarId;
 
-use sonar_sim::types::ResolvedAccounts;
+use sonar_sim::ResolvedAccounts;
 
 /// JSON structure matching `solana account <PUBKEY> --output json`.
 #[derive(Serialize)]
@@ -126,8 +125,7 @@ fn write_dump_account(pubkey: &Pubkey, account: &Account, path: &Path) -> Result
         account: DumpAccountInner {
             lamports: account.lamports,
             data: (
-                base64::engine::general_purpose::STANDARD
-                    .encode(&account.data),
+                base64::engine::general_purpose::STANDARD.encode(&account.data),
                 "base64".to_string(),
             ),
             owner: account.owner.to_string(),
@@ -150,7 +148,7 @@ mod tests {
     use std::collections::HashMap;
     use std::path::PathBuf;
 
-    use sonar_sim::types::ResolvedLookup;
+    use sonar_sim::ResolvedLookup;
 
     #[test]
     fn dump_accounts_writes_lookup_placeholders_for_missing_accounts() {

@@ -29,8 +29,7 @@ use crate::{
     utils::progress::Progress,
 };
 
-// Re-export from sonar-sim so callers can use account_loader::ResolvedAccounts
-pub use sonar_sim::types::{ResolvedAccounts, ResolvedLookup};
+pub use sonar_sim::{ResolvedAccounts, ResolvedLookup};
 
 const MAX_ACCOUNTS_PER_REQUEST: usize = 100;
 

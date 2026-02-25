@@ -2,17 +2,15 @@ mod sol;
 mod token2022;
 mod token_legacy;
 
-pub use sol::apply_sol_fundings;
 pub use crate::types::PreparedTokenFunding;
+pub use sol::apply_sol_fundings;
 
 use anyhow::{Context, Result, anyhow};
 use solana_account::Account;
 use solana_pubkey::Pubkey;
 
 use crate::account_loader::AccountLoader;
-use crate::types::{
-    ResolvedAccounts, TokenAmount, TokenFunding,
-};
+use crate::types::{ResolvedAccounts, TokenAmount, TokenFunding};
 
 pub fn prepare_token_fundings(
     loader: &AccountLoader,
@@ -257,8 +255,7 @@ mod tests {
 
     #[test]
     fn prepares_spl_token_funding_and_updates_account_data() {
-        let loader =
-            AccountLoader::new("http://localhost:8899".into()).unwrap();
+        let loader = AccountLoader::new("http://localhost:8899".into()).unwrap();
         let mint = Pubkey::new_unique();
         let token = Pubkey::new_unique();
         let owner = Pubkey::new_unique();
@@ -271,8 +268,8 @@ mod tests {
 
         let funding =
             TokenFunding { account: token, mint: Some(mint), amount: TokenAmount::Raw(1_500_000) };
-        let prepared = prepare_token_fundings(&loader, &mut resolved, &[funding])
-            .expect("prepares funding");
+        let prepared =
+            prepare_token_fundings(&loader, &mut resolved, &[funding]).expect("prepares funding");
         assert_eq!(prepared.len(), 1);
         let summary = &prepared[0];
         assert_eq!(summary.mint, mint);

@@ -64,12 +64,7 @@ pub fn parse_raw_transaction(raw: &str) -> Result<ParsedTransaction> {
                 Ok(transaction) => {
                     let version = transaction.version();
                     let account_plan = MessageAccountPlan::from_transaction(&transaction);
-                    return Ok(ParsedTransaction {
-                        encoding,
-                        version,
-                        transaction,
-                        account_plan,
-                    });
+                    return Ok(ParsedTransaction { encoding, version, transaction, account_plan });
                 }
                 Err(err) => errors.push(anyhow!(
                     "{} deserialization failed: {err}",

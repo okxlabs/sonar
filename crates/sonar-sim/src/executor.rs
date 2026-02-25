@@ -13,11 +13,10 @@ use solana_sysvar_id::SysvarId;
 use solana_transaction::versioned::VersionedTransaction;
 use solana_transaction::versioned::VersionedTransaction as LiteVersionedTransaction;
 
-use crate::types::{
-    AccountDataPatch, Funding, PreparedTokenFunding,
-    Replacement, ResolvedAccounts, ResolvedLookup,
-};
 use crate::funding::apply_sol_fundings;
+use crate::types::{
+    AccountDataPatch, Funding, PreparedTokenFunding, Replacement, ResolvedAccounts, ResolvedLookup,
+};
 
 // ── Inlined native_ids ──
 
@@ -513,10 +512,7 @@ mod tests {
         let resolved = ResolvedAccounts { accounts, lookups: vec![] };
 
         let opts = SimulationOptions {
-            fundings: vec![Funding {
-                pubkey: payer.pubkey(),
-                amount_lamports: 10_000_000_000,
-            }],
+            fundings: vec![Funding { pubkey: payer.pubkey(), amount_lamports: 10_000_000_000 }],
             ..Default::default()
         };
 
