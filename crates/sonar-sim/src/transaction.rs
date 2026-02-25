@@ -1,4 +1,3 @@
-use anyhow::{Result, anyhow};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use bs58::decode::Error as Base58Error;
@@ -6,6 +5,8 @@ use serde::Serialize;
 use solana_message::VersionedMessage;
 use solana_pubkey::Pubkey;
 use solana_transaction::versioned::{TransactionVersion, VersionedTransaction};
+
+use crate::error::{Result, SonarSimError};
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -53,7 +54,7 @@ pub struct LookupLocation {
 pub fn parse_raw_transaction(raw: &str) -> Result<ParsedTransaction> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
-        return Err(anyhow!("Raw transaction string is empty"));
+        return Err(SonarSimError::TransactionParse("Raw transaction string is empty".into()));
     }
 
     let mut errors = Vec::new();
@@ -66,7 +67,7 @@ pub fn parse_raw_transaction(raw: &str) -> Result<ParsedTransaction> {
                     let account_plan = MessageAccountPlan::from_transaction(&transaction);
                     return Ok(ParsedTransaction { encoding, version, transaction, account_plan });
                 }
-                Err(err) => errors.push(anyhow!(
+                Err(err) => errors.push(format!(
                     "{} deserialization failed: {err}",
                     match encoding {
                         RawTransactionEncoding::Base58 => "Base58",
@@ -74,12 +75,12 @@ pub fn parse_raw_transaction(raw: &str) -> Result<ParsedTransaction> {
                     }
                 )),
             },
-            Err(err) => errors.push(err),
+            Err(err) => errors.push(err.to_string()),
         }
     }
 
-    let merged = errors.into_iter().map(|err| err.to_string()).collect::<Vec<_>>().join("； ");
-    Err(anyhow!("Failed to parse raw transaction: {merged}"))
+    let merged = errors.join("； ");
+    Err(SonarSimError::TransactionParse(format!("Failed to parse raw transaction: {merged}")))
 }
 
 pub(crate) fn collect_account_plan(tx: &VersionedTransaction) -> MessageAccountPlan {
@@ -108,9 +109,7 @@ fn build_address_lookup_plan(message: &VersionedMessage) -> Vec<AddressLookupPla
 pub fn build_lookup_locations(plan: &[AddressLookupPlan]) -> Vec<LookupLocation> {
     let mut locations = Vec::new();
 
-    // Iterate through each lookup table (maintaining transaction order)
     for entry in plan {
-        // Add all writable accounts first (order required by Solana spec)
         for &idx in &entry.writable_indexes {
             locations.push(LookupLocation {
                 table_account: entry.account_key,
@@ -120,9 +119,7 @@ pub fn build_lookup_locations(plan: &[AddressLookupPlan]) -> Vec<LookupLocation>
         }
     }
 
-    // Iterate through each lookup table (maintaining transaction order)
     for entry in plan {
-        // Then add all readonly accounts
         for &idx in &entry.readonly_indexes {
             locations.push(LookupLocation {
                 table_account: entry.account_key,
@@ -142,11 +139,11 @@ fn decode_bytes(input: &str, encoding: RawTransactionEncoding) -> Result<Vec<u8>
         }
         RawTransactionEncoding::Base64 => BASE64_STANDARD
             .decode(input.as_bytes())
-            .map_err(|err| anyhow!("Base64 decode failed: {err}")),
+            .map_err(|err| SonarSimError::TransactionParse(format!("Base64 decode failed: {err}"))),
     }
 }
 
-fn map_base58_error(input: &str, err: Base58Error) -> anyhow::Error {
+fn map_base58_error(input: &str, err: Base58Error) -> SonarSimError {
     let base_message = match err {
         Base58Error::InvalidCharacter { character, index } => {
             format!(
@@ -157,11 +154,11 @@ fn map_base58_error(input: &str, err: Base58Error) -> anyhow::Error {
     };
 
     if input.contains(['+', '/', '=']) {
-        anyhow!(
+        SonarSimError::TransactionParse(format!(
             "{base_message}. Base64 characteristic characters detected, you may need to try Base64 encoding"
-        )
+        ))
     } else {
-        anyhow!(base_message)
+        SonarSimError::TransactionParse(base_message)
     }
 }
 

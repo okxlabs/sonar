@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 
-use solana_account::Account;
+use solana_account::AccountSharedData;
 use solana_pubkey::Pubkey;
 
 #[derive(Debug, Clone)]
 pub struct ResolvedAccounts {
-    pub accounts: HashMap<Pubkey, Account>,
+    pub accounts: HashMap<Pubkey, AccountSharedData>,
     pub lookups: Vec<ResolvedLookup>,
 }
 

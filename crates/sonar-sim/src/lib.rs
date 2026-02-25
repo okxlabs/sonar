@@ -6,14 +6,21 @@
 //! Internal modules are `pub(crate)` and may change without notice;
 //! external consumers should only depend on the re-exports listed here.
 
+pub mod error;
+
 pub(crate) mod account_loader;
 pub(crate) mod balance_changes;
 pub(crate) mod executor;
 pub(crate) mod funding;
+pub mod resolvers;
 pub(crate) mod rpc_provider;
 pub(crate) mod token_utils;
 pub(crate) mod transaction;
 pub(crate) mod types;
+
+// ── Error types ──
+
+pub use error::{Result, SonarSimError};
 
 // ── Types ──
 
@@ -32,6 +39,12 @@ pub use transaction::{
 // ── Account loading ──
 
 pub use account_loader::AccountLoader;
+
+// ── Dependency resolvers ──
+
+pub use resolvers::{
+    AccountDependencyResolver, BpfUpgradeableResolver, TokenMintResolver, default_resolvers,
+};
 
 // ── RPC provider trait + implementations ──
 

@@ -4,6 +4,7 @@ use std::str::FromStr;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use serde::{Serialize, Serializer};
+use solana_account::{AccountSharedData, WritableAccount};
 use solana_pubkey::Pubkey;
 use solana_transaction::versioned::TransactionVersion;
 
@@ -237,16 +238,12 @@ fn compute_balance_changes_for_single_tx(
             for funding in fundings {
                 let lamports = funding.amount_lamports;
                 if let Some(account) = accounts.get_mut(&funding.pubkey) {
-                    account.lamports = lamports;
+                    account.set_lamports(lamports);
                 } else {
                     let system_program_id = solana_sdk_ids::system_program::id();
                     accounts.insert(
                         funding.pubkey,
-                        solana_account::Account {
-                            lamports,
-                            owner: system_program_id,
-                            ..Default::default()
-                        },
+                        AccountSharedData::new(lamports, 0, &system_program_id),
                     );
                 }
             }
@@ -300,7 +297,7 @@ fn compute_bundle_overall_balance_changes(
     simulations: &[SimulationResult],
     balance_opts: BalanceChangeOptions,
 ) -> (Vec<SolBalanceChangeSection>, Vec<TokenBalanceChangeSection>) {
-    use solana_account::{Account, AccountSharedData};
+    use solana_account::AccountSharedData;
 
     if !balance_opts.show_balance_change || simulations.is_empty() {
         return (Vec::new(), Vec::new());
@@ -316,10 +313,10 @@ fn compute_bundle_overall_balance_changes(
     // Merge pre_accounts from all simulations: keep the earliest state for each account.
     // Iterating in order means the first time we see an account is its true initial state
     // before the bundle started.
-    let mut pre_accounts: HashMap<Pubkey, Account> = HashMap::new();
+    let mut pre_accounts: HashMap<Pubkey, AccountSharedData> = HashMap::new();
     for sim in simulations {
         for (k, v) in &sim.pre_accounts {
-            pre_accounts.entry(*k).or_insert_with(|| Account::from(v.clone()));
+            pre_accounts.entry(*k).or_insert_with(|| v.clone());
         }
     }
 

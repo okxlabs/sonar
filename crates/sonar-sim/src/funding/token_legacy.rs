@@ -1,7 +1,7 @@
-use anyhow::{Result, anyhow};
 use solana_pubkey::Pubkey;
 use spl_token::solana_program::program_pack::Pack;
 
+use crate::error::{Result, SonarSimError};
 use crate::token_utils::{TokenProgramKind, legacy_program_id};
 use crate::types::{PreparedTokenFunding, ResolvedAccounts};
 
@@ -24,17 +24,18 @@ pub(super) fn create_token_account(
         delegated_amount: 0,
         close_authority: COption::None,
     };
-    SplAccount::pack(state, &mut data)
-        .map_err(|err| anyhow!("Failed to pack new SPL token account: {err}"))?;
+    SplAccount::pack(state, &mut data).map_err(|err| {
+        SonarSimError::Token(format!("Failed to pack new SPL token account: {err}"))
+    })?;
     resolved.accounts.insert(
         *account_pubkey,
-        solana_account::Account {
+        solana_account::AccountSharedData::from(solana_account::Account {
             lamports: 0,
             data,
             owner: legacy_program_id(),
             executable: false,
             rent_epoch: 0,
-        },
+        }),
     );
     Ok(())
 }
@@ -63,6 +64,8 @@ mod tests {
     use solana_pubkey::Pubkey;
     use spl_token::solana_program::program_pack::Pack;
 
+    use solana_account::{AccountSharedData, ReadableAccount};
+
     use crate::token_utils::{legacy_program_id, token2022_program_id};
     use crate::types::ResolvedAccounts;
 
@@ -77,10 +80,10 @@ mod tests {
         create_token_account(&mut resolved, &token, &mint).unwrap();
 
         let account = resolved.accounts.get(&token).expect("account created");
-        assert_eq!(account.owner, legacy_program_id());
+        assert_eq!(*account.owner(), legacy_program_id());
 
         use spl_token::state::Account as SplAccount;
-        let parsed = SplAccount::unpack(&account.data[..SplAccount::LEN]).unwrap();
+        let parsed = SplAccount::unpack(&account.data()[..SplAccount::LEN]).unwrap();
         assert_eq!(Pubkey::new_from_array(parsed.mint.to_bytes()), mint);
         assert_eq!(parsed.amount, 0);
     }
@@ -100,7 +103,7 @@ mod tests {
 
         use spl_token::state::Account as SplAccount;
         let account = resolved.accounts.get(&token).unwrap();
-        let parsed = SplAccount::unpack(&account.data[..SplAccount::LEN]).unwrap();
+        let parsed = SplAccount::unpack(&account.data()[..SplAccount::LEN]).unwrap();
         assert_eq!(parsed.amount, 42_000_000);
     }
 
@@ -112,13 +115,13 @@ mod tests {
 
         resolved.accounts.insert(
             token,
-            solana_account::Account {
+            AccountSharedData::from(solana_account::Account {
                 lamports: 0,
                 data: vec![0u8; 165],
                 owner: token2022_program_id(),
                 executable: false,
                 rent_epoch: 0,
-            },
+            }),
         );
 
         let err = update_account(&mut resolved, &token, &mint, 100, 6).unwrap_err();

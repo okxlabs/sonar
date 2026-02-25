@@ -6,11 +6,12 @@
 //! a new compatible token program only requires extending
 //! [`TokenProgramKind`] — no new decode paths are needed.
 
-use anyhow::{Result, anyhow};
-use solana_account::Account;
+use solana_account::ReadableAccount;
 use solana_pubkey::Pubkey;
 use spl_token::solana_program::program_pack::Pack;
 use spl_token::state::{Account as SplTokenAccount, Mint as SplMint};
+
+use crate::error::{Result, SonarSimError};
 
 // ── Program identification ──
 
@@ -62,23 +63,24 @@ pub(crate) fn token2022_program_id() -> Pubkey {
 /// Returns an error when the account is not owned by a known token program
 /// or the data is malformed.  Both legacy and Token-2022 mints share the
 /// same base layout so a single unpack path handles both.
-pub(crate) fn read_mint_decimals(account: &Account) -> Result<u8> {
-    if TokenProgramKind::from_owner(&account.owner).is_none() {
-        return Err(anyhow!(
+pub(crate) fn read_mint_decimals(account: &impl ReadableAccount) -> Result<u8> {
+    if TokenProgramKind::from_owner(account.owner()).is_none() {
+        return Err(SonarSimError::Token(format!(
             "Mint account is not owned by any known SPL Token program (owner: {})",
-            account.owner
-        ));
+            account.owner()
+        )));
     }
 
-    if account.data.len() < SplMint::LEN {
-        return Err(anyhow!(
+    let data = account.data();
+    if data.len() < SplMint::LEN {
+        return Err(SonarSimError::Token(format!(
             "Mint account data is smaller than expected: {} < {}",
-            account.data.len(),
+            data.len(),
             SplMint::LEN
-        ));
+        )));
     }
-    let parsed = SplMint::unpack(&account.data[..SplMint::LEN])
-        .map_err(|err| anyhow!("Failed to unpack mint account: {err}"))?;
+    let parsed = SplMint::unpack(&data[..SplMint::LEN])
+        .map_err(|err| SonarSimError::Token(format!("Failed to unpack mint account: {err}")))?;
     Ok(parsed.decimals)
 }
 
@@ -142,7 +144,10 @@ pub(crate) fn ensure_same_program(
     label: &str,
 ) -> Result<()> {
     if owner != &kind.program_id() {
-        return Err(anyhow!("Provided {label} is not owned by {}", kind.program_name()));
+        return Err(SonarSimError::Token(format!(
+            "Provided {label} is not owned by {}",
+            kind.program_name()
+        )));
     }
     Ok(())
 }
@@ -150,6 +155,7 @@ pub(crate) fn ensure_same_program(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use solana_account::Account;
     use spl_token::solana_program::program_option::COption;
     use spl_token::state::AccountState;
 

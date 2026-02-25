@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 
 use serde::Serialize;
-use solana_account::{Account, AccountSharedData, ReadableAccount};
+use solana_account::{AccountSharedData, ReadableAccount};
 use solana_pubkey::Pubkey;
 
 use crate::token_utils;
@@ -36,14 +36,14 @@ pub struct TokenBalanceChange {
 ///
 /// Only accounts with actual balance changes (change != 0) are included.
 pub fn compute_sol_changes(
-    pre_accounts: &HashMap<Pubkey, Account>,
+    pre_accounts: &HashMap<Pubkey, AccountSharedData>,
     post_accounts: &HashMap<Pubkey, AccountSharedData>,
 ) -> Vec<SolBalanceChange> {
     let mut changes = Vec::new();
 
     for (pubkey, post_account) in post_accounts {
         let after = post_account.lamports();
-        let before = pre_accounts.get(pubkey).map(|acc| acc.lamports).unwrap_or(0);
+        let before = pre_accounts.get(pubkey).map(|acc| acc.lamports()).unwrap_or(0);
 
         let change = after as i128 - before as i128;
         if change != 0 {
@@ -51,7 +51,6 @@ pub fn compute_sol_changes(
         }
     }
 
-    // Sort by absolute change descending for better readability
     changes.sort_by(|a, b| b.change.abs().cmp(&a.change.abs()));
     changes
 }
@@ -61,7 +60,7 @@ pub fn compute_sol_changes(
 /// Only token accounts with actual balance changes (change != 0) are included.
 /// Uses the shared `token_utils` decoder for both SPL Token and Token-2022.
 pub fn compute_token_changes(
-    pre_accounts: &HashMap<Pubkey, Account>,
+    pre_accounts: &HashMap<Pubkey, AccountSharedData>,
     post_accounts: &HashMap<Pubkey, AccountSharedData>,
     mint_decimals: &HashMap<Pubkey, u8>,
 ) -> Vec<TokenBalanceChange> {
@@ -74,7 +73,7 @@ pub fn compute_token_changes(
         {
             let before_amount = pre_accounts
                 .get(pubkey)
-                .and_then(|acc| token_utils::try_decode_token_account(&acc.data, &acc.owner))
+                .and_then(|acc| token_utils::try_decode_token_account(acc.data(), acc.owner()))
                 .map(|d| d.amount)
                 .unwrap_or(0);
 
@@ -94,7 +93,6 @@ pub fn compute_token_changes(
         }
     }
 
-    // Sort by absolute change descending
     changes.sort_by(|a, b| b.change.abs().cmp(&a.change.abs()));
     changes
 }
@@ -103,13 +101,13 @@ pub fn compute_token_changes(
 ///
 /// This ensures we capture mint decimals even if the mint was not in the original resolved accounts.
 pub fn extract_mint_decimals_combined(
-    pre_accounts: &HashMap<Pubkey, Account>,
+    pre_accounts: &HashMap<Pubkey, AccountSharedData>,
     post_accounts: &HashMap<Pubkey, AccountSharedData>,
 ) -> HashMap<Pubkey, u8> {
     let mut decimals = HashMap::new();
 
     for (pubkey, account) in pre_accounts {
-        if let Some(d) = token_utils::try_read_mint_decimals(&account.data, &account.owner) {
+        if let Some(d) = token_utils::try_read_mint_decimals(account.data(), account.owner()) {
             decimals.insert(*pubkey, d);
         }
     }
@@ -126,20 +124,17 @@ pub fn extract_mint_decimals_combined(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use solana_account::Account;
     use solana_sdk_ids::system_program;
 
-    fn create_account_with_lamports(lamports: u64) -> Account {
-        Account {
+    fn create_shared_account_with_lamports(lamports: u64) -> AccountSharedData {
+        AccountSharedData::from(Account {
             lamports,
             data: vec![],
             owner: system_program::id(),
             executable: false,
             rent_epoch: 0,
-        }
-    }
-
-    fn create_shared_account_with_lamports(lamports: u64) -> AccountSharedData {
-        AccountSharedData::from(create_account_with_lamports(lamports))
+        })
     }
 
     #[test]
@@ -147,7 +142,7 @@ mod tests {
         let pubkey = Pubkey::new_unique();
 
         let mut pre = HashMap::new();
-        pre.insert(pubkey, create_account_with_lamports(1_000_000_000));
+        pre.insert(pubkey, create_shared_account_with_lamports(1_000_000_000));
 
         let mut post = HashMap::new();
         post.insert(pubkey, create_shared_account_with_lamports(2_000_000_000));
@@ -166,7 +161,7 @@ mod tests {
         let pubkey = Pubkey::new_unique();
 
         let mut pre = HashMap::new();
-        pre.insert(pubkey, create_account_with_lamports(2_000_000_000));
+        pre.insert(pubkey, create_shared_account_with_lamports(2_000_000_000));
 
         let mut post = HashMap::new();
         post.insert(pubkey, create_shared_account_with_lamports(1_000_000_000));
@@ -182,7 +177,7 @@ mod tests {
         let pubkey = Pubkey::new_unique();
 
         let mut pre = HashMap::new();
-        pre.insert(pubkey, create_account_with_lamports(1_000_000_000));
+        pre.insert(pubkey, create_shared_account_with_lamports(1_000_000_000));
 
         let mut post = HashMap::new();
         post.insert(pubkey, create_shared_account_with_lamports(1_000_000_000));

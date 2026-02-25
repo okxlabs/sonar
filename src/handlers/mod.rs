@@ -14,6 +14,7 @@ use crate::parsers::instruction::ParserRegistry;
 use crate::utils::progress::Progress;
 use crate::{cli, core::account_loader, core::idl_fetcher, core::transaction};
 use anyhow::{Context, Result};
+use solana_account::ReadableAccount;
 use solana_pubkey::Pubkey;
 
 /// Collects executable program IDs from resolved accounts for IDL loading.
@@ -23,7 +24,7 @@ pub(crate) fn collect_program_ids(
     let mut program_ids: Vec<_> = resolved_accounts
         .accounts
         .iter()
-        .filter(|(_, account)| account.executable)
+        .filter(|(_, account)| account.executable())
         .map(|(pubkey, _)| *pubkey)
         .collect();
 
@@ -189,29 +190,29 @@ mod tests {
     };
     use crate::cli;
     use crate::core::account_loader;
-    use solana_account::Account;
+    use solana_account::{Account, AccountSharedData};
     use solana_pubkey::Pubkey;
     use solana_sdk_ids::system_program;
     use std::collections::{HashMap, HashSet};
 
-    fn executable_account() -> Account {
-        Account {
+    fn executable_account() -> AccountSharedData {
+        AccountSharedData::from(Account {
             lamports: 0,
             data: Vec::new(),
             owner: system_program::id(),
             executable: true,
             rent_epoch: 0,
-        }
+        })
     }
 
-    fn non_executable_account() -> Account {
-        Account {
+    fn non_executable_account() -> AccountSharedData {
+        AccountSharedData::from(Account {
             lamports: 0,
             data: Vec::new(),
             owner: system_program::id(),
             executable: false,
             rent_epoch: 0,
-        }
+        })
     }
 
     #[test]

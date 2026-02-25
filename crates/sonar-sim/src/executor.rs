@@ -1,10 +1,9 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
 
-use anyhow::{Context, Result, anyhow};
 use litesvm::{LiteSVM, types::TransactionMetadata};
 use log::{info, warn};
-use solana_account::{Account, AccountSharedData};
+use solana_account::{Account, AccountSharedData, ReadableAccount};
 use solana_clock::Clock;
 use solana_loader_v3_interface::state::UpgradeableLoaderState;
 use solana_pubkey::Pubkey;
@@ -13,6 +12,7 @@ use solana_sysvar_id::SysvarId;
 use solana_transaction::versioned::VersionedTransaction;
 use solana_transaction::versioned::VersionedTransaction as LiteVersionedTransaction;
 
+use crate::error::{Result, SonarSimError};
 use crate::funding::apply_sol_fundings;
 use crate::types::{
     AccountDataPatch, Funding, PreparedTokenFunding, Replacement, ResolvedAccounts, ResolvedLookup,
@@ -70,7 +70,8 @@ pub fn load_accounts(svm: &mut LiteSVM, resolved: &ResolvedAccounts) -> Result<(
     let mut ordered: Vec<_> = resolved.accounts.iter().collect();
     ordered.sort_by_key(|(_, account)| account_priority(account));
     for (pubkey, account) in ordered {
-        svm.set_account(*pubkey, account.clone())?;
+        svm.set_account(*pubkey, Account::from(account.clone()))
+            .map_err(|e| SonarSimError::Svm(format!("Failed to set account {}: {}", pubkey, e)))?;
     }
     Ok(())
 }
@@ -85,7 +86,7 @@ pub fn apply_replacements(
         match replacement {
             Replacement::Program { program_id, so_path } => {
                 if let Some(existing) = resolved.accounts.get(program_id) {
-                    if !existing.executable {
+                    if !existing.executable() {
                         warn!(
                             "--replace target {} does not appear to be a program on-chain. Loading .so file anyway.",
                             program_id
@@ -93,17 +94,18 @@ pub fn apply_replacements(
                     }
                 }
                 info!("Loading custom program {} => {}", program_id, so_path.display());
-                svm.add_program_from_file(*program_id, so_path).with_context(|| {
-                    format!(
-                        "Failed to load replacement program `{}`, path: {}",
+                svm.add_program_from_file(*program_id, so_path).map_err(|e| {
+                    SonarSimError::Svm(format!(
+                        "Failed to load replacement program `{}`, path: {}: {}",
                         program_id,
-                        so_path.display()
-                    )
+                        so_path.display(),
+                        e
+                    ))
                 })?;
             }
             Replacement::Account { pubkey, account, source_path } => {
                 if let Some(existing) = resolved.accounts.get(pubkey) {
-                    if existing.executable {
+                    if existing.executable() {
                         warn!(
                             "--replace target {} appears to be a program on-chain, but replacing as a regular account from JSON file.",
                             pubkey
@@ -111,12 +113,13 @@ pub fn apply_replacements(
                     }
                 }
                 info!("Loading custom account {} => {}", pubkey, source_path.display());
-                svm.set_account(*pubkey, account.clone()).with_context(|| {
-                    format!(
-                        "Failed to set replacement account `{}`, path: {}",
+                svm.set_account(*pubkey, account.clone()).map_err(|e| {
+                    SonarSimError::Svm(format!(
+                        "Failed to set replacement account `{}`, path: {}: {}",
                         pubkey,
-                        source_path.display()
-                    )
+                        source_path.display(),
+                        e
+                    ))
                 })?;
             }
         }
@@ -127,18 +130,17 @@ pub fn apply_replacements(
 /// Apply byte-level data patches to accounts already loaded in SVM.
 pub fn apply_data_patches(svm: &mut LiteSVM, patches: &[AccountDataPatch]) -> Result<()> {
     for patch in patches {
-        let mut account = svm.get_account(&patch.pubkey).ok_or_else(|| {
-            anyhow!("--patch-account-data target {} not found in SVM", patch.pubkey)
-        })?;
+        let mut account =
+            svm.get_account(&patch.pubkey).ok_or(SonarSimError::AccountNotFound(patch.pubkey))?;
         let end = patch.offset + patch.data.len();
         if end > account.data.len() {
-            return Err(anyhow!(
+            return Err(SonarSimError::AccountData(format!(
                 "Patch range [{}..{}) exceeds account data length {} for {}",
                 patch.offset,
                 end,
                 account.data.len(),
                 patch.pubkey
-            ));
+            )));
         }
         info!(
             "Patching account {} data[{}..{}] ({} bytes)",
@@ -148,8 +150,9 @@ pub fn apply_data_patches(svm: &mut LiteSVM, patches: &[AccountDataPatch]) -> Re
             patch.data.len()
         );
         account.data[patch.offset..end].copy_from_slice(&patch.data);
-        svm.set_account(patch.pubkey, account)
-            .with_context(|| format!("Failed to set patched account `{}`", patch.pubkey))?;
+        svm.set_account(patch.pubkey, account).map_err(|e| {
+            SonarSimError::Svm(format!("Failed to set patched account `{}`: {}", patch.pubkey, e))
+        })?;
     }
     Ok(())
 }
@@ -165,14 +168,18 @@ pub fn apply_timestamp(svm: &mut LiteSVM, ts: i64) -> Result<()> {
     let clock_id = Clock::id();
     let clock_account = svm
         .get_account(&clock_id)
-        .ok_or_else(|| anyhow!("Clock sysvar account not found in SVM"))?;
-    let mut clock: Clock =
-        bincode::deserialize(&clock_account.data).context("Failed to deserialize Clock sysvar")?;
+        .ok_or_else(|| SonarSimError::Svm("Clock sysvar account not found in SVM".into()))?;
+    let mut clock: Clock = bincode::deserialize(&clock_account.data).map_err(|e| {
+        SonarSimError::Serialization(format!("Failed to deserialize Clock sysvar: {e}"))
+    })?;
     info!("Overriding Clock unix_timestamp: {} -> {}", clock.unix_timestamp, ts);
     clock.unix_timestamp = ts;
-    let data = bincode::serialize(&clock).context("Failed to serialize modified Clock sysvar")?;
+    let data = bincode::serialize(&clock).map_err(|e| {
+        SonarSimError::Serialization(format!("Failed to serialize modified Clock sysvar: {e}"))
+    })?;
     let updated_account = Account { data, ..clock_account };
-    svm.set_account(clock_id, updated_account).context("Failed to set modified Clock sysvar")?;
+    svm.set_account(clock_id, updated_account)
+        .map_err(|e| SonarSimError::Svm(format!("Failed to set modified Clock sysvar: {e}")))?;
     Ok(())
 }
 
@@ -362,15 +369,17 @@ impl ResolvedAccounts {
 }
 
 fn convert_versioned_transaction(tx: &VersionedTransaction) -> Result<LiteVersionedTransaction> {
-    let bytes =
-        bincode::serialize(tx).map_err(|err| anyhow!("Failed to serialize transaction: {err}"))?;
-    bincode::deserialize(&bytes)
-        .map_err(|err| anyhow!("Failed to convert transaction format: {err}"))
+    let bytes = bincode::serialize(tx).map_err(|err| {
+        SonarSimError::Serialization(format!("Failed to serialize transaction: {err}"))
+    })?;
+    bincode::deserialize(&bytes).map_err(|err| {
+        SonarSimError::Serialization(format!("Failed to convert transaction format: {err}"))
+    })
 }
 
-fn account_priority(account: &Account) -> u8 {
-    if account.owner == bpf_loader_upgradeable::id() {
-        if let Ok(state) = bincode::deserialize::<UpgradeableLoaderState>(account.data.as_slice()) {
+fn account_priority(account: &AccountSharedData) -> u8 {
+    if *account.owner() == bpf_loader_upgradeable::id() {
+        if let Ok(state) = bincode::deserialize::<UpgradeableLoaderState>(account.data()) {
             return match state {
                 UpgradeableLoaderState::ProgramData { .. } => 0,
                 UpgradeableLoaderState::Program { .. } => 2,
@@ -403,6 +412,16 @@ mod tests {
         VersionedTransaction::from(transaction)
     }
 
+    fn shared_system_account(lamports: u64) -> AccountSharedData {
+        AccountSharedData::from(Account {
+            lamports,
+            data: vec![],
+            owner: solana_sdk_ids::system_program::id(),
+            executable: false,
+            rent_epoch: 0,
+        })
+    }
+
     #[test]
     fn test_execute_bundle_returns_results_for_each_transaction() {
         let payer = Keypair::new();
@@ -415,16 +434,7 @@ mod tests {
         let tx_refs: Vec<&VersionedTransaction> = vec![&tx1, &tx2];
 
         let mut accounts = HashMap::new();
-        accounts.insert(
-            payer.pubkey(),
-            Account {
-                lamports: 10_000_000_000,
-                data: vec![],
-                owner: solana_sdk_ids::system_program::id(),
-                executable: false,
-                rent_epoch: 0,
-            },
-        );
+        accounts.insert(payer.pubkey(), shared_system_account(10_000_000_000));
 
         let resolved = ResolvedAccounts { accounts, lookups: vec![] };
 
@@ -448,16 +458,7 @@ mod tests {
         let tx_refs: Vec<&VersionedTransaction> = vec![&tx1, &tx2];
 
         let mut accounts = HashMap::new();
-        accounts.insert(
-            payer.pubkey(),
-            Account {
-                lamports: 1_000_000,
-                data: vec![],
-                owner: solana_sdk_ids::system_program::id(),
-                executable: false,
-                rent_epoch: 0,
-            },
-        );
+        accounts.insert(payer.pubkey(), shared_system_account(1_000_000));
 
         let resolved = ResolvedAccounts { accounts, lookups: vec![] };
         let mut executor = TransactionExecutor::prepare(resolved, SimulationOptions::default())
@@ -480,16 +481,7 @@ mod tests {
         let tx_refs: Vec<&VersionedTransaction> = vec![&tx1, &tx2];
 
         let mut accounts = HashMap::new();
-        accounts.insert(
-            payer.pubkey(),
-            Account {
-                lamports: 10_000_000_000,
-                data: vec![],
-                owner: solana_sdk_ids::system_program::id(),
-                executable: false,
-                rent_epoch: 0,
-            },
-        );
+        accounts.insert(payer.pubkey(), shared_system_account(10_000_000_000));
 
         let resolved = ResolvedAccounts { accounts, lookups: vec![] };
         let mut executor = TransactionExecutor::prepare(resolved, SimulationOptions::default())
@@ -509,16 +501,7 @@ mod tests {
         let tx = create_transfer_transaction(&payer, &recipient, 1_000);
 
         let mut accounts = HashMap::new();
-        accounts.insert(
-            payer.pubkey(),
-            Account {
-                lamports: 10_000_000_000,
-                data: vec![],
-                owner: solana_sdk_ids::system_program::id(),
-                executable: false,
-                rent_epoch: 0,
-            },
-        );
+        accounts.insert(payer.pubkey(), shared_system_account(10_000_000_000));
 
         let resolved = ResolvedAccounts { accounts, lookups: vec![] };
         let mut executor = TransactionExecutor::prepare(resolved, SimulationOptions::default())
@@ -565,23 +548,23 @@ mod tests {
         let mut accounts = HashMap::new();
         accounts.insert(
             key1,
-            Account {
+            AccountSharedData::from(Account {
                 lamports: 100,
                 data: vec![1, 2],
                 owner: solana_sdk_ids::system_program::id(),
                 executable: false,
                 rent_epoch: 0,
-            },
+            }),
         );
         accounts.insert(
             key2,
-            Account {
+            AccountSharedData::from(Account {
                 lamports: 200,
                 data: vec![3, 4],
                 owner: solana_sdk_ids::system_program::id(),
                 executable: false,
                 rent_epoch: 0,
-            },
+            }),
         );
         let resolved = ResolvedAccounts { accounts, lookups: vec![] };
 
@@ -600,13 +583,13 @@ mod tests {
         let mut svm = new_svm();
         let key = Pubkey::new_unique();
 
-        let original = Account {
+        let original = AccountSharedData::from(Account {
             lamports: 100,
             data: vec![0],
             owner: solana_sdk_ids::system_program::id(),
             executable: false,
             rent_epoch: 0,
-        };
+        });
         let replacement_account = Account {
             lamports: 999,
             data: vec![42],
@@ -681,7 +664,7 @@ mod tests {
 
         let patches = vec![AccountDataPatch { pubkey: key, offset: 0, data: vec![1] }];
         let err = apply_data_patches(&mut svm, &patches).unwrap_err();
-        assert!(err.to_string().contains("not found in SVM"));
+        assert!(err.to_string().contains("Account not found"));
     }
 
     #[test]

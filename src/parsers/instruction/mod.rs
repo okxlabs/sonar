@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use anyhow::{Context, Result};
 use serde::{Serialize, Serializer, ser::SerializeMap, ser::SerializeSeq};
 use serde_json::Number as JsonNumber;
+use solana_account::ReadableAccount;
 use solana_pubkey::Pubkey;
 use solana_sdk_ids::bpf_loader_upgradeable;
 
@@ -228,7 +229,7 @@ impl ParserRegistry {
                     && resolved_accounts
                         .accounts
                         .get(program_id)
-                        .is_some_and(|account| account.owner == bpf_loader_upgradeable::id())
+                        .is_some_and(|account| *account.owner() == bpf_loader_upgradeable::id())
             })
             .copied()
             .collect()
@@ -397,7 +398,7 @@ impl ParserRegistry {
 mod tests {
     use super::*;
     use crate::core::account_loader::ResolvedAccounts;
-    use solana_account::Account;
+    use solana_account::{Account, AccountSharedData};
     use solana_pubkey::Pubkey;
     use solana_sdk_ids::{bpf_loader_upgradeable, system_program};
     use std::collections::HashMap;
@@ -485,33 +486,33 @@ mod tests {
         let mut accounts = HashMap::new();
         accounts.insert(
             with_local_idl,
-            Account {
+            AccountSharedData::from(Account {
                 lamports: 0,
                 data: Vec::new(),
                 owner: bpf_loader_upgradeable::id(),
                 executable: true,
                 rent_epoch: 0,
-            },
+            }),
         );
         accounts.insert(
             fetchable,
-            Account {
+            AccountSharedData::from(Account {
                 lamports: 0,
                 data: Vec::new(),
                 owner: bpf_loader_upgradeable::id(),
                 executable: true,
                 rent_epoch: 0,
-            },
+            }),
         );
         accounts.insert(
             not_upgradeable,
-            Account {
+            AccountSharedData::from(Account {
                 lamports: 0,
                 data: Vec::new(),
                 owner: system_program::id(),
                 executable: true,
                 rent_epoch: 0,
-            },
+            }),
         );
         let resolved_accounts = ResolvedAccounts { accounts, lookups: vec![] };
 

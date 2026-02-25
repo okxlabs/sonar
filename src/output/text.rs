@@ -3,6 +3,7 @@ use std::str::FromStr;
 use anyhow::Result;
 use colored::Colorize;
 use serde::Serialize;
+use solana_account::ReadableAccount;
 use solana_pubkey::Pubkey;
 use unicode_width::UnicodeWidthStr;
 
@@ -500,7 +501,7 @@ fn render_account_entry_text(
     lookup_info: Option<(usize, u8)>,
 ) -> usize {
     let pubkey = Pubkey::from_str(pubkey_str).unwrap();
-    let executable = resolved.accounts.get(&pubkey).map(|acc| acc.executable).unwrap_or(false);
+    let executable = resolved.accounts.get(&pubkey).map(|acc| acc.executable()).unwrap_or(false);
     let index_label = render_account_index_label(index, layout.index_width);
     let marker = render_account_marker(signer, writable, executable);
     let pubkey_display = format!("{:<width$}", pubkey_str, width = layout.pubkey_width);
@@ -666,7 +667,7 @@ fn render_instruction_account_text(
     layout: &ColumnLayout,
 ) {
     let executable = if let Ok(pubkey) = Pubkey::from_str(&account.pubkey) {
-        resolved.accounts.get(&pubkey).map(|acc| acc.executable).unwrap_or(false)
+        resolved.accounts.get(&pubkey).map(|acc| acc.executable()).unwrap_or(false)
     } else {
         false
     };

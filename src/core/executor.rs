@@ -11,7 +11,7 @@ use std::sync::LazyLock;
 use anyhow::{Context, Result};
 use base64::Engine;
 use serde::Serialize;
-use solana_account::Account;
+use solana_account::{Account, ReadableAccount};
 use solana_clock::Clock;
 use solana_pubkey::Pubkey;
 use solana_sdk_ids::system_program;
@@ -45,8 +45,8 @@ static NATIVE_LOADER_ID: LazyLock<Pubkey> = LazyLock::new(|| {
 });
 
 /// Returns `true` if the account is owned by the NativeLoader (native program executable marker).
-fn is_native_owner(account: &Account) -> bool {
-    account.owner == *NATIVE_LOADER_ID
+fn is_native_owner(account: &impl ReadableAccount) -> bool {
+    *account.owner() == *NATIVE_LOADER_ID
 }
 
 /// Dump accounts to a directory in Solana CLI compatible JSON format.
@@ -91,7 +91,8 @@ pub(crate) fn dump_accounts_to_dir(
         }
 
         let path = dir.join(format!("{pubkey}.json"));
-        write_dump_account(pubkey, account, &path)?;
+        let plain = Account::from(account.clone());
+        write_dump_account(pubkey, &plain, &path)?;
 
         dumped_keys.insert(*pubkey);
     }
@@ -162,16 +163,17 @@ mod tests {
         let lookup_table_key = Pubkey::new_unique();
         let missing_lookup_account = Pubkey::new_unique();
 
+        use solana_account::AccountSharedData;
         let mut accounts = HashMap::new();
         accounts.insert(
             lookup_table_key,
-            Account {
+            AccountSharedData::from(Account {
                 lamports: 1,
                 data: vec![1, 2, 3],
                 owner: solana_sdk_ids::system_program::id(),
                 executable: false,
                 rent_epoch: 0,
-            },
+            }),
         );
 
         let resolved = ResolvedAccounts {

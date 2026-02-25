@@ -1,10 +1,10 @@
 use std::collections::HashMap;
 
-use anyhow::Result;
-use solana_account::Account;
+use solana_account::AccountSharedData;
 use solana_pubkey::Pubkey;
 
 use super::ResolvedAccounts;
+use crate::error::Result;
 
 /// Minimal abstraction for on-demand account loading.
 ///
@@ -23,7 +23,7 @@ pub trait AccountAppender {
 pub trait AccountFetchMiddleware: Send + Sync {
     /// Try to resolve accounts from a local source before hitting RPC.
     /// Returns found accounts; keys absent from the result proceed to RPC.
-    fn try_resolve_local(&self, pubkeys: &[Pubkey]) -> Result<HashMap<Pubkey, Account>> {
+    fn try_resolve_local(&self, pubkeys: &[Pubkey]) -> Result<HashMap<Pubkey, AccountSharedData>> {
         let _ = pubkeys;
         Ok(HashMap::new())
     }

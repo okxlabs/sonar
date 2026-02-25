@@ -3,7 +3,7 @@ use std::{io::Read, sync::Arc};
 use anyhow::{Context, Result, anyhow};
 use flate2::read::ZlibDecoder;
 use log::debug;
-use solana_account::Account;
+use solana_account::{AccountSharedData, ReadableAccount};
 use solana_pubkey::Pubkey;
 
 use crate::core::rpc_provider::{RpcAccountProvider, SolanaRpcProvider};
@@ -52,12 +52,12 @@ impl IdlFetcher {
     /// Uses `get_multiple_accounts` to minimize RPC round-trips.
     /// Returns one `(program_id, result)` entry per input, preserving order.
     pub fn fetch_idls(&self, program_ids: &[Pubkey]) -> Vec<(Pubkey, Result<Option<String>>)> {
-        self.fetch_idls_with(program_ids, |chunk| self.provider.get_multiple_accounts(chunk))
+        self.fetch_idls_with(program_ids, |chunk| Ok(self.provider.get_multiple_accounts(chunk)?))
     }
 
     fn fetch_idl_with<F>(&self, program_id: &Pubkey, fetch_account: F) -> Result<Option<String>>
     where
-        F: FnOnce(&Pubkey) -> Result<Account>,
+        F: FnOnce(&Pubkey) -> Result<AccountSharedData>,
     {
         let idl_address = get_idl_address(program_id)?;
         debug!("IDL address for program {}: {}", program_id, idl_address);
@@ -72,7 +72,7 @@ impl IdlFetcher {
             }
         };
 
-        Ok(Some(parse_idl_account_data(&account.data, program_id)?))
+        Ok(Some(parse_idl_account_data(account.data(), program_id)?))
     }
 
     fn fetch_idls_with<F>(
@@ -81,7 +81,7 @@ impl IdlFetcher {
         mut fetch_chunk: F,
     ) -> Vec<(Pubkey, Result<Option<String>>)>
     where
-        F: FnMut(&[Pubkey]) -> Result<Vec<Option<Account>>>,
+        F: FnMut(&[Pubkey]) -> Result<Vec<Option<AccountSharedData>>>,
     {
         if program_ids.is_empty() {
             return Vec::new();
@@ -126,7 +126,7 @@ impl IdlFetcher {
                         {
                             let parsed = match maybe_account {
                                 Some(account) => {
-                                    parse_idl_account_data(&account.data, program_id).map(Some)
+                                    parse_idl_account_data(account.data(), program_id).map(Some)
                                 }
                                 None => Ok(None),
                             };
@@ -224,7 +224,7 @@ mod tests {
     use anyhow::anyhow;
     use flate2::Compression;
     use flate2::write::ZlibEncoder;
-    use solana_account::Account;
+    use solana_account::{Account, AccountSharedData, ReadableAccount};
     use solana_pubkey::Pubkey;
 
     use super::{IdlFetcher, MAX_ACCOUNTS_PER_REQUEST, get_idl_address, parse_idl_account_data};
@@ -234,7 +234,7 @@ mod tests {
         IdlFetcher::with_provider(Arc::new(FakeAccountProvider::empty()), None)
     }
 
-    fn build_idl_account(idl_json: &str) -> Account {
+    fn build_idl_account(idl_json: &str) -> AccountSharedData {
         let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
         encoder.write_all(idl_json.as_bytes()).unwrap();
         let compressed = encoder.finish().unwrap();
@@ -245,7 +245,13 @@ mod tests {
         data.extend_from_slice(&(compressed.len() as u32).to_le_bytes());
         data.extend_from_slice(&compressed);
 
-        Account { lamports: 1, data, owner: Pubkey::new_unique(), executable: false, rent_epoch: 0 }
+        AccountSharedData::from(Account {
+            lamports: 1,
+            data,
+            owner: Pubkey::new_unique(),
+            executable: false,
+            rent_epoch: 0,
+        })
     }
 
     #[test]
@@ -253,7 +259,7 @@ mod tests {
         let program_id = Pubkey::new_unique();
         let expected = r#"{"name":"demo","version":"0.1.0"}"#;
         let account = build_idl_account(expected);
-        let parsed = parse_idl_account_data(&account.data, &program_id).unwrap();
+        let parsed = parse_idl_account_data(account.data(), &program_id).unwrap();
         assert_eq!(parsed, expected);
     }
 

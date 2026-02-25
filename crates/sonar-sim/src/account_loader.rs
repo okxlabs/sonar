@@ -3,20 +3,18 @@ use std::{
     sync::Arc,
 };
 
-use anyhow::{Context, Result, anyhow};
 use log::{debug, trace};
-use solana_account::{Account, ReadableAccount};
+use solana_account::{AccountSharedData, ReadableAccount};
 use solana_address_lookup_table_interface::state::AddressLookupTable;
 use solana_clock::Clock;
-use solana_loader_v3_interface::state::UpgradeableLoaderState;
 use solana_pubkey::Pubkey;
-use solana_sdk_ids::bpf_loader_upgradeable;
 use solana_slot_hashes::SlotHashes;
 use solana_sysvar_id::SysvarId;
 use solana_transaction::versioned::VersionedTransaction;
-use spl_token::solana_program::program_pack::Pack;
 use std::sync::Mutex;
 
+use crate::error::{Result, SonarSimError};
+use crate::resolvers::{AccountDependencyResolver, default_resolvers};
 use crate::rpc_provider::{RpcAccountProvider, SolanaRpcProvider};
 use crate::transaction::{AddressLookupPlan, collect_account_plan};
 use crate::types::{AccountAppender, AccountFetchMiddleware, ResolvedAccounts, ResolvedLookup};
@@ -24,37 +22,50 @@ use crate::types::{AccountAppender, AccountFetchMiddleware, ResolvedAccounts, Re
 const MAX_ACCOUNTS_PER_REQUEST: usize = 100;
 
 fn lock_cache(
-    cache: &Mutex<HashMap<Pubkey, Account>>,
-) -> Result<std::sync::MutexGuard<'_, HashMap<Pubkey, Account>>> {
-    cache.lock().map_err(|_| anyhow!("account cache lock poisoned"))
+    cache: &Mutex<HashMap<Pubkey, AccountSharedData>>,
+) -> Result<std::sync::MutexGuard<'_, HashMap<Pubkey, AccountSharedData>>> {
+    cache.lock().map_err(|_| SonarSimError::Internal("account cache lock poisoned".into()))
 }
 
 pub struct AccountLoader {
     provider: Arc<dyn RpcAccountProvider>,
-    cache: Mutex<HashMap<Pubkey, Account>>,
+    cache: Mutex<HashMap<Pubkey, AccountSharedData>>,
     middleware: Option<Arc<dyn AccountFetchMiddleware>>,
+    resolvers: Vec<Box<dyn AccountDependencyResolver>>,
 }
 
 impl AccountLoader {
     pub fn new(rpc_url: String) -> Result<Self> {
         if rpc_url.is_empty() {
-            return Err(anyhow!("RPC URL cannot be empty"));
+            return Err(SonarSimError::Validation("RPC URL cannot be empty".into()));
         }
         Ok(Self {
             provider: Arc::new(SolanaRpcProvider::new(rpc_url)),
             cache: Mutex::new(HashMap::new()),
             middleware: None,
+            resolvers: default_resolvers(),
         })
     }
 
     pub fn with_provider(provider: Arc<dyn RpcAccountProvider>) -> Self {
-        Self { provider, cache: Mutex::new(HashMap::new()), middleware: None }
+        Self {
+            provider,
+            cache: Mutex::new(HashMap::new()),
+            middleware: None,
+            resolvers: default_resolvers(),
+        }
     }
 
     /// Attach an optional middleware for local account resolution,
     /// offline mode, and progress reporting. Returns `self` for chaining.
     pub fn with_middleware(mut self, middleware: Arc<dyn AccountFetchMiddleware>) -> Self {
         self.middleware = Some(middleware);
+        self
+    }
+
+    /// Replace the default dependency resolvers with a custom set.
+    pub fn with_resolvers(mut self, resolvers: Vec<Box<dyn AccountDependencyResolver>>) -> Self {
+        self.resolvers = resolvers;
         self
     }
 
@@ -84,26 +95,24 @@ impl AccountLoader {
         let initial = collect_initial_accounts(plans);
         let mut accounts = HashMap::new();
 
-        self.fetch_accounts(&initial, &mut accounts)
-            .context("Failed to fetch initial accounts (static + sysvars + lookups)")?;
-        self.ensure_upgradeable_dependencies(&mut accounts)
-            .context("Failed to load upgradeable program metadata")?;
+        self.fetch_accounts(&initial, &mut accounts).map_err(|e| {
+            SonarSimError::AccountData(format!(
+                "Failed to fetch initial accounts (static + sysvars + lookups): {e}"
+            ))
+        })?;
+        self.resolve_all_dependencies(&mut accounts)?;
 
         let (lookups, lookup_pubkeys) = self.resolve_all_lookups(plans, &mut accounts)?;
 
         if !lookup_pubkeys.is_empty() {
-            self.fetch_accounts(&lookup_pubkeys, &mut accounts).with_context(|| {
-                format!(
-                    "Failed to load accounts from address lookup tables: [{}]",
+            self.fetch_accounts(&lookup_pubkeys, &mut accounts).map_err(|e| {
+                SonarSimError::AccountData(format!(
+                    "Failed to load accounts from address lookup tables: [{}]: {e}",
                     format_pubkeys(&lookup_pubkeys)
-                )
+                ))
             })?;
-            self.ensure_upgradeable_dependencies(&mut accounts)
-                .context("Failed to load upgradeable program dependencies for lookup accounts")?;
+            self.resolve_all_dependencies(&mut accounts)?;
         }
-
-        self.ensure_token_mint_accounts(&mut accounts)
-            .context("Failed to load token mint accounts")?;
 
         Ok(ResolvedAccounts { accounts, lookups })
     }
@@ -111,7 +120,7 @@ impl AccountLoader {
     fn resolve_all_lookups(
         &self,
         plans: &[crate::transaction::MessageAccountPlan],
-        accounts: &mut HashMap<Pubkey, Account>,
+        accounts: &mut HashMap<Pubkey, AccountSharedData>,
     ) -> Result<(Vec<ResolvedLookup>, Vec<Pubkey>)> {
         let mut lookups = Vec::new();
         let mut lookup_pubkeys = Vec::new();
@@ -142,40 +151,42 @@ impl AccountLoader {
         if pubkeys.is_empty() {
             return Ok(());
         }
-        self.fetch_accounts(pubkeys, &mut resolved.accounts).with_context(|| {
-            format!("Failed to fetch appended accounts: [{}]", format_pubkeys(pubkeys))
+        self.fetch_accounts(pubkeys, &mut resolved.accounts).map_err(|e| {
+            SonarSimError::AccountData(format!(
+                "Failed to fetch appended accounts: [{}]: {e}",
+                format_pubkeys(pubkeys)
+            ))
         })?;
-        self.ensure_upgradeable_dependencies(&mut resolved.accounts)
-            .context("Failed to load upgradeable program dependencies for appended accounts")?;
+        self.resolve_all_dependencies(&mut resolved.accounts)?;
         Ok(())
     }
 
-    fn ensure_upgradeable_dependencies(
+    /// Runs all registered resolvers in a loop until no new dependencies emerge.
+    fn resolve_all_dependencies(
         &self,
-        accounts: &mut HashMap<Pubkey, Account>,
+        accounts: &mut HashMap<Pubkey, AccountSharedData>,
     ) -> Result<()> {
         loop {
-            let mut missing = Vec::new();
-            for account in accounts.values() {
-                if account.owner != bpf_loader_upgradeable::id() {
-                    continue;
-                }
-                if let Ok(UpgradeableLoaderState::Program { programdata_address }) =
-                    bincode::deserialize::<UpgradeableLoaderState>(account.data.as_slice())
-                {
-                    let programdata_key = Pubkey::new_from_array(programdata_address.to_bytes());
-                    if !accounts.contains_key(&programdata_key) {
-                        missing.push(programdata_key);
+            let mut all_missing = Vec::new();
+            let mut seen = HashSet::new();
+
+            for resolver in &self.resolvers {
+                for key in resolver.resolve_dependencies(accounts) {
+                    if seen.insert(key) {
+                        all_missing.push(key);
                     }
                 }
             }
 
-            if missing.is_empty() {
+            if all_missing.is_empty() {
                 break;
             }
 
-            self.fetch_accounts(&missing, accounts).with_context(|| {
-                format!("Failed to fetch ProgramData accounts: [{}]", format_pubkeys(&missing))
+            self.fetch_accounts(&all_missing, accounts).map_err(|e| {
+                SonarSimError::AccountData(format!(
+                    "Failed to fetch dependency accounts: [{}]: {e}",
+                    format_pubkeys(&all_missing)
+                ))
             })?;
         }
 
@@ -185,35 +196,44 @@ impl AccountLoader {
     fn load_lookup_table(
         &self,
         plan: &AddressLookupPlan,
-        accounts: &mut HashMap<Pubkey, Account>,
+        accounts: &mut HashMap<Pubkey, AccountSharedData>,
     ) -> Result<ResolvedLookup> {
-        self.fetch_accounts(&[plan.account_key], accounts).with_context(|| {
-            format!("Failed to fetch address lookup table account `{}`", plan.account_key)
+        self.fetch_accounts(&[plan.account_key], accounts).map_err(|e| {
+            SonarSimError::LookupTable(format!(
+                "Failed to fetch address lookup table account `{}`: {e}",
+                plan.account_key
+            ))
         })?;
 
         let table_account = accounts.get(&plan.account_key).ok_or_else(|| {
-            anyhow!("Address lookup table account `{}` missing from cache", plan.account_key)
+            SonarSimError::LookupTable(format!(
+                "Address lookup table account `{}` missing from cache",
+                plan.account_key
+            ))
         })?;
 
         let lookup_table =
             AddressLookupTable::deserialize(table_account.data()).map_err(|err| {
-                anyhow!("Failed to parse address lookup table `{}`: {err}", plan.account_key)
+                SonarSimError::LookupTable(format!(
+                    "Failed to parse address lookup table `{}`: {err}",
+                    plan.account_key
+                ))
             })?;
         let all_addresses = lookup_table.addresses.to_vec();
 
         let writable_addresses = resolve_lookup_indexes(&all_addresses, &plan.writable_indexes)
-            .with_context(|| {
-                format!(
-                    "Failed to parse writable indexes for address lookup table `{}`",
+            .map_err(|e| {
+                SonarSimError::LookupTable(format!(
+                    "Failed to parse writable indexes for address lookup table `{}`: {e}",
                     plan.account_key
-                )
+                ))
             })?;
         let readonly_addresses = resolve_lookup_indexes(&all_addresses, &plan.readonly_indexes)
-            .with_context(|| {
-                format!(
-                    "Failed to parse readonly indexes for address lookup table `{}`",
+            .map_err(|e| {
+                SonarSimError::LookupTable(format!(
+                    "Failed to parse readonly indexes for address lookup table `{}`: {e}",
                     plan.account_key
-                )
+                ))
             })?;
 
         Ok(ResolvedLookup {
@@ -228,7 +248,7 @@ impl AccountLoader {
     fn fetch_accounts(
         &self,
         pubkeys: &[Pubkey],
-        destination: &mut HashMap<Pubkey, Account>,
+        destination: &mut HashMap<Pubkey, AccountSharedData>,
     ) -> Result<()> {
         let mut unique = Vec::new();
         let mut seen = HashSet::new();
@@ -247,7 +267,6 @@ impl AccountLoader {
 
         trace!("Preparing to fetch {} accounts: [{}]", unique.len(), format_pubkeys(&unique));
 
-        // Layer 1: Check in-memory cache
         let mut to_fetch = Vec::new();
         {
             let cache = lock_cache(&self.cache)?;
@@ -264,7 +283,6 @@ impl AccountLoader {
             return Ok(());
         }
 
-        // Layer 2: Middleware local resolution (e.g. filesystem cache)
         if let Some(ref middleware) = self.middleware {
             let resolved = middleware.try_resolve_local(&to_fetch)?;
             if !resolved.is_empty() {
@@ -284,29 +302,33 @@ impl AccountLoader {
                 return Ok(());
             }
 
-            // Layer 3: Offline mode — skip RPC entirely
             if middleware.is_offline() {
                 middleware.on_offline_missing(&to_fetch);
                 return Ok(());
             }
         }
 
-        // Layer 4: Fetch remaining accounts from RPC
         let total_count = to_fetch.len();
         let mut requested_count = 0usize;
         for chunk in to_fetch.chunks(MAX_ACCOUNTS_PER_REQUEST) {
-            let response = self.provider.get_multiple_accounts(chunk).with_context(|| {
-                format!(
-                    "getMultipleAccounts call failed, account list: [{}]",
-                    format_pubkeys(chunk)
+            let response = self.provider.get_multiple_accounts(chunk).map_err(|e| {
+                SonarSimError::Rpc(
+                    format!(
+                        "getMultipleAccounts call failed, account list: [{}]: {e}",
+                        format_pubkeys(chunk)
+                    )
+                    .into(),
                 )
             })?;
 
             if response.len() != chunk.len() {
-                return Err(anyhow!(
-                    "RPC returned count mismatch with request ({} != {})",
-                    response.len(),
-                    chunk.len()
+                return Err(SonarSimError::Rpc(
+                    format!(
+                        "RPC returned count mismatch with request ({} != {})",
+                        response.len(),
+                        chunk.len()
+                    )
+                    .into(),
                 ));
             }
 
@@ -324,27 +346,6 @@ impl AccountLoader {
         }
 
         debug!("Successfully fetched {} accounts from RPC", total_count);
-        Ok(())
-    }
-
-    fn ensure_token_mint_accounts(&self, accounts: &mut HashMap<Pubkey, Account>) -> Result<()> {
-        let mut missing_mints = HashSet::new();
-        for account in accounts.values() {
-            if let Some(mint) = token_account_mint(account) {
-                if !accounts.contains_key(&mint) {
-                    missing_mints.insert(mint);
-                }
-            }
-        }
-
-        if missing_mints.is_empty() {
-            return Ok(());
-        }
-
-        let mint_pubkeys: Vec<Pubkey> = missing_mints.into_iter().collect();
-        self.fetch_accounts(&mint_pubkeys, accounts).with_context(|| {
-            format!("Failed to fetch token mint accounts: [{}]", format_pubkeys(&mint_pubkeys))
-        })?;
         Ok(())
     }
 }
@@ -381,29 +382,13 @@ fn collect_initial_accounts(plans: &[crate::transaction::MessageAccountPlan]) ->
     keys
 }
 
-fn token_account_mint(account: &Account) -> Option<Pubkey> {
-    let owner = account.owner;
-    if owner == spl_token::ID {
-        let token_account = spl_token::state::Account::unpack(account.data()).ok()?;
-        return Some(Pubkey::new_from_array(token_account.mint.to_bytes()));
-    }
-    if owner == spl_token_2022::ID {
-        use spl_token_2022::extension::StateWithExtensions;
-        use spl_token_2022::state::Account as Token2022Account;
-        let token_account = StateWithExtensions::<Token2022Account>::unpack(account.data()).ok()?;
-        return Some(Pubkey::new_from_array(token_account.base.mint.to_bytes()));
-    }
-    None
-}
-
 fn resolve_lookup_indexes(addresses: &[Pubkey], indexes: &[u8]) -> Result<Vec<Pubkey>> {
     indexes
         .iter()
         .map(|idx| {
-            addresses
-                .get(*idx as usize)
-                .copied()
-                .ok_or_else(|| anyhow!("Index {idx} out of address lookup table range"))
+            addresses.get(*idx as usize).copied().ok_or_else(|| {
+                SonarSimError::LookupTable(format!("Index {idx} out of address lookup table range"))
+            })
         })
         .collect()
 }
@@ -423,6 +408,7 @@ fn format_pubkeys(pubkeys: &[Pubkey]) -> String {
 mod tests {
     use super::*;
     use crate::rpc_provider::FakeAccountProvider;
+    use solana_account::Account;
     use solana_hash::Hash;
     use solana_keypair::Keypair;
     use solana_message::Message;
@@ -460,7 +446,8 @@ mod tests {
         accounts.insert(payer.pubkey(), system_account(10_000_000_000));
         accounts.insert(recipient, system_account(0));
 
-        let loader = AccountLoader::with_provider(Arc::new(FakeAccountProvider::new(accounts)));
+        let loader =
+            AccountLoader::with_provider(Arc::new(FakeAccountProvider::from_accounts(accounts)));
 
         let tx = create_transfer_tx(&payer, &recipient, 1000);
         let resolved = loader.load_for_transaction(&tx).expect("should load from fake provider");
@@ -474,12 +461,15 @@ mod tests {
         use std::sync::atomic::{AtomicUsize, Ordering};
 
         struct CountingProvider {
-            accounts: std::collections::HashMap<Pubkey, Account>,
+            accounts: std::collections::HashMap<Pubkey, AccountSharedData>,
             call_count: Arc<AtomicUsize>,
         }
 
         impl RpcAccountProvider for CountingProvider {
-            fn get_multiple_accounts(&self, pubkeys: &[Pubkey]) -> Result<Vec<Option<Account>>> {
+            fn get_multiple_accounts(
+                &self,
+                pubkeys: &[Pubkey],
+            ) -> Result<Vec<Option<AccountSharedData>>> {
                 self.call_count.fetch_add(1, Ordering::SeqCst);
                 Ok(pubkeys.iter().map(|k| self.accounts.get(k).cloned()).collect())
             }
@@ -489,11 +479,15 @@ mod tests {
         let recipient = Pubkey::new_unique();
 
         let mut accounts = std::collections::HashMap::new();
-        accounts.insert(payer.pubkey(), system_account(10_000_000_000));
-        accounts.insert(recipient, system_account(0));
-        accounts.insert(Clock::id(), system_account(0));
-        accounts.insert(SlotHashes::id(), system_account(0));
-        accounts.insert(solana_sdk_ids::system_program::id(), system_account(0));
+        for (key, lamports) in [
+            (payer.pubkey(), 10_000_000_000u64),
+            (recipient, 0),
+            (Clock::id(), 0),
+            (SlotHashes::id(), 0),
+            (solana_sdk_ids::system_program::id(), 0),
+        ] {
+            accounts.insert(key, AccountSharedData::from(system_account(lamports)));
+        }
 
         let call_count = Arc::new(AtomicUsize::new(0));
         let provider = CountingProvider { accounts, call_count: call_count.clone() };
@@ -502,12 +496,10 @@ mod tests {
 
         let tx = create_transfer_tx(&payer, &recipient, 1000);
 
-        // First load
         let _ = loader.load_for_transaction(&tx).unwrap();
         let first_call_count = call_count.load(Ordering::SeqCst);
         assert!(first_call_count > 0);
 
-        // Second load of the same tx — should hit in-memory cache
         let _ = loader.load_for_transaction(&tx).unwrap();
         let second_call_count = call_count.load(Ordering::SeqCst);
         assert_eq!(
@@ -525,13 +517,14 @@ mod tests {
         accounts.insert(payer.pubkey(), system_account(10_000_000_000));
         accounts.insert(extra, system_account(42));
 
-        let loader = AccountLoader::with_provider(Arc::new(FakeAccountProvider::new(accounts)));
+        let loader =
+            AccountLoader::with_provider(Arc::new(FakeAccountProvider::from_accounts(accounts)));
 
         let mut resolved = ResolvedAccounts { accounts: HashMap::new(), lookups: vec![] };
 
         loader.append_accounts(&mut resolved, &[extra]).unwrap();
         assert!(resolved.accounts.contains_key(&extra));
-        assert_eq!(resolved.accounts[&extra].lamports, 42);
+        assert_eq!(resolved.accounts[&extra].lamports(), 42);
     }
 
     #[test]
@@ -545,7 +538,8 @@ mod tests {
         accounts.insert(recipient1, system_account(100));
         accounts.insert(recipient2, system_account(200));
 
-        let loader = AccountLoader::with_provider(Arc::new(FakeAccountProvider::new(accounts)));
+        let loader =
+            AccountLoader::with_provider(Arc::new(FakeAccountProvider::from_accounts(accounts)));
 
         let tx1 = create_transfer_tx(&payer, &recipient1, 50);
         let tx2 = create_transfer_tx(&payer, &recipient2, 100);

@@ -2,7 +2,7 @@ use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
 use anyhow::Result;
 use log::debug;
-use solana_account::Account;
+use solana_account::AccountSharedData;
 use solana_pubkey::Pubkey;
 
 pub use sonar_sim::{AccountLoader, ResolvedAccounts, ResolvedLookup};
@@ -25,7 +25,10 @@ impl CliAccountMiddleware {
 }
 
 impl sonar_sim::AccountFetchMiddleware for CliAccountMiddleware {
-    fn try_resolve_local(&self, pubkeys: &[Pubkey]) -> Result<HashMap<Pubkey, Account>> {
+    fn try_resolve_local(
+        &self,
+        pubkeys: &[Pubkey],
+    ) -> sonar_sim::Result<HashMap<Pubkey, AccountSharedData>> {
         let Some(ref dir) = self.local_dir else {
             return Ok(HashMap::new());
         };
@@ -35,9 +38,9 @@ impl sonar_sim::AccountFetchMiddleware for CliAccountMiddleware {
             let path = dir.join(format!("{key}.json"));
             if path.exists() {
                 let account = crate::core::account_file::parse_account_json(&path)
-                    .map_err(|e| anyhow::anyhow!(e))?;
+                    .map_err(|e| sonar_sim::SonarSimError::Internal(e.to_string()))?;
                 debug!("Loaded account {} from local file: {}", key, path.display());
-                found.insert(*key, account);
+                found.insert(*key, AccountSharedData::from(account));
             }
         }
         Ok(found)
@@ -99,6 +102,7 @@ pub fn create_idl_fetcher(loader: &AccountLoader, progress: Option<Progress>) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+    use solana_account::{Account, ReadableAccount};
     use solana_clock::Clock;
     use solana_hash::Hash;
     use solana_keypair::Keypair;
@@ -145,7 +149,8 @@ mod tests {
         accounts.insert(payer.pubkey(), system_account(10_000_000_000));
         accounts.insert(recipient, system_account(0));
 
-        let loader = AccountLoader::with_provider(Arc::new(FakeAccountProvider::new(accounts)));
+        let loader =
+            AccountLoader::with_provider(Arc::new(FakeAccountProvider::from_accounts(accounts)));
 
         let tx = create_transfer_tx(&payer, &recipient, 1000);
         let resolved = loader.load_for_transaction(&tx).expect("should load from fake provider");
@@ -187,7 +192,10 @@ mod tests {
         }
 
         impl RpcAccountProvider for NeverCalledProvider {
-            fn get_multiple_accounts(&self, _pubkeys: &[Pubkey]) -> Result<Vec<Option<Account>>> {
+            fn get_multiple_accounts(
+                &self,
+                _pubkeys: &[Pubkey],
+            ) -> sonar_sim::Result<Vec<Option<AccountSharedData>>> {
                 self.called.store(true, Ordering::SeqCst);
                 panic!("RPC provider should never be called in offline mode");
             }
@@ -219,12 +227,15 @@ mod tests {
         use std::sync::atomic::{AtomicUsize, Ordering};
 
         struct CountingProvider {
-            accounts: std::collections::HashMap<Pubkey, Account>,
+            accounts: std::collections::HashMap<Pubkey, AccountSharedData>,
             call_count: Arc<AtomicUsize>,
         }
 
         impl RpcAccountProvider for CountingProvider {
-            fn get_multiple_accounts(&self, pubkeys: &[Pubkey]) -> Result<Vec<Option<Account>>> {
+            fn get_multiple_accounts(
+                &self,
+                pubkeys: &[Pubkey],
+            ) -> sonar_sim::Result<Vec<Option<AccountSharedData>>> {
                 self.call_count.fetch_add(1, Ordering::SeqCst);
                 Ok(pubkeys.iter().map(|k| self.accounts.get(k).cloned()).collect())
             }
@@ -234,11 +245,15 @@ mod tests {
         let recipient = Pubkey::new_unique();
 
         let mut accounts = std::collections::HashMap::new();
-        accounts.insert(payer.pubkey(), system_account(10_000_000_000));
-        accounts.insert(recipient, system_account(0));
-        accounts.insert(Clock::id(), system_account(0));
-        accounts.insert(SlotHashes::id(), system_account(0));
-        accounts.insert(solana_sdk_ids::system_program::id(), system_account(0));
+        for (key, lamports) in [
+            (payer.pubkey(), 10_000_000_000u64),
+            (recipient, 0),
+            (Clock::id(), 0),
+            (SlotHashes::id(), 0),
+            (solana_sdk_ids::system_program::id(), 0),
+        ] {
+            accounts.insert(key, AccountSharedData::from(system_account(lamports)));
+        }
 
         let call_count = Arc::new(AtomicUsize::new(0));
         let provider = CountingProvider { accounts, call_count: call_count.clone() };
@@ -317,13 +332,14 @@ mod tests {
         let mut accounts = std::collections::HashMap::new();
         accounts.insert(extra, system_account(42));
 
-        let loader = AccountLoader::with_provider(Arc::new(FakeAccountProvider::new(accounts)));
+        let loader =
+            AccountLoader::with_provider(Arc::new(FakeAccountProvider::from_accounts(accounts)));
 
         let mut resolved = ResolvedAccounts { accounts: HashMap::new(), lookups: vec![] };
 
         loader.append_accounts(&mut resolved, &[extra]).unwrap();
         assert!(resolved.accounts.contains_key(&extra));
-        assert_eq!(resolved.accounts[&extra].lamports, 42);
+        assert_eq!(resolved.accounts[&extra].lamports(), 42);
     }
 
     // ------------------------------------------------------------------
@@ -341,7 +357,8 @@ mod tests {
         accounts.insert(recipient1, system_account(100));
         accounts.insert(recipient2, system_account(200));
 
-        let loader = AccountLoader::with_provider(Arc::new(FakeAccountProvider::new(accounts)));
+        let loader =
+            AccountLoader::with_provider(Arc::new(FakeAccountProvider::from_accounts(accounts)));
 
         let tx1 = create_transfer_tx(&payer, &recipient1, 50);
         let tx2 = create_transfer_tx(&payer, &recipient2, 100);
