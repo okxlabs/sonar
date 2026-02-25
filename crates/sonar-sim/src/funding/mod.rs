@@ -2,15 +2,70 @@ mod sol;
 mod token2022;
 mod token_legacy;
 
-pub use crate::types::PreparedTokenFunding;
 pub use sol::apply_sol_fundings;
 
 use anyhow::{Context, Result, anyhow};
 use solana_account::Account;
 use solana_pubkey::Pubkey;
+use spl_token::solana_program::program_pack::Pack;
 
-use crate::token_utils::{self, TokenProgramKind};
-use crate::types::{AccountAppender, ResolvedAccounts, TokenAmount, TokenFunding};
+use crate::token_utils::{self, TokenProgramKind, ensure_same_program, raw_to_ui_amount};
+use crate::types::{
+    AccountAppender, PreparedTokenFunding, ResolvedAccounts, TokenAmount, TokenFunding,
+};
+
+pub(super) trait TokenAmountMut:
+    Pack + spl_token::solana_program::program_pack::IsInitialized
+{
+    fn set_amount(&mut self, amount: u64);
+}
+
+impl TokenAmountMut for spl_token::state::Account {
+    fn set_amount(&mut self, amount: u64) {
+        self.amount = amount;
+    }
+}
+
+impl TokenAmountMut for spl_token_2022::state::Account {
+    fn set_amount(&mut self, amount: u64) {
+        self.amount = amount;
+    }
+}
+
+pub(super) fn update_token_amount<T: TokenAmountMut>(
+    resolved: &mut ResolvedAccounts,
+    account_pubkey: &Pubkey,
+    mint: &Pubkey,
+    amount_raw: u64,
+    decimals: u8,
+    program_kind: TokenProgramKind,
+) -> Result<PreparedTokenFunding> {
+    let account = resolved
+        .accounts
+        .get_mut(account_pubkey)
+        .ok_or_else(|| anyhow!("Token account {} missing for mutation", account_pubkey))?;
+    ensure_same_program(program_kind, &account.owner, "token account")?;
+    if account.data.len() < T::LEN {
+        return Err(anyhow!(
+            "Token account data is smaller than expected: {} < {}",
+            account.data.len(),
+            T::LEN
+        ));
+    }
+    let (account_bytes, _) = account.data.split_at_mut(T::LEN);
+    let mut parsed = T::unpack(account_bytes)
+        .map_err(|err| anyhow!("Failed to unpack token account {account_pubkey}: {err}"))?;
+    parsed.set_amount(amount_raw);
+    T::pack(parsed, account_bytes)
+        .map_err(|err| anyhow!("Failed to update token account {account_pubkey}: {err}"))?;
+    Ok(PreparedTokenFunding {
+        account: *account_pubkey,
+        mint: *mint,
+        decimals,
+        amount_raw,
+        ui_amount: raw_to_ui_amount(amount_raw, decimals),
+    })
+}
 
 pub fn prepare_token_fundings(
     loader: &dyn AccountAppender,

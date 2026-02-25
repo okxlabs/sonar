@@ -23,6 +23,12 @@ use crate::types::{AccountAppender, AccountFetchMiddleware, ResolvedAccounts, Re
 
 const MAX_ACCOUNTS_PER_REQUEST: usize = 100;
 
+fn lock_cache(
+    cache: &Mutex<HashMap<Pubkey, Account>>,
+) -> Result<std::sync::MutexGuard<'_, HashMap<Pubkey, Account>>> {
+    cache.lock().map_err(|_| anyhow!("account cache lock poisoned"))
+}
+
 pub struct AccountLoader {
     provider: Arc<dyn RpcAccountProvider>,
     cache: Mutex<HashMap<Pubkey, Account>>,
@@ -58,55 +64,7 @@ impl AccountLoader {
     }
 
     pub fn load_for_transaction(&self, tx: &VersionedTransaction) -> Result<ResolvedAccounts> {
-        let plan = collect_account_plan(tx);
-        let mut accounts = HashMap::new();
-
-        // Phase 1: Batch fetch static accounts, sysvars, and address lookup table accounts
-        let mut initial_accounts = plan.static_accounts.clone();
-        initial_accounts.push(Clock::id());
-        initial_accounts.push(SlotHashes::id());
-        for lookup in &plan.address_lookups {
-            initial_accounts.push(lookup.account_key);
-        }
-
-        self.fetch_accounts(&initial_accounts, &mut accounts)
-            .context("Failed to fetch initial accounts (static + sysvars + lookups)")?;
-
-        self.ensure_upgradeable_dependencies(&mut accounts)
-            .context("Failed to load upgradeable program metadata")?;
-
-        let mut lookups = Vec::new();
-        let mut writable_lookup_accounts = Vec::new();
-        let mut readonly_lookup_accounts = Vec::new();
-
-        for lookup_plan in &plan.address_lookups {
-            let resolved = self.load_lookup_table(lookup_plan, &mut accounts)?;
-            writable_lookup_accounts.extend(resolved.writable_addresses.iter().copied());
-            readonly_lookup_accounts.extend(resolved.readonly_addresses.iter().copied());
-            lookups.push(resolved);
-        }
-
-        // Phase 2: Batch fetch all resolved lookup accounts
-        let mut lookup_accounts_to_fetch = writable_lookup_accounts.clone();
-        lookup_accounts_to_fetch.extend_from_slice(&readonly_lookup_accounts);
-
-        if !lookup_accounts_to_fetch.is_empty() {
-            self.fetch_accounts(&lookup_accounts_to_fetch, &mut accounts).with_context(|| {
-                format!(
-                    "Failed to load accounts from address lookup tables: [{}]",
-                    format_pubkeys(&lookup_accounts_to_fetch)
-                )
-            })?;
-
-            self.ensure_upgradeable_dependencies(&mut accounts).context(
-                "Failed to load upgradeable program dependencies for lookup table accounts",
-            )?;
-        }
-
-        self.ensure_token_mint_accounts(&mut accounts)
-            .context("Failed to load token mint accounts for transaction")?;
-
-        Ok(ResolvedAccounts { accounts, lookups })
+        self.load_from_plans(&[collect_account_plan(tx)])
     }
 
     /// Load accounts for multiple transactions (bundle simulation).
@@ -115,63 +73,65 @@ impl AccountLoader {
         if txs.is_empty() {
             return Ok(ResolvedAccounts { accounts: HashMap::new(), lookups: Vec::new() });
         }
-
         let plans: Vec<_> = txs.iter().map(|tx| collect_account_plan(tx)).collect();
+        self.load_from_plans(&plans)
+    }
 
-        let mut all_initial_accounts: Vec<Pubkey> = Vec::new();
-        for plan in &plans {
-            all_initial_accounts.extend(plan.static_accounts.iter().copied());
-            for lookup in &plan.address_lookups {
-                all_initial_accounts.push(lookup.account_key);
-            }
-        }
-        all_initial_accounts.push(Clock::id());
-        all_initial_accounts.push(SlotHashes::id());
-
-        // Deduplicate
-        let mut seen = HashSet::new();
-        all_initial_accounts.retain(|key| seen.insert(*key));
-
+    fn load_from_plans(
+        &self,
+        plans: &[crate::transaction::MessageAccountPlan],
+    ) -> Result<ResolvedAccounts> {
+        let initial = collect_initial_accounts(plans);
         let mut accounts = HashMap::new();
 
-        self.fetch_accounts(&all_initial_accounts, &mut accounts)
-            .context("Failed to fetch initial accounts for bundle")?;
-
+        self.fetch_accounts(&initial, &mut accounts)
+            .context("Failed to fetch initial accounts (static + sysvars + lookups)")?;
         self.ensure_upgradeable_dependencies(&mut accounts)
-            .context("Failed to load upgradeable program metadata for bundle")?;
+            .context("Failed to load upgradeable program metadata")?;
 
-        let mut all_lookups = Vec::new();
-        let mut all_lookup_accounts: Vec<Pubkey> = Vec::new();
+        let (lookups, lookup_pubkeys) = self.resolve_all_lookups(plans, &mut accounts)?;
 
-        for plan in &plans {
-            for lookup_plan in &plan.address_lookups {
-                let resolved = self.load_lookup_table(lookup_plan, &mut accounts)?;
-                all_lookup_accounts.extend(resolved.writable_addresses.iter().copied());
-                all_lookup_accounts.extend(resolved.readonly_addresses.iter().copied());
-                all_lookups.push(resolved);
-            }
-        }
-
-        // Deduplicate lookup accounts
-        let mut seen = HashSet::new();
-        all_lookup_accounts.retain(|key| seen.insert(*key));
-
-        if !all_lookup_accounts.is_empty() {
-            self.fetch_accounts(&all_lookup_accounts, &mut accounts).with_context(|| {
+        if !lookup_pubkeys.is_empty() {
+            self.fetch_accounts(&lookup_pubkeys, &mut accounts).with_context(|| {
                 format!(
                     "Failed to load accounts from address lookup tables: [{}]",
-                    format_pubkeys(&all_lookup_accounts)
+                    format_pubkeys(&lookup_pubkeys)
                 )
             })?;
-
             self.ensure_upgradeable_dependencies(&mut accounts)
                 .context("Failed to load upgradeable program dependencies for lookup accounts")?;
         }
 
         self.ensure_token_mint_accounts(&mut accounts)
-            .context("Failed to load token mint accounts for bundle")?;
+            .context("Failed to load token mint accounts")?;
 
-        Ok(ResolvedAccounts { accounts, lookups: all_lookups })
+        Ok(ResolvedAccounts { accounts, lookups })
+    }
+
+    fn resolve_all_lookups(
+        &self,
+        plans: &[crate::transaction::MessageAccountPlan],
+        accounts: &mut HashMap<Pubkey, Account>,
+    ) -> Result<(Vec<ResolvedLookup>, Vec<Pubkey>)> {
+        let mut lookups = Vec::new();
+        let mut lookup_pubkeys = Vec::new();
+        let mut seen = HashSet::new();
+
+        for plan in plans {
+            for lookup_plan in &plan.address_lookups {
+                let resolved = self.load_lookup_table(lookup_plan, accounts)?;
+                for addr in
+                    resolved.writable_addresses.iter().chain(resolved.readonly_addresses.iter())
+                {
+                    if seen.insert(*addr) {
+                        lookup_pubkeys.push(*addr);
+                    }
+                }
+                lookups.push(resolved);
+            }
+        }
+
+        Ok((lookups, lookup_pubkeys))
     }
 
     fn append_accounts_inner(
@@ -290,7 +250,7 @@ impl AccountLoader {
         // Layer 1: Check in-memory cache
         let mut to_fetch = Vec::new();
         {
-            let cache = self.cache.lock().unwrap();
+            let cache = lock_cache(&self.cache)?;
             for key in unique {
                 if let Some(account) = cache.get(&key) {
                     destination.insert(key, account.clone());
@@ -312,7 +272,7 @@ impl AccountLoader {
                 for key in to_fetch {
                     if let Some(account) = resolved.get(&key) {
                         destination.insert(key, account.clone());
-                        self.cache.lock().unwrap().insert(key, account.clone());
+                        lock_cache(&self.cache)?.insert(key, account.clone());
                     } else {
                         still_missing.push(key);
                     }
@@ -357,7 +317,7 @@ impl AccountLoader {
                 }
                 if let Some(account) = maybe_account {
                     destination.insert(*pubkey, account.clone());
-                    let mut cache = self.cache.lock().unwrap();
+                    let mut cache = lock_cache(&self.cache)?;
                     cache.insert(*pubkey, account);
                 }
             }
@@ -393,6 +353,32 @@ impl AccountAppender for AccountLoader {
     fn append_accounts(&self, resolved: &mut ResolvedAccounts, pubkeys: &[Pubkey]) -> Result<()> {
         self.append_accounts_inner(resolved, pubkeys)
     }
+}
+
+fn collect_initial_accounts(plans: &[crate::transaction::MessageAccountPlan]) -> Vec<Pubkey> {
+    let mut keys = Vec::new();
+    let mut seen = HashSet::new();
+
+    for plan in plans {
+        for key in &plan.static_accounts {
+            if seen.insert(*key) {
+                keys.push(*key);
+            }
+        }
+        for lookup in &plan.address_lookups {
+            if seen.insert(lookup.account_key) {
+                keys.push(lookup.account_key);
+            }
+        }
+    }
+
+    for sysvar in [Clock::id(), SlotHashes::id()] {
+        if seen.insert(sysvar) {
+            keys.push(sysvar);
+        }
+    }
+
+    keys
 }
 
 fn token_account_mint(account: &Account) -> Option<Pubkey> {

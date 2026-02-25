@@ -1,12 +1,9 @@
 use anyhow::{Result, anyhow};
 use solana_account::Account;
 use solana_pubkey::Pubkey;
-use spl_token::solana_program::program_pack::Pack;
 use spl_token_2022::extension::{BaseStateWithExtensions, BaseStateWithExtensionsMut};
 
-use crate::token_utils::{
-    TokenProgramKind, ensure_same_program, raw_to_ui_amount, token2022_program_id,
-};
+use crate::token_utils::{TokenProgramKind, token2022_program_id};
 use crate::types::{PreparedTokenFunding, ResolvedAccounts};
 
 pub(super) fn create_token_account_with_extensions(
@@ -74,34 +71,14 @@ pub(super) fn update_account(
     amount_raw: u64,
     decimals: u8,
 ) -> Result<PreparedTokenFunding> {
-    use spl_token_2022::state::Account as Token2022Account;
-
-    let account = resolved
-        .accounts
-        .get_mut(account_pubkey)
-        .ok_or_else(|| anyhow!("Token account {} missing for mutation", account_pubkey))?;
-    ensure_same_program(TokenProgramKind::Token2022, &account.owner, "token account")?;
-    if account.data.len() < Token2022Account::LEN {
-        return Err(anyhow!(
-            "Token account data is smaller than expected: {} < {}",
-            account.data.len(),
-            Token2022Account::LEN
-        ));
-    }
-    let (account_bytes, _) = account.data.split_at_mut(Token2022Account::LEN);
-    let mut parsed = Token2022Account::unpack(account_bytes)
-        .map_err(|err| anyhow!("Failed to unpack token-2022 account: {err}"))?;
-    parsed.amount = amount_raw;
-    Token2022Account::pack(parsed, account_bytes)
-        .map_err(|err| anyhow!("Failed to update token-2022 account {}: {err}", account_pubkey))?;
-
-    Ok(PreparedTokenFunding {
-        account: *account_pubkey,
-        mint: *mint,
-        decimals,
+    super::update_token_amount::<spl_token_2022::state::Account>(
+        resolved,
+        account_pubkey,
+        mint,
         amount_raw,
-        ui_amount: raw_to_ui_amount(amount_raw, decimals),
-    })
+        decimals,
+        TokenProgramKind::Token2022,
+    )
 }
 
 #[cfg(test)]
@@ -110,6 +87,7 @@ mod tests {
 
     use solana_account::Account;
     use solana_pubkey::Pubkey;
+    use spl_token::solana_program::program_pack::Pack;
     use spl_token_2022::extension::{
         BaseStateWithExtensions, BaseStateWithExtensionsMut, ExtensionType, StateWithExtensions,
         StateWithExtensionsMut,

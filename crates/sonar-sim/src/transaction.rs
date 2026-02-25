@@ -82,64 +82,8 @@ pub fn parse_raw_transaction(raw: &str) -> Result<ParsedTransaction> {
     Err(anyhow!("Failed to parse raw transaction: {merged}"))
 }
 
-pub fn collect_account_plan(tx: &VersionedTransaction) -> MessageAccountPlan {
+pub(crate) fn collect_account_plan(tx: &VersionedTransaction) -> MessageAccountPlan {
     MessageAccountPlan::from_transaction(tx)
-}
-
-/// Classifies account index as static account or lookup table account
-pub fn classify_account_reference(
-    message: &VersionedMessage,
-    index: usize,
-    plan: &MessageAccountPlan,
-    lookup_locations: &[LookupLocation],
-) -> AccountReference {
-    if index < plan.static_accounts.len() {
-        AccountReference {
-            index,
-            pubkey: Some(plan.static_accounts[index]),
-            signer: message.is_signer(index),
-            writable: message.is_maybe_writable(index, None),
-            source: AccountSource::Static,
-        }
-    } else {
-        let lookup_index = index - plan.static_accounts.len();
-        let Some(location) = lookup_locations.get(lookup_index) else {
-            return AccountReference {
-                index,
-                pubkey: None,
-                signer: false,
-                writable: false,
-                source: AccountSource::Unknown,
-            };
-        };
-        AccountReference {
-            index,
-            pubkey: None,
-            signer: false,
-            writable: location.writable,
-            source: AccountSource::Lookup {
-                table_account: location.table_account,
-                lookup_index: location.table_index,
-                writable: location.writable,
-            },
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct AccountReference {
-    pub index: usize,
-    pub pubkey: Option<Pubkey>,
-    pub signer: bool,
-    pub writable: bool,
-    pub source: AccountSource,
-}
-
-#[derive(Debug, Clone)]
-pub enum AccountSource {
-    Static,
-    Lookup { table_account: Pubkey, lookup_index: u8, writable: bool },
-    Unknown,
 }
 
 fn build_address_lookup_plan(message: &VersionedMessage) -> Vec<AddressLookupPlan> {

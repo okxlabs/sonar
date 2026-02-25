@@ -25,9 +25,8 @@ pub use types::{
 // ── Transaction parsing ──
 
 pub use transaction::{
-    AccountReference, AccountSource, AddressLookupPlan, LookupLocation, MessageAccountPlan,
-    ParsedTransaction, RawTransactionEncoding, build_lookup_locations, classify_account_reference,
-    collect_account_plan, parse_raw_transaction,
+    AddressLookupPlan, LookupLocation, MessageAccountPlan, ParsedTransaction,
+    RawTransactionEncoding, build_lookup_locations, parse_raw_transaction,
 };
 
 // ── Account loading ──
@@ -41,8 +40,7 @@ pub use rpc_provider::{FakeAccountProvider, RpcAccountProvider, SolanaRpcProvide
 // ── Simulation execution ──
 
 pub use executor::{
-    ExecutionStatus, SimulationOptions, SimulationResult, TransactionExecutor, apply_data_patches,
-    apply_replacements, apply_slot, apply_timestamp, is_native_or_sysvar, load_accounts,
+    ExecutionStatus, SimulationOptions, SimulationResult, TransactionExecutor, is_native_or_sysvar,
 };
 
 // ── Balance change computation ──
@@ -54,4 +52,4 @@ pub use balance_changes::{
 
 // ── Funding ──
 
-pub use funding::{apply_sol_fundings, prepare_token_fundings};
+pub use funding::prepare_token_fundings;

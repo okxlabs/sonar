@@ -2,9 +2,7 @@ use anyhow::{Result, anyhow};
 use solana_pubkey::Pubkey;
 use spl_token::solana_program::program_pack::Pack;
 
-use crate::token_utils::{
-    TokenProgramKind, ensure_same_program, legacy_program_id, raw_to_ui_amount,
-};
+use crate::token_utils::{TokenProgramKind, legacy_program_id};
 use crate::types::{PreparedTokenFunding, ResolvedAccounts};
 
 pub(super) fn create_token_account(
@@ -48,34 +46,14 @@ pub(super) fn update_account(
     amount_raw: u64,
     decimals: u8,
 ) -> Result<PreparedTokenFunding> {
-    use spl_token::state::Account as SplAccount;
-
-    let account = resolved
-        .accounts
-        .get_mut(account_pubkey)
-        .ok_or_else(|| anyhow!("Token account {} missing for mutation", account_pubkey))?;
-    ensure_same_program(TokenProgramKind::Legacy, &account.owner, "token account")?;
-    if account.data.len() < SplAccount::LEN {
-        return Err(anyhow!(
-            "Token account data is smaller than expected: {} < {}",
-            account.data.len(),
-            SplAccount::LEN
-        ));
-    }
-    let (account_bytes, _) = account.data.split_at_mut(SplAccount::LEN);
-    let mut parsed = SplAccount::unpack(account_bytes)
-        .map_err(|err| anyhow!("Failed to unpack SPL token account: {err}"))?;
-    parsed.amount = amount_raw;
-    SplAccount::pack(parsed, account_bytes)
-        .map_err(|err| anyhow!("Failed to update SPL token account: {err}"))?;
-
-    Ok(PreparedTokenFunding {
-        account: *account_pubkey,
-        mint: *mint,
-        decimals,
+    super::update_token_amount::<spl_token::state::Account>(
+        resolved,
+        account_pubkey,
+        mint,
         amount_raw,
-        ui_amount: raw_to_ui_amount(amount_raw, decimals),
-    })
+        decimals,
+        TokenProgramKind::Legacy,
+    )
 }
 
 #[cfg(test)]
