@@ -345,12 +345,7 @@ impl IdlRegistry {
             }
         }
 
-        Self {
-            inner: Arc::new(IdlRegistryInner {
-                idls,
-                types_by_program_and_name,
-            }),
-        }
+        Self { inner: Arc::new(IdlRegistryInner { idls, types_by_program_and_name }) }
     }
 
     /// Get an IDL by program ID

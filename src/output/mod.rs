@@ -9,10 +9,12 @@ pub(crate) use account_text::render_account_text;
 use anyhow::Result;
 
 use crate::{
-    cli::{Funding, Replacement},
     core::{
-        account_loader::ResolvedAccounts, executor::SimulationResult,
-        funding::PreparedTokenFunding, transaction::ParsedTransaction,
+        account_loader::ResolvedAccounts,
+        executor::SimulationResult,
+        funding::PreparedTokenFunding,
+        transaction::ParsedTransaction,
+        types::{Funding, Replacement},
     },
     parsers::instruction::ParserRegistry,
 };

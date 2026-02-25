@@ -1,10 +1,10 @@
 //! Simulate command arguments and related types.
 
-use std::{path::PathBuf, str::FromStr};
+use std::path::{Path, PathBuf};
+use std::str::FromStr;
 
 use chrono::DateTime;
 use clap::Args;
-use serde::Deserialize;
 use solana_account::Account;
 use solana_pubkey::Pubkey;
 
@@ -138,50 +138,7 @@ pub struct TransactionInputArgs {
     pub json: bool,
 }
 
-#[derive(Clone, Debug)]
-pub enum Replacement {
-    Program { program_id: Pubkey, so_path: PathBuf },
-    Account { pubkey: Pubkey, account: Account, source_path: PathBuf },
-}
-
-impl Replacement {
-    /// Returns the pubkey being replaced, regardless of replacement type.
-    pub fn pubkey(&self) -> Pubkey {
-        match self {
-            Replacement::Program { program_id, .. } => *program_id,
-            Replacement::Account { pubkey, .. } => *pubkey,
-        }
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct Funding {
-    pub pubkey: Pubkey,
-    pub amount_lamports: u64,
-}
-
-/// How the user specified the token amount on the CLI.
-#[derive(Clone, Debug)]
-pub enum TokenAmount {
-    /// Raw u64 value — used when the input has no decimal point (e.g. `1500000`).
-    Raw(u64),
-    /// Human-readable decimal — will be converted using the mint's `decimals` (e.g. `1.5`).
-    Decimal(f64),
-}
-
-#[derive(Clone, Debug)]
-pub struct TokenFunding {
-    pub account: Pubkey,
-    pub mint: Option<Pubkey>,
-    pub amount: TokenAmount,
-}
-
-#[derive(Clone, Debug)]
-pub struct AccountDataPatch {
-    pub pubkey: Pubkey,
-    pub offset: usize,
-    pub data: Vec<u8>,
-}
+pub use crate::core::types::{AccountDataPatch, Funding, Replacement, TokenAmount, TokenFunding};
 
 pub fn parse_replacement(raw: &str) -> Result<Replacement, String> {
     let (pubkey_str, path_str) = raw
@@ -214,74 +171,8 @@ pub fn parse_replacement(raw: &str) -> Result<Replacement, String> {
     }
 }
 
-/// JSON structure for deserializing an account file (flat format).
-/// Supports the simple `{ "lamports": ..., "data": ... }` format.
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct AccountJsonFlat {
-    lamports: u64,
-    data: AccountDataJson,
-    owner: String,
-    #[serde(default)]
-    executable: bool,
-    #[serde(default)]
-    rent_epoch: u64,
-}
-
-/// JSON structure for deserializing a Solana CLI style account file (nested format).
-/// Supports `{ "pubkey": "...", "account": { "lamports": ..., "data": ... } }`.
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct AccountJsonNested {
-    #[allow(dead_code)]
-    pubkey: String,
-    account: AccountJsonFlat,
-}
-
-/// Account data can be either a plain base64 string or a tuple `["base64data", "base64"]`.
-#[derive(Deserialize)]
-#[serde(untagged)]
-enum AccountDataJson {
-    Plain(String),
-    Tuple(String, String),
-}
-
-pub(crate) fn parse_account_json(path: &PathBuf) -> Result<Account, String> {
-    use base64::Engine;
-
-    let contents = std::fs::read_to_string(path)
-        .map_err(|err| format!("Failed to read account file `{}`: {err}", path.display()))?;
-
-    // Try nested format first (Solana CLI style: { "pubkey": ..., "account": { ... } })
-    // then fall back to flat format ({ "lamports": ..., "data": ... })
-    let json: AccountJsonFlat = if let Ok(nested) =
-        serde_json::from_str::<AccountJsonNested>(&contents)
-    {
-        nested.account
-    } else {
-        serde_json::from_str(&contents)
-            .map_err(|err| format!("Failed to parse account JSON `{}`: {err}", path.display()))?
-    };
-
-    let data_b64 = match &json.data {
-        AccountDataJson::Plain(s) => s.clone(),
-        AccountDataJson::Tuple(data, _encoding) => data.clone(),
-    };
-
-    let data = base64::engine::general_purpose::STANDARD
-        .decode(&data_b64)
-        .map_err(|err| format!("Failed to decode base64 data in `{}`: {err}", path.display()))?;
-
-    let owner = Pubkey::from_str(&json.owner)
-        .map_err(|err| format!("Failed to parse owner `{}`: {err}", json.owner))?;
-
-    Ok(Account {
-        lamports: json.lamports,
-        data,
-        owner,
-        executable: json.executable,
-        rent_epoch: json.rent_epoch,
-    })
+pub(crate) fn parse_account_json(path: &Path) -> Result<Account, String> {
+    crate::core::account_file::parse_account_json(path)
 }
 
 const LAMPORTS_PER_SOL: u64 = 1_000_000_000;

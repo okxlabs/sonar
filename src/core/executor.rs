@@ -18,12 +18,10 @@ use solana_sysvar_id::SysvarId;
 use solana_transaction::versioned::VersionedTransaction;
 use solana_transaction::versioned::VersionedTransaction as LiteVersionedTransaction;
 
-use crate::{
-    cli::{AccountDataPatch, Funding, Replacement},
-    core::{
-        account_loader::{ResolvedAccounts, ResolvedLookup},
-        funding::{PreparedTokenFunding, apply_sol_fundings},
-    },
+use crate::core::{
+    account_loader::{ResolvedAccounts, ResolvedLookup},
+    funding::{PreparedTokenFunding, apply_sol_fundings},
+    types::{AccountDataPatch, Funding, Replacement},
 };
 
 /// Simulation execution options passed to `TransactionExecutor::prepare`.
@@ -576,8 +574,9 @@ mod tests {
         let placeholder_path = temp_dir.join(format!("{missing_lookup_account}.json"));
         assert!(placeholder_path.exists(), "missing lookup placeholder should be written");
 
-        let parsed = crate::cli::parse_account_json(&PathBuf::from(&placeholder_path))
-            .expect("valid placeholder json");
+        let parsed =
+            crate::core::account_file::parse_account_json(&PathBuf::from(&placeholder_path))
+                .expect("valid placeholder json");
         assert_eq!(parsed.lamports, 0);
         assert!(parsed.data.is_empty());
         assert_eq!(parsed.owner, solana_sdk_ids::system_program::id());

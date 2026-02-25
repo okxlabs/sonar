@@ -7,8 +7,10 @@ use spl_token::solana_program::program_pack::Pack;
 use spl_token_2022::extension::{BaseStateWithExtensions, BaseStateWithExtensionsMut};
 
 use crate::{
-    cli::{Funding, TokenAmount, TokenFunding},
-    core::account_loader::{AccountLoader, ResolvedAccounts},
+    core::{
+        account_loader::{AccountLoader, ResolvedAccounts},
+        types::{Funding, TokenAmount, TokenFunding},
+    },
     utils::progress::Progress,
 };
 

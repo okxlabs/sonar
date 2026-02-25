@@ -22,9 +22,11 @@ use spl_token::solana_program::program_pack::Pack;
 use std::sync::Mutex;
 
 use crate::{
-    cli::Replacement,
-    core::idl_fetcher::IdlFetcher,
-    core::transaction::{AddressLookupPlan, collect_account_plan},
+    core::{
+        idl_fetcher::IdlFetcher,
+        transaction::{AddressLookupPlan, collect_account_plan},
+        types::Replacement,
+    },
     utils::progress::Progress,
 };
 
@@ -343,7 +345,8 @@ impl AccountLoader {
             for key in to_fetch {
                 let path = dir.join(format!("{key}.json"));
                 if path.exists() {
-                    let account = crate::cli::parse_account_json(&path).map_err(|e| anyhow!(e))?;
+                    let account = crate::core::account_file::parse_account_json(&path)
+                        .map_err(|e| anyhow!(e))?;
                     destination.insert(key, account.clone());
                     self.cache.lock().unwrap().insert(key, account);
                     debug!("Loaded account {} from local file: {}", key, path.display());
