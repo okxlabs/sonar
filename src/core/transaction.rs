@@ -1,7 +1,8 @@
-pub use sonar_sim::{
-    AddressLookupPlan, LookupLocation, MessageAccountPlan, RawTransactionEncoding,
-    build_lookup_locations, collect_account_plan,
-};
+pub(crate) use sonar_sim::build_lookup_locations;
+pub use sonar_sim::{LookupLocation, MessageAccountPlan, RawTransactionEncoding};
+
+#[cfg(test)]
+use sonar_sim::AddressLookupPlan;
 
 use anyhow::{Context, Result, anyhow};
 use base64::Engine;

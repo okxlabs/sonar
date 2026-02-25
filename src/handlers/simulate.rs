@@ -107,15 +107,13 @@ pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
     let (tx_cache_dir, offline) =
         crate::core::cache::resolve_cache_state(cache, &cache_dir, refresh_cache, &cache_key);
 
-    let account_loader = account_loader::AccountLoader::new(
+    let account_loader = account_loader::create_loader(
         rpc_url.clone(),
         tx_cache_dir.clone(),
-        if offline { None } else { tx_cache_dir.clone() },
         offline,
         Some(progress.clone()),
     )?;
-    let mut resolved_accounts =
-        account_loader.load_for_transaction(&parsed_tx.transaction, &replacements)?;
+    let mut resolved_accounts = account_loader.load_for_transaction(&parsed_tx.transaction)?;
 
     warn_unmatched_addresses(
         &replacements,
@@ -128,9 +126,8 @@ pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
     let prepared_token_fundings = if token_funding_requests.is_empty() {
         Vec::new()
     } else {
-        let sim_loader = sonar_sim::AccountLoader::with_provider(account_loader.provider());
         funding::prepare_token_fundings(
-            &sim_loader,
+            &account_loader,
             &mut resolved_accounts,
             &token_funding_requests,
         )?
@@ -142,7 +139,8 @@ pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
         log::error!("No executable accounts found after RPC load; skipping IDL parsing");
     } else {
         if !no_idl_fetch && !offline {
-            let idl_fetcher = account_loader.idl_fetcher(Some(progress.clone()));
+            let idl_fetcher =
+                account_loader::create_idl_fetcher(&account_loader, Some(progress.clone()));
             match auto_fetch_missing_idls(
                 &idl_fetcher,
                 &parser_registry,
@@ -250,15 +248,13 @@ fn handle_bundle(
 
     let tx_refs: Vec<_> = parsed_txs.iter().map(|p| &p.transaction).collect();
 
-    let account_loader = account_loader::AccountLoader::new(
+    let account_loader = account_loader::create_loader(
         rpc_url.to_string(),
         bundle_cache_dir.clone(),
-        if offline { None } else { bundle_cache_dir.clone() },
         offline,
         Some(progress.clone()),
     )?;
-    let mut resolved_accounts =
-        account_loader.load_for_transactions(&tx_refs, &sim_opts.replacements)?;
+    let mut resolved_accounts = account_loader.load_for_transactions(&tx_refs)?;
 
     let parsed_tx_refs: Vec<_> = parsed_txs.iter().collect();
     warn_unmatched_addresses(
@@ -273,9 +269,8 @@ fn handle_bundle(
     let prepared_token_fundings = if token_funding_requests.is_empty() {
         Vec::new()
     } else {
-        let sim_loader = sonar_sim::AccountLoader::with_provider(account_loader.provider());
         funding::prepare_token_fundings(
-            &sim_loader,
+            &account_loader,
             &mut resolved_accounts,
             &token_funding_requests,
         )?
@@ -286,7 +281,8 @@ fn handle_bundle(
     let program_ids = collect_program_ids(&resolved_accounts);
     if !program_ids.is_empty() {
         if !no_idl_fetch && !offline {
-            let idl_fetcher = account_loader.idl_fetcher(Some(progress.clone()));
+            let idl_fetcher =
+                account_loader::create_idl_fetcher(&account_loader, Some(progress.clone()));
             match auto_fetch_missing_idls(
                 &idl_fetcher,
                 parser_registry,

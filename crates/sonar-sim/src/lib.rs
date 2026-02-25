@@ -18,8 +18,8 @@ pub(crate) mod types;
 // ── Types ──
 
 pub use types::{
-    AccountAppender, AccountDataPatch, Funding, PreparedTokenFunding, Replacement,
-    ResolvedAccounts, ResolvedLookup, TokenAmount, TokenFunding,
+    AccountAppender, AccountDataPatch, AccountFetchMiddleware, Funding, PreparedTokenFunding,
+    Replacement, ResolvedAccounts, ResolvedLookup, TokenAmount, TokenFunding,
 };
 
 // ── Transaction parsing ──

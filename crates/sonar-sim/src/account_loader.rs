@@ -19,13 +19,14 @@ use std::sync::Mutex;
 
 use crate::rpc_provider::{RpcAccountProvider, SolanaRpcProvider};
 use crate::transaction::{AddressLookupPlan, collect_account_plan};
-use crate::types::{AccountAppender, ResolvedAccounts, ResolvedLookup};
+use crate::types::{AccountAppender, AccountFetchMiddleware, ResolvedAccounts, ResolvedLookup};
 
 const MAX_ACCOUNTS_PER_REQUEST: usize = 100;
 
 pub struct AccountLoader {
     provider: Arc<dyn RpcAccountProvider>,
     cache: Mutex<HashMap<Pubkey, Account>>,
+    middleware: Option<Arc<dyn AccountFetchMiddleware>>,
 }
 
 impl AccountLoader {
@@ -36,11 +37,19 @@ impl AccountLoader {
         Ok(Self {
             provider: Arc::new(SolanaRpcProvider::new(rpc_url)),
             cache: Mutex::new(HashMap::new()),
+            middleware: None,
         })
     }
 
     pub fn with_provider(provider: Arc<dyn RpcAccountProvider>) -> Self {
-        Self { provider, cache: Mutex::new(HashMap::new()) }
+        Self { provider, cache: Mutex::new(HashMap::new()), middleware: None }
+    }
+
+    /// Attach an optional middleware for local account resolution,
+    /// offline mode, and progress reporting. Returns `self` for chaining.
+    pub fn with_middleware(mut self, middleware: Arc<dyn AccountFetchMiddleware>) -> Self {
+        self.middleware = Some(middleware);
+        self
     }
 
     /// Expose the underlying provider so callers can reuse the RPC connection.
@@ -295,8 +304,36 @@ impl AccountLoader {
             return Ok(());
         }
 
-        // Layer 2: Fetch from RPC
+        // Layer 2: Middleware local resolution (e.g. filesystem cache)
+        if let Some(ref middleware) = self.middleware {
+            let resolved = middleware.try_resolve_local(&to_fetch)?;
+            if !resolved.is_empty() {
+                let mut still_missing = Vec::new();
+                for key in to_fetch {
+                    if let Some(account) = resolved.get(&key) {
+                        destination.insert(key, account.clone());
+                        self.cache.lock().unwrap().insert(key, account.clone());
+                    } else {
+                        still_missing.push(key);
+                    }
+                }
+                to_fetch = still_missing;
+            }
+
+            if to_fetch.is_empty() {
+                return Ok(());
+            }
+
+            // Layer 3: Offline mode — skip RPC entirely
+            if middleware.is_offline() {
+                middleware.on_offline_missing(&to_fetch);
+                return Ok(());
+            }
+        }
+
+        // Layer 4: Fetch remaining accounts from RPC
         let total_count = to_fetch.len();
+        let mut requested_count = 0usize;
         for chunk in to_fetch.chunks(MAX_ACCOUNTS_PER_REQUEST) {
             let response = self.provider.get_multiple_accounts(chunk).with_context(|| {
                 format!(
@@ -314,6 +351,10 @@ impl AccountLoader {
             }
 
             for (pubkey, maybe_account) in chunk.iter().zip(response.into_iter()) {
+                requested_count += 1;
+                if let Some(ref middleware) = self.middleware {
+                    middleware.on_fetch_progress(pubkey, requested_count, total_count);
+                }
                 if let Some(account) = maybe_account {
                     destination.insert(*pubkey, account.clone());
                     let mut cache = self.cache.lock().unwrap();
