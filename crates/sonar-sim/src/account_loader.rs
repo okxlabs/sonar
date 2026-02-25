@@ -63,13 +63,16 @@ impl AccountLoader {
         &self.fetcher
     }
 
-    pub fn load_for_transaction(&self, tx: &VersionedTransaction) -> Result<ResolvedAccounts> {
+    pub fn load_for_transaction(&mut self, tx: &VersionedTransaction) -> Result<ResolvedAccounts> {
         self.load_from_plans(&[collect_account_plan(tx)])
     }
 
     /// Load accounts for multiple transactions (bundle simulation).
     /// Merges all required accounts from all transactions and fetches them in a single batch.
-    pub fn load_for_transactions(&self, txs: &[&VersionedTransaction]) -> Result<ResolvedAccounts> {
+    pub fn load_for_transactions(
+        &mut self,
+        txs: &[&VersionedTransaction],
+    ) -> Result<ResolvedAccounts> {
         if txs.is_empty() {
             return Ok(ResolvedAccounts { accounts: HashMap::new(), lookups: Vec::new() });
         }
@@ -78,7 +81,7 @@ impl AccountLoader {
     }
 
     fn load_from_plans(
-        &self,
+        &mut self,
         plans: &[crate::transaction::MessageAccountPlan],
     ) -> Result<ResolvedAccounts> {
         let initial = collect_initial_accounts(plans);
@@ -113,7 +116,7 @@ impl AccountLoader {
     }
 
     fn resolve_all_lookups(
-        &self,
+        &mut self,
         plans: &[crate::transaction::MessageAccountPlan],
         accounts: &mut HashMap<Pubkey, AccountSharedData>,
     ) -> Result<(Vec<ResolvedLookup>, Vec<Pubkey>)> {
@@ -139,7 +142,7 @@ impl AccountLoader {
     }
 
     fn append_accounts_inner(
-        &self,
+        &mut self,
         resolved: &mut ResolvedAccounts,
         pubkeys: &[Pubkey],
     ) -> Result<()> {
@@ -161,7 +164,7 @@ impl AccountLoader {
 
     /// Runs all registered resolvers in a loop until no new dependencies emerge.
     fn resolve_all_dependencies(
-        &self,
+        &mut self,
         accounts: &mut HashMap<Pubkey, AccountSharedData>,
     ) -> Result<()> {
         loop {
@@ -195,7 +198,7 @@ impl AccountLoader {
     }
 
     fn load_lookup_table(
-        &self,
+        &mut self,
         plan: &AddressLookupPlan,
         accounts: &mut HashMap<Pubkey, AccountSharedData>,
     ) -> Result<ResolvedLookup> {
@@ -258,7 +261,11 @@ impl AccountLoader {
 }
 
 impl AccountAppender for AccountLoader {
-    fn append_accounts(&self, resolved: &mut ResolvedAccounts, pubkeys: &[Pubkey]) -> Result<()> {
+    fn append_accounts(
+        &mut self,
+        resolved: &mut ResolvedAccounts,
+        pubkeys: &[Pubkey],
+    ) -> Result<()> {
         self.append_accounts_inner(resolved, pubkeys)
     }
 }
@@ -354,7 +361,7 @@ mod tests {
         accounts.insert(payer.pubkey(), system_account(10_000_000_000));
         accounts.insert(recipient, system_account(0));
 
-        let loader =
+        let mut loader =
             AccountLoader::with_provider(Arc::new(FakeAccountProvider::from_accounts(accounts)));
 
         let tx = create_transfer_tx(&payer, &recipient, 1000);
@@ -400,7 +407,7 @@ mod tests {
         let call_count = Arc::new(AtomicUsize::new(0));
         let provider = CountingProvider { accounts, call_count: call_count.clone() };
 
-        let loader = AccountLoader::with_provider(Arc::new(provider));
+        let mut loader = AccountLoader::with_provider(Arc::new(provider));
 
         let tx = create_transfer_tx(&payer, &recipient, 1000);
 
@@ -425,7 +432,7 @@ mod tests {
         accounts.insert(payer.pubkey(), system_account(10_000_000_000));
         accounts.insert(extra, system_account(42));
 
-        let loader =
+        let mut loader =
             AccountLoader::with_provider(Arc::new(FakeAccountProvider::from_accounts(accounts)));
 
         let mut resolved = ResolvedAccounts { accounts: HashMap::new(), lookups: vec![] };
@@ -446,7 +453,7 @@ mod tests {
         accounts.insert(recipient1, system_account(100));
         accounts.insert(recipient2, system_account(200));
 
-        let loader =
+        let mut loader =
             AccountLoader::with_provider(Arc::new(FakeAccountProvider::from_accounts(accounts)));
 
         let tx1 = create_transfer_tx(&payer, &recipient1, 50);
@@ -462,7 +469,7 @@ mod tests {
 
     #[test]
     fn load_for_transactions_empty_bundle() {
-        let loader = AccountLoader::with_provider(Arc::new(FakeAccountProvider::empty()));
+        let mut loader = AccountLoader::with_provider(Arc::new(FakeAccountProvider::empty()));
 
         let txs: Vec<&VersionedTransaction> = vec![];
         let resolved = loader.load_for_transactions(&txs).unwrap();

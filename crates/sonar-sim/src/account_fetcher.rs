@@ -1,6 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
-    sync::{Arc, Mutex},
+    sync::Arc,
 };
 
 use log::{debug, trace};
@@ -13,14 +13,6 @@ use crate::types::AccountFetchMiddleware;
 
 const MAX_ACCOUNTS_PER_REQUEST: usize = 100;
 
-fn lock_cache(
-    cache: &Mutex<HashMap<Pubkey, AccountSharedData>>,
-) -> Result<std::sync::MutexGuard<'_, HashMap<Pubkey, AccountSharedData>>> {
-    cache
-        .lock()
-        .map_err(|_| SonarSimError::Internal { reason: "account cache lock poisoned".into() })
-}
-
 /// Low-level account fetcher that handles dedup, caching, middleware
 /// (local resolution / offline mode / progress), and batched RPC calls.
 ///
@@ -29,7 +21,7 @@ fn lock_cache(
 /// lives in [`AccountLoader`](crate::account_loader::AccountLoader).
 pub struct AccountFetcher {
     provider: Arc<dyn RpcAccountProvider>,
-    cache: Mutex<HashMap<Pubkey, AccountSharedData>>,
+    cache: HashMap<Pubkey, AccountSharedData>,
     middleware: Option<Arc<dyn AccountFetchMiddleware>>,
 }
 
@@ -40,13 +32,13 @@ impl AccountFetcher {
         }
         Ok(Self {
             provider: Arc::new(SolanaRpcProvider::new(rpc_url)),
-            cache: Mutex::new(HashMap::new()),
+            cache: HashMap::new(),
             middleware: None,
         })
     }
 
     pub fn with_provider(provider: Arc<dyn RpcAccountProvider>) -> Self {
-        Self { provider, cache: Mutex::new(HashMap::new()), middleware: None }
+        Self { provider, cache: HashMap::new(), middleware: None }
     }
 
     pub fn with_middleware(mut self, middleware: Arc<dyn AccountFetchMiddleware>) -> Self {
@@ -67,7 +59,7 @@ impl AccountFetcher {
     /// 4. Batch RPC requests (chunks of [`MAX_ACCOUNTS_PER_REQUEST`])
     /// 5. Report progress via middleware callback
     pub fn fetch_accounts(
-        &self,
+        &mut self,
         pubkeys: &[Pubkey],
         destination: &mut HashMap<Pubkey, AccountSharedData>,
     ) -> Result<()> {
@@ -89,14 +81,11 @@ impl AccountFetcher {
         trace!("Preparing to fetch {} accounts: [{}]", unique.len(), format_pubkeys(&unique));
 
         let mut to_fetch = Vec::new();
-        {
-            let cache = lock_cache(&self.cache)?;
-            for key in unique {
-                if let Some(account) = cache.get(&key) {
-                    destination.insert(key, account.clone());
-                } else {
-                    to_fetch.push(key);
-                }
+        for key in unique {
+            if let Some(account) = self.cache.get(&key) {
+                destination.insert(key, account.clone());
+            } else {
+                to_fetch.push(key);
             }
         }
 
@@ -111,7 +100,7 @@ impl AccountFetcher {
                 for key in to_fetch {
                     if let Some(account) = resolved.get(&key) {
                         destination.insert(key, account.clone());
-                        lock_cache(&self.cache)?.insert(key, account.clone());
+                        self.cache.insert(key, account.clone());
                     } else {
                         still_missing.push(key);
                     }
@@ -157,8 +146,7 @@ impl AccountFetcher {
                 }
                 if let Some(account) = maybe_account {
                     destination.insert(*pubkey, account.clone());
-                    let mut cache = lock_cache(&self.cache)?;
-                    cache.insert(*pubkey, account);
+                    self.cache.insert(*pubkey, account);
                 }
             }
         }
@@ -201,7 +189,7 @@ mod tests {
         let mut accounts = std::collections::HashMap::new();
         accounts.insert(key, system_account(100));
 
-        let fetcher =
+        let mut fetcher =
             AccountFetcher::with_provider(Arc::new(FakeAccountProvider::from_accounts(accounts)));
 
         let mut dest = HashMap::new();
@@ -237,7 +225,7 @@ mod tests {
         let call_count = Arc::new(AtomicUsize::new(0));
         let provider = CountingProvider { accounts, call_count: call_count.clone() };
 
-        let fetcher = AccountFetcher::with_provider(Arc::new(provider));
+        let mut fetcher = AccountFetcher::with_provider(Arc::new(provider));
 
         let mut dest1 = HashMap::new();
         fetcher.fetch_accounts(&[key], &mut dest1).unwrap();
@@ -257,7 +245,7 @@ mod tests {
         accounts.insert(key1, system_account(100));
         accounts.insert(key2, system_account(200));
 
-        let fetcher =
+        let mut fetcher =
             AccountFetcher::with_provider(Arc::new(FakeAccountProvider::from_accounts(accounts)));
 
         let mut dest = HashMap::new();

@@ -149,7 +149,7 @@ mod tests {
         accounts.insert(payer.pubkey(), system_account(10_000_000_000));
         accounts.insert(recipient, system_account(0));
 
-        let loader =
+        let mut loader =
             AccountLoader::with_provider(Arc::new(FakeAccountProvider::from_accounts(accounts)));
 
         let tx = create_transfer_tx(&payer, &recipient, 1000);
@@ -165,7 +165,7 @@ mod tests {
         let recipient = Pubkey::new_unique();
 
         let middleware = Arc::new(CliAccountMiddleware::new(None, true, None));
-        let loader = AccountLoader::with_provider(Arc::new(FakeAccountProvider::empty()))
+        let mut loader = AccountLoader::with_provider(Arc::new(FakeAccountProvider::empty()))
             .with_middleware(middleware);
 
         let tx = create_transfer_tx(&payer, &recipient, 1000);
@@ -209,7 +209,8 @@ mod tests {
         let recipient = Pubkey::new_unique();
         let tx = create_transfer_tx(&payer, &recipient, 1000);
 
-        let loader = AccountLoader::with_provider(Arc::new(provider)).with_middleware(middleware);
+        let mut loader =
+            AccountLoader::with_provider(Arc::new(provider)).with_middleware(middleware);
 
         let resolved =
             loader.load_for_transaction(&tx).expect("offline should succeed without RPC");
@@ -258,7 +259,7 @@ mod tests {
         let call_count = Arc::new(AtomicUsize::new(0));
         let provider = CountingProvider { accounts, call_count: call_count.clone() };
 
-        let loader = AccountLoader::with_provider(Arc::new(provider));
+        let mut loader = AccountLoader::with_provider(Arc::new(provider));
 
         let tx = create_transfer_tx(&payer, &recipient, 1000);
 
@@ -308,7 +309,7 @@ mod tests {
         let tx = create_transfer_tx(&payer, &recipient, 1000);
 
         let middleware = Arc::new(CliAccountMiddleware::new(Some(temp_dir.clone()), true, None));
-        let loader = AccountLoader::with_provider(Arc::new(FakeAccountProvider::empty()))
+        let mut loader = AccountLoader::with_provider(Arc::new(FakeAccountProvider::empty()))
             .with_middleware(middleware);
 
         let resolved = loader.load_for_transaction(&tx).expect("should load from local dir");
@@ -332,7 +333,7 @@ mod tests {
         let mut accounts = std::collections::HashMap::new();
         accounts.insert(extra, system_account(42));
 
-        let loader =
+        let mut loader =
             AccountLoader::with_provider(Arc::new(FakeAccountProvider::from_accounts(accounts)));
 
         let mut resolved = ResolvedAccounts { accounts: HashMap::new(), lookups: vec![] };
@@ -357,7 +358,7 @@ mod tests {
         accounts.insert(recipient1, system_account(100));
         accounts.insert(recipient2, system_account(200));
 
-        let loader =
+        let mut loader =
             AccountLoader::with_provider(Arc::new(FakeAccountProvider::from_accounts(accounts)));
 
         let tx1 = create_transfer_tx(&payer, &recipient1, 50);
@@ -373,7 +374,7 @@ mod tests {
 
     #[test]
     fn load_for_transactions_empty_bundle() {
-        let loader = AccountLoader::with_provider(Arc::new(FakeAccountProvider::empty()));
+        let mut loader = AccountLoader::with_provider(Arc::new(FakeAccountProvider::empty()));
 
         let txs: Vec<&VersionedTransaction> = vec![];
         let resolved = loader.load_for_transactions(&txs).unwrap();

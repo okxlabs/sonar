@@ -76,7 +76,7 @@ pub(super) fn update_token_amount<T: TokenAmountMut>(
 }
 
 pub fn prepare_token_fundings(
-    loader: &dyn AccountAppender,
+    loader: &mut dyn AccountAppender,
     resolved: &mut ResolvedAccounts,
     requests: &[TokenFunding],
 ) -> Result<Vec<PreparedTokenFunding>> {
@@ -100,7 +100,7 @@ pub fn prepare_token_fundings(
 }
 
 fn process_single(
-    loader: &dyn AccountAppender,
+    loader: &mut dyn AccountAppender,
     resolved: &mut ResolvedAccounts,
     request: &TokenFunding,
 ) -> Result<PreparedTokenFunding> {
@@ -243,7 +243,7 @@ fn create_missing_token_account(
 }
 
 fn ensure_account_loaded(
-    loader: &dyn AccountAppender,
+    loader: &mut dyn AccountAppender,
     resolved: &mut ResolvedAccounts,
     pubkey: &Pubkey,
 ) -> Result<()> {
@@ -297,7 +297,7 @@ mod tests {
 
     impl AccountAppender for NoopAppender {
         fn append_accounts(
-            &self,
+            &mut self,
             _resolved: &mut ResolvedAccounts,
             _pubkeys: &[Pubkey],
         ) -> crate::error::Result<()> {
@@ -307,7 +307,7 @@ mod tests {
 
     #[test]
     fn prepares_spl_token_funding_and_updates_account_data() {
-        let loader = NoopAppender;
+        let mut loader = NoopAppender;
         let mint = Pubkey::new_unique();
         let token = Pubkey::new_unique();
         let owner = Pubkey::new_unique();
@@ -320,8 +320,8 @@ mod tests {
 
         let funding =
             TokenFunding { account: token, mint: Some(mint), amount: TokenAmount::Raw(1_500_000) };
-        let prepared =
-            prepare_token_fundings(&loader, &mut resolved, &[funding]).expect("prepares funding");
+        let prepared = prepare_token_fundings(&mut loader, &mut resolved, &[funding])
+            .expect("prepares funding");
         assert_eq!(prepared.len(), 1);
         let summary = &prepared[0];
         assert_eq!(summary.mint, mint);

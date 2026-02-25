@@ -110,7 +110,7 @@ pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
     let (tx_cache_dir, offline) =
         crate::core::cache::resolve_cache_state(cache, &cache_dir, refresh_cache, &cache_key);
 
-    let account_loader = account_loader::create_loader(
+    let mut account_loader = account_loader::create_loader(
         rpc_url.clone(),
         tx_cache_dir.clone(),
         offline,
@@ -130,7 +130,7 @@ pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
         Vec::new()
     } else {
         funding::prepare_token_fundings(
-            &account_loader,
+            &mut account_loader,
             &mut resolved_accounts,
             &token_funding_requests,
         )?
@@ -255,7 +255,7 @@ fn handle_bundle(
 
     let tx_refs: Vec<_> = parsed_txs.iter().map(|p| &p.transaction).collect();
 
-    let account_loader = account_loader::create_loader(
+    let mut account_loader = account_loader::create_loader(
         rpc_url.to_string(),
         bundle_cache_dir.clone(),
         offline,
@@ -277,7 +277,7 @@ fn handle_bundle(
         Vec::new()
     } else {
         funding::prepare_token_fundings(
-            &account_loader,
+            &mut account_loader,
             &mut resolved_accounts,
             &token_funding_requests,
         )?

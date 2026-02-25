@@ -50,7 +50,7 @@ pub enum SonarSimError {
     #[error("{reason}")]
     Validation { reason: String },
 
-    /// Mutex poisoning or other unexpected internal failures.
+    /// Unexpected internal failures.
     #[error("Internal error: {reason}")]
     Internal { reason: String },
 }
