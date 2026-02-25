@@ -203,7 +203,7 @@ pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
     };
     let mut executor = executor::TransactionExecutor::prepare(resolved_accounts, sim_opts)?;
 
-    let simulation = executor.simulate(&parsed_tx.transaction)?;
+    let simulation = executor.execute(&parsed_tx.transaction)?;
 
     // Update transaction summary with inner instructions from simulation
     let mut updated_tx = parsed_tx;

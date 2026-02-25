@@ -328,31 +328,10 @@ impl TransactionExecutor {
         })
     }
 
-    pub fn simulate(&mut self, tx: &VersionedTransaction) -> Result<SimulationResult> {
-        let lite_tx = convert_versioned_transaction(tx)?;
-
-        let outcome = self.svm.simulate_transaction(lite_tx);
-
-        let simulation = match outcome {
-            Ok(info) => SimulationResult {
-                status: ExecutionStatus::Succeeded,
-                meta: convert_metadata(&info.meta),
-                post_accounts: info.post_accounts.into_iter().collect(),
-                pre_accounts: HashMap::new(),
-            },
-            Err(failure) => SimulationResult {
-                status: ExecutionStatus::Failed(failure.err.to_string()),
-                meta: convert_metadata(&failure.meta),
-                post_accounts: HashMap::new(),
-                pre_accounts: HashMap::new(),
-            },
-        };
-
-        Ok(simulation)
-    }
-
     /// Execute a transaction and persist state changes to the SVM.
-    /// Used for bundle simulation where tx1's effects should influence tx2.
+    ///
+    /// Takes pre/post account snapshots so that balance changes can be
+    /// computed even when accounts are closed during execution.
     pub fn execute(&mut self, tx: &VersionedTransaction) -> Result<SimulationResult> {
         let account_keys = self.collect_transaction_accounts(tx);
         let pre_accounts = self.snapshot_accounts(&account_keys);
@@ -612,7 +591,7 @@ mod tests {
     }
 
     #[test]
-    fn simulate_single_transaction_succeeds() {
+    fn execute_single_transaction_succeeds() {
         let payer = Keypair::new();
         let recipient = Pubkey::new_unique();
 
@@ -625,12 +604,14 @@ mod tests {
         let mut executor = TransactionExecutor::prepare(resolved, SimulationOptions::default())
             .expect("prepare should succeed");
 
-        let result = executor.simulate(&tx).expect("simulate should not error");
+        let result = executor.execute(&tx).expect("execute should not error");
         assert!(matches!(result.status, ExecutionStatus::Succeeded));
+        assert!(!result.pre_accounts.is_empty());
+        assert!(!result.post_accounts.is_empty());
     }
 
     #[test]
-    fn simulate_with_fundings() {
+    fn execute_with_fundings() {
         let payer = Keypair::new();
         let recipient = Pubkey::new_unique();
 
@@ -646,7 +627,7 @@ mod tests {
         let mut executor =
             TransactionExecutor::prepare(resolved, opts).expect("prepare should succeed");
 
-        let result = executor.simulate(&tx).expect("simulate should not error");
+        let result = executor.execute(&tx).expect("execute should not error");
         assert!(matches!(result.status, ExecutionStatus::Succeeded));
     }
 

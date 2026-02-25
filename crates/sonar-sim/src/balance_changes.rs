@@ -51,6 +51,21 @@ pub fn compute_sol_changes(
         }
     }
 
+    // Accounts that existed before but are missing after (closed/reclaimed)
+    for (pubkey, pre_account) in pre_accounts {
+        if !post_accounts.contains_key(pubkey) {
+            let before = pre_account.lamports();
+            if before != 0 {
+                changes.push(SolBalanceChange {
+                    account: *pubkey,
+                    before,
+                    after: 0,
+                    change: -(before as i128),
+                });
+            }
+        }
+    }
+
     changes.sort_by(|a, b| b.change.abs().cmp(&a.change.abs()));
     changes
 }
@@ -93,6 +108,28 @@ pub fn compute_token_changes(
         }
     }
 
+    // Token accounts that existed before but are missing after (closed)
+    for (pubkey, pre_account) in pre_accounts {
+        if !post_accounts.contains_key(pubkey) {
+            if let Some(decoded) =
+                token_utils::try_decode_token_account(pre_account.data(), pre_account.owner())
+            {
+                if decoded.amount != 0 {
+                    let decimals = mint_decimals.get(&decoded.mint).copied().unwrap_or(0);
+                    changes.push(TokenBalanceChange {
+                        account: *pubkey,
+                        owner: decoded.owner,
+                        mint: decoded.mint,
+                        before: decoded.amount,
+                        after: 0,
+                        change: -(decoded.amount as i128),
+                        decimals,
+                    });
+                }
+            }
+        }
+    }
+
     changes.sort_by(|a, b| b.change.abs().cmp(&a.change.abs()));
     changes
 }
@@ -126,12 +163,44 @@ mod tests {
     use super::*;
     use solana_account::Account;
     use solana_sdk_ids::system_program;
+    use spl_token::solana_program::program_option::COption;
+    use spl_token::solana_program::program_pack::Pack;
+    use spl_token::state::{Account as SplTokenAccount, AccountState};
 
     fn create_shared_account_with_lamports(lamports: u64) -> AccountSharedData {
         AccountSharedData::from(Account {
             lamports,
             data: vec![],
             owner: system_program::id(),
+            executable: false,
+            rent_epoch: 0,
+        })
+    }
+
+    fn create_token_account(
+        mint: &Pubkey,
+        token_owner: &Pubkey,
+        amount: u64,
+        lamports: u64,
+    ) -> AccountSharedData {
+        use spl_token::solana_program::pubkey::Pubkey as ProgramPubkey;
+
+        let state = SplTokenAccount {
+            mint: ProgramPubkey::new_from_array(mint.to_bytes()),
+            owner: ProgramPubkey::new_from_array(token_owner.to_bytes()),
+            amount,
+            delegate: COption::None,
+            state: AccountState::Initialized,
+            is_native: COption::None,
+            delegated_amount: 0,
+            close_authority: COption::None,
+        };
+        let mut data = vec![0u8; SplTokenAccount::LEN];
+        SplTokenAccount::pack(state, &mut data).unwrap();
+        AccountSharedData::from(Account {
+            lamports,
+            data,
+            owner: Pubkey::new_from_array(spl_token::ID.to_bytes()),
             executable: false,
             rent_epoch: 0,
         })
@@ -202,5 +271,49 @@ mod tests {
         assert_eq!(changes[0].before, 0);
         assert_eq!(changes[0].after, 1_000_000_000);
         assert_eq!(changes[0].change, 1_000_000_000);
+    }
+
+    #[test]
+    fn test_compute_sol_changes_account_closed() {
+        let pubkey = Pubkey::new_unique();
+
+        let mut pre = HashMap::new();
+        pre.insert(pubkey, create_shared_account_with_lamports(1_000_000_000));
+
+        let post = HashMap::new();
+
+        let changes = compute_sol_changes(&pre, &post);
+
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0].account, pubkey);
+        assert_eq!(changes[0].before, 1_000_000_000);
+        assert_eq!(changes[0].after, 0);
+        assert_eq!(changes[0].change, -1_000_000_000);
+    }
+
+    #[test]
+    fn test_compute_token_changes_account_closed() {
+        let mint = Pubkey::new_unique();
+        let token_owner = Pubkey::new_unique();
+        let token_account_pubkey = Pubkey::new_unique();
+
+        let mut pre = HashMap::new();
+        pre.insert(token_account_pubkey, create_token_account(&mint, &token_owner, 100, 2_039_280));
+
+        let post = HashMap::new();
+
+        let mut mint_decimals = HashMap::new();
+        mint_decimals.insert(mint, 6u8);
+
+        let changes = compute_token_changes(&pre, &post, &mint_decimals);
+
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0].account, token_account_pubkey);
+        assert_eq!(changes[0].owner, token_owner);
+        assert_eq!(changes[0].mint, mint);
+        assert_eq!(changes[0].before, 100);
+        assert_eq!(changes[0].after, 0);
+        assert_eq!(changes[0].change, -100);
+        assert_eq!(changes[0].decimals, 6);
     }
 }
