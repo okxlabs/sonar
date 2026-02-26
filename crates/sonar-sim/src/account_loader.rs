@@ -167,6 +167,7 @@ impl AccountLoader {
         &mut self,
         accounts: &mut HashMap<Pubkey, AccountSharedData>,
     ) -> Result<()> {
+        let mut attempted_missing = HashSet::new();
         loop {
             let mut all_missing = Vec::new();
             let mut seen = HashSet::new();
@@ -183,12 +184,27 @@ impl AccountLoader {
                 break;
             }
 
-            self.fetcher.fetch_accounts(&all_missing, accounts).map_err(|e| {
+            let mut newly_attemptable = Vec::new();
+            for key in all_missing {
+                if attempted_missing.insert(key) {
+                    newly_attemptable.push(key);
+                }
+            }
+
+            if newly_attemptable.is_empty() {
+                log::warn!(
+                    "Stopping dependency resolution: no newly-attemptable keys remain; unresolved dependencies: [{}]",
+                    format_pubkeys(&attempted_missing.iter().copied().collect::<Vec<_>>())
+                );
+                break;
+            }
+
+            self.fetcher.fetch_accounts(&newly_attemptable, accounts).map_err(|e| {
                 SonarSimError::AccountData {
                     pubkey: None,
                     reason: format!(
                         "Failed to fetch dependency accounts: [{}]: {e}",
-                        format_pubkeys(&all_missing)
+                        format_pubkeys(&newly_attemptable)
                     ),
                 }
             })?;
@@ -470,5 +486,133 @@ mod tests {
     fn fetcher_accessor_returns_inner_fetcher() {
         let loader = AccountLoader::with_provider(Arc::new(FakeAccountProvider::empty()));
         let _fetcher = loader.fetcher();
+    }
+
+    #[test]
+    fn dependency_resolution_stops_when_missing_keys_repeat() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        struct MissingOnlyProvider {
+            call_count: Arc<AtomicUsize>,
+            marker: Pubkey,
+        }
+
+        impl RpcAccountProvider for MissingOnlyProvider {
+            fn get_multiple_accounts(
+                &self,
+                pubkeys: &[Pubkey],
+            ) -> Result<Vec<Option<AccountSharedData>>> {
+                self.call_count.fetch_add(1, Ordering::SeqCst);
+                Ok(pubkeys
+                    .iter()
+                    .map(|key| {
+                        if *key == self.marker {
+                            Some(AccountSharedData::from(system_account(1)))
+                        } else {
+                            None
+                        }
+                    })
+                    .collect())
+            }
+        }
+
+        struct MarkerDependencyResolver {
+            marker: Pubkey,
+            missing: Pubkey,
+        }
+
+        impl AccountDependencyResolver for MarkerDependencyResolver {
+            fn resolve_dependencies(
+                &self,
+                accounts: &HashMap<Pubkey, AccountSharedData>,
+            ) -> Vec<Pubkey> {
+                if accounts.contains_key(&self.marker) {
+                    vec![self.missing]
+                } else {
+                    Vec::new()
+                }
+            }
+        }
+
+        let marker = Pubkey::new_unique();
+        let missing = Pubkey::new_unique();
+        let call_count = Arc::new(AtomicUsize::new(0));
+
+        let provider = MissingOnlyProvider { call_count: call_count.clone(), marker };
+        let mut loader = AccountLoader::with_provider(Arc::new(provider)).with_resolvers(vec![
+            Box::new(MarkerDependencyResolver { marker, missing }),
+        ]);
+
+        let mut resolved = ResolvedAccounts {
+            accounts: HashMap::from([(marker, AccountSharedData::from(system_account(1)))]),
+            lookups: vec![],
+        };
+
+        loader.append_accounts(&mut resolved, &[marker]).unwrap();
+
+        assert_eq!(
+            call_count.load(Ordering::SeqCst),
+            1,
+            "known-missing dependency should only be fetched once"
+        );
+        assert!(!resolved.accounts.contains_key(&missing));
+    }
+
+    #[test]
+    fn dependency_resolution_offline_mode_stops_on_repeated_missing_keys() {
+        struct NeverCalledProvider;
+
+        impl RpcAccountProvider for NeverCalledProvider {
+            fn get_multiple_accounts(
+                &self,
+                _pubkeys: &[Pubkey],
+            ) -> Result<Vec<Option<AccountSharedData>>> {
+                panic!("RPC provider should never be called in offline mode");
+            }
+        }
+
+        struct OfflineMiddleware;
+
+        impl AccountFetchMiddleware for OfflineMiddleware {
+            fn is_offline(&self) -> bool {
+                true
+            }
+        }
+
+        struct MarkerDependencyResolver {
+            marker: Pubkey,
+            missing: Pubkey,
+        }
+
+        impl AccountDependencyResolver for MarkerDependencyResolver {
+            fn resolve_dependencies(
+                &self,
+                accounts: &HashMap<Pubkey, AccountSharedData>,
+            ) -> Vec<Pubkey> {
+                if accounts.contains_key(&self.marker) {
+                    vec![self.missing]
+                } else {
+                    Vec::new()
+                }
+            }
+        }
+
+        let marker = Pubkey::new_unique();
+        let missing = Pubkey::new_unique();
+        let middleware = Arc::new(OfflineMiddleware);
+        let mut loader = AccountLoader::with_provider(Arc::new(NeverCalledProvider))
+            .with_middleware(middleware)
+            .with_resolvers(vec![Box::new(MarkerDependencyResolver { marker, missing })]);
+
+        let mut resolved = ResolvedAccounts {
+            accounts: HashMap::from([(marker, AccountSharedData::from(system_account(1)))]),
+            lookups: vec![],
+        };
+
+        loader
+            .append_accounts(&mut resolved, &[marker])
+            .expect("offline mode should not hang on repeated missing dependencies");
+
+        assert!(!resolved.accounts.contains_key(&missing));
     }
 }
