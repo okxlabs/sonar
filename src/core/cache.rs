@@ -8,12 +8,19 @@ use solana_transaction::versioned::VersionedTransaction;
 use crate::core::transaction;
 
 #[derive(Debug, Serialize, Deserialize)]
+pub(crate) struct CacheTransaction {
+    pub input: String,
+    pub raw_tx: String,
+    pub resolved_from: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct CacheMeta {
     pub created_at: String,
     pub sonar_version: String,
     #[serde(rename = "type")]
     pub cache_type: String,
-    pub inputs: Vec<String>,
+    pub transactions: Vec<CacheTransaction>,
     pub rpc_url: String,
     pub account_count: usize,
 }
@@ -134,7 +141,11 @@ mod tests {
             created_at: "2026-02-22T10:00:00Z".to_string(),
             sonar_version: "0.2.0".to_string(),
             cache_type: "single".to_string(),
-            inputs: vec!["test-sig".to_string()],
+            transactions: vec![CacheTransaction {
+                input: "test-sig".to_string(),
+                raw_tx: "AQID".to_string(),
+                resolved_from: "rpc".to_string(),
+            }],
             rpc_url: "https://api.mainnet-beta.solana.com".to_string(),
             account_count: 5,
         };
@@ -143,7 +154,32 @@ mod tests {
         let read_back = read_meta_json(&dir).unwrap();
         assert_eq!(read_back.cache_type, "single");
         assert_eq!(read_back.account_count, 5);
-        assert_eq!(read_back.inputs, vec!["test-sig"]);
+        assert_eq!(read_back.transactions.len(), 1);
+        assert_eq!(read_back.transactions[0].input, "test-sig");
+        assert_eq!(read_back.transactions[0].resolved_from, "rpc");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn read_meta_json_rejects_legacy_inputs_schema() {
+        let dir =
+            std::env::temp_dir().join(format!("sonar-cache-legacy-schema-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let legacy = serde_json::json!({
+            "created_at": "2026-02-22T10:00:00Z",
+            "sonar_version": "0.2.0",
+            "type": "single",
+            "inputs": ["legacy-input"],
+            "rpc_url": "https://api.mainnet-beta.solana.com",
+            "account_count": 1
+        });
+        std::fs::write(dir.join("_meta.json"), legacy.to_string()).unwrap();
+
+        let err = read_meta_json(&dir).expect_err("legacy schema should fail to parse");
+        assert!(err.to_string().contains("Failed to parse cache metadata"));
 
         let _ = std::fs::remove_dir_all(&dir);
     }

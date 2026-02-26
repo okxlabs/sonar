@@ -11,7 +11,7 @@ use sonar_sim::{
     prepare_token_fundings,
 };
 
-use super::{parse_inputs_to_txs, prepare_accounts_and_idls, warn_unmatched_addresses};
+use super::{prepare_accounts_and_idls, resolve_inputs_to_txs, warn_unmatched_addresses};
 
 fn cache_read_dir(cache_dir: Option<PathBuf>, refresh_cache: bool) -> Option<PathBuf> {
     if refresh_cache {
@@ -49,6 +49,7 @@ pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
         no_idl_fetch,
     } = args;
     let rpc_url = rpc.rpc_url;
+    let resolver_cache_root = crate::core::cache::resolve_cache_dir(&cache_dir);
 
     let TransactionInputArgs { tx, json } = transaction;
 
@@ -100,6 +101,7 @@ pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
         return handle_bundle(
             tx,
             &rpc_url,
+            resolver_cache_root,
             token_funding_requests,
             sim_opts,
             &render_opts,
@@ -112,15 +114,16 @@ pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
         );
     }
 
-    let parsed_inputs = parse_inputs_to_txs(tx, &rpc_url, &progress, false)?;
-    let mut parsed_txs = parsed_inputs.parsed_txs;
-    let raw_input = parsed_inputs
-        .raw_inputs
+    let parsed_inputs = resolve_inputs_to_txs(tx, &rpc_url, resolver_cache_root, &progress, false)?;
+    let resolved_input = parsed_inputs
+        .resolved_txs
         .into_iter()
         .next()
-        .expect("single input parse should produce one raw input");
-    let mut parsed_tx =
-        parsed_txs.pop().expect("single input parse should produce one parsed transaction");
+        .expect("single input resolve should produce one transaction");
+    let raw_input = resolved_input.original_input.clone();
+    let cached_raw_tx = resolved_input.raw_tx_base64.clone();
+    let resolved_from = resolved_input.source.as_str().to_string();
+    let mut parsed_tx = resolved_input.parsed_tx;
 
     let cache_key = crate::core::cache::derive_cache_key_single(&raw_input, &parsed_tx.transaction);
     let (tx_cache_dir, offline) =
@@ -169,7 +172,11 @@ pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
                     created_at: chrono::Utc::now().to_rfc3339(),
                     sonar_version: env!("CARGO_PKG_VERSION").to_string(),
                     cache_type: "single".to_string(),
-                    inputs: vec![raw_input.clone()],
+                    transactions: vec![crate::core::cache::CacheTransaction {
+                        input: raw_input.clone(),
+                        raw_tx: cached_raw_tx,
+                        resolved_from,
+                    }],
                     rpc_url: rpc_url.clone(),
                     account_count: prepared.resolved_accounts.accounts.len(),
                 },
@@ -222,6 +229,7 @@ pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
 fn handle_bundle(
     tx_inputs: Vec<String>,
     rpc_url: &str,
+    resolver_cache_root: PathBuf,
     token_funding_requests: Vec<cli::TokenFunding>,
     mut sim_opts: SimulationOptions,
     render_opts: &output::RenderOptions,
@@ -234,9 +242,10 @@ fn handle_bundle(
 ) -> Result<()> {
     log::info!("Bundle simulation mode: {} transactions", tx_inputs.len());
 
-    let parsed_inputs = parse_inputs_to_txs(tx_inputs, rpc_url, progress, true)?;
-    let tx_inputs = parsed_inputs.raw_inputs;
-    let parsed_txs = parsed_inputs.parsed_txs;
+    let parsed_inputs = resolve_inputs_to_txs(tx_inputs, rpc_url, resolver_cache_root, progress, true)?;
+    let resolved_txs = parsed_inputs.resolved_txs;
+    let tx_inputs: Vec<_> = resolved_txs.iter().map(|tx| tx.original_input.clone()).collect();
+    let parsed_txs: Vec<_> = resolved_txs.iter().map(|tx| tx.parsed_tx.clone()).collect();
     log::info!("Successfully parsed {} transactions", parsed_txs.len());
 
     let cache_key = crate::core::cache::derive_cache_key_bundle(&tx_inputs, &parsed_txs);
@@ -295,7 +304,14 @@ fn handle_bundle(
                     created_at: chrono::Utc::now().to_rfc3339(),
                     sonar_version: env!("CARGO_PKG_VERSION").to_string(),
                     cache_type: "bundle".to_string(),
-                    inputs: tx_inputs.clone(),
+                    transactions: resolved_txs
+                        .iter()
+                        .map(|tx| crate::core::cache::CacheTransaction {
+                            input: tx.original_input.clone(),
+                            raw_tx: tx.raw_tx_base64.clone(),
+                            resolved_from: tx.source.as_str().to_string(),
+                        })
+                        .collect(),
                     rpc_url: rpc_url.to_string(),
                     account_count: prepared.resolved_accounts.accounts.len(),
                 },

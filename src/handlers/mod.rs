@@ -91,9 +91,8 @@ pub(crate) fn auto_fetch_missing_idls(
     Ok(fetched)
 }
 
-pub(crate) struct ParsedInputTransactions {
-    pub raw_inputs: Vec<String>,
-    pub parsed_txs: Vec<transaction::ParsedTransaction>,
+pub(crate) struct ResolvedInputTransactions {
+    pub resolved_txs: Vec<transaction::ResolvedTxInput>,
 }
 
 pub(crate) struct PreparedPipelineContext {
@@ -105,22 +104,23 @@ pub(crate) struct PreparedPipelineContext {
 ///
 /// - bundle mode: parse all positional inputs as transactions/signatures
 /// - single mode: parse first positional input, fallback to stdin when missing
-pub(crate) fn parse_inputs_to_txs(
+pub(crate) fn resolve_inputs_to_txs(
     tx_inputs: Vec<String>,
     rpc_url: &str,
+    cache_root: PathBuf,
     progress: &Progress,
     bundle_mode: bool,
-) -> Result<ParsedInputTransactions> {
+) -> Result<ResolvedInputTransactions> {
+    let resolver = transaction::TxInputResolver::new(rpc_url, cache_root);
     if bundle_mode {
-        let parsed_txs =
-            transaction::parse_multi_raw_transactions(&tx_inputs, rpc_url, Some(progress))?;
-        return Ok(ParsedInputTransactions { raw_inputs: tx_inputs, parsed_txs });
+        let resolved_txs = resolver.resolve_many(&tx_inputs, Some(progress))?;
+        return Ok(ResolvedInputTransactions { resolved_txs });
     }
 
     let tx_single = tx_inputs.into_iter().next();
     let raw_input = transaction::read_raw_transaction(tx_single)?;
-    let parsed_tx = transaction::parse_transaction_input(&raw_input, rpc_url, Some(progress))?;
-    Ok(ParsedInputTransactions { raw_inputs: vec![raw_input], parsed_txs: vec![parsed_tx] })
+    let resolved_txs = resolver.resolve_many(&[raw_input], Some(progress))?;
+    Ok(ResolvedInputTransactions { resolved_txs })
 }
 
 /// Runs the shared IDL stage for a resolved account set.

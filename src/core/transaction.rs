@@ -12,6 +12,7 @@ use solana_message::VersionedMessage;
 use solana_message::inner_instruction::InnerInstructionsList;
 use solana_signature::Signature;
 use solana_transaction::versioned::{TransactionVersion, VersionedTransaction};
+use std::path::PathBuf;
 use std::str::FromStr;
 
 use crate::utils::progress::Progress;
@@ -27,6 +28,38 @@ pub struct ParsedTransaction {
     pub transaction: VersionedTransaction,
     pub summary: TransactionSummary,
     pub account_plan: MessageAccountPlan,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TxResolveSource {
+    RawInput,
+    Cache,
+    Rpc,
+}
+
+impl TxResolveSource {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::RawInput => "raw_input",
+            Self::Cache => "cache",
+            Self::Rpc => "rpc",
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ResolvedTxInput {
+    pub original_input: String,
+    pub raw_tx_base64: String,
+    pub parsed_tx: ParsedTransaction,
+    pub source: TxResolveSource,
+}
+
+#[derive(Debug, Clone)]
+pub struct TxInputResolver {
+    rpc_url: String,
+    cache_root: PathBuf,
 }
 
 // ---------------------------------------------------------------------------
@@ -121,6 +154,11 @@ pub fn is_transaction_signature(s: &str) -> bool {
     Signature::from_str(trimmed).is_ok()
 }
 
+pub fn encode_transaction_to_base64(tx: &VersionedTransaction) -> Result<String> {
+    let serialized = bincode::serialize(tx).context("Failed to serialize transaction")?;
+    Ok(BASE64_STANDARD.encode(serialized))
+}
+
 pub fn fetch_transaction_from_rpc(
     rpc_url: &str,
     signature: &str,
@@ -151,10 +189,7 @@ pub fn fetch_transaction_from_rpc(
         .transaction
         .decode()
         .ok_or_else(|| anyhow!("Failed to decode transaction from RPC response"))?;
-
-    let serialized = bincode::serialize(&tx).context("Failed to serialize transaction")?;
-
-    Ok(BASE64_STANDARD.encode(serialized))
+    encode_transaction_to_base64(&tx)
 }
 
 // ---------------------------------------------------------------------------
@@ -177,52 +212,99 @@ pub fn parse_raw_transaction(raw: &str) -> Result<ParsedTransaction> {
     })
 }
 
-pub fn parse_transaction_input(
-    input: &str,
-    rpc_url: &str,
-    progress: Option<&Progress>,
-) -> Result<ParsedTransaction> {
-    match parse_raw_transaction(input) {
-        Ok(parsed) => Ok(parsed),
-        Err(raw_err) => {
-            if !is_transaction_signature(input) {
-                return Err(anyhow!(
-                    "Failed to parse transaction input.\n- Raw parse failed: {raw_err}\n- Signature fallback skipped: input does not look like a transaction signature"
-                ));
+impl TxInputResolver {
+    pub fn new(rpc_url: impl Into<String>, cache_root: PathBuf) -> Self {
+        Self { rpc_url: rpc_url.into(), cache_root }
+    }
+
+    pub fn resolve_one(&self, input: &str, progress: Option<&Progress>) -> Result<ResolvedTxInput> {
+        match parse_raw_transaction(input) {
+            Ok(parsed_tx) => Ok(ResolvedTxInput {
+                original_input: input.to_string(),
+                raw_tx_base64: encode_transaction_to_base64(&parsed_tx.transaction)?,
+                parsed_tx,
+                source: TxResolveSource::RawInput,
+            }),
+            Err(raw_err) => {
+                if !is_transaction_signature(input) {
+                    return Err(anyhow!(
+                        "Failed to parse transaction input.\n- Raw parse failed: {raw_err}\n- Signature fallback skipped: input does not look like a transaction signature"
+                    ));
+                }
+
+                let signature = input.trim();
+                if let Some(cached) = self.lookup_cached_raw_tx(signature) {
+                    match parse_raw_transaction(&cached) {
+                        Ok(parsed_tx) => {
+                            return Ok(ResolvedTxInput {
+                                original_input: signature.to_string(),
+                                raw_tx_base64: cached,
+                                parsed_tx,
+                                source: TxResolveSource::Cache,
+                            });
+                        }
+                        Err(cache_parse_err) => {
+                            log::warn!(
+                                "Cached raw transaction parse failed for signature {}: {:#}",
+                                signature,
+                                cache_parse_err
+                            );
+                        }
+                    }
+                }
+
+                log::info!(
+                    "Raw parse failed; input looks like a transaction signature, fetching from RPC..."
+                );
+                let fetched =
+                    fetch_transaction_from_rpc(&self.rpc_url, signature, progress).map_err(
+                        |fetch_err| {
+                            anyhow!(
+                                "Failed to parse transaction input.\n- Raw parse failed: {raw_err}\n- Signature fetch failed: {fetch_err}"
+                            )
+                        },
+                    )?;
+
+                let parsed_tx = parse_raw_transaction(&fetched).map_err(|fetched_parse_err| {
+                    anyhow!(
+                        "Failed to parse transaction input.\n- Raw parse failed: {raw_err}\n- Signature fetch succeeded but parsing fetched transaction failed: {fetched_parse_err}"
+                    )
+                })?;
+
+                Ok(ResolvedTxInput {
+                    original_input: signature.to_string(),
+                    raw_tx_base64: fetched,
+                    parsed_tx,
+                    source: TxResolveSource::Rpc,
+                })
             }
-
-            log::info!(
-                "Raw parse failed; input looks like a transaction signature, fetching from RPC..."
-            );
-            let fetched = fetch_transaction_from_rpc(rpc_url, input, progress).map_err(|fetch_err| {
-                anyhow!(
-                    "Failed to parse transaction input.\n- Raw parse failed: {raw_err}\n- Signature fetch failed: {fetch_err}"
-                )
-            })?;
-
-            parse_raw_transaction(&fetched).map_err(|fetched_parse_err| {
-                anyhow!(
-                    "Failed to parse transaction input.\n- Raw parse failed: {raw_err}\n- Signature fetch succeeded but parsing fetched transaction failed: {fetched_parse_err}"
-                )
-            })
         }
     }
-}
 
-/// Parse multiple transaction inputs, each using auto strategy:
-/// try raw parse first, then fallback to signature fetch when applicable.
-pub fn parse_multi_raw_transactions(
-    raws: &[String],
-    rpc_url: &str,
-    progress: Option<&Progress>,
-) -> Result<Vec<ParsedTransaction>> {
-    raws.iter()
-        .enumerate()
-        .map(|(index, raw)| {
-            parse_transaction_input(raw, rpc_url, progress)
-                .with_context(|| format!("Failed to parse transaction {}", index + 1))
-        })
-        .collect()
+    pub fn resolve_many(
+        &self,
+        inputs: &[String],
+        progress: Option<&Progress>,
+    ) -> Result<Vec<ResolvedTxInput>> {
+        inputs
+            .iter()
+            .enumerate()
+            .map(|(index, input)| {
+                self.resolve_one(input, progress)
+                    .with_context(|| format!("Failed to parse transaction {}", index + 1))
+            })
+            .collect()
+    }
+
+    fn lookup_cached_raw_tx(&self, signature: &str) -> Option<String> {
+        let dir = self.cache_root.join(signature.trim());
+        let meta = crate::core::cache::read_meta_json(&dir).ok()?;
+        meta.transactions
+            .iter()
+            .find(|tx| tx.input.trim() == signature.trim())
+            .or_else(|| meta.transactions.first())
+            .map(|tx| tx.raw_tx.clone())
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -394,22 +476,86 @@ mod tests {
     }
 
     #[test]
-    fn auto_mode_reports_raw_and_signature_failure_branches() {
+    fn tx_input_resolver_reports_raw_and_signature_failure_branches() {
         let signature = "3PtGYH77LhhQqTXP4SmDVJ85hmDieWsgXCUbn14v7gYyVYPjZzygUQhTk3bSTYnfA48vCM1rmWY7zWL3j1EVKmEy";
-        let err = parse_transaction_input(signature, "not a url", None)
+        let cache_root =
+            std::env::temp_dir().join(format!("sonar-resolver-empty-cache-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&cache_root);
+        let resolver = TxInputResolver::new("not a url", cache_root.clone());
+        let err = resolver
+            .resolve_one(signature, None)
             .expect_err("auto mode should fail when rpc url is invalid");
         let message = err.to_string();
         assert!(message.contains("Raw parse failed"));
         assert!(message.contains("Signature fetch failed"));
+        let _ = std::fs::remove_dir_all(&cache_root);
     }
 
     #[test]
-    fn parse_transaction_input_reports_fallback_skipped_for_non_signature() {
-        let err = parse_transaction_input("not-a-signature", "http://localhost:8899", None)
+    fn tx_input_resolver_reports_fallback_skipped_for_non_signature() {
+        let resolver = TxInputResolver::new("http://localhost:8899", std::env::temp_dir());
+        let err = resolver
+            .resolve_one("not-a-signature", None)
             .expect_err("non-signature should skip signature fallback");
         let message = err.to_string();
         assert!(message.contains("Raw parse failed"));
         assert!(message.contains("Signature fallback skipped"));
+    }
+
+    #[test]
+    fn tx_input_resolver_prefers_cache_for_signature() {
+        use std::fs;
+
+        let (versioned, _) = sample_transaction();
+        let bytes = bincode::serialize(&versioned).unwrap();
+        let raw_base64 = BASE64_STANDARD.encode(&bytes);
+        let signature =
+            "3PtGYH77LhhQqTXP4SmDVJ85hmDieWsgXCUbn14v7gYyVYPjZzygUQhTk3bSTYnfA48vCM1rmWY7zWL3j1EVKmEy";
+
+        let cache_root = std::env::temp_dir().join(format!("sonar-resolver-cache-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&cache_root);
+        let cache_dir = cache_root.join(signature);
+
+        crate::core::cache::write_meta_json(
+            &cache_dir,
+            &crate::core::cache::CacheMeta {
+                created_at: "2026-02-22T10:00:00Z".to_string(),
+                sonar_version: "0.3.0".to_string(),
+                cache_type: "single".to_string(),
+                transactions: vec![crate::core::cache::CacheTransaction {
+                    input: signature.to_string(),
+                    raw_tx: raw_base64.clone(),
+                    resolved_from: "rpc".to_string(),
+                }],
+                rpc_url: "https://api.mainnet-beta.solana.com".to_string(),
+                account_count: 1,
+            },
+        )
+        .unwrap();
+
+        let resolver = TxInputResolver::new("not a url", cache_root.clone());
+        let resolved = resolver.resolve_many(&[signature.to_string()], None).unwrap();
+
+        assert_eq!(resolved.len(), 1);
+        assert_eq!(resolved[0].source, TxResolveSource::Cache);
+        assert_eq!(resolved[0].original_input, signature);
+        assert_eq!(resolved[0].raw_tx_base64, raw_base64);
+
+        let _ = fs::remove_dir_all(&cache_root);
+    }
+
+    #[test]
+    fn tx_input_resolver_marks_raw_source() {
+        let (versioned, _) = sample_transaction();
+        let bytes = bincode::serialize(&versioned).unwrap();
+        let raw_base64 = BASE64_STANDARD.encode(&bytes);
+
+        let resolver = TxInputResolver::new("http://127.0.0.1:1", std::env::temp_dir());
+        let resolved = resolver.resolve_many(std::slice::from_ref(&raw_base64), None).unwrap();
+
+        assert_eq!(resolved.len(), 1);
+        assert_eq!(resolved[0].source, TxResolveSource::RawInput);
+        assert_eq!(resolved[0].raw_tx_base64, raw_base64);
     }
 
     #[test]

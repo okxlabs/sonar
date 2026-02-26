@@ -40,7 +40,7 @@ fn handle_list() -> Result<()> {
         match cache::read_meta_json(&dir) {
             Ok(meta) => {
                 let type_label = if meta.cache_type == "bundle" {
-                    format!("bundle, {} txs", meta.inputs.len())
+                    format!("bundle, {} txs", meta.transactions.len())
                 } else {
                     "single".to_string()
                 };
@@ -135,15 +135,15 @@ fn handle_info(args: crate::cli::CacheInfoArgs) -> Result<()> {
             eprintln!("{}: {}", "RPC".bold(), meta.rpc_url);
             eprintln!("{}: {}", "Accounts".bold(), meta.account_count);
             eprintln!("{}: {}", "Sonar version".bold(), meta.sonar_version);
-            if meta.inputs.len() > 1 || meta.cache_type == "bundle" {
-                eprintln!("{}:", "Inputs".bold());
-                for (i, input) in meta.inputs.iter().enumerate() {
-                    let display = if input.len() > 44 {
-                        format!("{}...", &input[..44])
+            if meta.transactions.len() > 1 || meta.cache_type == "bundle" {
+                eprintln!("{}:", "Transactions".bold());
+                for (i, tx) in meta.transactions.iter().enumerate() {
+                    let display = if tx.input.len() > 44 {
+                        format!("{}...", &tx.input[..44])
                     } else {
-                        input.clone()
+                        tx.input.clone()
                     };
-                    eprintln!("  {}: {}", i + 1, display);
+                    eprintln!("  {}: {} ({})", i + 1, display, tx.resolved_from);
                 }
             }
         }

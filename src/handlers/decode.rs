@@ -5,7 +5,7 @@ use crate::output;
 use crate::parsers::instruction::ParserRegistry;
 use crate::utils::progress::Progress;
 
-use super::{parse_inputs_to_txs, prepare_accounts_and_idls};
+use super::{prepare_accounts_and_idls, resolve_inputs_to_txs};
 
 pub(crate) fn handle(args: DecodeArgs) -> Result<()> {
     let idl_dir = args.idl_dir.clone();
@@ -14,6 +14,7 @@ pub(crate) fn handle(args: DecodeArgs) -> Result<()> {
 
     let DecodeArgs { transaction, rpc, ix_data, idl_dir: _, no_idl_fetch } = args;
     let rpc_url = rpc.rpc_url;
+    let resolver_cache_root = crate::core::cache::resolve_cache_dir(&None);
     let TransactionInputArgs { tx, json } = transaction;
 
     // Check if this is a bundle (multiple positional TX arguments)
@@ -21,6 +22,7 @@ pub(crate) fn handle(args: DecodeArgs) -> Result<()> {
         return handle_bundle(
             tx,
             &rpc_url,
+            resolver_cache_root,
             ix_data,
             json,
             no_idl_fetch,
@@ -29,10 +31,13 @@ pub(crate) fn handle(args: DecodeArgs) -> Result<()> {
         );
     }
 
-    let parsed_inputs = parse_inputs_to_txs(tx, &rpc_url, &progress, false)?;
-    let mut parsed_txs = parsed_inputs.parsed_txs;
-    let parsed_tx =
-        parsed_txs.pop().expect("single input parse should produce one parsed transaction");
+    let parsed_inputs = resolve_inputs_to_txs(tx, &rpc_url, resolver_cache_root, &progress, false)?;
+    let parsed_tx = parsed_inputs
+        .resolved_txs
+        .into_iter()
+        .next()
+        .expect("single input resolve should produce one transaction")
+        .parsed_tx;
 
     let prepared = prepare_accounts_and_idls(
         &rpc_url,
@@ -61,6 +66,7 @@ pub(crate) fn handle(args: DecodeArgs) -> Result<()> {
 fn handle_bundle(
     tx_inputs: Vec<String>,
     rpc_url: &str,
+    resolver_cache_root: std::path::PathBuf,
     ix_data: bool,
     json: bool,
     no_idl_fetch: bool,
@@ -69,8 +75,12 @@ fn handle_bundle(
 ) -> Result<()> {
     log::info!("Bundle decode mode: {} transactions", tx_inputs.len());
 
-    let parsed_inputs = parse_inputs_to_txs(tx_inputs, rpc_url, progress, true)?;
-    let parsed_txs = parsed_inputs.parsed_txs;
+    let parsed_inputs = resolve_inputs_to_txs(tx_inputs, rpc_url, resolver_cache_root, progress, true)?;
+    let parsed_txs: Vec<_> = parsed_inputs
+        .resolved_txs
+        .into_iter()
+        .map(|entry| entry.parsed_tx)
+        .collect();
     log::info!("Successfully parsed {} transactions", parsed_txs.len());
 
     let prepared = prepare_accounts_and_idls(

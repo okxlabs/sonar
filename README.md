@@ -7,7 +7,7 @@ A CLI tool for local Solana transaction simulation (LiteSVM) plus common develop
 ### Transaction Simulation (core)
 
 - Local simulation without deploying programs
-- Parse raw tx (`base58`/`base64`) or fetch by signature
+- Parse raw tx (`base58`/`base64`) or fetch by signature (signature input prefers local cache before RPC)
 - Simulate bundles (multiple transactions in one run)
 - Replace program/account data with local files
 - Fund SOL or token accounts before simulation
@@ -380,6 +380,20 @@ sonar cache list
 sonar cache clean --older-than 7d
 sonar cache info <KEY>
 ```
+
+Cache metadata schema (`_meta.json`) uses a `transactions` array:
+
+```json
+{
+  "type": "single",
+  "transactions": [
+    { "input": "<original input>", "raw_tx": "<base64 tx>", "resolved_from": "raw_input|cache|rpc" }
+  ]
+}
+```
+
+Breaking change: legacy metadata that only contains `inputs` is no longer supported. If you still
+have old cache entries, run `sonar cache clean` (or remove old cache directories) and regenerate.
 
 ## Configuration
 
