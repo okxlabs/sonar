@@ -5,9 +5,9 @@ use anyhow::{Context, Result};
 use crate::cli::{self, SimulateArgs, TransactionInputArgs};
 use crate::parsers::instruction::ParserRegistry;
 use crate::utils::progress::Progress;
-use crate::{core::account_loader, core::executor, core::funding, core::transaction, output};
+use crate::{core::executor, core::funding, core::transaction, output};
 
-use super::{auto_fetch_missing_idls, collect_program_ids, warn_unmatched_addresses};
+use super::{parse_inputs_to_txs, prepare_accounts_and_idls, warn_unmatched_addresses};
 
 pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
     // Initialize instruction parser registry (uses configured/default IDL directory).
@@ -100,75 +100,52 @@ pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
         );
     }
 
-    // Single tx: take the first positional arg, or fall back to stdin
-    let tx_single = tx.into_iter().next();
-    let raw_input = transaction::read_raw_transaction(tx_single)?;
-
-    let parsed_tx = transaction::parse_transaction_input(&raw_input, &rpc_url, Some(&progress))?;
+    let parsed_inputs = parse_inputs_to_txs(tx, &rpc_url, &progress, false)?;
+    let mut parsed_txs = parsed_inputs.parsed_txs;
+    let raw_input = parsed_inputs
+        .raw_inputs
+        .into_iter()
+        .next()
+        .expect("single input parse should produce one raw input");
+    let mut parsed_tx =
+        parsed_txs.pop().expect("single input parse should produce one parsed transaction");
 
     let cache_key = crate::core::cache::derive_cache_key_single(&raw_input, &parsed_tx.transaction);
     let (tx_cache_dir, offline) =
         crate::core::cache::resolve_cache_state(cache, &cache_dir, refresh_cache, &cache_key);
 
-    let mut account_loader = account_loader::create_loader(
-        rpc_url.clone(),
+    let mut prepared = prepare_accounts_and_idls(
+        &rpc_url,
         tx_cache_dir.clone(),
         offline,
-        Some(progress.clone()),
+        std::slice::from_ref(&parsed_tx),
+        &mut parser_registry,
+        no_idl_fetch,
+        &progress,
     )?;
-    let mut resolved_accounts = account_loader.load_for_transaction(&parsed_tx.transaction)?;
 
     warn_unmatched_addresses(
         &replacements,
         &fundings,
         &token_funding_requests,
         &[&parsed_tx],
-        &resolved_accounts,
+        &prepared.resolved_accounts,
     );
 
     let prepared_token_fundings = if token_funding_requests.is_empty() {
         Vec::new()
     } else {
         funding::prepare_token_fundings(
-            &mut account_loader,
-            &mut resolved_accounts,
+            &mut prepared.account_loader,
+            &mut prepared.resolved_accounts,
             &token_funding_requests,
         )?
     };
 
-    let program_ids = collect_program_ids(&resolved_accounts);
-
-    if program_ids.is_empty() {
-        log::error!("No executable accounts found after RPC load; skipping IDL parsing");
-    } else {
-        if !no_idl_fetch && !offline {
-            let idl_fetcher =
-                account_loader::create_idl_fetcher(&account_loader, Some(progress.clone()));
-            match auto_fetch_missing_idls(
-                &idl_fetcher,
-                &parser_registry,
-                &program_ids,
-                &resolved_accounts,
-                Some(&progress),
-            ) {
-                Ok(count) if count > 0 => log::info!("Auto-fetched {} missing IDLs", count),
-                Ok(_) => {}
-                Err(err) => log::warn!("Failed to auto-fetch missing IDLs: {:#}", err),
-            }
-        }
-
-        // Load IDL parsers for all programs used in this transaction
-        match parser_registry.load_idl_parsers_for_programs(program_ids) {
-            Ok(count) if count > 0 => log::info!("Lazy-loaded {} IDL parsers", count),
-            Ok(_) => {}
-            Err(err) => log::warn!("Failed to load IDL parsers: {:?}", err),
-        }
-    }
-
     if !offline {
         if let Some(ref dir) = tx_cache_dir {
             executor::dump_accounts_to_dir(
-                &resolved_accounts,
+                &prepared.resolved_accounts,
                 &parsed_tx.account_plan.static_accounts,
                 dir,
             )
@@ -181,7 +158,7 @@ pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
                     cache_type: "single".to_string(),
                     inputs: vec![raw_input.clone()],
                     rpc_url: rpc_url.clone(),
-                    account_count: resolved_accounts.accounts.len(),
+                    account_count: prepared.resolved_accounts.accounts.len(),
                 },
             )
             .context("Failed to write cache metadata")?;
@@ -201,21 +178,21 @@ pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
             data_patches,
         },
     };
-    let mut executor = executor::TransactionExecutor::prepare(resolved_accounts, sim_opts)?;
+    let mut executor =
+        executor::TransactionExecutor::prepare(prepared.resolved_accounts, sim_opts)?;
 
     let simulation = executor.execute(&parsed_tx.transaction)?;
 
     // Update transaction summary with inner instructions from simulation
-    let mut updated_tx = parsed_tx;
-    updated_tx.summary = transaction::TransactionSummary::from_transaction(
-        &updated_tx.transaction,
-        &updated_tx.account_plan,
+    parsed_tx.summary = transaction::TransactionSummary::from_transaction(
+        &parsed_tx.transaction,
+        &parsed_tx.account_plan,
         simulation.meta.inner_instructions.clone(),
     );
 
     progress.finish();
     output::render(
-        &updated_tx,
+        &parsed_tx,
         executor.resolved_accounts(),
         &simulation,
         executor.replacements(),
@@ -245,8 +222,9 @@ fn handle_bundle(
 ) -> Result<()> {
     log::info!("Bundle simulation mode: {} transactions", tx_inputs.len());
 
-    let parsed_txs =
-        transaction::parse_multi_raw_transactions(&tx_inputs, rpc_url, Some(progress))?;
+    let parsed_inputs = parse_inputs_to_txs(tx_inputs, rpc_url, progress, true)?;
+    let tx_inputs = parsed_inputs.raw_inputs;
+    let parsed_txs = parsed_inputs.parsed_txs;
     log::info!("Successfully parsed {} transactions", parsed_txs.len());
 
     let cache_key = crate::core::cache::derive_cache_key_bundle(&tx_inputs, &parsed_txs);
@@ -254,14 +232,15 @@ fn handle_bundle(
         crate::core::cache::resolve_cache_state(cache, &cache_dir, refresh_cache, &cache_key);
 
     let tx_refs: Vec<_> = parsed_txs.iter().map(|p| &p.transaction).collect();
-
-    let mut account_loader = account_loader::create_loader(
-        rpc_url.to_string(),
+    let mut prepared = prepare_accounts_and_idls(
+        rpc_url,
         bundle_cache_dir.clone(),
         offline,
-        Some(progress.clone()),
+        &parsed_txs,
+        parser_registry,
+        no_idl_fetch,
+        progress,
     )?;
-    let mut resolved_accounts = account_loader.load_for_transactions(&tx_refs)?;
 
     let parsed_tx_refs: Vec<_> = parsed_txs.iter().collect();
     warn_unmatched_addresses(
@@ -269,7 +248,7 @@ fn handle_bundle(
         &sim_opts.mutations.fundings,
         &token_funding_requests,
         &parsed_tx_refs,
-        &resolved_accounts,
+        &prepared.resolved_accounts,
     );
 
     // Prepare token fundings
@@ -277,38 +256,12 @@ fn handle_bundle(
         Vec::new()
     } else {
         funding::prepare_token_fundings(
-            &mut account_loader,
-            &mut resolved_accounts,
+            &mut prepared.account_loader,
+            &mut prepared.resolved_accounts,
             &token_funding_requests,
         )?
     };
     sim_opts.mutations.token_fundings = prepared_token_fundings;
-
-    // Load IDL parsers for all programs
-    let program_ids = collect_program_ids(&resolved_accounts);
-    if !program_ids.is_empty() {
-        if !no_idl_fetch && !offline {
-            let idl_fetcher =
-                account_loader::create_idl_fetcher(&account_loader, Some(progress.clone()));
-            match auto_fetch_missing_idls(
-                &idl_fetcher,
-                parser_registry,
-                &program_ids,
-                &resolved_accounts,
-                Some(progress),
-            ) {
-                Ok(count) if count > 0 => log::info!("Auto-fetched {} missing IDLs", count),
-                Ok(_) => {}
-                Err(err) => log::warn!("Failed to auto-fetch missing IDLs: {:#}", err),
-            }
-        }
-
-        match parser_registry.load_idl_parsers_for_programs(program_ids) {
-            Ok(count) if count > 0 => log::info!("Lazy-loaded {} IDL parsers", count),
-            Ok(_) => {}
-            Err(err) => log::warn!("Failed to load IDL parsers: {:?}", err),
-        }
-    }
 
     if !offline {
         if let Some(ref dir) = bundle_cache_dir {
@@ -317,7 +270,7 @@ fn handle_bundle(
                 .flat_map(|tx| tx.account_plan.static_accounts.iter().copied())
                 .collect();
             let required_accounts: Vec<_> = required_accounts.into_iter().collect();
-            executor::dump_accounts_to_dir(&resolved_accounts, &required_accounts, dir)
+            executor::dump_accounts_to_dir(&prepared.resolved_accounts, &required_accounts, dir)
                 .context("Failed to write account cache")?;
             crate::core::cache::write_meta_json(
                 dir,
@@ -327,7 +280,7 @@ fn handle_bundle(
                     cache_type: "bundle".to_string(),
                     inputs: tx_inputs.clone(),
                     rpc_url: rpc_url.to_string(),
-                    account_count: resolved_accounts.accounts.len(),
+                    account_count: prepared.resolved_accounts.accounts.len(),
                 },
             )
             .context("Failed to write cache metadata")?;
@@ -336,7 +289,8 @@ fn handle_bundle(
 
     // Execute bundle simulation
     let total_tx_count = parsed_txs.len();
-    let mut executor = executor::TransactionExecutor::prepare(resolved_accounts, sim_opts)?;
+    let mut executor =
+        executor::TransactionExecutor::prepare(prepared.resolved_accounts, sim_opts)?;
 
     let simulations = executor.execute_bundle(&tx_refs);
 

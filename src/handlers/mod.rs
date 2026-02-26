@@ -10,6 +10,8 @@ pub(crate) mod program_elf;
 pub(crate) mod send;
 pub(crate) mod simulate;
 
+use std::path::PathBuf;
+
 use crate::parsers::instruction::ParserRegistry;
 use crate::utils::progress::Progress;
 use crate::{cli, core::account_loader, core::idl_fetcher, core::transaction};
@@ -88,6 +90,110 @@ pub(crate) fn auto_fetch_missing_idls(
     }
 
     Ok(fetched)
+}
+
+pub(crate) struct ParsedInputTransactions {
+    pub raw_inputs: Vec<String>,
+    pub parsed_txs: Vec<transaction::ParsedTransaction>,
+}
+
+pub(crate) struct PreparedPipelineContext {
+    pub account_loader: account_loader::AccountLoader,
+    pub resolved_accounts: account_loader::ResolvedAccounts,
+}
+
+/// Parses transaction inputs into a normalized transaction list.
+///
+/// - bundle mode: parse all positional inputs as transactions/signatures
+/// - single mode: parse first positional input, fallback to stdin when missing
+pub(crate) fn parse_inputs_to_txs(
+    tx_inputs: Vec<String>,
+    rpc_url: &str,
+    progress: &Progress,
+    bundle_mode: bool,
+) -> Result<ParsedInputTransactions> {
+    if bundle_mode {
+        let parsed_txs =
+            transaction::parse_multi_raw_transactions(&tx_inputs, rpc_url, Some(progress))?;
+        return Ok(ParsedInputTransactions { raw_inputs: tx_inputs, parsed_txs });
+    }
+
+    let tx_single = tx_inputs.into_iter().next();
+    let raw_input = transaction::read_raw_transaction(tx_single)?;
+    let parsed_tx = transaction::parse_transaction_input(&raw_input, rpc_url, Some(progress))?;
+    Ok(ParsedInputTransactions { raw_inputs: vec![raw_input], parsed_txs: vec![parsed_tx] })
+}
+
+/// Runs the shared IDL stage for a resolved account set.
+pub(crate) fn run_idl_pipeline(
+    account_loader: &account_loader::AccountLoader,
+    parser_registry: &mut ParserRegistry,
+    resolved_accounts: &account_loader::ResolvedAccounts,
+    no_idl_fetch: bool,
+    offline: bool,
+    progress: Option<&Progress>,
+) {
+    let program_ids = collect_program_ids(resolved_accounts);
+    if program_ids.is_empty() {
+        log::error!("No executable accounts found after RPC load; skipping IDL parsing");
+        return;
+    }
+
+    if !no_idl_fetch && !offline {
+        let idl_fetcher = account_loader::create_idl_fetcher(account_loader, progress.cloned());
+        match auto_fetch_missing_idls(
+            &idl_fetcher,
+            parser_registry,
+            &program_ids,
+            resolved_accounts,
+            progress,
+        ) {
+            Ok(count) if count > 0 => log::info!("Auto-fetched {} missing IDLs", count),
+            Ok(_) => {}
+            Err(err) => log::warn!("Failed to auto-fetch missing IDLs: {:#}", err),
+        }
+    }
+
+    match parser_registry.load_idl_parsers_for_programs(program_ids) {
+        Ok(count) if count > 0 => log::info!("Lazy-loaded {} IDL parsers", count),
+        Ok(_) => {}
+        Err(err) => log::warn!("Failed to load IDL parsers: {:?}", err),
+    }
+}
+
+/// Loads accounts for parsed transactions and runs the shared IDL pipeline.
+pub(crate) fn prepare_accounts_and_idls(
+    rpc_url: &str,
+    cache_dir: Option<PathBuf>,
+    offline: bool,
+    parsed_txs: &[transaction::ParsedTransaction],
+    parser_registry: &mut ParserRegistry,
+    no_idl_fetch: bool,
+    progress: &Progress,
+) -> Result<PreparedPipelineContext> {
+    let mut account_loader = account_loader::create_loader(
+        rpc_url.to_string(),
+        cache_dir,
+        offline,
+        Some(progress.clone()),
+    )?;
+    let resolved_accounts = if parsed_txs.len() == 1 {
+        account_loader.load_for_transaction(&parsed_txs[0].transaction)?
+    } else {
+        let tx_refs: Vec<_> = parsed_txs.iter().map(|parsed| &parsed.transaction).collect();
+        account_loader.load_for_transactions(&tx_refs)?
+    };
+
+    run_idl_pipeline(
+        &account_loader,
+        parser_registry,
+        &resolved_accounts,
+        no_idl_fetch,
+        offline,
+        Some(progress),
+    );
+
+    Ok(PreparedPipelineContext { account_loader, resolved_accounts })
 }
 
 /// Builds a set of all account keys referenced by the parsed transactions and their

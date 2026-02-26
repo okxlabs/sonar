@@ -482,9 +482,10 @@ mod tests {
 
         let call_count = Arc::new(AtomicUsize::new(0));
         let provider = CountingProvider { accounts, call_count: call_count.clone() };
-        let mut loader = AccountLoader::with_provider(Arc::new(provider)).with_resolvers(vec![
-            Box::new(MarkerDependencyResolver { marker: payer.pubkey(), missing }),
-        ]);
+        let mut loader =
+            AccountLoader::with_provider(Arc::new(provider)).with_resolvers(vec![Box::new(
+                MarkerDependencyResolver { marker: payer.pubkey(), missing },
+            )]);
 
         let tx = create_transfer_tx(&payer, &recipient, 1000);
 
@@ -601,11 +602,7 @@ mod tests {
                 &self,
                 accounts: &HashMap<Pubkey, AccountSharedData>,
             ) -> Vec<Pubkey> {
-                if accounts.contains_key(&self.marker) {
-                    vec![self.missing]
-                } else {
-                    Vec::new()
-                }
+                if accounts.contains_key(&self.marker) { vec![self.missing] } else { Vec::new() }
             }
         }
 
@@ -614,9 +611,8 @@ mod tests {
         let call_count = Arc::new(AtomicUsize::new(0));
 
         let provider = MissingOnlyProvider { call_count: call_count.clone(), marker };
-        let mut loader = AccountLoader::with_provider(Arc::new(provider)).with_resolvers(vec![
-            Box::new(MarkerDependencyResolver { marker, missing }),
-        ]);
+        let mut loader = AccountLoader::with_provider(Arc::new(provider))
+            .with_resolvers(vec![Box::new(MarkerDependencyResolver { marker, missing })]);
 
         let mut resolved = ResolvedAccounts {
             accounts: HashMap::from([(marker, AccountSharedData::from(system_account(1)))]),
@@ -664,11 +660,7 @@ mod tests {
                 &self,
                 accounts: &HashMap<Pubkey, AccountSharedData>,
             ) -> Vec<Pubkey> {
-                if accounts.contains_key(&self.marker) {
-                    vec![self.missing]
-                } else {
-                    Vec::new()
-                }
+                if accounts.contains_key(&self.marker) { vec![self.missing] } else { Vec::new() }
             }
         }
 
