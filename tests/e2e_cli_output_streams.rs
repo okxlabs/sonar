@@ -337,8 +337,8 @@ fn decode_signature_prefers_cached_raw_tx_and_skips_rpc_fetch() {
         Some(&payer.pubkey()),
     );
     let tx = Transaction::new(&[&payer], message, blockhash);
-    let raw_tx =
-        BASE64_STANDARD.encode(bincode::serialize(&VersionedTransaction::from(tx)).expect("serialize tx"));
+    let raw_tx = BASE64_STANDARD
+        .encode(bincode::serialize(&VersionedTransaction::from(tx)).expect("serialize tx"));
 
     let temp = std::env::temp_dir().join(format!("sonar_decode_cache_test_{}", std::process::id()));
     let _ = fs::remove_dir_all(&temp);
@@ -401,10 +401,11 @@ fn decode_signature_no_cache_forces_rpc_fetch_and_fails_on_bad_rpc() {
         Some(&payer.pubkey()),
     );
     let tx = Transaction::new(&[&payer], message, blockhash);
-    let raw_tx =
-        BASE64_STANDARD.encode(bincode::serialize(&VersionedTransaction::from(tx)).expect("serialize tx"));
+    let raw_tx = BASE64_STANDARD
+        .encode(bincode::serialize(&VersionedTransaction::from(tx)).expect("serialize tx"));
 
-    let temp = std::env::temp_dir().join(format!("sonar_decode_no_cache_test_{}", std::process::id()));
+    let temp =
+        std::env::temp_dir().join(format!("sonar_decode_no_cache_test_{}", std::process::id()));
     let _ = fs::remove_dir_all(&temp);
     fs::create_dir_all(&temp).expect("create temp dir");
     let cache_dir = temp.join(signature);
@@ -437,7 +438,8 @@ fn decode_signature_no_cache_forces_rpc_fetch_and_fails_on_bad_rpc() {
     let output = assert.get_output();
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        !stderr.contains("Signature fetch failed") && !stderr.contains("Failed to fetch transaction"),
+        !stderr.contains("Signature fetch failed")
+            && !stderr.contains("Failed to fetch transaction"),
         "expected --no-cache to still reuse cached raw tx, got signature fetch error: {stderr}"
     );
     assert!(
@@ -473,11 +475,11 @@ fn decode_signature_refresh_cache_forces_rpc_fetch_and_fails_on_bad_rpc() {
         Some(&payer.pubkey()),
     );
     let tx = Transaction::new(&[&payer], message, blockhash);
-    let raw_tx =
-        BASE64_STANDARD.encode(bincode::serialize(&VersionedTransaction::from(tx)).expect("serialize tx"));
+    let raw_tx = BASE64_STANDARD
+        .encode(bincode::serialize(&VersionedTransaction::from(tx)).expect("serialize tx"));
 
-    let temp =
-        std::env::temp_dir().join(format!("sonar_decode_refresh_cache_test_{}", std::process::id()));
+    let temp = std::env::temp_dir()
+        .join(format!("sonar_decode_refresh_cache_test_{}", std::process::id()));
     let _ = fs::remove_dir_all(&temp);
     fs::create_dir_all(&temp).expect("create temp dir");
     let cache_dir = temp.join(signature);

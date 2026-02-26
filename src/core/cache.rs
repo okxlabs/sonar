@@ -163,8 +163,8 @@ mod tests {
 
     #[test]
     fn read_meta_json_rejects_legacy_inputs_schema() {
-        let dir =
-            std::env::temp_dir().join(format!("sonar-cache-legacy-schema-test-{}", std::process::id()));
+        let dir = std::env::temp_dir()
+            .join(format!("sonar-cache-legacy-schema-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
 

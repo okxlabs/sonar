@@ -14,11 +14,7 @@ use sonar_sim::{
 use super::{prepare_accounts_and_idls, resolve_inputs_to_txs, warn_unmatched_addresses};
 
 fn cache_read_dir(cache_dir: Option<PathBuf>, refresh_cache: bool) -> Option<PathBuf> {
-    if refresh_cache {
-        None
-    } else {
-        cache_dir
-    }
+    if refresh_cache { None } else { cache_dir }
 }
 
 pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
@@ -242,7 +238,8 @@ fn handle_bundle(
 ) -> Result<()> {
     log::info!("Bundle simulation mode: {} transactions", tx_inputs.len());
 
-    let parsed_inputs = resolve_inputs_to_txs(tx_inputs, rpc_url, resolver_cache_root, progress, true)?;
+    let parsed_inputs =
+        resolve_inputs_to_txs(tx_inputs, rpc_url, resolver_cache_root, progress, true)?;
     let resolved_txs = parsed_inputs.resolved_txs;
     let tx_inputs: Vec<_> = resolved_txs.iter().map(|tx| tx.original_input.clone()).collect();
     let parsed_txs: Vec<_> = resolved_txs.iter().map(|tx| tx.parsed_tx.clone()).collect();

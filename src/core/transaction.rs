@@ -509,10 +509,10 @@ mod tests {
         let (versioned, _) = sample_transaction();
         let bytes = bincode::serialize(&versioned).unwrap();
         let raw_base64 = BASE64_STANDARD.encode(&bytes);
-        let signature =
-            "3PtGYH77LhhQqTXP4SmDVJ85hmDieWsgXCUbn14v7gYyVYPjZzygUQhTk3bSTYnfA48vCM1rmWY7zWL3j1EVKmEy";
+        let signature = "3PtGYH77LhhQqTXP4SmDVJ85hmDieWsgXCUbn14v7gYyVYPjZzygUQhTk3bSTYnfA48vCM1rmWY7zWL3j1EVKmEy";
 
-        let cache_root = std::env::temp_dir().join(format!("sonar-resolver-cache-{}", std::process::id()));
+        let cache_root =
+            std::env::temp_dir().join(format!("sonar-resolver-cache-{}", std::process::id()));
         let _ = fs::remove_dir_all(&cache_root);
         let cache_dir = cache_root.join(signature);
 

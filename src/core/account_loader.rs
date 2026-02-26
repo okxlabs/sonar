@@ -72,14 +72,12 @@ pub struct OfflineWarningObserver;
 impl sonar_sim::FetchObserver for OfflineWarningObserver {
     fn on_event(&self, event: &sonar_sim::FetchEvent) {
         if let sonar_sim::FetchEvent::RpcSkippedByPolicy { missing } = event {
-            let non_native: Vec<_> =
-                missing
-                    .iter()
-                    .filter(|k| {
-                        !sonar_sim::is_native_or_sysvar(k)
-                            && !sonar_sim::is_litesvm_builtin_program(k)
-                    })
-                    .collect();
+            let non_native: Vec<_> = missing
+                .iter()
+                .filter(|k| {
+                    !sonar_sim::is_native_or_sysvar(k) && !sonar_sim::is_litesvm_builtin_program(k)
+                })
+                .collect();
             if !non_native.is_empty() {
                 log::warn!(
                     "offline mode: {} account(s) not found in cache directory (treated as non-existent): [{}]",

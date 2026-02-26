@@ -256,8 +256,8 @@ mod tests {
         let placeholder_path = temp_dir.join(format!("{missing_lookup_account}.json"));
         assert!(placeholder_path.exists(), "missing lookup placeholder should be written");
 
-        let parsed = parse_account_json(&PathBuf::from(&placeholder_path))
-            .expect("valid placeholder json");
+        let parsed =
+            parse_account_json(&PathBuf::from(&placeholder_path)).expect("valid placeholder json");
         assert_eq!(parsed.lamports, 0);
         assert!(parsed.data.is_empty());
         assert_eq!(parsed.owner, solana_sdk_ids::system_program::id());

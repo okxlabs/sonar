@@ -10,11 +10,7 @@ use crate::utils::progress::Progress;
 use super::{prepare_accounts_and_idls, resolve_inputs_to_txs};
 
 fn cache_read_dir(cache_dir: Option<PathBuf>, refresh_cache: bool) -> Option<PathBuf> {
-    if refresh_cache {
-        None
-    } else {
-        cache_dir
-    }
+    if refresh_cache { None } else { cache_dir }
 }
 
 fn resolve_decode_cache_state_single(
@@ -55,11 +51,8 @@ pub(crate) fn handle(args: DecodeArgs) -> Result<()> {
         refresh_cache,
     } = args;
     let rpc_url = rpc.rpc_url;
-    let resolver_cache_root = if refresh_cache {
-        None
-    } else {
-        Some(crate::core::cache::resolve_cache_dir(&cache_dir))
-    };
+    let resolver_cache_root =
+        if refresh_cache { None } else { Some(crate::core::cache::resolve_cache_dir(&cache_dir)) };
     let TransactionInputArgs { tx, json } = transaction;
 
     // Check if this is a bundle (multiple positional TX arguments)
@@ -87,8 +80,13 @@ pub(crate) fn handle(args: DecodeArgs) -> Result<()> {
         .expect("single input resolve should produce one transaction");
     let original_input = resolved_tx.original_input;
     let parsed_tx = resolved_tx.parsed_tx;
-    let (decode_cache_dir, offline) =
-        resolve_decode_cache_state_single(!no_cache, &cache_dir, refresh_cache, &original_input, &parsed_tx);
+    let (decode_cache_dir, offline) = resolve_decode_cache_state_single(
+        !no_cache,
+        &cache_dir,
+        refresh_cache,
+        &original_input,
+        &parsed_tx,
+    );
     let cache_read_dir_for_load = cache_read_dir(decode_cache_dir, refresh_cache);
 
     let prepared = prepare_accounts_and_idls(
@@ -130,12 +128,19 @@ fn handle_bundle(
 ) -> Result<()> {
     log::info!("Bundle decode mode: {} transactions", tx_inputs.len());
 
-    let parsed_inputs = resolve_inputs_to_txs(tx_inputs, rpc_url, resolver_cache_root, progress, true)?;
+    let parsed_inputs =
+        resolve_inputs_to_txs(tx_inputs, rpc_url, resolver_cache_root, progress, true)?;
     let resolved_txs = parsed_inputs.resolved_txs;
-    let raw_inputs: Vec<_> = resolved_txs.iter().map(|entry| entry.original_input.clone()).collect();
+    let raw_inputs: Vec<_> =
+        resolved_txs.iter().map(|entry| entry.original_input.clone()).collect();
     let parsed_txs: Vec<_> = resolved_txs.into_iter().map(|entry| entry.parsed_tx).collect();
-    let (decode_cache_dir, offline) =
-        resolve_decode_cache_state_bundle(cache, &cache_dir, refresh_cache, &raw_inputs, &parsed_txs);
+    let (decode_cache_dir, offline) = resolve_decode_cache_state_bundle(
+        cache,
+        &cache_dir,
+        refresh_cache,
+        &raw_inputs,
+        &parsed_txs,
+    );
     let cache_read_dir_for_load = cache_read_dir(decode_cache_dir, refresh_cache);
     log::info!("Successfully parsed {} transactions", parsed_txs.len());
 
