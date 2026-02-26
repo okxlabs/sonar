@@ -5,7 +5,7 @@ use anyhow::{Context, Result};
 use crate::cli::{self, SimulateArgs, TransactionInputArgs};
 use crate::parsers::instruction::ParserRegistry;
 use crate::utils::progress::Progress;
-use crate::{core::executor as core_executor, core::transaction, output};
+use crate::{core::account_file, core::transaction, output};
 use sonar_sim::{
     ExecutionOptions, SimulationOptions, StateMutationOptions, TransactionExecutor,
     prepare_token_fundings,
@@ -160,7 +160,7 @@ pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
 
     if !offline {
         if let Some(ref dir) = tx_cache_dir {
-            core_executor::dump_accounts_to_dir(
+            account_file::dump_accounts_to_dir(
                 &prepared.resolved_accounts,
                 &parsed_tx.account_plan.static_accounts,
                 dir,
@@ -292,7 +292,7 @@ fn handle_bundle(
                 .flat_map(|tx| tx.account_plan.static_accounts.iter().copied())
                 .collect();
             let required_accounts: Vec<_> = required_accounts.into_iter().collect();
-            core_executor::dump_accounts_to_dir(
+            account_file::dump_accounts_to_dir(
                 &prepared.resolved_accounts,
                 &required_accounts,
                 dir,
