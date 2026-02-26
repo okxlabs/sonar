@@ -1,0 +1,11 @@
+src/handlers/decode.rs
+crates/sonar-sim/src/account_loader.rs
+src/handlers/simulate.rs
+src/handlers/mod.rs
+---
+{
+  "metadata": {
+    "base_commit_sha": "7022382eb5cd5b42fcf139613aaba50ddf270d57",
+    "prompts": {}
+  }
+}
