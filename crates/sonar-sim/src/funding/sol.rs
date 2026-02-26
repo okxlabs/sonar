@@ -2,19 +2,19 @@ use litesvm::LiteSVM;
 use log::info;
 use solana_account::{AccountSharedData, WritableAccount};
 
+use solana_native_token::LAMPORTS_PER_SOL;
+
 use crate::error::{Result, SonarSimError};
-use crate::types::Funding;
+use crate::types::SolFunding;
 
-const LAMPORTS_PER_SOL: u64 = 1_000_000_000;
-
-pub fn apply_sol_fundings(svm: &mut LiteSVM, fundings: &[Funding]) -> Result<()> {
+pub fn apply_sol_fundings(svm: &mut LiteSVM, fundings: &[SolFunding]) -> Result<()> {
     for funding in fundings {
         apply_single_sol_funding(svm, funding)?;
     }
     Ok(())
 }
 
-fn apply_single_sol_funding(svm: &mut LiteSVM, funding: &Funding) -> Result<()> {
+fn apply_single_sol_funding(svm: &mut LiteSVM, funding: &SolFunding) -> Result<()> {
     let lamports = funding.amount_lamports;
     let sol = lamports as f64 / LAMPORTS_PER_SOL as f64;
     info!("Funding account {} with {} lamports ({:.9} SOL)", funding.pubkey, lamports, sol);
@@ -50,7 +50,7 @@ mod tests {
         let template = AccountSharedData::new(0, 0, &owner);
         svm.set_account(key, template.into()).unwrap();
 
-        let funding = Funding { pubkey: key, amount_lamports: 1_250_000_000 };
+        let funding = SolFunding { pubkey: key, amount_lamports: 1_250_000_000 };
         apply_sol_fundings(&mut svm, &[funding]).expect("funding succeeds");
 
         let updated = svm.get_account(&key).expect("account exists");
@@ -62,7 +62,7 @@ mod tests {
         let mut svm = LiteSVM::new();
         let key = Pubkey::new_unique();
 
-        let funding = Funding { pubkey: key, amount_lamports: 500_000_000 };
+        let funding = SolFunding { pubkey: key, amount_lamports: 500_000_000 };
         apply_sol_fundings(&mut svm, &[funding]).expect("funding succeeds");
 
         let created = svm.get_account(&key).expect("account created");
@@ -77,8 +77,8 @@ mod tests {
         let k2 = Pubkey::new_unique();
 
         let fundings = vec![
-            Funding { pubkey: k1, amount_lamports: 1_000_000_000 },
-            Funding { pubkey: k2, amount_lamports: 2_000_000_000 },
+            SolFunding { pubkey: k1, amount_lamports: 1_000_000_000 },
+            SolFunding { pubkey: k2, amount_lamports: 2_000_000_000 },
         ];
         apply_sol_fundings(&mut svm, &fundings).expect("funding succeeds");
 
@@ -94,7 +94,7 @@ mod tests {
         let template = AccountSharedData::new(999_999_999, 0, &owner);
         svm.set_account(key, template.into()).unwrap();
 
-        let funding = Funding { pubkey: key, amount_lamports: 100 };
+        let funding = SolFunding { pubkey: key, amount_lamports: 100 };
         apply_sol_fundings(&mut svm, &[funding]).unwrap();
 
         assert_eq!(svm.get_account(&key).unwrap().lamports(), 100);

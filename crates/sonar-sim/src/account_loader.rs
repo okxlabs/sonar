@@ -11,7 +11,7 @@ use solana_slot_hashes::SlotHashes;
 use solana_sysvar_id::SysvarId;
 use solana_transaction::versioned::VersionedTransaction;
 
-use crate::account_fetcher::AccountFetcher;
+use crate::account_fetcher::{AccountFetcher, format_pubkeys};
 use crate::error::{Result, SonarSimError};
 use crate::resolvers::{AccountDependencyResolver, default_resolvers};
 use crate::rpc_provider::RpcAccountProvider;
@@ -306,17 +306,6 @@ fn resolve_lookup_indexes(addresses: &[Pubkey], indexes: &[u8]) -> Result<Vec<Pu
             })
         })
         .collect()
-}
-
-fn format_pubkeys(pubkeys: &[Pubkey]) -> String {
-    const MAX_DISPLAY: usize = 10;
-    if pubkeys.len() <= MAX_DISPLAY {
-        return pubkeys.iter().map(ToString::to_string).collect::<Vec<_>>().join(", ");
-    }
-    let mut rendered =
-        pubkeys.iter().take(MAX_DISPLAY).map(ToString::to_string).collect::<Vec<_>>();
-    rendered.push(format!("... total {}", pubkeys.len()));
-    rendered.join(", ")
 }
 
 #[cfg(test)]

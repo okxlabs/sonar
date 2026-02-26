@@ -7,7 +7,9 @@ pub mod balance_changes {
 }
 
 pub mod types {
-    pub use sonar_sim::{AccountDataPatch, Funding, Replacement, TokenAmount, TokenFunding};
+    pub use sonar_sim::{
+        AccountDataPatch, AccountReplacement, SolFunding, TokenAmount, TokenFunding,
+    };
 }
 
 pub mod funding {

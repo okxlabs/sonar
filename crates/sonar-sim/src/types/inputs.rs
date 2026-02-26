@@ -4,22 +4,22 @@ use solana_account::Account;
 use solana_pubkey::Pubkey;
 
 #[derive(Clone, Debug)]
-pub enum Replacement {
+pub enum AccountReplacement {
     Program { program_id: Pubkey, so_path: PathBuf },
     Account { pubkey: Pubkey, account: Account, source_path: PathBuf },
 }
 
-impl Replacement {
+impl AccountReplacement {
     pub fn pubkey(&self) -> Pubkey {
         match self {
-            Replacement::Program { program_id, .. } => *program_id,
-            Replacement::Account { pubkey, .. } => *pubkey,
+            AccountReplacement::Program { program_id, .. } => *program_id,
+            AccountReplacement::Account { pubkey, .. } => *pubkey,
         }
     }
 }
 
 #[derive(Clone, Debug)]
-pub struct Funding {
+pub struct SolFunding {
     pub pubkey: Pubkey,
     pub amount_lamports: u64,
 }

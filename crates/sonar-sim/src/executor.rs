@@ -10,13 +10,12 @@ use solana_pubkey::Pubkey;
 use solana_sdk_ids::bpf_loader_upgradeable;
 use solana_sysvar_id::SysvarId;
 use solana_transaction::versioned::VersionedTransaction;
-use solana_transaction::versioned::VersionedTransaction as LiteVersionedTransaction;
 
 use crate::error::{Result, SonarSimError};
 use crate::funding::apply_sol_fundings;
 use crate::types::{
-    AccountDataPatch, Funding, PreparedTokenFunding, Replacement, ResolvedAccounts, ResolvedLookup,
-    ReturnData, SimulationMetadata,
+    AccountDataPatch, AccountReplacement, PreparedTokenFunding, ResolvedAccounts, ResolvedLookup,
+    ReturnData, SimulationMetadata, SolFunding,
 };
 
 // ── Inlined native_ids ──
@@ -81,8 +80,8 @@ pub struct ExecutionOptions {
 /// Pre-simulation mutations applied to the account set before execution.
 #[derive(Debug, Clone, Default)]
 pub struct StateMutationOptions {
-    pub replacements: Vec<Replacement>,
-    pub fundings: Vec<Funding>,
+    pub replacements: Vec<AccountReplacement>,
+    pub fundings: Vec<SolFunding>,
     pub token_fundings: Vec<PreparedTokenFunding>,
     pub data_patches: Vec<AccountDataPatch>,
 }
@@ -114,8 +113,8 @@ impl SimulationOptions {
 }
 
 impl SimulationOptionsBuilder {
-    pub fn signature_verification(mut self, sv: SignatureVerification) -> Self {
-        self.opts.execution.signature_verification = sv;
+    pub fn signature_verification(mut self, verification: SignatureVerification) -> Self {
+        self.opts.execution.signature_verification = verification;
         self
     }
 
@@ -129,12 +128,12 @@ impl SimulationOptionsBuilder {
         self
     }
 
-    pub fn replacements(mut self, replacements: Vec<Replacement>) -> Self {
+    pub fn replacements(mut self, replacements: Vec<AccountReplacement>) -> Self {
         self.opts.mutations.replacements = replacements;
         self
     }
 
-    pub fn fundings(mut self, fundings: Vec<Funding>) -> Self {
+    pub fn fundings(mut self, fundings: Vec<SolFunding>) -> Self {
         self.opts.mutations.fundings = fundings;
         self
     }
@@ -175,12 +174,12 @@ pub fn load_accounts(svm: &mut LiteSVM, resolved: &ResolvedAccounts) -> Result<(
 /// Apply program (.so) and account (.json) replacements into SVM.
 pub fn apply_replacements(
     svm: &mut LiteSVM,
-    replacements: &[Replacement],
+    replacements: &[AccountReplacement],
     resolved: &ResolvedAccounts,
 ) -> Result<()> {
     for replacement in replacements {
         match replacement {
-            Replacement::Program { program_id, so_path } => {
+            AccountReplacement::Program { program_id, so_path } => {
                 if let Some(existing) = resolved.accounts.get(program_id) {
                     if !existing.executable() {
                         warn!(
@@ -201,7 +200,7 @@ pub fn apply_replacements(
                     }
                 })?;
             }
-            Replacement::Account { pubkey, account, source_path } => {
+            AccountReplacement::Account { pubkey, account, source_path } => {
                 if let Some(existing) = resolved.accounts.get(pubkey) {
                     if existing.executable() {
                         warn!(
@@ -289,8 +288,8 @@ pub fn apply_timestamp(svm: &mut LiteSVM, ts: i64) -> Result<()> {
 pub struct TransactionExecutor {
     svm: LiteSVM,
     resolved: ResolvedAccounts,
-    replacements: Vec<Replacement>,
-    fundings: Vec<Funding>,
+    replacements: Vec<AccountReplacement>,
+    fundings: Vec<SolFunding>,
     token_fundings: Vec<PreparedTokenFunding>,
     #[allow(dead_code)]
     data_patches: Vec<AccountDataPatch>,
@@ -336,8 +335,7 @@ impl TransactionExecutor {
         let account_keys = self.collect_transaction_accounts(tx);
         let pre_accounts = self.snapshot_accounts(&account_keys);
 
-        let lite_tx = convert_versioned_transaction(tx)?;
-        let result = self.svm.send_transaction(lite_tx);
+        let result = self.svm.send_transaction(tx.clone());
 
         let post_accounts = self.snapshot_accounts(&account_keys);
 
@@ -415,11 +413,11 @@ impl TransactionExecutor {
         &self.resolved
     }
 
-    pub fn replacements(&self) -> &[Replacement] {
+    pub fn replacements(&self) -> &[AccountReplacement] {
         &self.replacements
     }
 
-    pub fn fundings(&self) -> &[Funding] {
+    pub fn fundings(&self) -> &[SolFunding] {
         &self.fundings
     }
 
@@ -441,14 +439,14 @@ pub struct SimulationResult {
     pub pre_accounts: HashMap<Pubkey, AccountSharedData>,
 }
 
-fn convert_metadata(m: &litesvm::types::TransactionMetadata) -> SimulationMetadata {
+fn convert_metadata(meta: &litesvm::types::TransactionMetadata) -> SimulationMetadata {
     SimulationMetadata {
-        logs: m.logs.clone(),
-        inner_instructions: m.inner_instructions.clone(),
-        compute_units_consumed: m.compute_units_consumed,
+        logs: meta.logs.clone(),
+        inner_instructions: meta.inner_instructions.clone(),
+        compute_units_consumed: meta.compute_units_consumed,
         return_data: ReturnData {
-            program_id: m.return_data.program_id,
-            data: m.return_data.data.clone(),
+            program_id: meta.return_data.program_id,
+            data: meta.return_data.data.clone(),
         },
     }
 }
@@ -463,15 +461,6 @@ impl ResolvedAccounts {
     pub fn lookup_details(&self) -> &[ResolvedLookup] {
         &self.lookups
     }
-}
-
-fn convert_versioned_transaction(tx: &VersionedTransaction) -> Result<LiteVersionedTransaction> {
-    let bytes = bincode::serialize(tx).map_err(|err| SonarSimError::Serialization {
-        reason: format!("Failed to serialize transaction: {err}"),
-    })?;
-    bincode::deserialize(&bytes).map_err(|err| SonarSimError::Serialization {
-        reason: format!("Failed to convert transaction format: {err}"),
-    })
 }
 
 fn account_priority(account: &AccountSharedData) -> u8 {
@@ -621,7 +610,7 @@ mod tests {
         let resolved = ResolvedAccounts { accounts, lookups: vec![] };
 
         let opts = SimulationOptions::builder()
-            .fundings(vec![Funding { pubkey: payer.pubkey(), amount_lamports: 10_000_000_000 }])
+            .fundings(vec![SolFunding { pubkey: payer.pubkey(), amount_lamports: 10_000_000_000 }])
             .build();
 
         let mut executor =
@@ -702,7 +691,7 @@ mod tests {
 
         load_accounts(&mut svm, &resolved).unwrap();
 
-        let replacements = vec![Replacement::Account {
+        let replacements = vec![AccountReplacement::Account {
             pubkey: key,
             account: replacement_account,
             source_path: std::path::PathBuf::from("test.json"),

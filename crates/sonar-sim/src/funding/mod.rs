@@ -9,7 +9,7 @@ use solana_pubkey::Pubkey;
 use spl_token::solana_program::program_pack::Pack;
 
 use crate::error::{Result, SonarSimError};
-use crate::token_utils::{self, TokenProgramKind, ensure_same_program, raw_to_ui_amount};
+use crate::token_decode::{self, TokenProgramKind, ensure_same_program, raw_to_ui_amount};
 use crate::types::{
     AccountAppender, PreparedTokenFunding, ResolvedAccounts, TokenAmount, TokenFunding,
 };
@@ -88,18 +88,19 @@ pub fn prepare_token_fundings(
     let total = requests.len();
     for (index, request) in requests.iter().enumerate() {
         log::debug!("Preparing token fundings ({}/{})", index + 1, total);
-        let summary =
-            process_single(loader, resolved, request).map_err(|e| SonarSimError::Token {
+        let summary = prepare_single_token_funding(loader, resolved, request).map_err(|e| {
+            SonarSimError::Token {
                 account: Some(request.account),
                 reason: format!("Failed to prepare token funding for {}: {e}", request.account),
-            })?;
+            }
+        })?;
         prepared.push(summary);
     }
 
     Ok(prepared)
 }
 
-fn process_single(
+fn prepare_single_token_funding(
     loader: &mut dyn AccountAppender,
     resolved: &mut ResolvedAccounts,
     request: &TokenFunding,
@@ -165,7 +166,7 @@ fn process_single(
             ),
         })?;
 
-    let decimals = token_utils::read_mint_decimals(&mint_account)?;
+    let decimals = token_decode::read_mint_decimals(&mint_account)?;
 
     let amount_raw =
         resolve_token_amount(&request.amount, decimals).map_err(|e| SonarSimError::Token {
@@ -184,11 +185,15 @@ fn process_single(
     }
 
     match program_kind {
-        TokenProgramKind::Legacy => {
-            token_legacy::update_account(resolved, &request.account, &mint, amount_raw, decimals)
-        }
+        TokenProgramKind::Legacy => token_legacy::update_token_balance(
+            resolved,
+            &request.account,
+            &mint,
+            amount_raw,
+            decimals,
+        ),
         TokenProgramKind::Token2022 => {
-            token2022::update_account(resolved, &request.account, &mint, amount_raw, decimals)
+            token2022::update_token_balance(resolved, &request.account, &mint, amount_raw, decimals)
         }
     }
 }
@@ -288,7 +293,7 @@ mod tests {
     use solana_pubkey::Pubkey;
     use spl_token::solana_program::program_pack::Pack;
 
-    use crate::token_utils::{legacy_program_id, raw_to_ui_amount};
+    use crate::token_decode::{legacy_program_id, raw_to_ui_amount};
     use crate::types::{AccountAppender, ResolvedAccounts, TokenAmount, TokenFunding};
 
     use super::*;

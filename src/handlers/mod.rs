@@ -111,7 +111,7 @@ fn collect_transaction_account_keys(
 
 /// Finds --replace pubkeys that are not present in the given transaction account key set.
 fn find_unmatched_replacements(
-    replacements: &[cli::Replacement],
+    replacements: &[cli::AccountReplacement],
     tx_keys: &std::collections::HashSet<Pubkey>,
 ) -> Vec<Pubkey> {
     replacements.iter().filter(|r| !tx_keys.contains(&r.pubkey())).map(|r| r.pubkey()).collect()
@@ -119,7 +119,7 @@ fn find_unmatched_replacements(
 
 /// Finds --fund-sol pubkeys that are not present in the given transaction account key set.
 fn find_unmatched_sol_fundings(
-    fundings: &[cli::Funding],
+    fundings: &[cli::SolFunding],
     tx_keys: &std::collections::HashSet<Pubkey>,
 ) -> Vec<Pubkey> {
     fundings.iter().filter(|f| !tx_keys.contains(&f.pubkey)).map(|f| f.pubkey).collect()
@@ -148,8 +148,8 @@ fn find_unmatched_token_fundings(
 /// Warns the user when --replace, --fund-sol, or --fund-token addresses are not found
 /// in the transaction's account keys, which likely indicates a typo.
 pub(crate) fn warn_unmatched_addresses(
-    replacements: &[cli::Replacement],
-    fundings: &[cli::Funding],
+    replacements: &[cli::AccountReplacement],
+    fundings: &[cli::SolFunding],
     token_fundings: &[cli::TokenFunding],
     parsed_txs: &[&transaction::ParsedTransaction],
     resolved_accounts: &account_loader::ResolvedAccounts,
@@ -255,8 +255,8 @@ mod tests {
         let tx_keys: HashSet<Pubkey> = [key_a, key_b].into_iter().collect();
 
         let fundings = vec![
-            cli::Funding { pubkey: key_a, amount_lamports: 1_000_000_000 },
-            cli::Funding { pubkey: key_b, amount_lamports: 2_000_000_000 },
+            cli::SolFunding { pubkey: key_a, amount_lamports: 1_000_000_000 },
+            cli::SolFunding { pubkey: key_b, amount_lamports: 2_000_000_000 },
         ];
 
         let unmatched = find_unmatched_sol_fundings(&fundings, &tx_keys);
@@ -270,8 +270,8 @@ mod tests {
         let tx_keys: HashSet<Pubkey> = [key_in_tx].into_iter().collect();
 
         let fundings = vec![
-            cli::Funding { pubkey: key_in_tx, amount_lamports: 1_000_000_000 },
-            cli::Funding { pubkey: key_not_in_tx, amount_lamports: 2_000_000_000 },
+            cli::SolFunding { pubkey: key_in_tx, amount_lamports: 1_000_000_000 },
+            cli::SolFunding { pubkey: key_not_in_tx, amount_lamports: 2_000_000_000 },
         ];
 
         let unmatched = find_unmatched_sol_fundings(&fundings, &tx_keys);
@@ -336,11 +336,11 @@ mod tests {
         let tx_keys: HashSet<Pubkey> = [prog_in_tx].into_iter().collect();
 
         let replacements = vec![
-            cli::Replacement::Program {
+            cli::AccountReplacement::Program {
                 program_id: prog_in_tx,
                 so_path: std::path::PathBuf::from("/tmp/a.so"),
             },
-            cli::Replacement::Program {
+            cli::AccountReplacement::Program {
                 program_id: prog_not_in_tx,
                 so_path: std::path::PathBuf::from("/tmp/b.so"),
             },
@@ -358,11 +358,11 @@ mod tests {
         let tx_keys: HashSet<Pubkey> = [prog_a, prog_b].into_iter().collect();
 
         let replacements = vec![
-            cli::Replacement::Program {
+            cli::AccountReplacement::Program {
                 program_id: prog_a,
                 so_path: std::path::PathBuf::from("/tmp/a.so"),
             },
-            cli::Replacement::Program {
+            cli::AccountReplacement::Program {
                 program_id: prog_b,
                 so_path: std::path::PathBuf::from("/tmp/b.so"),
             },

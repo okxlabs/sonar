@@ -15,7 +15,7 @@ pub(crate) mod executor;
 pub(crate) mod funding;
 pub mod resolvers;
 pub(crate) mod rpc_provider;
-pub(crate) mod token_utils;
+pub(crate) mod token_decode;
 pub(crate) mod transaction;
 pub(crate) mod types;
 
@@ -26,9 +26,9 @@ pub use error::{Result, SonarSimError};
 // ── Types ──
 
 pub use types::{
-    AccountAppender, AccountDataPatch, AccountFetchMiddleware, Funding, PreparedTokenFunding,
-    Replacement, ResolvedAccounts, ResolvedLookup, ReturnData, SimulationMetadata, TokenAmount,
-    TokenFunding,
+    AccountAppender, AccountDataPatch, AccountFetchMiddleware, AccountReplacement,
+    PreparedTokenFunding, ResolvedAccounts, ResolvedLookup, ReturnData, SimulationMetadata,
+    SolFunding, TokenAmount, TokenFunding,
 };
 
 // ── Transaction parsing ──

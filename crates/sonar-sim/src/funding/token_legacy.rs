@@ -2,7 +2,7 @@ use solana_pubkey::Pubkey;
 use spl_token::solana_program::program_pack::Pack;
 
 use crate::error::{Result, SonarSimError};
-use crate::token_utils::{TokenProgramKind, legacy_program_id};
+use crate::token_decode::{TokenProgramKind, legacy_program_id};
 use crate::types::{PreparedTokenFunding, ResolvedAccounts};
 
 pub(super) fn create_token_account(
@@ -41,7 +41,7 @@ pub(super) fn create_token_account(
     Ok(())
 }
 
-pub(super) fn update_account(
+pub(super) fn update_token_balance(
     resolved: &mut ResolvedAccounts,
     account_pubkey: &Pubkey,
     mint: &Pubkey,
@@ -67,7 +67,7 @@ mod tests {
 
     use solana_account::{AccountSharedData, ReadableAccount};
 
-    use crate::token_utils::{legacy_program_id, token2022_program_id};
+    use crate::token_decode::{legacy_program_id, token2022_program_id};
     use crate::types::ResolvedAccounts;
 
     use super::*;
@@ -97,7 +97,7 @@ mod tests {
 
         create_token_account(&mut resolved, &token, &mint).unwrap();
 
-        let result = update_account(&mut resolved, &token, &mint, 42_000_000, 6).unwrap();
+        let result = update_token_balance(&mut resolved, &token, &mint, 42_000_000, 6).unwrap();
         assert_eq!(result.amount_raw, 42_000_000);
         assert_eq!(result.decimals, 6);
         assert!((result.ui_amount - 42.0).abs() < f64::EPSILON);
@@ -125,7 +125,7 @@ mod tests {
             }),
         );
 
-        let err = update_account(&mut resolved, &token, &mint, 100, 6).unwrap_err();
+        let err = update_token_balance(&mut resolved, &token, &mint, 100, 6).unwrap_err();
         assert!(err.to_string().contains("not owned by"));
     }
 }

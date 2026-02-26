@@ -12,8 +12,11 @@ use crate::error::Result;
 /// concrete `AccountLoader`, allowing test doubles and alternative
 /// data sources without an RPC connection.
 pub trait AccountAppender {
-    fn append_accounts(&mut self, resolved: &mut ResolvedAccounts, pubkeys: &[Pubkey])
-        -> Result<()>;
+    fn append_accounts(
+        &mut self,
+        resolved: &mut ResolvedAccounts,
+        pubkeys: &[Pubkey],
+    ) -> Result<()>;
 }
 
 /// Hook into the account fetch pipeline.

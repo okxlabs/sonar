@@ -9,8 +9,8 @@ pub enum SonarSimError {
     /// The underlying transport error (e.g. `solana_client::ClientError`) is
     /// stringified into `message` so that the public API does not expose
     /// third-party client types.
-    #[error("RPC error: {message}")]
-    Rpc { message: String },
+    #[error("RPC error: {reason}")]
+    Rpc { reason: String },
 
     /// Account not present in expected store (SVM, cache, resolved set).
     #[error("Account not found: {pubkey}")]

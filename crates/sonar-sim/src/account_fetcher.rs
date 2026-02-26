@@ -123,7 +123,7 @@ impl AccountFetcher {
         for chunk in to_fetch.chunks(MAX_ACCOUNTS_PER_REQUEST) {
             let response =
                 self.provider.get_multiple_accounts(chunk).map_err(|e| SonarSimError::Rpc {
-                    message: format!(
+                    reason: format!(
                         "getMultipleAccounts call failed, account list: [{}]: {e}",
                         format_pubkeys(chunk)
                     ),
@@ -131,7 +131,7 @@ impl AccountFetcher {
 
             if response.len() != chunk.len() {
                 return Err(SonarSimError::Rpc {
-                    message: format!(
+                    reason: format!(
                         "RPC returned count mismatch with request ({} != {})",
                         response.len(),
                         chunk.len()
@@ -156,7 +156,7 @@ impl AccountFetcher {
     }
 }
 
-fn format_pubkeys(pubkeys: &[Pubkey]) -> String {
+pub(crate) fn format_pubkeys(pubkeys: &[Pubkey]) -> String {
     const MAX_DISPLAY: usize = 10;
     if pubkeys.len() <= MAX_DISPLAY {
         return pubkeys.iter().map(ToString::to_string).collect::<Vec<_>>().join(", ");

@@ -3,7 +3,7 @@ use solana_pubkey::Pubkey;
 use spl_token_2022::extension::{BaseStateWithExtensions, BaseStateWithExtensionsMut};
 
 use crate::error::{Result, SonarSimError};
-use crate::token_utils::{TokenProgramKind, token2022_program_id};
+use crate::token_decode::{TokenProgramKind, token2022_program_id};
 use crate::types::{PreparedTokenFunding, ResolvedAccounts};
 
 pub(super) fn create_token_account_with_extensions(
@@ -81,7 +81,7 @@ pub(super) fn create_token_account_with_extensions(
     Ok(())
 }
 
-pub(super) fn update_account(
+pub(super) fn update_token_balance(
     resolved: &mut ResolvedAccounts,
     account_pubkey: &Pubkey,
     mint: &Pubkey,
@@ -111,7 +111,7 @@ mod tests {
     };
     use spl_token_2022::state::{Account as Token2022Account, Mint as Token2022Mint};
 
-    use crate::token_utils::token2022_program_id;
+    use crate::token_decode::token2022_program_id;
     use crate::types::ResolvedAccounts;
 
     use super::*;
@@ -227,7 +227,7 @@ mod tests {
         let mint_account = mint_account_base_only();
         create_token_account_with_extensions(&mut resolved, &token, &mint, &mint_account).unwrap();
 
-        let result = update_account(&mut resolved, &token, &mint, 5_000_000, 6).unwrap();
+        let result = update_token_balance(&mut resolved, &token, &mint, 5_000_000, 6).unwrap();
         assert_eq!(result.amount_raw, 5_000_000);
         assert!((result.ui_amount - 5.0).abs() < f64::EPSILON);
 

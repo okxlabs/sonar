@@ -138,9 +138,11 @@ pub struct TransactionInputArgs {
     pub json: bool,
 }
 
-pub use crate::core::types::{AccountDataPatch, Funding, Replacement, TokenAmount, TokenFunding};
+pub use crate::core::types::{
+    AccountDataPatch, AccountReplacement, SolFunding, TokenAmount, TokenFunding,
+};
 
-pub fn parse_replacement(raw: &str) -> Result<Replacement, String> {
+pub fn parse_replacement(raw: &str) -> Result<AccountReplacement, String> {
     let (pubkey_str, path_str) = raw
         .split_once('=')
         .ok_or_else(|| "Replacement must be in <PUBKEY>=<PATH> format".to_string())?;
@@ -158,10 +160,10 @@ pub fn parse_replacement(raw: &str) -> Result<Replacement, String> {
         .unwrap_or_default();
 
     match ext.as_str() {
-        "so" | "elf" => Ok(Replacement::Program { program_id: pubkey, so_path: path }),
+        "so" | "elf" => Ok(AccountReplacement::Program { program_id: pubkey, so_path: path }),
         "json" => {
             let account = parse_account_json(&path)?;
-            Ok(Replacement::Account { pubkey, account, source_path: path })
+            Ok(AccountReplacement::Account { pubkey, account, source_path: path })
         }
         _ => Err(format!(
             "Unsupported file extension `.{ext}` for replacement file `{}`. \
@@ -177,7 +179,7 @@ pub(crate) fn parse_account_json(path: &Path) -> Result<Account, String> {
 
 const LAMPORTS_PER_SOL: u64 = 1_000_000_000;
 
-pub fn parse_funding(raw: &str) -> Result<Funding, String> {
+pub fn parse_funding(raw: &str) -> Result<SolFunding, String> {
     let (pubkey_str, amount_str) = raw
         .split_once('=')
         .ok_or_else(|| "Funding must be in <PUBKEY>=<AMOUNT> format".to_string())?;
@@ -199,7 +201,7 @@ pub fn parse_funding(raw: &str) -> Result<Funding, String> {
             .map_err(|err| format!("Failed to parse lamports amount `{trimmed}`: {err}"))?
     };
 
-    Ok(Funding { pubkey, amount_lamports })
+    Ok(SolFunding { pubkey, amount_lamports })
 }
 
 pub fn parse_token_funding(raw: &str) -> Result<TokenFunding, String> {
@@ -341,7 +343,7 @@ mod tests {
         std::fs::remove_file(&absolute_path).ok();
 
         match parsed {
-            Replacement::Program { program_id: parsed_id, so_path } => {
+            AccountReplacement::Program { program_id: parsed_id, so_path } => {
                 assert_eq!(parsed_id, program_id);
                 assert_eq!(so_path, absolute_path);
             }
@@ -361,7 +363,7 @@ mod tests {
         std::fs::remove_file(&absolute_path).ok();
 
         match parsed {
-            Replacement::Program { program_id: parsed_id, so_path } => {
+            AccountReplacement::Program { program_id: parsed_id, so_path } => {
                 assert_eq!(parsed_id, program_id);
                 assert_eq!(so_path, absolute_path);
             }

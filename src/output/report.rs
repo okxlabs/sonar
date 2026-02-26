@@ -13,7 +13,7 @@ use crate::core::{
     executor::{ExecutionStatus, SimulationResult},
     funding::PreparedTokenFunding,
     transaction::{AccountReferenceSummary, AccountSourceSummary, ParsedTransaction},
-    types::{Funding, Replacement},
+    types::{AccountReplacement, SolFunding},
 };
 use crate::parsers::instruction::{
     ParsedInstruction, ParserRegistry, anchor_idl::is_anchor_cpi_event,
@@ -26,9 +26,9 @@ use super::BalanceChangeOptions;
 pub(super) struct Report {
     pub(super) transaction: TransactionSection,
     pub(super) simulation: SimulationSection,
-    replacements: Vec<ReplacementSection>,
-    fundings: Vec<FundingSection>,
-    token_fundings: Vec<TokenFundingSection>,
+    replacements: Vec<AccountReplacementSection>,
+    fundings: Vec<SolFundingSection>,
+    token_fundings: Vec<TokenSolFundingSection>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub(super) sol_balance_changes: Vec<SolBalanceChangeSection>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -60,9 +60,9 @@ pub(super) struct TokenBalanceChangeSection {
 #[derive(Serialize)]
 pub(super) struct BundleReport {
     pub(super) transactions: Vec<BundleTransactionReport>,
-    replacements: Vec<ReplacementSection>,
-    fundings: Vec<FundingSection>,
-    token_fundings: Vec<TokenFundingSection>,
+    replacements: Vec<AccountReplacementSection>,
+    fundings: Vec<SolFundingSection>,
+    token_fundings: Vec<TokenSolFundingSection>,
     /// SOL balance changes for the entire bundle (first tx pre -> last tx post)
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub(super) sol_balance_changes: Vec<SolBalanceChangeSection>,
@@ -84,8 +84,8 @@ impl BundleReport {
         parsed_txs: &[ParsedTransaction],
         resolved: &ResolvedAccounts,
         simulations: &[SimulationResult],
-        replacements: &[Replacement],
-        fundings: &[Funding],
+        replacements: &[AccountReplacement],
+        fundings: &[SolFunding],
         token_fundings: &[PreparedTokenFunding],
         parser_registry: &mut ParserRegistry,
         verify_signatures: bool,
@@ -115,7 +115,7 @@ impl BundleReport {
 
         let fundings = fundings
             .iter()
-            .map(|entry| FundingSection {
+            .map(|entry| SolFundingSection {
                 pubkey: entry.pubkey.to_string(),
                 amount_lamports: entry.amount_lamports,
             })
@@ -123,7 +123,7 @@ impl BundleReport {
 
         let token_fundings = token_fundings
             .iter()
-            .map(|entry| TokenFundingSection {
+            .map(|entry| TokenSolFundingSection {
                 account: entry.account.to_string(),
                 mint: entry.mint.to_string(),
                 decimals: entry.decimals,
@@ -157,8 +157,8 @@ impl Report {
         parsed: &ParsedTransaction,
         resolved: &ResolvedAccounts,
         simulation: &SimulationResult,
-        replacements: &[Replacement],
-        fundings: &[Funding],
+        replacements: &[AccountReplacement],
+        fundings: &[SolFunding],
         token_fundings: &[PreparedTokenFunding],
         parser_registry: &mut ParserRegistry,
         verify_signatures: bool,
@@ -185,14 +185,14 @@ impl Report {
 
         let fundings = fundings
             .iter()
-            .map(|entry| FundingSection {
+            .map(|entry| SolFundingSection {
                 pubkey: entry.pubkey.to_string(),
                 amount_lamports: entry.amount_lamports,
             })
             .collect();
         let token_fundings = token_fundings
             .iter()
-            .map(|entry| TokenFundingSection {
+            .map(|entry| TokenSolFundingSection {
                 account: entry.account.to_string(),
                 mint: entry.mint.to_string(),
                 decimals: entry.decimals,
@@ -796,13 +796,13 @@ impl ReturnDataReport {
 }
 
 #[derive(Serialize)]
-struct FundingSection {
+struct SolFundingSection {
     pubkey: String,
     amount_lamports: u64,
 }
 
 #[derive(Serialize)]
-struct TokenFundingSection {
+struct TokenSolFundingSection {
     account: String,
     mint: String,
     decimals: u8,
@@ -811,7 +811,7 @@ struct TokenFundingSection {
 }
 
 #[derive(Serialize)]
-struct ReplacementSection {
+struct AccountReplacementSection {
     #[serde(rename = "type")]
     replacement_type: String,
     pubkey: String,
@@ -822,14 +822,14 @@ fn serialize_bytes_as_hex<S: Serializer>(bytes: &[u8], serializer: S) -> Result<
     serializer.serialize_str(&format!("0x{}", hex::encode(bytes)))
 }
 
-fn replacement_to_section(entry: &Replacement) -> ReplacementSection {
+fn replacement_to_section(entry: &AccountReplacement) -> AccountReplacementSection {
     match entry {
-        Replacement::Program { program_id, so_path } => ReplacementSection {
+        AccountReplacement::Program { program_id, so_path } => AccountReplacementSection {
             replacement_type: "program".to_string(),
             pubkey: program_id.to_string(),
             path: so_path.display().to_string(),
         },
-        Replacement::Account { pubkey, source_path, .. } => ReplacementSection {
+        AccountReplacement::Account { pubkey, source_path, .. } => AccountReplacementSection {
             replacement_type: "account".to_string(),
             pubkey: pubkey.to_string(),
             path: source_path.display().to_string(),

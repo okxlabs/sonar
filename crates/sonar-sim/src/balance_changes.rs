@@ -9,7 +9,7 @@ use serde::Serialize;
 use solana_account::{AccountSharedData, ReadableAccount};
 use solana_pubkey::Pubkey;
 
-use crate::token_utils;
+use crate::token_decode;
 
 /// SOL balance change for a single account.
 #[derive(Debug, Clone, Serialize)]
@@ -73,7 +73,7 @@ pub fn compute_sol_changes(
 /// Compute token balance changes between pre and post account states.
 ///
 /// Only token accounts with actual balance changes (change != 0) are included.
-/// Uses the shared `token_utils` decoder for both SPL Token and Token-2022.
+/// Uses the shared `token_decode` decoder for both SPL Token and Token-2022.
 pub fn compute_token_changes(
     pre_accounts: &HashMap<Pubkey, AccountSharedData>,
     post_accounts: &HashMap<Pubkey, AccountSharedData>,
@@ -84,11 +84,11 @@ pub fn compute_token_changes(
     for (pubkey, post_account) in post_accounts {
         let post_owner = post_account.owner();
         if let Some(decoded) =
-            token_utils::try_decode_token_account(post_account.data(), post_owner)
+            token_decode::try_decode_token_account(post_account.data(), post_owner)
         {
             let before_amount = pre_accounts
                 .get(pubkey)
-                .and_then(|acc| token_utils::try_decode_token_account(acc.data(), acc.owner()))
+                .and_then(|acc| token_decode::try_decode_token_account(acc.data(), acc.owner()))
                 .map(|d| d.amount)
                 .unwrap_or(0);
 
@@ -112,7 +112,7 @@ pub fn compute_token_changes(
     for (pubkey, pre_account) in pre_accounts {
         if !post_accounts.contains_key(pubkey) {
             if let Some(decoded) =
-                token_utils::try_decode_token_account(pre_account.data(), pre_account.owner())
+                token_decode::try_decode_token_account(pre_account.data(), pre_account.owner())
             {
                 if decoded.amount != 0 {
                     let decimals = mint_decimals.get(&decoded.mint).copied().unwrap_or(0);
@@ -144,13 +144,13 @@ pub fn extract_mint_decimals_combined(
     let mut decimals = HashMap::new();
 
     for (pubkey, account) in pre_accounts {
-        if let Some(d) = token_utils::try_read_mint_decimals(account.data(), account.owner()) {
+        if let Some(d) = token_decode::try_read_mint_decimals(account.data(), account.owner()) {
             decimals.insert(*pubkey, d);
         }
     }
 
     for (pubkey, account) in post_accounts {
-        if let Some(d) = token_utils::try_read_mint_decimals(account.data(), account.owner()) {
+        if let Some(d) = token_decode::try_read_mint_decimals(account.data(), account.owner()) {
             decimals.insert(*pubkey, d);
         }
     }

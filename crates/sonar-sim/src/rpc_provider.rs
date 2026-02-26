@@ -29,7 +29,7 @@ impl RpcAccountProvider for SolanaRpcProvider {
         let accounts = self
             .client
             .get_multiple_accounts(pubkeys)
-            .map_err(|e| SonarSimError::Rpc { message: e.to_string() })?;
+            .map_err(|e| SonarSimError::Rpc { reason: e.to_string() })?;
         Ok(accounts.into_iter().map(|opt| opt.map(AccountSharedData::from)).collect())
     }
 }
