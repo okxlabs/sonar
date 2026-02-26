@@ -7,13 +7,11 @@ use solana_account::ReadableAccount;
 use solana_pubkey::Pubkey;
 use unicode_width::UnicodeWidthStr;
 
-use crate::{
-    core::account_loader::ResolvedAccounts,
-    parsers::{
-        instruction::{ParsedField, ParserRegistry},
-        log_parser::{LogEntry, LogEntryWithDepth, parse_logs_by_instruction},
-    },
+use crate::parsers::{
+    instruction::{ParsedField, ParserRegistry},
+    log_parser::{LogEntry, LogEntryWithDepth, parse_logs_by_instruction},
 };
+use sonar_sim::ResolvedAccounts;
 
 use super::LogDisplayOptions;
 use super::report::{

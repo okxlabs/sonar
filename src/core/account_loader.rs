@@ -5,7 +5,7 @@ use log::debug;
 use solana_account::AccountSharedData;
 use solana_pubkey::Pubkey;
 
-pub use sonar_sim::{AccountLoader, ResolvedAccounts, ResolvedLookup};
+use sonar_sim::AccountLoader;
 
 use crate::core::idl_fetcher::IdlFetcher;
 use crate::utils::progress::Progress;
@@ -52,7 +52,7 @@ impl sonar_sim::AccountFetchMiddleware for CliAccountMiddleware {
 
     fn on_offline_missing(&self, pubkeys: &[Pubkey]) {
         let non_native: Vec<_> =
-            pubkeys.iter().filter(|k| !crate::utils::native_ids::is_native_or_sysvar(k)).collect();
+            pubkeys.iter().filter(|k| !sonar_sim::is_native_or_sysvar(k)).collect();
         if !non_native.is_empty() {
             log::warn!(
                 "offline mode: {} account(s) not found in cache directory (treated as non-existent): [{}]",
@@ -113,6 +113,7 @@ mod tests {
     use solana_sysvar_id::SysvarId;
     use solana_transaction::Transaction;
     use solana_transaction::versioned::VersionedTransaction;
+    use sonar_sim::ResolvedAccounts;
     use sonar_sim::{FakeAccountProvider, RpcAccountProvider};
 
     fn system_account(lamports: u64) -> Account {

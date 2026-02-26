@@ -18,11 +18,10 @@ use crate::{cli, core::account_loader, core::idl_fetcher, core::transaction};
 use anyhow::{Context, Result};
 use solana_account::ReadableAccount;
 use solana_pubkey::Pubkey;
+use sonar_sim::{AccountLoader, ResolvedAccounts};
 
 /// Collects executable program IDs from resolved accounts for IDL loading.
-pub(crate) fn collect_program_ids(
-    resolved_accounts: &account_loader::ResolvedAccounts,
-) -> Vec<Pubkey> {
+pub(crate) fn collect_program_ids(resolved_accounts: &ResolvedAccounts) -> Vec<Pubkey> {
     let mut program_ids: Vec<_> = resolved_accounts
         .accounts
         .iter()
@@ -45,7 +44,7 @@ pub(crate) fn auto_fetch_missing_idls(
     idl_fetcher: &idl_fetcher::IdlFetcher,
     parser_registry: &ParserRegistry,
     program_ids: &[Pubkey],
-    resolved_accounts: &account_loader::ResolvedAccounts,
+    resolved_accounts: &ResolvedAccounts,
     progress: Option<&Progress>,
 ) -> Result<usize> {
     let missing = parser_registry.find_fetchable_programs(program_ids, resolved_accounts);
@@ -98,8 +97,8 @@ pub(crate) struct ParsedInputTransactions {
 }
 
 pub(crate) struct PreparedPipelineContext {
-    pub account_loader: account_loader::AccountLoader,
-    pub resolved_accounts: account_loader::ResolvedAccounts,
+    pub account_loader: AccountLoader,
+    pub resolved_accounts: ResolvedAccounts,
 }
 
 /// Parses transaction inputs into a normalized transaction list.
@@ -126,9 +125,9 @@ pub(crate) fn parse_inputs_to_txs(
 
 /// Runs the shared IDL stage for a resolved account set.
 pub(crate) fn run_idl_pipeline(
-    account_loader: &account_loader::AccountLoader,
+    account_loader: &AccountLoader,
     parser_registry: &mut ParserRegistry,
-    resolved_accounts: &account_loader::ResolvedAccounts,
+    resolved_accounts: &ResolvedAccounts,
     no_idl_fetch: bool,
     offline: bool,
     progress: Option<&Progress>,
@@ -200,7 +199,7 @@ pub(crate) fn prepare_accounts_and_idls(
 /// resolved address lookup tables.
 fn collect_transaction_account_keys(
     parsed_txs: &[&transaction::ParsedTransaction],
-    resolved_accounts: &account_loader::ResolvedAccounts,
+    resolved_accounts: &ResolvedAccounts,
 ) -> std::collections::HashSet<Pubkey> {
     use std::collections::HashSet;
 
@@ -258,7 +257,7 @@ pub(crate) fn warn_unmatched_addresses(
     fundings: &[cli::SolFunding],
     token_fundings: &[cli::TokenFunding],
     parsed_txs: &[&transaction::ParsedTransaction],
-    resolved_accounts: &account_loader::ResolvedAccounts,
+    resolved_accounts: &ResolvedAccounts,
 ) {
     if replacements.is_empty() && fundings.is_empty() && token_fundings.is_empty() {
         return;
@@ -295,10 +294,10 @@ mod tests {
         find_unmatched_token_fundings,
     };
     use crate::cli;
-    use crate::core::account_loader;
     use solana_account::{Account, AccountSharedData};
     use solana_pubkey::Pubkey;
     use solana_sdk_ids::system_program;
+    use sonar_sim::ResolvedAccounts;
     use std::collections::{HashMap, HashSet};
 
     fn executable_account() -> AccountSharedData {
@@ -331,7 +330,7 @@ mod tests {
         accounts.insert(exec_b, executable_account());
         accounts.insert(non_exec, non_executable_account());
 
-        let resolved = account_loader::ResolvedAccounts { accounts, lookups: vec![] };
+        let resolved = ResolvedAccounts { accounts, lookups: vec![] };
 
         let program_ids = collect_program_ids(&resolved);
 
@@ -347,7 +346,7 @@ mod tests {
         accounts.insert(Pubkey::new_unique(), non_executable_account());
         accounts.insert(Pubkey::new_unique(), non_executable_account());
 
-        let resolved = account_loader::ResolvedAccounts { accounts, lookups: vec![] };
+        let resolved = ResolvedAccounts { accounts, lookups: vec![] };
 
         let program_ids = collect_program_ids(&resolved);
 

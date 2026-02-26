@@ -8,15 +8,9 @@ pub(crate) use account_text::render_account_text;
 
 use anyhow::Result;
 
-use crate::{
-    core::{
-        account_loader::ResolvedAccounts,
-        executor::SimulationResult,
-        funding::PreparedTokenFunding,
-        transaction::ParsedTransaction,
-        types::{AccountReplacement, SolFunding},
-    },
-    parsers::instruction::ParserRegistry,
+use crate::{core::transaction::ParsedTransaction, parsers::instruction::ParserRegistry};
+use sonar_sim::{
+    AccountReplacement, PreparedTokenFunding, ResolvedAccounts, SimulationResult, SolFunding,
 };
 
 use report::{BundleReport, LookupResolver, Report, TransactionSection};

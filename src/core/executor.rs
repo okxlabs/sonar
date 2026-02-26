@@ -1,8 +1,3 @@
-pub use sonar_sim::{
-    ExecutionOptions, ExecutionStatus, SimulationOptions, SimulationResult, StateMutationOptions,
-    TransactionExecutor,
-};
-
 // ---------------------------------------------------------------------------
 // Account dump logic (CLI-only, Solana CLI compatible JSON format)
 // ---------------------------------------------------------------------------
@@ -82,7 +77,7 @@ pub(crate) fn dump_accounts_to_dir(
 
     for (pubkey, account) in accounts {
         // Keep Clock/SlotHashes sysvars for offline ALT resolution.
-        if crate::utils::native_ids::is_native_or_sysvar(pubkey)
+        if sonar_sim::is_native_or_sysvar(pubkey)
             && *pubkey != Clock::id()
             && *pubkey != SlotHashes::id()
         {
@@ -105,7 +100,7 @@ pub(crate) fn dump_accounts_to_dir(
     // --load-accounts can find them and the offline loader doesn't warn about
     // missing files.
     for pubkey in required_keys {
-        if dumped_keys.contains(&pubkey) || crate::utils::native_ids::is_native_or_sysvar(&pubkey) {
+        if dumped_keys.contains(&pubkey) || sonar_sim::is_native_or_sysvar(&pubkey) {
             continue;
         }
 

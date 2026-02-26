@@ -7,8 +7,8 @@ use solana_account::ReadableAccount;
 use solana_pubkey::Pubkey;
 use solana_sdk_ids::bpf_loader_upgradeable;
 
-use crate::core::account_loader::ResolvedAccounts;
 use crate::core::transaction::InstructionSummary;
+use sonar_sim::ResolvedAccounts;
 
 /// Represents a parsed instruction with human-readable data and account names
 #[derive(Debug, Clone, Serialize)]
@@ -397,10 +397,10 @@ impl ParserRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::account_loader::ResolvedAccounts;
     use solana_account::{Account, AccountSharedData};
     use solana_pubkey::Pubkey;
     use solana_sdk_ids::{bpf_loader_upgradeable, system_program};
+    use sonar_sim::ResolvedAccounts;
     use std::collections::HashMap;
     use std::path::PathBuf;
 

@@ -138,9 +138,7 @@ pub struct TransactionInputArgs {
     pub json: bool,
 }
 
-pub use crate::core::types::{
-    AccountDataPatch, AccountReplacement, SolFunding, TokenAmount, TokenFunding,
-};
+pub use sonar_sim::{AccountDataPatch, AccountReplacement, SolFunding, TokenAmount, TokenFunding};
 
 pub fn parse_replacement(raw: &str) -> Result<AccountReplacement, String> {
     let (pubkey_str, path_str) = raw

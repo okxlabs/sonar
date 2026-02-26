@@ -5,7 +5,11 @@ use anyhow::{Context, Result};
 use crate::cli::{self, SimulateArgs, TransactionInputArgs};
 use crate::parsers::instruction::ParserRegistry;
 use crate::utils::progress::Progress;
-use crate::{core::executor, core::funding, core::transaction, output};
+use crate::{core::executor as core_executor, core::transaction, output};
+use sonar_sim::{
+    ExecutionOptions, SimulationOptions, StateMutationOptions, TransactionExecutor,
+    prepare_token_fundings,
+};
 
 use super::{parse_inputs_to_txs, prepare_accounts_and_idls, warn_unmatched_addresses};
 
@@ -72,13 +76,13 @@ pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
 
     // Check if this is a bundle (multiple positional TX arguments)
     if tx.len() > 1 {
-        let sim_opts = executor::SimulationOptions {
-            execution: executor::ExecutionOptions {
+        let sim_opts = SimulationOptions {
+            execution: ExecutionOptions {
                 signature_verification: verify_signatures.into(),
                 slot,
                 timestamp,
             },
-            mutations: executor::StateMutationOptions {
+            mutations: StateMutationOptions {
                 replacements,
                 fundings,
                 data_patches,
@@ -135,7 +139,7 @@ pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
     let prepared_token_fundings = if token_funding_requests.is_empty() {
         Vec::new()
     } else {
-        funding::prepare_token_fundings(
+        prepare_token_fundings(
             &mut prepared.account_loader,
             &mut prepared.resolved_accounts,
             &token_funding_requests,
@@ -144,7 +148,7 @@ pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
 
     if !offline {
         if let Some(ref dir) = tx_cache_dir {
-            executor::dump_accounts_to_dir(
+            core_executor::dump_accounts_to_dir(
                 &prepared.resolved_accounts,
                 &parsed_tx.account_plan.static_accounts,
                 dir,
@@ -165,21 +169,20 @@ pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
         }
     }
 
-    let sim_opts = executor::SimulationOptions {
-        execution: executor::ExecutionOptions {
+    let sim_opts = SimulationOptions {
+        execution: ExecutionOptions {
             signature_verification: verify_signatures.into(),
             slot,
             timestamp,
         },
-        mutations: executor::StateMutationOptions {
+        mutations: StateMutationOptions {
             replacements,
             fundings,
             token_fundings: prepared_token_fundings,
             data_patches,
         },
     };
-    let mut executor =
-        executor::TransactionExecutor::prepare(prepared.resolved_accounts, sim_opts)?;
+    let mut executor = TransactionExecutor::prepare(prepared.resolved_accounts, sim_opts)?;
 
     let simulation = executor.execute(&parsed_tx.transaction)?;
 
@@ -211,7 +214,7 @@ fn handle_bundle(
     tx_inputs: Vec<String>,
     rpc_url: &str,
     token_funding_requests: Vec<cli::TokenFunding>,
-    mut sim_opts: executor::SimulationOptions,
+    mut sim_opts: SimulationOptions,
     render_opts: &output::RenderOptions,
     parser_registry: &mut ParserRegistry,
     cache: bool,
@@ -255,7 +258,7 @@ fn handle_bundle(
     let prepared_token_fundings = if token_funding_requests.is_empty() {
         Vec::new()
     } else {
-        funding::prepare_token_fundings(
+        prepare_token_fundings(
             &mut prepared.account_loader,
             &mut prepared.resolved_accounts,
             &token_funding_requests,
@@ -270,8 +273,12 @@ fn handle_bundle(
                 .flat_map(|tx| tx.account_plan.static_accounts.iter().copied())
                 .collect();
             let required_accounts: Vec<_> = required_accounts.into_iter().collect();
-            executor::dump_accounts_to_dir(&prepared.resolved_accounts, &required_accounts, dir)
-                .context("Failed to write account cache")?;
+            core_executor::dump_accounts_to_dir(
+                &prepared.resolved_accounts,
+                &required_accounts,
+                dir,
+            )
+            .context("Failed to write account cache")?;
             crate::core::cache::write_meta_json(
                 dir,
                 &crate::core::cache::CacheMeta {
@@ -289,8 +296,7 @@ fn handle_bundle(
 
     // Execute bundle simulation
     let total_tx_count = parsed_txs.len();
-    let mut executor =
-        executor::TransactionExecutor::prepare(prepared.resolved_accounts, sim_opts)?;
+    let mut executor = TransactionExecutor::prepare(prepared.resolved_accounts, sim_opts)?;
 
     let simulations = executor.execute_bundle(&tx_refs);
 
