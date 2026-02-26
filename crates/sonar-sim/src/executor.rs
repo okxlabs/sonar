@@ -153,6 +153,16 @@ impl SimulationOptionsBuilder {
     }
 }
 
+impl StateMutationOptions {
+    /// Apply all pre-simulation account mutations in deterministic order.
+    pub fn apply(&self, svm: &mut LiteSVM, resolved: &ResolvedAccounts) -> Result<()> {
+        apply_replacements(svm, &self.replacements, resolved)?;
+        apply_sol_fundings(svm, &self.fundings)?;
+        apply_data_patches(svm, &self.data_patches)?;
+        Ok(())
+    }
+}
+
 // ── Pipeline steps ──
 //
 // Each function performs a single, testable stage of executor preparation.
@@ -288,43 +298,29 @@ pub fn apply_timestamp(svm: &mut LiteSVM, ts: i64) -> Result<()> {
 pub struct TransactionExecutor {
     svm: LiteSVM,
     resolved: ResolvedAccounts,
-    replacements: Vec<AccountReplacement>,
-    fundings: Vec<SolFunding>,
-    token_fundings: Vec<PreparedTokenFunding>,
-    #[allow(dead_code)]
-    data_patches: Vec<AccountDataPatch>,
+    mutations: StateMutationOptions,
 }
 
 impl TransactionExecutor {
     pub fn prepare(resolved: ResolvedAccounts, opts: SimulationOptions) -> Result<Self> {
-        let exec = &opts.execution;
-        let mutations = &opts.mutations;
+        let SimulationOptions { execution, mutations } = opts;
 
         let mut svm = LiteSVM::new()
             .with_log_bytes_limit(Some(1024 * 1024 * 10)) // 10M
             .with_blockhash_check(false)
-            .with_sigverify(exec.signature_verification.is_verify());
+            .with_sigverify(execution.signature_verification.is_verify());
 
         load_accounts(&mut svm, &resolved)?;
-        apply_replacements(&mut svm, &mutations.replacements, &resolved)?;
-        apply_sol_fundings(&mut svm, &mutations.fundings)?;
-        apply_data_patches(&mut svm, &mutations.data_patches)?;
+        mutations.apply(&mut svm, &resolved)?;
 
-        if let Some(slot) = exec.slot {
+        if let Some(slot) = execution.slot {
             apply_slot(&mut svm, slot);
         }
-        if let Some(ts) = exec.timestamp {
+        if let Some(ts) = execution.timestamp {
             apply_timestamp(&mut svm, ts)?;
         }
 
-        Ok(Self {
-            svm,
-            resolved,
-            replacements: opts.mutations.replacements,
-            fundings: opts.mutations.fundings,
-            token_fundings: opts.mutations.token_fundings,
-            data_patches: opts.mutations.data_patches,
-        })
+        Ok(Self { svm, resolved, mutations })
     }
 
     /// Execute a transaction and persist state changes to the SVM.
@@ -414,20 +410,19 @@ impl TransactionExecutor {
     }
 
     pub fn replacements(&self) -> &[AccountReplacement] {
-        &self.replacements
+        &self.mutations.replacements
     }
 
     pub fn fundings(&self) -> &[SolFunding] {
-        &self.fundings
+        &self.mutations.fundings
     }
 
     pub fn token_fundings(&self) -> &[PreparedTokenFunding] {
-        &self.token_fundings
+        &self.mutations.token_fundings
     }
 
-    #[allow(dead_code)]
     pub fn data_patches(&self) -> &[AccountDataPatch] {
-        &self.data_patches
+        &self.mutations.data_patches
     }
 }
 
