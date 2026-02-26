@@ -13,6 +13,14 @@ use sonar_sim::{
 
 use super::{parse_inputs_to_txs, prepare_accounts_and_idls, warn_unmatched_addresses};
 
+fn cache_read_dir(cache_dir: Option<PathBuf>, refresh_cache: bool) -> Option<PathBuf> {
+    if refresh_cache {
+        None
+    } else {
+        cache_dir
+    }
+}
+
 pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
     // Initialize instruction parser registry (uses configured/default IDL directory).
     let idl_dir = args.idl_dir.clone();
@@ -117,10 +125,11 @@ pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
     let cache_key = crate::core::cache::derive_cache_key_single(&raw_input, &parsed_tx.transaction);
     let (tx_cache_dir, offline) =
         crate::core::cache::resolve_cache_state(cache, &cache_dir, refresh_cache, &cache_key);
+    let cache_read_dir_for_load = cache_read_dir(tx_cache_dir.clone(), refresh_cache);
 
     let mut prepared = prepare_accounts_and_idls(
         &rpc_url,
-        tx_cache_dir.clone(),
+        cache_read_dir_for_load,
         offline,
         std::slice::from_ref(&parsed_tx),
         &mut parser_registry,
@@ -233,11 +242,12 @@ fn handle_bundle(
     let cache_key = crate::core::cache::derive_cache_key_bundle(&tx_inputs, &parsed_txs);
     let (bundle_cache_dir, offline) =
         crate::core::cache::resolve_cache_state(cache, &cache_dir, refresh_cache, &cache_key);
+    let cache_read_dir_for_load = cache_read_dir(bundle_cache_dir.clone(), refresh_cache);
 
     let tx_refs: Vec<_> = parsed_txs.iter().map(|p| &p.transaction).collect();
     let mut prepared = prepare_accounts_and_idls(
         rpc_url,
-        bundle_cache_dir.clone(),
+        cache_read_dir_for_load,
         offline,
         &parsed_txs,
         parser_registry,
@@ -331,4 +341,24 @@ fn handle_bundle(
     )?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::cache_read_dir;
+    use std::path::PathBuf;
+
+    #[test]
+    fn cache_read_dir_keeps_cache_when_not_refreshing() {
+        let dir = Some(PathBuf::from("/tmp/sonar-cache"));
+        let selected = cache_read_dir(dir.clone(), false);
+        assert_eq!(selected, dir);
+    }
+
+    #[test]
+    fn cache_read_dir_ignores_cache_when_refreshing() {
+        let dir = Some(PathBuf::from("/tmp/sonar-cache"));
+        let selected = cache_read_dir(dir, true);
+        assert!(selected.is_none());
+    }
 }
