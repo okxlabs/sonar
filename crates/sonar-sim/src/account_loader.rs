@@ -429,6 +429,81 @@ mod tests {
     }
 
     #[test]
+    fn repeated_load_for_transaction_does_not_refetch_known_missing_dependencies() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        struct CountingProvider {
+            accounts: std::collections::HashMap<Pubkey, AccountSharedData>,
+            call_count: Arc<AtomicUsize>,
+        }
+
+        impl RpcAccountProvider for CountingProvider {
+            fn get_multiple_accounts(
+                &self,
+                pubkeys: &[Pubkey],
+            ) -> Result<Vec<Option<AccountSharedData>>> {
+                self.call_count.fetch_add(1, Ordering::SeqCst);
+                Ok(pubkeys.iter().map(|k| self.accounts.get(k).cloned()).collect())
+            }
+        }
+
+        struct MarkerDependencyResolver {
+            marker: Pubkey,
+            missing: Pubkey,
+        }
+
+        impl AccountDependencyResolver for MarkerDependencyResolver {
+            fn resolve_dependencies(
+                &self,
+                accounts: &HashMap<Pubkey, AccountSharedData>,
+            ) -> Vec<Pubkey> {
+                if accounts.contains_key(&self.marker) && !accounts.contains_key(&self.missing) {
+                    vec![self.missing]
+                } else {
+                    Vec::new()
+                }
+            }
+        }
+
+        let payer = Keypair::new();
+        let recipient = Pubkey::new_unique();
+        let missing = Pubkey::new_unique();
+
+        let mut accounts = std::collections::HashMap::new();
+        for (key, lamports) in [
+            (payer.pubkey(), 10_000_000_000u64),
+            (recipient, 0),
+            (Clock::id(), 0),
+            (SlotHashes::id(), 0),
+            (solana_sdk_ids::system_program::id(), 0),
+        ] {
+            accounts.insert(key, AccountSharedData::from(system_account(lamports)));
+        }
+
+        let call_count = Arc::new(AtomicUsize::new(0));
+        let provider = CountingProvider { accounts, call_count: call_count.clone() };
+        let mut loader = AccountLoader::with_provider(Arc::new(provider)).with_resolvers(vec![
+            Box::new(MarkerDependencyResolver { marker: payer.pubkey(), missing }),
+        ]);
+
+        let tx = create_transfer_tx(&payer, &recipient, 1000);
+
+        let _ = loader.load_for_transaction(&tx).unwrap();
+        let first_call_count = call_count.load(Ordering::SeqCst);
+        assert_eq!(
+            first_call_count, 2,
+            "first load should perform one initial fetch and one missing dependency fetch"
+        );
+
+        let _ = loader.load_for_transaction(&tx).unwrap();
+        let second_call_count = call_count.load(Ordering::SeqCst);
+        assert_eq!(
+            second_call_count, first_call_count,
+            "second load should not refetch known-missing dependencies"
+        );
+    }
+
+    #[test]
     fn append_accounts_fetches_additional_accounts() {
         let payer = Keypair::new();
         let extra = Pubkey::new_unique();

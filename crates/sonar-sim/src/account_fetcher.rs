@@ -22,6 +22,7 @@ const MAX_ACCOUNTS_PER_REQUEST: usize = 100;
 pub struct AccountFetcher {
     provider: Arc<dyn RpcAccountProvider>,
     cache: HashMap<Pubkey, AccountSharedData>,
+    missing_cache: HashSet<Pubkey>,
     middleware: Option<Arc<dyn AccountFetchMiddleware>>,
 }
 
@@ -33,12 +34,13 @@ impl AccountFetcher {
         Ok(Self {
             provider: Arc::new(SolanaRpcProvider::new(rpc_url)),
             cache: HashMap::new(),
+            missing_cache: HashSet::new(),
             middleware: None,
         })
     }
 
     pub fn with_provider(provider: Arc<dyn RpcAccountProvider>) -> Self {
-        Self { provider, cache: HashMap::new(), middleware: None }
+        Self { provider, cache: HashMap::new(), missing_cache: HashSet::new(), middleware: None }
     }
 
     pub fn with_middleware(mut self, middleware: Arc<dyn AccountFetchMiddleware>) -> Self {
@@ -101,6 +103,7 @@ impl AccountFetcher {
                     if let Some(account) = resolved.get(&key) {
                         destination.insert(key, account.clone());
                         self.cache.insert(key, account.clone());
+                        self.missing_cache.remove(&key);
                     } else {
                         still_missing.push(key);
                     }
@@ -116,6 +119,11 @@ impl AccountFetcher {
                 middleware.on_offline_missing(&to_fetch);
                 return Ok(());
             }
+        }
+
+        to_fetch.retain(|key| !self.missing_cache.contains(key));
+        if to_fetch.is_empty() {
+            return Ok(());
         }
 
         let total_count = to_fetch.len();
@@ -147,6 +155,9 @@ impl AccountFetcher {
                 if let Some(account) = maybe_account {
                     destination.insert(*pubkey, account.clone());
                     self.cache.insert(*pubkey, account);
+                    self.missing_cache.remove(pubkey);
+                } else {
+                    self.missing_cache.insert(*pubkey);
                 }
             }
         }
@@ -172,6 +183,7 @@ mod tests {
     use super::*;
     use crate::rpc_provider::FakeAccountProvider;
     use solana_account::Account;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
     fn system_account(lamports: u64) -> Account {
         Account {
@@ -201,8 +213,6 @@ mod tests {
 
     #[test]
     fn fetcher_caches_fetched_accounts() {
-        use std::sync::atomic::{AtomicUsize, Ordering};
-
         struct CountingProvider {
             accounts: std::collections::HashMap<Pubkey, AccountSharedData>,
             call_count: Arc<AtomicUsize>,
@@ -234,6 +244,100 @@ mod tests {
         let mut dest2 = HashMap::new();
         fetcher.fetch_accounts(&[key], &mut dest2).unwrap();
         assert_eq!(call_count.load(Ordering::SeqCst), 1, "second fetch should hit cache");
+    }
+
+    #[test]
+    fn fetcher_negative_cache_avoids_refetch_for_known_missing() {
+        struct CountingProvider {
+            call_count: Arc<AtomicUsize>,
+        }
+
+        impl RpcAccountProvider for CountingProvider {
+            fn get_multiple_accounts(
+                &self,
+                pubkeys: &[Pubkey],
+            ) -> Result<Vec<Option<AccountSharedData>>> {
+                self.call_count.fetch_add(1, Ordering::SeqCst);
+                Ok(pubkeys.iter().map(|_| None).collect())
+            }
+        }
+
+        let key = Pubkey::new_unique();
+        let call_count = Arc::new(AtomicUsize::new(0));
+        let provider = CountingProvider { call_count: call_count.clone() };
+        let mut fetcher = AccountFetcher::with_provider(Arc::new(provider));
+
+        let mut dest1 = HashMap::new();
+        fetcher.fetch_accounts(&[key], &mut dest1).unwrap();
+        assert_eq!(call_count.load(Ordering::SeqCst), 1);
+        assert!(fetcher.missing_cache.contains(&key));
+
+        let mut dest2 = HashMap::new();
+        fetcher.fetch_accounts(&[key], &mut dest2).unwrap();
+        assert_eq!(
+            call_count.load(Ordering::SeqCst),
+            1,
+            "known-missing key should not trigger repeated RPC calls"
+        );
+    }
+
+    #[test]
+    fn fetcher_local_resolution_clears_missing_cache() {
+        struct EmptyProvider;
+
+        impl RpcAccountProvider for EmptyProvider {
+            fn get_multiple_accounts(
+                &self,
+                pubkeys: &[Pubkey],
+            ) -> Result<Vec<Option<AccountSharedData>>> {
+                Ok(pubkeys.iter().map(|_| None).collect())
+            }
+        }
+
+        struct ToggleMiddleware {
+            key: Pubkey,
+            account: AccountSharedData,
+            enabled: Arc<AtomicBool>,
+        }
+
+        impl AccountFetchMiddleware for ToggleMiddleware {
+            fn try_resolve_local(
+                &self,
+                pubkeys: &[Pubkey],
+            ) -> Result<HashMap<Pubkey, AccountSharedData>> {
+                if !self.enabled.load(Ordering::SeqCst) {
+                    return Ok(HashMap::new());
+                }
+                let mut found = HashMap::new();
+                if pubkeys.iter().any(|k| *k == self.key) {
+                    found.insert(self.key, self.account.clone());
+                }
+                Ok(found)
+            }
+        }
+
+        let key = Pubkey::new_unique();
+        let enabled = Arc::new(AtomicBool::new(false));
+        let middleware = Arc::new(ToggleMiddleware {
+            key,
+            account: AccountSharedData::from(system_account(99)),
+            enabled: enabled.clone(),
+        });
+
+        let mut fetcher =
+            AccountFetcher::with_provider(Arc::new(EmptyProvider)).with_middleware(middleware);
+
+        let mut dest1 = HashMap::new();
+        fetcher.fetch_accounts(&[key], &mut dest1).unwrap();
+        assert!(fetcher.missing_cache.contains(&key));
+        assert!(!dest1.contains_key(&key));
+
+        enabled.store(true, Ordering::SeqCst);
+        let mut dest2 = HashMap::new();
+        fetcher.fetch_accounts(&[key], &mut dest2).unwrap();
+
+        assert!(dest2.contains_key(&key));
+        assert!(!fetcher.missing_cache.contains(&key));
     }
 
     #[test]
