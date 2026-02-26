@@ -23,4 +23,13 @@ pub struct DecodeArgs {
     /// Skip auto-fetching missing IDLs from chain
     #[arg(long = "no-idl-fetch", env = "SONAR_NO_IDL_FETCH")]
     pub no_idl_fetch: bool,
+    /// Disable account cache usage. Raw transaction cache lookup is still allowed.
+    #[arg(long = "no-cache", default_value_t = false)]
+    pub no_cache: bool,
+    /// Override the cache root directory (default: ~/.sonar/cache)
+    #[arg(long = "cache-dir", value_name = "DIR", env = "SONAR_CACHE_DIR")]
+    pub cache_dir: Option<PathBuf>,
+    /// Ignore existing cache entries and re-fetch from RPC (including signature->raw-tx).
+    #[arg(long = "refresh-cache", default_value_t = false)]
+    pub refresh_cache: bool,
 }

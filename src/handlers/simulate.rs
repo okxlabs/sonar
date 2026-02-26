@@ -49,7 +49,7 @@ pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
         no_idl_fetch,
     } = args;
     let rpc_url = rpc.rpc_url;
-    let resolver_cache_root = crate::core::cache::resolve_cache_dir(&cache_dir);
+    let resolver_cache_root = Some(crate::core::cache::resolve_cache_dir(&cache_dir));
 
     let TransactionInputArgs { tx, json } = transaction;
 
@@ -229,7 +229,7 @@ pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
 fn handle_bundle(
     tx_inputs: Vec<String>,
     rpc_url: &str,
-    resolver_cache_root: PathBuf,
+    resolver_cache_root: Option<PathBuf>,
     token_funding_requests: Vec<cli::TokenFunding>,
     mut sim_opts: SimulationOptions,
     render_opts: &output::RenderOptions,

@@ -737,6 +737,52 @@ mod tests {
     }
 
     #[test]
+    fn decode_parses_cache_control_flags() {
+        let cli = Cli::try_parse_from([
+            "sonar",
+            "decode",
+            "3PtGYH77LhhQqTXP4SmDVJ85hmDieWsgXCUbn14v7gYyVYPjZzygUQhTk3bSTYnfA48vCM1rmWY7zWL3j1EVKmEy",
+            "--rpc-url",
+            "https://api.mainnet-beta.solana.com",
+            "--no-cache",
+            "--cache-dir",
+            "/tmp/sonar-decode-cache",
+        ])
+        .expect("should parse decode cache control flags");
+
+        let Some(Commands::Decode(args)) = cli.command else {
+            panic!("expected decode subcommand");
+        };
+
+        assert!(args.no_cache);
+        assert_eq!(
+            args.cache_dir.as_ref().map(|p| p.to_string_lossy().to_string()),
+            Some("/tmp/sonar-decode-cache".to_string())
+        );
+        assert!(!args.refresh_cache);
+    }
+
+    #[test]
+    fn decode_parses_refresh_cache_flag() {
+        let cli = Cli::try_parse_from([
+            "sonar",
+            "decode",
+            "3PtGYH77LhhQqTXP4SmDVJ85hmDieWsgXCUbn14v7gYyVYPjZzygUQhTk3bSTYnfA48vCM1rmWY7zWL3j1EVKmEy",
+            "--rpc-url",
+            "https://api.mainnet-beta.solana.com",
+            "--refresh-cache",
+        ])
+        .expect("should parse decode --refresh-cache");
+
+        let Some(Commands::Decode(args)) = cli.command else {
+            panic!("expected decode subcommand");
+        };
+
+        assert!(args.refresh_cache);
+        assert!(!args.no_cache);
+    }
+
+    #[test]
     fn transaction_input_rejects_removed_input_kind_flag() {
         let result = Cli::try_parse_from([
             "sonar",

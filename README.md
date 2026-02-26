@@ -369,6 +369,16 @@ sonar simulate <TX> --rpc-url <RPC_URL> --cache
 # Replay from cache (no network access when cache is complete)
 sonar simulate <TX> --cache
 
+# decode also uses cache by default (signature/raw-tx resolution + account loading)
+sonar decode <TX_OR_SIGNATURE> --rpc-url <RPC_URL>
+
+# decode cache controls
+# --no-cache disables account cache but still allows cached raw-tx reuse for signatures
+sonar decode <TX_OR_SIGNATURE> --rpc-url <RPC_URL> --no-cache
+# --refresh-cache bypasses both raw-tx/account cache and forces RPC
+sonar decode <TX_OR_SIGNATURE> --rpc-url <RPC_URL> --refresh-cache
+sonar decode <TX_OR_SIGNATURE> --rpc-url <RPC_URL> --cache-dir /path/to/cache
+
 # Force refresh cache
 sonar simulate <TX> --rpc-url <RPC_URL> --cache --refresh-cache
 
@@ -391,9 +401,6 @@ Cache metadata schema (`_meta.json`) uses a `transactions` array:
   ]
 }
 ```
-
-Breaking change: legacy metadata that only contains `inputs` is no longer supported. If you still
-have old cache entries, run `sonar cache clean` (or remove old cache directories) and regenerate.
 
 ## Configuration
 

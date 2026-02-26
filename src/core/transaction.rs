@@ -59,7 +59,7 @@ pub struct ResolvedTxInput {
 #[derive(Debug, Clone)]
 pub struct TxInputResolver {
     rpc_url: String,
-    cache_root: PathBuf,
+    cache_root: Option<PathBuf>,
 }
 
 // ---------------------------------------------------------------------------
@@ -213,7 +213,7 @@ pub fn parse_raw_transaction(raw: &str) -> Result<ParsedTransaction> {
 }
 
 impl TxInputResolver {
-    pub fn new(rpc_url: impl Into<String>, cache_root: PathBuf) -> Self {
+    pub fn new(rpc_url: impl Into<String>, cache_root: Option<PathBuf>) -> Self {
         Self { rpc_url: rpc_url.into(), cache_root }
     }
 
@@ -297,7 +297,7 @@ impl TxInputResolver {
     }
 
     fn lookup_cached_raw_tx(&self, signature: &str) -> Option<String> {
-        let dir = self.cache_root.join(signature.trim());
+        let dir = self.cache_root.as_ref()?.join(signature.trim());
         let meta = crate::core::cache::read_meta_json(&dir).ok()?;
         meta.transactions
             .iter()
@@ -481,7 +481,7 @@ mod tests {
         let cache_root =
             std::env::temp_dir().join(format!("sonar-resolver-empty-cache-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&cache_root);
-        let resolver = TxInputResolver::new("not a url", cache_root.clone());
+        let resolver = TxInputResolver::new("not a url", Some(cache_root.clone()));
         let err = resolver
             .resolve_one(signature, None)
             .expect_err("auto mode should fail when rpc url is invalid");
@@ -493,7 +493,7 @@ mod tests {
 
     #[test]
     fn tx_input_resolver_reports_fallback_skipped_for_non_signature() {
-        let resolver = TxInputResolver::new("http://localhost:8899", std::env::temp_dir());
+        let resolver = TxInputResolver::new("http://localhost:8899", Some(std::env::temp_dir()));
         let err = resolver
             .resolve_one("not-a-signature", None)
             .expect_err("non-signature should skip signature fallback");
@@ -533,7 +533,7 @@ mod tests {
         )
         .unwrap();
 
-        let resolver = TxInputResolver::new("not a url", cache_root.clone());
+        let resolver = TxInputResolver::new("not a url", Some(cache_root.clone()));
         let resolved = resolver.resolve_many(&[signature.to_string()], None).unwrap();
 
         assert_eq!(resolved.len(), 1);
@@ -550,7 +550,7 @@ mod tests {
         let bytes = bincode::serialize(&versioned).unwrap();
         let raw_base64 = BASE64_STANDARD.encode(&bytes);
 
-        let resolver = TxInputResolver::new("http://127.0.0.1:1", std::env::temp_dir());
+        let resolver = TxInputResolver::new("http://127.0.0.1:1", Some(std::env::temp_dir()));
         let resolved = resolver.resolve_many(std::slice::from_ref(&raw_base64), None).unwrap();
 
         assert_eq!(resolved.len(), 1);

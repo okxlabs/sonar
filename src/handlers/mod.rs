@@ -107,7 +107,7 @@ pub(crate) struct PreparedPipelineContext {
 pub(crate) fn resolve_inputs_to_txs(
     tx_inputs: Vec<String>,
     rpc_url: &str,
-    cache_root: PathBuf,
+    cache_root: Option<PathBuf>,
     progress: &Progress,
     bundle_mode: bool,
 ) -> Result<ResolvedInputTransactions> {
