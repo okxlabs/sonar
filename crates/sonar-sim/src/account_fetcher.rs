@@ -9,12 +9,12 @@ use solana_pubkey::Pubkey;
 
 use crate::error::{Result, SonarSimError};
 use crate::rpc_provider::{RpcAccountProvider, SolanaRpcProvider};
-use crate::types::AccountFetchMiddleware;
+use crate::types::{AccountSource, FetchEvent, FetchObserver, FetchPolicy, RpcDecision};
 
 const MAX_ACCOUNTS_PER_REQUEST: usize = 100;
 
-/// Low-level account fetcher that handles dedup, caching, middleware
-/// (local resolution / offline mode / progress), and batched RPC calls.
+/// Low-level account fetcher that handles dedup, caching, source resolution,
+/// policy gating, observer events, and batched RPC calls.
 ///
 /// `AccountFetcher` owns the data-access plumbing; higher-level
 /// orchestration (dependency resolution, lookup-table expansion, etc.)
@@ -23,7 +23,9 @@ pub struct AccountFetcher {
     provider: Arc<dyn RpcAccountProvider>,
     cache: HashMap<Pubkey, AccountSharedData>,
     missing_cache: HashSet<Pubkey>,
-    middleware: Option<Arc<dyn AccountFetchMiddleware>>,
+    sources: Vec<Arc<dyn AccountSource>>,
+    policy: Option<Arc<dyn FetchPolicy>>,
+    observers: Vec<Arc<dyn FetchObserver>>,
 }
 
 impl AccountFetcher {
@@ -35,16 +37,35 @@ impl AccountFetcher {
             provider: Arc::new(SolanaRpcProvider::new(rpc_url)),
             cache: HashMap::new(),
             missing_cache: HashSet::new(),
-            middleware: None,
+            sources: Vec::new(),
+            policy: None,
+            observers: Vec::new(),
         })
     }
 
     pub fn with_provider(provider: Arc<dyn RpcAccountProvider>) -> Self {
-        Self { provider, cache: HashMap::new(), missing_cache: HashSet::new(), middleware: None }
+        Self {
+            provider,
+            cache: HashMap::new(),
+            missing_cache: HashSet::new(),
+            sources: Vec::new(),
+            policy: None,
+            observers: Vec::new(),
+        }
     }
 
-    pub fn with_middleware(mut self, middleware: Arc<dyn AccountFetchMiddleware>) -> Self {
-        self.middleware = Some(middleware);
+    pub fn with_source(mut self, source: Arc<dyn AccountSource>) -> Self {
+        self.sources.push(source);
+        self
+    }
+
+    pub fn with_policy(mut self, policy: Arc<dyn FetchPolicy>) -> Self {
+        self.policy = Some(policy);
+        self
+    }
+
+    pub fn with_observer(mut self, observer: Arc<dyn FetchObserver>) -> Self {
+        self.observers.push(observer);
         self
     }
 
@@ -56,10 +77,10 @@ impl AccountFetcher {
     ///
     /// Handles the full pipeline:
     /// 1. Dedup against `destination` and the internal cache
-    /// 2. Try middleware local resolution
-    /// 3. Respect offline mode
+    /// 2. Resolve accounts from configured sources
+    /// 3. Gate RPC access via policy decision
     /// 4. Batch RPC requests (chunks of [`MAX_ACCOUNTS_PER_REQUEST`])
-    /// 5. Report progress via middleware callback
+    /// 5. Emit observer events
     pub fn fetch_accounts(
         &mut self,
         pubkeys: &[Pubkey],
@@ -95,28 +116,36 @@ impl AccountFetcher {
             return Ok(());
         }
 
-        if let Some(ref middleware) = self.middleware {
-            let resolved = middleware.try_resolve_local(&to_fetch)?;
-            if !resolved.is_empty() {
-                let mut still_missing = Vec::new();
-                for key in to_fetch {
-                    if let Some(account) = resolved.get(&key) {
-                        destination.insert(key, account.clone());
-                        self.cache.insert(key, account.clone());
-                        self.missing_cache.remove(&key);
-                    } else {
-                        still_missing.push(key);
-                    }
-                }
-                to_fetch = still_missing;
-            }
-
+        for source in &self.sources {
             if to_fetch.is_empty() {
-                return Ok(());
+                break;
+            }
+            let resolved = source.resolve(&to_fetch)?;
+            if resolved.is_empty() {
+                continue;
             }
 
-            if middleware.is_offline() {
-                middleware.on_offline_missing(&to_fetch);
+            let mut still_missing = Vec::new();
+            for key in to_fetch {
+                if let Some(account) = resolved.get(&key) {
+                    destination.insert(key, account.clone());
+                    self.cache.insert(key, account.clone());
+                    self.missing_cache.remove(&key);
+                    self.notify(FetchEvent::LocalResolved { pubkey: key });
+                } else {
+                    still_missing.push(key);
+                }
+            }
+            to_fetch = still_missing;
+        }
+
+        if to_fetch.is_empty() {
+            return Ok(());
+        }
+
+        if let Some(policy) = &self.policy {
+            if policy.decide_rpc(&to_fetch) == RpcDecision::Deny {
+                self.notify(FetchEvent::RpcSkippedByPolicy { missing: to_fetch });
                 return Ok(());
             }
         }
@@ -128,7 +157,13 @@ impl AccountFetcher {
 
         let total_count = to_fetch.len();
         let mut requested_count = 0usize;
-        for chunk in to_fetch.chunks(MAX_ACCOUNTS_PER_REQUEST) {
+        let mut fetched_count = 0usize;
+        for (batch_index, chunk) in to_fetch.chunks(MAX_ACCOUNTS_PER_REQUEST).enumerate() {
+            self.notify(FetchEvent::RpcBatchStarted {
+                batch_index,
+                batch_size: chunk.len(),
+                total_requested: total_count,
+            });
             let response =
                 self.provider.get_multiple_accounts(chunk).map_err(|e| SonarSimError::Rpc {
                     reason: format!(
@@ -149,21 +184,36 @@ impl AccountFetcher {
 
             for (pubkey, maybe_account) in chunk.iter().zip(response.into_iter()) {
                 requested_count += 1;
-                if let Some(ref middleware) = self.middleware {
-                    middleware.on_fetch_progress(pubkey, requested_count, total_count);
-                }
+                self.notify(FetchEvent::RpcProgress {
+                    pubkey: *pubkey,
+                    current: requested_count,
+                    total: total_count,
+                });
                 if let Some(account) = maybe_account {
                     destination.insert(*pubkey, account.clone());
                     self.cache.insert(*pubkey, account);
                     self.missing_cache.remove(pubkey);
+                    fetched_count += 1;
                 } else {
                     self.missing_cache.insert(*pubkey);
                 }
             }
         }
 
+        self.notify(FetchEvent::RpcFinished {
+            requested: total_count,
+            fetched: fetched_count,
+            missing: total_count.saturating_sub(fetched_count),
+        });
+
         debug!("Successfully fetched {} accounts from RPC", total_count);
         Ok(())
+    }
+
+    fn notify(&self, event: FetchEvent) {
+        for observer in &self.observers {
+            observer.on_event(&event);
+        }
     }
 }
 
@@ -182,7 +232,9 @@ pub(crate) fn format_pubkeys(pubkeys: &[Pubkey]) -> String {
 mod tests {
     use super::*;
     use crate::rpc_provider::FakeAccountProvider;
+    use crate::types::{AccountSource, FetchObserver, FetchPolicy};
     use solana_account::Account;
+    use std::sync::Mutex;
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
     fn system_account(lamports: u64) -> Account {
@@ -294,17 +346,14 @@ mod tests {
             }
         }
 
-        struct ToggleMiddleware {
+        struct ToggleSource {
             key: Pubkey,
             account: AccountSharedData,
             enabled: Arc<AtomicBool>,
         }
 
-        impl AccountFetchMiddleware for ToggleMiddleware {
-            fn try_resolve_local(
-                &self,
-                pubkeys: &[Pubkey],
-            ) -> Result<HashMap<Pubkey, AccountSharedData>> {
+        impl AccountSource for ToggleSource {
+            fn resolve(&self, pubkeys: &[Pubkey]) -> Result<HashMap<Pubkey, AccountSharedData>> {
                 if !self.enabled.load(Ordering::SeqCst) {
                     return Ok(HashMap::new());
                 }
@@ -318,14 +367,14 @@ mod tests {
 
         let key = Pubkey::new_unique();
         let enabled = Arc::new(AtomicBool::new(false));
-        let middleware = Arc::new(ToggleMiddleware {
+        let source = Arc::new(ToggleSource {
             key,
             account: AccountSharedData::from(system_account(99)),
             enabled: enabled.clone(),
         });
 
         let mut fetcher =
-            AccountFetcher::with_provider(Arc::new(EmptyProvider)).with_middleware(middleware);
+            AccountFetcher::with_provider(Arc::new(EmptyProvider)).with_source(source);
 
         let mut dest1 = HashMap::new();
         fetcher.fetch_accounts(&[key], &mut dest1).unwrap();
@@ -356,5 +405,108 @@ mod tests {
         fetcher.fetch_accounts(&[key1, key2], &mut dest).unwrap();
         assert!(dest.contains_key(&key1));
         assert!(dest.contains_key(&key2));
+    }
+
+    #[test]
+    fn fetcher_policy_can_skip_rpc_and_emit_event() {
+        struct NeverCalledProvider;
+
+        impl RpcAccountProvider for NeverCalledProvider {
+            fn get_multiple_accounts(
+                &self,
+                _pubkeys: &[Pubkey],
+            ) -> Result<Vec<Option<AccountSharedData>>> {
+                panic!("RPC provider should not be called when policy denies");
+            }
+        }
+
+        struct DenyAllPolicy;
+
+        impl FetchPolicy for DenyAllPolicy {
+            fn decide_rpc(&self, _unresolved: &[Pubkey]) -> RpcDecision {
+                RpcDecision::Deny
+            }
+        }
+
+        struct RecordingObserver {
+            events: Arc<Mutex<Vec<FetchEvent>>>,
+        }
+
+        impl FetchObserver for RecordingObserver {
+            fn on_event(&self, event: &FetchEvent) {
+                self.events.lock().unwrap().push(event.clone());
+            }
+        }
+
+        let key = Pubkey::new_unique();
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let observer = Arc::new(RecordingObserver { events: events.clone() });
+
+        let mut fetcher = AccountFetcher::with_provider(Arc::new(NeverCalledProvider))
+            .with_policy(Arc::new(DenyAllPolicy))
+            .with_observer(observer);
+
+        let mut dest = HashMap::new();
+        fetcher.fetch_accounts(&[key], &mut dest).unwrap();
+
+        let recorded = events.lock().unwrap();
+        assert_eq!(recorded.len(), 1);
+        assert_eq!(recorded[0], FetchEvent::RpcSkippedByPolicy { missing: vec![key] });
+    }
+
+    #[test]
+    fn fetcher_emits_rpc_progress_sequence() {
+        struct RecordingObserver {
+            events: Arc<Mutex<Vec<FetchEvent>>>,
+        }
+
+        impl FetchObserver for RecordingObserver {
+            fn on_event(&self, event: &FetchEvent) {
+                self.events.lock().unwrap().push(event.clone());
+            }
+        }
+
+        let key1 = Pubkey::new_unique();
+        let key2 = Pubkey::new_unique();
+        let mut accounts = std::collections::HashMap::new();
+        accounts.insert(key1, system_account(100));
+        accounts.insert(key2, system_account(200));
+
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let observer = Arc::new(RecordingObserver { events: events.clone() });
+        let mut fetcher =
+            AccountFetcher::with_provider(Arc::new(FakeAccountProvider::from_accounts(accounts)))
+                .with_observer(observer);
+
+        let mut dest = HashMap::new();
+        fetcher.fetch_accounts(&[key1, key2], &mut dest).unwrap();
+
+        let recorded = events.lock().unwrap();
+        assert!(!recorded.is_empty());
+
+        assert!(matches!(
+            recorded.first(),
+            Some(FetchEvent::RpcBatchStarted { batch_index: 0, batch_size: 2, total_requested: 2 })
+        ));
+
+        let progress_events: Vec<_> = recorded
+            .iter()
+            .filter_map(|event| match event {
+                FetchEvent::RpcProgress { pubkey, current, total } => {
+                    Some((*pubkey, *current, *total))
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(progress_events.len(), 2);
+        assert_eq!(progress_events[0].1, 1);
+        assert_eq!(progress_events[1].1, 2);
+        assert_eq!(progress_events[0].2, 2);
+        assert_eq!(progress_events[1].2, 2);
+
+        assert!(matches!(
+            recorded.last(),
+            Some(FetchEvent::RpcFinished { requested: 2, fetched: 2, missing: 0 })
+        ));
     }
 }

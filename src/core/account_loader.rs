@@ -10,32 +10,22 @@ use sonar_sim::AccountLoader;
 use crate::core::idl_fetcher::IdlFetcher;
 use crate::utils::progress::Progress;
 
-/// CLI-specific middleware that layers local directory loading, offline mode,
-/// and progress reporting on top of `sonar_sim::AccountLoader`.
-pub struct CliAccountMiddleware {
-    local_dir: Option<PathBuf>,
-    offline: bool,
-    progress: Option<Progress>,
+/// Local source backed by account JSON files in a directory.
+pub struct LocalDirSource {
+    local_dir: PathBuf,
 }
 
-impl CliAccountMiddleware {
-    pub fn new(local_dir: Option<PathBuf>, offline: bool, progress: Option<Progress>) -> Self {
-        Self { local_dir, offline, progress }
+impl LocalDirSource {
+    pub fn new(local_dir: PathBuf) -> Self {
+        Self { local_dir }
     }
 }
 
-impl sonar_sim::AccountFetchMiddleware for CliAccountMiddleware {
-    fn try_resolve_local(
-        &self,
-        pubkeys: &[Pubkey],
-    ) -> sonar_sim::Result<HashMap<Pubkey, AccountSharedData>> {
-        let Some(ref dir) = self.local_dir else {
-            return Ok(HashMap::new());
-        };
-
+impl sonar_sim::AccountSource for LocalDirSource {
+    fn resolve(&self, pubkeys: &[Pubkey]) -> sonar_sim::Result<HashMap<Pubkey, AccountSharedData>> {
         let mut found = HashMap::new();
         for key in pubkeys {
-            let path = dir.join(format!("{key}.json"));
+            let path = self.local_dir.join(format!("{key}.json"));
             if path.exists() {
                 let account = crate::core::account_file::parse_account_json(&path)
                     .map_err(|e| sonar_sim::SonarSimError::Internal { reason: e.to_string() })?;
@@ -45,31 +35,57 @@ impl sonar_sim::AccountFetchMiddleware for CliAccountMiddleware {
         }
         Ok(found)
     }
+}
 
-    fn is_offline(&self) -> bool {
-        self.offline
+/// Policy that denies RPC for all unresolved accounts.
+pub struct OfflinePolicy;
+
+impl sonar_sim::FetchPolicy for OfflinePolicy {
+    fn decide_rpc(&self, _unresolved: &[Pubkey]) -> sonar_sim::RpcDecision {
+        sonar_sim::RpcDecision::Deny
     }
+}
 
-    fn on_offline_missing(&self, pubkeys: &[Pubkey]) {
-        let non_native: Vec<_> =
-            pubkeys.iter().filter(|k| !sonar_sim::is_native_or_sysvar(k)).collect();
-        if !non_native.is_empty() {
-            log::warn!(
-                "offline mode: {} account(s) not found in cache directory (treated as non-existent): [{}]",
-                non_native.len(),
-                non_native.iter().map(|k| k.to_string()).collect::<Vec<_>>().join(", ")
-            );
-        }
+/// Observer that reports RPC progress in CLI progress UI.
+pub struct CliProgressObserver {
+    progress: Progress,
+}
+
+impl CliProgressObserver {
+    pub fn new(progress: Progress) -> Self {
+        Self { progress }
     }
+}
 
-    fn on_fetch_progress(&self, pubkey: &Pubkey, current: usize, total: usize) {
-        if let Some(ref progress) = self.progress {
-            progress.set_message(format!("loading account {} ({}/{})", pubkey, current, total));
+impl sonar_sim::FetchObserver for CliProgressObserver {
+    fn on_event(&self, event: &sonar_sim::FetchEvent) {
+        if let sonar_sim::FetchEvent::RpcProgress { pubkey, current, total } = event {
+            self.progress
+                .set_message(format!("loading account {} ({}/{})", pubkey, current, total));
         }
     }
 }
 
-/// Construct a unified `AccountLoader` with CLI-specific middleware.
+/// Observer that reports unresolved accounts when RPC is skipped by policy.
+pub struct OfflineWarningObserver;
+
+impl sonar_sim::FetchObserver for OfflineWarningObserver {
+    fn on_event(&self, event: &sonar_sim::FetchEvent) {
+        if let sonar_sim::FetchEvent::RpcSkippedByPolicy { missing } = event {
+            let non_native: Vec<_> =
+                missing.iter().filter(|k| !sonar_sim::is_native_or_sysvar(k)).collect();
+            if !non_native.is_empty() {
+                log::warn!(
+                    "offline mode: {} account(s) not found in cache directory (treated as non-existent): [{}]",
+                    non_native.len(),
+                    non_native.iter().map(|k| k.to_string()).collect::<Vec<_>>().join(", ")
+                );
+            }
+        }
+    }
+}
+
+/// Construct a unified `AccountLoader` with CLI fetch adapters.
 ///
 /// In offline mode an empty RPC URL is accepted (a dummy URL is used since
 /// the RPC layer will never be reached).
@@ -89,8 +105,22 @@ pub fn create_loader(
         rpc_url
     };
 
-    let middleware = Arc::new(CliAccountMiddleware::new(local_dir, offline, progress));
-    let loader = AccountLoader::new(url)?.with_middleware(middleware);
+    let mut loader = AccountLoader::new(url)?;
+
+    if let Some(dir) = local_dir {
+        loader = loader.with_source(Arc::new(LocalDirSource::new(dir)));
+    }
+
+    if offline {
+        loader = loader
+            .with_policy(Arc::new(OfflinePolicy))
+            .with_observer(Arc::new(OfflineWarningObserver));
+    }
+
+    if let Some(progress) = progress {
+        loader = loader.with_observer(Arc::new(CliProgressObserver::new(progress)));
+    }
+
     Ok(loader)
 }
 
@@ -165,9 +195,9 @@ mod tests {
         let payer = Keypair::new();
         let recipient = Pubkey::new_unique();
 
-        let middleware = Arc::new(CliAccountMiddleware::new(None, true, None));
         let mut loader = AccountLoader::with_provider(Arc::new(FakeAccountProvider::empty()))
-            .with_middleware(middleware);
+            .with_policy(Arc::new(OfflinePolicy))
+            .with_observer(Arc::new(OfflineWarningObserver));
 
         let tx = create_transfer_tx(&payer, &recipient, 1000);
         let resolved = loader
@@ -204,14 +234,13 @@ mod tests {
 
         let called = Arc::new(AtomicBool::new(false));
         let provider = NeverCalledProvider { called: called.clone() };
-        let middleware = Arc::new(CliAccountMiddleware::new(None, true, None));
-
         let payer = Keypair::new();
         let recipient = Pubkey::new_unique();
         let tx = create_transfer_tx(&payer, &recipient, 1000);
 
-        let mut loader =
-            AccountLoader::with_provider(Arc::new(provider)).with_middleware(middleware);
+        let mut loader = AccountLoader::with_provider(Arc::new(provider))
+            .with_policy(Arc::new(OfflinePolicy))
+            .with_observer(Arc::new(OfflineWarningObserver));
 
         let resolved =
             loader.load_for_transaction(&tx).expect("offline should succeed without RPC");
@@ -309,9 +338,10 @@ mod tests {
 
         let tx = create_transfer_tx(&payer, &recipient, 1000);
 
-        let middleware = Arc::new(CliAccountMiddleware::new(Some(temp_dir.clone()), true, None));
         let mut loader = AccountLoader::with_provider(Arc::new(FakeAccountProvider::empty()))
-            .with_middleware(middleware);
+            .with_source(Arc::new(LocalDirSource::new(temp_dir.clone())))
+            .with_policy(Arc::new(OfflinePolicy))
+            .with_observer(Arc::new(OfflineWarningObserver));
 
         let resolved = loader.load_for_transaction(&tx).expect("should load from local dir");
 

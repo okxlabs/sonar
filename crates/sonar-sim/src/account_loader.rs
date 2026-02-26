@@ -16,7 +16,9 @@ use crate::error::{Result, SonarSimError};
 use crate::resolvers::{AccountDependencyResolver, default_resolvers};
 use crate::rpc_provider::RpcAccountProvider;
 use crate::transaction::{AddressLookupPlan, collect_account_plan};
-use crate::types::{AccountAppender, AccountFetchMiddleware, ResolvedAccounts, ResolvedLookup};
+use crate::types::{
+    AccountAppender, AccountSource, FetchObserver, FetchPolicy, ResolvedAccounts, ResolvedLookup,
+};
 
 /// High-level account loading orchestrator.
 ///
@@ -40,10 +42,21 @@ impl AccountLoader {
         Self { fetcher: AccountFetcher::with_provider(provider), resolvers: default_resolvers() }
     }
 
-    /// Attach an optional middleware for local account resolution,
-    /// offline mode, and progress reporting. Returns `self` for chaining.
-    pub fn with_middleware(mut self, middleware: Arc<dyn AccountFetchMiddleware>) -> Self {
-        self.fetcher = self.fetcher.with_middleware(middleware);
+    /// Attach an account source used before RPC.
+    pub fn with_source(mut self, source: Arc<dyn AccountSource>) -> Self {
+        self.fetcher = self.fetcher.with_source(source);
+        self
+    }
+
+    /// Attach a policy that decides whether unresolved accounts may use RPC.
+    pub fn with_policy(mut self, policy: Arc<dyn FetchPolicy>) -> Self {
+        self.fetcher = self.fetcher.with_policy(policy);
+        self
+    }
+
+    /// Attach an observer for fetch lifecycle events.
+    pub fn with_observer(mut self, observer: Arc<dyn FetchObserver>) -> Self {
+        self.fetcher = self.fetcher.with_observer(observer);
         self
     }
 
@@ -642,11 +655,11 @@ mod tests {
             }
         }
 
-        struct OfflineMiddleware;
+        struct OfflinePolicy;
 
-        impl AccountFetchMiddleware for OfflineMiddleware {
-            fn is_offline(&self) -> bool {
-                true
+        impl crate::types::FetchPolicy for OfflinePolicy {
+            fn decide_rpc(&self, _unresolved: &[Pubkey]) -> crate::types::RpcDecision {
+                crate::types::RpcDecision::Deny
             }
         }
 
@@ -666,9 +679,9 @@ mod tests {
 
         let marker = Pubkey::new_unique();
         let missing = Pubkey::new_unique();
-        let middleware = Arc::new(OfflineMiddleware);
+        let policy = Arc::new(OfflinePolicy);
         let mut loader = AccountLoader::with_provider(Arc::new(NeverCalledProvider))
-            .with_middleware(middleware)
+            .with_policy(policy)
             .with_resolvers(vec![Box::new(MarkerDependencyResolver { marker, missing })]);
 
         let mut resolved = ResolvedAccounts {

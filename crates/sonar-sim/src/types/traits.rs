@@ -19,32 +19,35 @@ pub trait AccountAppender {
     ) -> Result<()>;
 }
 
-/// Hook into the account fetch pipeline.
+/// Local account source used before RPC.
 ///
-/// Implementors can provide accounts from local sources (e.g. file cache),
-/// skip RPC access (offline mode), and report fetch progress.
-/// All methods have no-op defaults so callers only override what they need.
-pub trait AccountFetchMiddleware: Send + Sync {
-    /// Try to resolve accounts from a local source before hitting RPC.
-    /// Returns found accounts; keys absent from the result proceed to RPC.
-    fn try_resolve_local(&self, pubkeys: &[Pubkey]) -> Result<HashMap<Pubkey, AccountSharedData>> {
-        let _ = pubkeys;
-        Ok(HashMap::new())
-    }
+/// Sources are chained in order. Each source receives keys that are still
+/// unresolved and may return a subset of accounts.
+pub trait AccountSource: Send + Sync {
+    fn resolve(&self, pubkeys: &[Pubkey]) -> Result<HashMap<Pubkey, AccountSharedData>>;
+}
 
-    /// When true, skip RPC fetching entirely. Missing accounts after local
-    /// resolution are treated as non-existent.
-    fn is_offline(&self) -> bool {
-        false
-    }
+/// Policy gate that decides whether unresolved accounts may use RPC.
+pub trait FetchPolicy: Send + Sync {
+    fn decide_rpc(&self, unresolved: &[Pubkey]) -> RpcDecision;
+}
 
-    /// Called for accounts that could not be resolved in offline mode.
-    fn on_offline_missing(&self, pubkeys: &[Pubkey]) {
-        let _ = pubkeys;
-    }
+/// Observer for account fetch pipeline events.
+pub trait FetchObserver: Send + Sync {
+    fn on_event(&self, event: &FetchEvent);
+}
 
-    /// Called during RPC fetch for progress reporting.
-    fn on_fetch_progress(&self, pubkey: &Pubkey, current: usize, total: usize) {
-        let _ = (pubkey, current, total);
-    }
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RpcDecision {
+    Allow,
+    Deny,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FetchEvent {
+    LocalResolved { pubkey: Pubkey },
+    RpcSkippedByPolicy { missing: Vec<Pubkey> },
+    RpcBatchStarted { batch_index: usize, batch_size: usize, total_requested: usize },
+    RpcProgress { pubkey: Pubkey, current: usize, total: usize },
+    RpcFinished { requested: usize, fetched: usize, missing: usize },
 }

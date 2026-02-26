@@ -26,9 +26,9 @@ pub use error::{Result, SonarSimError};
 // ── Types ──
 
 pub use types::{
-    AccountAppender, AccountDataPatch, AccountFetchMiddleware, AccountReplacement,
-    PreparedTokenFunding, ResolvedAccounts, ResolvedLookup, ReturnData, SimulationMetadata,
-    SolFunding, TokenAmount, TokenFunding,
+    AccountAppender, AccountDataPatch, AccountReplacement, AccountSource, FetchEvent,
+    FetchObserver, FetchPolicy, PreparedTokenFunding, ResolvedAccounts, ResolvedLookup, ReturnData,
+    RpcDecision, SimulationMetadata, SolFunding, TokenAmount, TokenFunding,
 };
 
 // ── Transaction parsing ──
