@@ -58,7 +58,7 @@ pub use rpc_provider::{FakeAccountProvider, RpcAccountProvider, SolanaRpcProvide
 pub use executor::{
     ExecutionOptions, ExecutionStatus, SignatureVerification, SimulationOptions,
     SimulationOptionsBuilder, SimulationResult, StateMutationOptions, TransactionExecutor,
-    is_native_or_sysvar,
+    is_litesvm_builtin_program, is_native_or_sysvar,
 };
 
 // ── Balance change computation ──

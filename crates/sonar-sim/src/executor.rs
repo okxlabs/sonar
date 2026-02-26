@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::str::FromStr;
 use std::sync::LazyLock;
 
 use litesvm::LiteSVM;
@@ -43,8 +44,43 @@ static NATIVE_PROGRAM_IDS: LazyLock<HashSet<Pubkey>> = LazyLock::new(|| {
     ])
 });
 
+// LiteSVM 在 `LiteSVM::new()` 时默认预置（builtins + default programs）的程序集合。
+// 这些程序不需要经由 RPC 拉取，也不需要写入本地账户缓存。
+static LITESVM_BUILTIN_PROGRAM_IDS: LazyLock<HashSet<Pubkey>> = LazyLock::new(|| {
+    let mut programs = HashSet::from([
+        solana_sdk_ids::system_program::id(),
+        solana_sdk_ids::bpf_loader::id(),
+        solana_sdk_ids::bpf_loader_deprecated::id(),
+        solana_sdk_ids::bpf_loader_upgradeable::id(),
+        solana_sdk_ids::vote::id(),
+        solana_sdk_ids::stake::id(),
+        solana_sdk_ids::config::id(),
+        solana_sdk_ids::compute_budget::id(),
+        solana_sdk_ids::address_lookup_table::id(),
+        solana_sdk_ids::ed25519_program::id(),
+        solana_sdk_ids::secp256k1_program::id(),
+    ]);
+
+    // LiteSVM 默认加载的 SPL 程序（见 litesvm programs/mod.rs）。
+    for id in [
+        "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA", // SPL Token
+        "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb", // SPL Token-2022
+        "Memo1UhkJRfHyvLMcVucJwxXeuD728EqVDDwQDxFMNo", // SPL Memo v1
+        "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr", // SPL Memo v3
+        "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL", // ATA Program
+    ] {
+        programs.insert(Pubkey::from_str(id).expect("invalid hard-coded builtin program id"));
+    }
+
+    programs
+});
+
 pub fn is_native_or_sysvar(pubkey: &Pubkey) -> bool {
     NATIVE_PROGRAM_IDS.contains(pubkey)
+}
+
+pub fn is_litesvm_builtin_program(pubkey: &Pubkey) -> bool {
+    LITESVM_BUILTIN_PROGRAM_IDS.contains(pubkey)
 }
 
 /// Whether the simulator should verify transaction signatures.

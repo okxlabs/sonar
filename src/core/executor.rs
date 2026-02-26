@@ -83,6 +83,9 @@ pub(crate) fn dump_accounts_to_dir(
         {
             continue;
         }
+        if sonar_sim::is_litesvm_builtin_program(pubkey) {
+            continue;
+        }
 
         if is_native_owner(account) {
             continue;
@@ -100,7 +103,10 @@ pub(crate) fn dump_accounts_to_dir(
     // --load-accounts can find them and the offline loader doesn't warn about
     // missing files.
     for pubkey in required_keys {
-        if dumped_keys.contains(&pubkey) || sonar_sim::is_native_or_sysvar(&pubkey) {
+        if dumped_keys.contains(&pubkey)
+            || sonar_sim::is_native_or_sysvar(&pubkey)
+            || sonar_sim::is_litesvm_builtin_program(&pubkey)
+        {
             continue;
         }
 
@@ -146,6 +152,7 @@ mod tests {
     use super::*;
     use std::collections::HashMap;
     use std::path::PathBuf;
+    use std::str::FromStr;
 
     use sonar_sim::ResolvedLookup;
 
@@ -198,6 +205,30 @@ mod tests {
         assert!(parsed.data.is_empty());
         assert_eq!(parsed.owner, solana_sdk_ids::system_program::id());
         assert!(!parsed.executable);
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn dump_accounts_skips_placeholder_for_litesvm_builtin_program() {
+        let temp_dir = std::env::temp_dir().join(format!(
+            "sonar_dump_builtin_placeholder_{}_{}",
+            std::process::id(),
+            std::thread::current().name().unwrap_or("unnamed")
+        ));
+        let _ = std::fs::remove_dir_all(&temp_dir);
+
+        let builtin_program = Pubkey::from_str("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA")
+            .expect("hard-coded pubkey should parse");
+        let resolved = ResolvedAccounts { accounts: HashMap::new(), lookups: vec![] };
+
+        dump_accounts_to_dir(&resolved, &[builtin_program], &temp_dir).expect("dump should succeed");
+
+        let placeholder_path = temp_dir.join(format!("{builtin_program}.json"));
+        assert!(
+            !placeholder_path.exists(),
+            "builtin program should not generate placeholder cache file"
+        );
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }

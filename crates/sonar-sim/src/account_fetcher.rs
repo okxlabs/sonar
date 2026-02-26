@@ -89,6 +89,9 @@ impl AccountFetcher {
         let mut unique = Vec::new();
         let mut seen = HashSet::new();
         for key in pubkeys {
+            if crate::is_litesvm_builtin_program(key) {
+                continue;
+            }
             if destination.contains_key(key) {
                 continue;
             }
@@ -234,6 +237,7 @@ mod tests {
     use crate::rpc_provider::FakeAccountProvider;
     use crate::types::{AccountSource, FetchObserver, FetchPolicy};
     use solana_account::Account;
+    use std::str::FromStr;
     use std::sync::Mutex;
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
@@ -508,5 +512,40 @@ mod tests {
             recorded.last(),
             Some(FetchEvent::RpcFinished { requested: 2, fetched: 2, missing: 0 })
         ));
+    }
+
+    #[test]
+    fn fetcher_skips_litesvm_builtin_programs_without_rpc() {
+        struct CountingProvider {
+            call_count: Arc<AtomicUsize>,
+        }
+
+        impl RpcAccountProvider for CountingProvider {
+            fn get_multiple_accounts(
+                &self,
+                pubkeys: &[Pubkey],
+            ) -> Result<Vec<Option<AccountSharedData>>> {
+                self.call_count.fetch_add(1, Ordering::SeqCst);
+                Ok(pubkeys.iter().map(|_| None).collect())
+            }
+        }
+
+        let call_count = Arc::new(AtomicUsize::new(0));
+        let provider = CountingProvider { call_count: call_count.clone() };
+        let mut fetcher = AccountFetcher::with_provider(Arc::new(provider));
+        let mut dest = HashMap::new();
+
+        let spl_token_program = Pubkey::from_str("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA")
+            .expect("hard-coded pubkey should parse");
+        assert!(crate::is_litesvm_builtin_program(&spl_token_program));
+
+        fetcher.fetch_accounts(&[spl_token_program], &mut dest).unwrap();
+
+        assert_eq!(
+            call_count.load(Ordering::SeqCst),
+            0,
+            "builtin program should be filtered before RPC"
+        );
+        assert!(dest.is_empty(), "builtin program should not be inserted into destination");
     }
 }
