@@ -14,6 +14,7 @@ pub(crate) mod account_loader;
 pub(crate) mod balance_changes;
 pub(crate) mod executor;
 pub(crate) mod funding;
+pub(crate) mod known_programs;
 pub(crate) mod rpc_provider;
 pub(crate) mod token_decode;
 pub(crate) mod transaction;
@@ -53,8 +54,8 @@ pub use rpc_provider::{FakeAccountProvider, RpcAccountProvider, SolanaRpcProvide
 pub use executor::{
     ExecutionOptions, ExecutionStatus, SignatureVerification, SimulationOptions,
     SimulationOptionsBuilder, SimulationResult, StateMutationOptions, TransactionExecutor,
-    is_litesvm_builtin_program, is_native_or_sysvar,
 };
+pub use known_programs::{is_litesvm_builtin_program, is_native_or_sysvar};
 
 // ── Balance change computation ──
 

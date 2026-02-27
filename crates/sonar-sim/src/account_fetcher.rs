@@ -89,7 +89,7 @@ impl AccountFetcher {
         let mut unique = Vec::new();
         let mut seen = HashSet::new();
         for key in pubkeys {
-            if crate::is_litesvm_builtin_program(key) {
+            if crate::known_programs::is_litesvm_builtin_program(key) {
                 continue;
             }
             if destination.contains_key(key) {
@@ -537,7 +537,7 @@ mod tests {
 
         let spl_token_program = Pubkey::from_str("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA")
             .expect("hard-coded pubkey should parse");
-        assert!(crate::is_litesvm_builtin_program(&spl_token_program));
+        assert!(crate::known_programs::is_litesvm_builtin_program(&spl_token_program));
 
         fetcher.fetch_accounts(&[spl_token_program], &mut dest).unwrap();
 

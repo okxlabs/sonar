@@ -291,7 +291,7 @@ mod tests {
 
         let mut resolved = ResolvedAccounts { accounts: HashMap::new(), lookups: vec![] };
         resolved.accounts.insert(token, AccountSharedData::from(token_account));
-        resolved.accounts.insert(mint, AccountSharedData::from(mint_account));
+        resolved.accounts.insert(mint, AccountSharedData::from(mint_account.clone()));
 
         let funding =
             TokenFunding { account: token, mint: Some(mint), amount: TokenAmount::Raw(1_500_000) };
@@ -374,14 +374,14 @@ mod tests {
         SplMint::pack(mint_state, &mut mint_data).unwrap();
 
         let token_account = Account {
-            lamports: 0,
+            lamports: 2_039_280,
             data: token_data,
             owner: legacy_program_id(),
             executable: false,
             rent_epoch: 0,
         };
         let mint_account = Account {
-            lamports: 0,
+            lamports: 1_461_600,
             data: mint_data,
             owner: legacy_program_id(),
             executable: false,
