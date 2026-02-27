@@ -6,54 +6,41 @@ use solana_pubkey::Pubkey;
 use solana_sdk_ids::bpf_loader_upgradeable;
 use spl_token::solana_program::program_pack::Pack;
 
-/// Inspects already-loaded accounts and yields additional [`Pubkey`]s that
-/// must be fetched for a correct simulation.
-///
-/// Each resolver encapsulates a single protocol-specific dependency rule
-/// (e.g. "BPF Upgradeable programs need their ProgramData account").
-pub trait AccountDependencyResolver: Send + Sync {
-    fn resolve_dependencies(&self, accounts: &HashMap<Pubkey, AccountSharedData>) -> Vec<Pubkey>;
-}
-
-/// Identifies ProgramData accounts required by BPF Loader Upgradeable programs.
-pub struct BpfUpgradeableResolver;
-
-impl AccountDependencyResolver for BpfUpgradeableResolver {
-    fn resolve_dependencies(&self, accounts: &HashMap<Pubkey, AccountSharedData>) -> Vec<Pubkey> {
-        let mut missing = Vec::new();
-        for account in accounts.values() {
-            if *account.owner() != bpf_loader_upgradeable::id() {
-                continue;
-            }
-            if let Ok(UpgradeableLoaderState::Program { programdata_address }) =
-                bincode::deserialize::<UpgradeableLoaderState>(account.data())
-            {
-                let key = Pubkey::new_from_array(programdata_address.to_bytes());
-                if !accounts.contains_key(&key) {
-                    missing.push(key);
-                }
+/// Collect missing ProgramData accounts for BPF Upgradeable program accounts.
+pub(crate) fn collect_bpf_upgradeable_programdata_dependencies(
+    accounts: &HashMap<Pubkey, AccountSharedData>,
+) -> Vec<Pubkey> {
+    let mut missing = Vec::new();
+    for account in accounts.values() {
+        if *account.owner() != bpf_loader_upgradeable::id() {
+            continue;
+        }
+        if let Ok(UpgradeableLoaderState::Program { programdata_address }) =
+            bincode::deserialize::<UpgradeableLoaderState>(account.data())
+        {
+            let key = Pubkey::new_from_array(programdata_address.to_bytes());
+            if !accounts.contains_key(&key) {
+                missing.push(key);
             }
         }
-        missing
     }
+    missing
 }
 
-/// Identifies missing mint accounts for SPL Token and Token-2022 token accounts.
-pub struct TokenMintResolver;
-
-impl AccountDependencyResolver for TokenMintResolver {
-    fn resolve_dependencies(&self, accounts: &HashMap<Pubkey, AccountSharedData>) -> Vec<Pubkey> {
-        let mut missing = Vec::new();
-        let mut seen = HashSet::new();
-        for account in accounts.values() {
-            if let Some(mint) = token_account_mint(account) {
-                if !accounts.contains_key(&mint) && seen.insert(mint) {
-                    missing.push(mint);
-                }
+/// Collect missing mint accounts referenced by SPL Token / Token-2022 accounts.
+pub(crate) fn collect_token_mint_dependencies(
+    accounts: &HashMap<Pubkey, AccountSharedData>,
+) -> Vec<Pubkey> {
+    let mut missing = Vec::new();
+    let mut seen = HashSet::new();
+    for account in accounts.values() {
+        if let Some(mint) = token_account_mint(account) {
+            if !accounts.contains_key(&mint) && seen.insert(mint) {
+                missing.push(mint);
             }
         }
-        missing
     }
+    missing
 }
 
 fn token_account_mint(account: &AccountSharedData) -> Option<Pubkey> {
@@ -69,11 +56,6 @@ fn token_account_mint(account: &AccountSharedData) -> Option<Pubkey> {
         return Some(Pubkey::new_from_array(token_account.base.mint.to_bytes()));
     }
     None
-}
-
-/// Returns the default set of dependency resolvers used by [`AccountLoader`](crate::account_loader::AccountLoader).
-pub fn default_resolvers() -> Vec<Box<dyn AccountDependencyResolver>> {
-    vec![Box::new(BpfUpgradeableResolver), Box::new(TokenMintResolver)]
 }
 
 #[cfg(test)]
@@ -121,20 +103,19 @@ mod tests {
     }
 
     #[test]
-    fn bpf_resolver_finds_missing_programdata() {
+    fn bpf_dependency_collection_finds_missing_programdata() {
         let program_key = Pubkey::new_unique();
         let programdata_key = Pubkey::new_unique();
 
         let mut accounts = HashMap::new();
         accounts.insert(program_key, make_bpf_program(&programdata_key));
 
-        let resolver = BpfUpgradeableResolver;
-        let missing = resolver.resolve_dependencies(&accounts);
+        let missing = collect_bpf_upgradeable_programdata_dependencies(&accounts);
         assert_eq!(missing, vec![programdata_key]);
     }
 
     #[test]
-    fn bpf_resolver_skips_already_loaded() {
+    fn bpf_dependency_collection_skips_already_loaded() {
         let program_key = Pubkey::new_unique();
         let programdata_key = Pubkey::new_unique();
 
@@ -151,26 +132,24 @@ mod tests {
             }),
         );
 
-        let resolver = BpfUpgradeableResolver;
-        let missing = resolver.resolve_dependencies(&accounts);
+        let missing = collect_bpf_upgradeable_programdata_dependencies(&accounts);
         assert!(missing.is_empty());
     }
 
     #[test]
-    fn token_resolver_finds_missing_mint() {
+    fn token_dependency_collection_finds_missing_mint() {
         let mint_key = Pubkey::new_unique();
         let token_key = Pubkey::new_unique();
 
         let mut accounts = HashMap::new();
         accounts.insert(token_key, make_token_account(&mint_key));
 
-        let resolver = TokenMintResolver;
-        let missing = resolver.resolve_dependencies(&accounts);
+        let missing = collect_token_mint_dependencies(&accounts);
         assert_eq!(missing, vec![mint_key]);
     }
 
     #[test]
-    fn token_resolver_skips_loaded_mint() {
+    fn token_dependency_collection_skips_loaded_mint() {
         let mint_key = Pubkey::new_unique();
         let token_key = Pubkey::new_unique();
 
@@ -187,14 +166,7 @@ mod tests {
             }),
         );
 
-        let resolver = TokenMintResolver;
-        let missing = resolver.resolve_dependencies(&accounts);
+        let missing = collect_token_mint_dependencies(&accounts);
         assert!(missing.is_empty());
-    }
-
-    #[test]
-    fn default_resolvers_returns_both() {
-        let resolvers = default_resolvers();
-        assert_eq!(resolvers.len(), 2);
     }
 }

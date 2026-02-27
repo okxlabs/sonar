@@ -8,12 +8,12 @@
 
 pub mod error;
 
+pub(crate) mod account_dependencies;
 pub(crate) mod account_fetcher;
 pub(crate) mod account_loader;
 pub(crate) mod balance_changes;
 pub(crate) mod executor;
 pub(crate) mod funding;
-pub mod resolvers;
 pub(crate) mod rpc_provider;
 pub(crate) mod token_decode;
 pub(crate) mod transaction;
@@ -42,12 +42,6 @@ pub use transaction::{
 
 pub use account_fetcher::AccountFetcher;
 pub use account_loader::AccountLoader;
-
-// ── Dependency resolvers ──
-
-pub use resolvers::{
-    AccountDependencyResolver, BpfUpgradeableResolver, TokenMintResolver, default_resolvers,
-};
 
 // ── RPC provider trait + implementations ──
 

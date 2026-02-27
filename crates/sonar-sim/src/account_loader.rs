@@ -13,7 +13,9 @@ use solana_transaction::versioned::VersionedTransaction;
 
 use crate::account_fetcher::{AccountFetcher, format_pubkeys};
 use crate::error::{Result, SonarSimError};
-use crate::resolvers::{AccountDependencyResolver, default_resolvers};
+use crate::account_dependencies::{
+    collect_bpf_upgradeable_programdata_dependencies, collect_token_mint_dependencies,
+};
 use crate::rpc_provider::RpcAccountProvider;
 use crate::transaction::{AddressLookupPlan, collect_account_plan};
 use crate::types::{
@@ -30,16 +32,15 @@ use crate::types::{
 /// delegated to the inner [`AccountFetcher`].
 pub struct AccountLoader {
     fetcher: AccountFetcher,
-    resolvers: Vec<Box<dyn AccountDependencyResolver>>,
 }
 
 impl AccountLoader {
     pub fn new(rpc_url: String) -> Result<Self> {
-        Ok(Self { fetcher: AccountFetcher::new(rpc_url)?, resolvers: default_resolvers() })
+        Ok(Self { fetcher: AccountFetcher::new(rpc_url)? })
     }
 
     pub fn with_provider(provider: Arc<dyn RpcAccountProvider>) -> Self {
-        Self { fetcher: AccountFetcher::with_provider(provider), resolvers: default_resolvers() }
+        Self { fetcher: AccountFetcher::with_provider(provider) }
     }
 
     /// Attach an account source used before RPC.
@@ -57,12 +58,6 @@ impl AccountLoader {
     /// Attach an observer for fetch lifecycle events.
     pub fn with_observer(mut self, observer: Arc<dyn FetchObserver>) -> Self {
         self.fetcher = self.fetcher.with_observer(observer);
-        self
-    }
-
-    /// Replace the default dependency resolvers with a custom set.
-    pub fn with_resolvers(mut self, resolvers: Vec<Box<dyn AccountDependencyResolver>>) -> Self {
-        self.resolvers = resolvers;
         self
     }
 
@@ -175,7 +170,7 @@ impl AccountLoader {
         Ok(())
     }
 
-    /// Runs all registered resolvers in a loop until no new dependencies emerge.
+    /// Runs built-in dependency rules in a loop until no new dependencies emerge.
     fn resolve_all_dependencies(
         &mut self,
         accounts: &mut HashMap<Pubkey, AccountSharedData>,
@@ -185,11 +180,14 @@ impl AccountLoader {
             let mut all_missing = Vec::new();
             let mut seen = HashSet::new();
 
-            for resolver in &self.resolvers {
-                for key in resolver.resolve_dependencies(accounts) {
-                    if seen.insert(key) {
-                        all_missing.push(key);
-                    }
+            for key in collect_bpf_upgradeable_programdata_dependencies(accounts) {
+                if seen.insert(key) {
+                    all_missing.push(key);
+                }
+            }
+            for key in collect_token_mint_dependencies(accounts) {
+                if seen.insert(key) {
+                    all_missing.push(key);
                 }
             }
 
@@ -348,6 +346,7 @@ mod tests {
     use solana_signer::Signer;
     use solana_system_interface::instruction as system_instruction;
     use solana_transaction::Transaction;
+    use spl_token::solana_program::program_pack::Pack;
 
     fn system_account(lamports: u64) -> Account {
         Account {
@@ -368,6 +367,33 @@ mod tests {
         let ix = system_instruction::transfer(&payer.pubkey(), recipient, lamports);
         let message = Message::new(&[ix], Some(&payer.pubkey()));
         VersionedTransaction::from(Transaction::new(&[payer], message, blockhash))
+    }
+
+    fn make_token_account(mint: &Pubkey) -> AccountSharedData {
+        use spl_token::solana_program::program_option::COption;
+        use spl_token::solana_program::pubkey::Pubkey as ProgramPubkey;
+        use spl_token::state::{Account as SplAccount, AccountState};
+
+        let owner = Pubkey::new_unique();
+        let state = SplAccount {
+            mint: ProgramPubkey::new_from_array(mint.to_bytes()),
+            owner: ProgramPubkey::new_from_array(owner.to_bytes()),
+            amount: 0,
+            delegate: COption::None,
+            state: AccountState::Initialized,
+            is_native: COption::None,
+            delegated_amount: 0,
+            close_authority: COption::None,
+        };
+        let mut data = vec![0u8; SplAccount::LEN];
+        SplAccount::pack(state, &mut data).unwrap();
+        AccountSharedData::from(Account {
+            lamports: 1,
+            data,
+            owner: spl_token::ID,
+            executable: false,
+            rent_epoch: 0,
+        })
     }
 
     #[test]
@@ -442,7 +468,7 @@ mod tests {
     }
 
     #[test]
-    fn repeated_load_for_transaction_does_not_refetch_known_missing_dependencies() {
+    fn repeated_append_accounts_does_not_refetch_known_missing_token_mint() {
         use std::sync::atomic::{AtomicUsize, Ordering};
 
         struct CountingProvider {
@@ -460,60 +486,28 @@ mod tests {
             }
         }
 
-        struct MarkerDependencyResolver {
-            marker: Pubkey,
-            missing: Pubkey,
-        }
-
-        impl AccountDependencyResolver for MarkerDependencyResolver {
-            fn resolve_dependencies(
-                &self,
-                accounts: &HashMap<Pubkey, AccountSharedData>,
-            ) -> Vec<Pubkey> {
-                if accounts.contains_key(&self.marker) && !accounts.contains_key(&self.missing) {
-                    vec![self.missing]
-                } else {
-                    Vec::new()
-                }
-            }
-        }
-
-        let payer = Keypair::new();
-        let recipient = Pubkey::new_unique();
-        let missing = Pubkey::new_unique();
-
-        let mut accounts = std::collections::HashMap::new();
-        for (key, lamports) in [
-            (payer.pubkey(), 10_000_000_000u64),
-            (recipient, 0),
-            (Clock::id(), 0),
-            (SlotHashes::id(), 0),
-            (solana_sdk_ids::system_program::id(), 0),
-        ] {
-            accounts.insert(key, AccountSharedData::from(system_account(lamports)));
-        }
-
+        let token_account = Pubkey::new_unique();
+        let missing_mint = Pubkey::new_unique();
         let call_count = Arc::new(AtomicUsize::new(0));
-        let provider = CountingProvider { accounts, call_count: call_count.clone() };
-        let mut loader =
-            AccountLoader::with_provider(Arc::new(provider)).with_resolvers(vec![Box::new(
-                MarkerDependencyResolver { marker: payer.pubkey(), missing },
-            )]);
+        let provider = CountingProvider {
+            accounts: HashMap::from([(token_account, make_token_account(&missing_mint))]),
+            call_count: call_count.clone(),
+        };
+        let mut loader = AccountLoader::with_provider(Arc::new(provider));
+        let mut resolved = ResolvedAccounts { accounts: HashMap::new(), lookups: vec![] };
 
-        let tx = create_transfer_tx(&payer, &recipient, 1000);
-
-        let _ = loader.load_for_transaction(&tx).unwrap();
-        let first_call_count = call_count.load(Ordering::SeqCst);
+        loader.append_accounts(&mut resolved, &[token_account]).unwrap();
         assert_eq!(
-            first_call_count, 2,
-            "first load should perform one initial fetch and one missing dependency fetch"
+            call_count.load(Ordering::SeqCst),
+            2,
+            "first append should fetch token account and then attempt its missing mint once"
         );
 
-        let _ = loader.load_for_transaction(&tx).unwrap();
-        let second_call_count = call_count.load(Ordering::SeqCst);
+        loader.append_accounts(&mut resolved, &[token_account]).unwrap();
         assert_eq!(
-            second_call_count, first_call_count,
-            "second load should not refetch known-missing dependencies"
+            call_count.load(Ordering::SeqCst),
+            2,
+            "second append should not refetch known-missing mint dependency"
         );
     }
 
@@ -583,7 +577,6 @@ mod tests {
 
         struct MissingOnlyProvider {
             call_count: Arc<AtomicUsize>,
-            marker: Pubkey,
         }
 
         impl RpcAccountProvider for MissingOnlyProvider {
@@ -592,54 +585,30 @@ mod tests {
                 pubkeys: &[Pubkey],
             ) -> Result<Vec<Option<AccountSharedData>>> {
                 self.call_count.fetch_add(1, Ordering::SeqCst);
-                Ok(pubkeys
-                    .iter()
-                    .map(|key| {
-                        if *key == self.marker {
-                            Some(AccountSharedData::from(system_account(1)))
-                        } else {
-                            None
-                        }
-                    })
-                    .collect())
+                Ok(vec![None; pubkeys.len()])
             }
         }
 
-        struct MarkerDependencyResolver {
-            marker: Pubkey,
-            missing: Pubkey,
-        }
-
-        impl AccountDependencyResolver for MarkerDependencyResolver {
-            fn resolve_dependencies(
-                &self,
-                accounts: &HashMap<Pubkey, AccountSharedData>,
-            ) -> Vec<Pubkey> {
-                if accounts.contains_key(&self.marker) { vec![self.missing] } else { Vec::new() }
-            }
-        }
-
-        let marker = Pubkey::new_unique();
-        let missing = Pubkey::new_unique();
+        let token_account = Pubkey::new_unique();
+        let missing_mint = Pubkey::new_unique();
         let call_count = Arc::new(AtomicUsize::new(0));
 
-        let provider = MissingOnlyProvider { call_count: call_count.clone(), marker };
-        let mut loader = AccountLoader::with_provider(Arc::new(provider))
-            .with_resolvers(vec![Box::new(MarkerDependencyResolver { marker, missing })]);
+        let provider = MissingOnlyProvider { call_count: call_count.clone() };
+        let mut loader = AccountLoader::with_provider(Arc::new(provider));
 
         let mut resolved = ResolvedAccounts {
-            accounts: HashMap::from([(marker, AccountSharedData::from(system_account(1)))]),
+            accounts: HashMap::from([(token_account, make_token_account(&missing_mint))]),
             lookups: vec![],
         };
 
-        loader.append_accounts(&mut resolved, &[marker]).unwrap();
+        loader.append_accounts(&mut resolved, &[token_account]).unwrap();
 
         assert_eq!(
             call_count.load(Ordering::SeqCst),
             1,
             "known-missing dependency should only be fetched once"
         );
-        assert!(!resolved.accounts.contains_key(&missing));
+        assert!(!resolved.accounts.contains_key(&missing_mint));
     }
 
     #[test]
@@ -663,36 +632,21 @@ mod tests {
             }
         }
 
-        struct MarkerDependencyResolver {
-            marker: Pubkey,
-            missing: Pubkey,
-        }
-
-        impl AccountDependencyResolver for MarkerDependencyResolver {
-            fn resolve_dependencies(
-                &self,
-                accounts: &HashMap<Pubkey, AccountSharedData>,
-            ) -> Vec<Pubkey> {
-                if accounts.contains_key(&self.marker) { vec![self.missing] } else { Vec::new() }
-            }
-        }
-
-        let marker = Pubkey::new_unique();
-        let missing = Pubkey::new_unique();
+        let token_account = Pubkey::new_unique();
+        let missing_mint = Pubkey::new_unique();
         let policy = Arc::new(OfflinePolicy);
-        let mut loader = AccountLoader::with_provider(Arc::new(NeverCalledProvider))
-            .with_policy(policy)
-            .with_resolvers(vec![Box::new(MarkerDependencyResolver { marker, missing })]);
+        let mut loader =
+            AccountLoader::with_provider(Arc::new(NeverCalledProvider)).with_policy(policy);
 
         let mut resolved = ResolvedAccounts {
-            accounts: HashMap::from([(marker, AccountSharedData::from(system_account(1)))]),
+            accounts: HashMap::from([(token_account, make_token_account(&missing_mint))]),
             lookups: vec![],
         };
 
         loader
-            .append_accounts(&mut resolved, &[marker])
+            .append_accounts(&mut resolved, &[token_account])
             .expect("offline mode should not hang on repeated missing dependencies");
 
-        assert!(!resolved.accounts.contains_key(&missing));
+        assert!(!resolved.accounts.contains_key(&missing_mint));
     }
 }
