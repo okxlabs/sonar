@@ -1,0 +1,439 @@
+Cargo.toml
+crates/sonar-idl/src/parser.rs
+  # agent: claude::claude-opus-4-6
+  677a6d0 18-19,51-52,162
+crates/sonar-idl/src/lib.rs
+  # agent: claude::claude-opus-4-6
+  677a6d0 36-40
+src/parsers/instruction/mod.rs
+  # agent: claude::claude-opus-4-6
+  677a6d0 88
+src/parsers/instruction/anchor_idl.rs
+  # agent: claude::claude-opus-4-6
+  677a6d0 8,37-43,84,92-94,98-100
+---
+{
+  "metadata": {
+    "base_commit_sha": "13e4d211f018880504263897a41ecc392d214738",
+    "prompts": {
+      "677a6d0": {
+        "agent_id": {
+          "tool": "claude",
+          "id": "c207e077-f5b9-42f2-a2ff-ba90d7c5c3ed",
+          "model": "claude-opus-4-6"
+        },
+        "human_name": "fubin.jiang@okg.com",
+        "human_email": "fubin.jiang@okg.com",
+        "messages": [
+          {
+            "type": "user",
+            "text": "review the current changes",
+            "timestamp": "2026-02-27T15:37:07.281Z"
+          },
+          {
+            "type": "assistant",
+            "text": "\n\nI'll use the code review skill to review the current changes.",
+            "timestamp": "2026-02-27T15:37:11.999Z"
+          },
+          {
+            "type": "tool_use",
+            "name": "Skill",
+            "input": {
+              "skill": "superpowers:requesting-code-review"
+            },
+            "timestamp": "2026-02-27T15:37:13.031Z"
+          },
+          {
+            "type": "user",
+            "text": "Base directory for this skill: /Users/oker/.claude/plugins/cache/superpowers-marketplace/superpowers/4.0.3/skills/requesting-code-review\n\n# Requesting Code Review\n\nDispatch superpowers:code-reviewer subagent to catch issues before they cascade.\n\n**Core principle:** Review early, review often.\n\n## When to Request Review\n\n**Mandatory:**\n- After each task in subagent-driven development\n- After completing major feature\n- Before merge to main\n\n**Optional but valuable:**\n- When stuck (fresh perspective)\n- Before refactoring (baseline check)\n- After fixing complex bug\n\n## How to Request\n\n**1. Get git SHAs:**\n```bash\nBASE_SHA=$(git rev-parse HEAD~1)  # or origin/main\nHEAD_SHA=$(git rev-parse HEAD)\n```\n\n**2. Dispatch code-reviewer subagent:**\n\nUse Task tool with superpowers:code-reviewer type, fill template at `code-reviewer.md`\n\n**Placeholders:**\n- `{WHAT_WAS_IMPLEMENTED}` - What you just built\n- `{PLAN_OR_REQUIREMENTS}` - What it should do\n- `{BASE_SHA}` - Starting commit\n- `{HEAD_SHA}` - Ending commit\n- `{DESCRIPTION}` - Brief summary\n\n**3. Act on feedback:**\n- Fix Critical issues immediately\n- Fix Important issues before proceeding\n- Note Minor issues for later\n- Push back if reviewer is wrong (with reasoning)\n\n## Example\n\n```\n[Just completed Task 2: Add verification function]\n\nYou: Let me request code review before proceeding.\n\nBASE_SHA=$(git log --oneline | grep \"Task 1\" | head -1 | awk '{print }')\nHEAD_SHA=$(git rev-parse HEAD)\n\n[Dispatch superpowers:code-reviewer subagent]\n  WHAT_WAS_IMPLEMENTED: Verification and repair functions for conversation index\n  PLAN_OR_REQUIREMENTS: Task 2 from docs/plans/deployment-plan.md\n  BASE_SHA: a7981ec\n  HEAD_SHA: 3df7661\n  DESCRIPTION: Added verifyIndex() and repairIndex() with 4 issue types\n\n[Subagent returns]:\n  Strengths: Clean architecture, real tests\n  Issues:\n    Important: Missing progress indicators\n    Minor: Magic number (100) for reporting interval\n  Assessment: Ready to proceed\n\nYou: [Fix progress indicators]\n[Continue to Task 3]\n```\n\n## Integration with Workflows\n\n**Subagent-Driven Development:**\n- Review after EACH task\n- Catch issues before they compound\n- Fix before moving to next task\n\n**Executing Plans:**\n- Review after each batch (3 tasks)\n- Get feedback, apply, continue\n\n**Ad-Hoc Development:**\n- Review before merge\n- Review when stuck\n\n## Red Flags\n\n**Never:**\n- Skip review because \"it's simple\"\n- Ignore Critical issues\n- Proceed with unfixed Important issues\n- Argue with valid technical feedback\n\n**If reviewer wrong:**\n- Push back with technical reasoning\n- Show code/tests that prove it works\n- Request clarification\n\nSee template at: requesting-code-review/code-reviewer.md\n",
+            "timestamp": "2026-02-27T15:37:13.043Z"
+          },
+          {
+            "type": "assistant",
+            "text": "The user wants me to review the current changes on the `refactor/sonar-sim` branch. Let me first gather the git state to understand what's changed.",
+            "timestamp": "2026-02-27T15:37:17.338Z"
+          },
+          {
+            "type": "assistant",
+            "text": "Let me gather the current state of changes first.",
+            "timestamp": "2026-02-27T15:37:17.962Z"
+          },
+          {
+            "type": "tool_use",
+            "name": "Bash",
+            "input": {
+              "command": "git diff --stat",
+              "description": "Show changed files summary"
+            },
+            "timestamp": "2026-02-27T15:37:18.542Z"
+          },
+          {
+            "type": "tool_use",
+            "name": "Bash",
+            "input": {
+              "command": "git diff --stat --staged",
+              "description": "Show staged changes summary"
+            },
+            "timestamp": "2026-02-27T15:37:19.367Z"
+          },
+          {
+            "type": "tool_use",
+            "name": "Bash",
+            "input": {
+              "command": "git log --oneline -10",
+              "description": "Show recent commits"
+            },
+            "timestamp": "2026-02-27T15:37:20.002Z"
+          },
+          {
+            "type": "tool_use",
+            "name": "Bash",
+            "input": {
+              "command": "git log --oneline main..HEAD",
+              "description": "Show commits on branch since main"
+            },
+            "timestamp": "2026-02-27T15:37:20.833Z"
+          },
+          {
+            "type": "tool_use",
+            "name": "Bash",
+            "input": {
+              "command": "git diff --stat",
+              "description": "Show changed files summary"
+            },
+            "timestamp": "2026-02-27T15:37:30.430Z"
+          },
+          {
+            "type": "tool_use",
+            "name": "Bash",
+            "input": {
+              "command": "git diff --stat --staged",
+              "description": "Show staged changes summary"
+            },
+            "timestamp": "2026-02-27T15:37:30.916Z"
+          },
+          {
+            "type": "tool_use",
+            "name": "Bash",
+            "input": {
+              "command": "git log --oneline -10",
+              "description": "Show recent commits"
+            },
+            "timestamp": "2026-02-27T15:37:31.396Z"
+          },
+          {
+            "type": "tool_use",
+            "name": "Bash",
+            "input": {
+              "command": "git remote -v \u0026\u0026 git branch -a",
+              "description": "Show remotes and branches"
+            },
+            "timestamp": "2026-02-27T15:37:31.922Z"
+          },
+          {
+            "type": "tool_use",
+            "name": "Bash",
+            "input": {
+              "command": "git log --oneline master..HEAD",
+              "description": "Show commits on branch since master"
+            },
+            "timestamp": "2026-02-27T15:37:36.080Z"
+          },
+          {
+            "type": "tool_use",
+            "name": "Bash",
+            "input": {
+              "command": "git diff",
+              "description": "Show full unstaged diff"
+            },
+            "timestamp": "2026-02-27T15:37:36.085Z"
+          },
+          {
+            "type": "tool_use",
+            "name": "Read",
+            "input": {
+              "file_path": "/Users/oker/.claude/projects/-Users-oker-Source-sonar/c207e077-f5b9-42f2-a2ff-ba90d7c5c3ed/tool-results/by6457b4g.txt"
+            },
+            "timestamp": "2026-02-27T15:37:39.951Z"
+          },
+          {
+            "type": "assistant",
+            "text": "Now let me look at the new `sonar-idl` crate to understand what was extracted.",
+            "timestamp": "2026-02-27T15:37:45.487Z"
+          },
+          {
+            "type": "tool_use",
+            "name": "Bash",
+            "input": {
+              "command": "ls -la crates/sonar-idl/",
+              "description": "List sonar-idl crate contents"
+            },
+            "timestamp": "2026-02-27T15:37:46.171Z"
+          },
+          {
+            "type": "tool_use",
+            "name": "Bash",
+            "input": {
+              "command": "git diff master..HEAD --stat",
+              "description": "Show all files changed on branch"
+            },
+            "timestamp": "2026-02-27T15:37:47.430Z"
+          },
+          {
+            "type": "tool_use",
+            "name": "Bash",
+            "input": {
+              "command": "ls -la crates/sonar-idl/src/",
+              "description": "List sonar-idl source files"
+            },
+            "timestamp": "2026-02-27T15:37:51.042Z"
+          },
+          {
+            "type": "assistant",
+            "text": "Now let me dispatch the code-reviewer agent to do a thorough review of the unstaged changes (the `sonar-idl` extraction).",
+            "timestamp": "2026-02-27T15:37:54.388Z"
+          },
+          {
+            "type": "tool_use",
+            "name": "Task",
+            "input": {
+              "description": "Review sonar-idl extraction",
+              "prompt": "## Code Review Request\n\n**What was implemented:** Extraction of Anchor IDL parsing logic from `src/parsers/instruction/anchor_idl.rs` into a new standalone `sonar-idl` library crate at `crates/sonar-idl/`. The original file (~1000 lines) was replaced with a thin adapter layer (~90 lines) that bridges `sonar_idl` with the CLI's `InstructionParser`/`ParserRegistry` abstractions.\n\n**Plan/Requirements:** This is a refactoring change on the `refactor/sonar-sim` branch. The goal is to extract pure IDL parsing (model types, discriminator computation, binary parsing) into a reusable library crate, keeping only CLI-specific adapter code in the main crate.\n\n**Base SHA:** ab9ec1f (latest commit on the branch)\n**Head SHA:** Working tree (unstaged changes)\n\n**Description:** The unstaged changes introduce a new `crates/sonar-idl/` crate and slim down `src/parsers/instruction/anchor_idl.rs` from ~1000 lines to ~90 lines. The new crate contains:\n- `models.rs` - IDL type definitions (Idl, LegacyIdl, RawAnchorIdl, etc.)\n- `discriminator.rs` - sighash/discriminator computation\n- `parser.rs` - binary data parsing (instruction args, account data, CPI events)\n- `registry.rs` - IdlRegistry for managing loaded IDLs\n- `value.rs` - IdlValue type for parsed field values\n- `lib.rs` - public API facade\n\nThe adapter in `anchor_idl.rs` now re-exports types from `sonar_idl` and converts between `sonar_idl::IdlParsedInstruction` and the CLI's `ParsedInstruction`.\n\nFiles changed:\n- `Cargo.toml` - added sonar-idl workspace member and dependency\n- `Cargo.lock` - new sonar-idl package\n- `src/parsers/instruction/anchor_idl.rs` - slimmed to adapter layer\n- `crates/sonar-idl/Cargo.toml` - new crate manifest\n- `crates/sonar-idl/src/lib.rs` - public API\n- `crates/sonar-idl/src/models.rs` - IDL model types\n- `crates/sonar-idl/src/discriminator.rs` - discriminator computation\n- `crates/sonar-idl/src/parser.rs` - binary parsing\n- `crates/sonar-idl/src/registry.rs` - IDL registry\n- `crates/sonar-idl/src/value.rs` - parsed value type\n\nPlease review all the changed files carefully for:\n1. Correctness - does the extraction preserve behavior?\n2. API design - is the public API of sonar-idl clean and well-factored?\n3. Missing pieces - are there any functions/types that should have been moved but weren't?\n4. Unnecessary coupling - does sonar-idl depend on anything it shouldn't?\n5. The adapter layer - is the bridge between sonar-idl and the CLI clean?\n6. Double lookups or redundant work in the adapter (e.g., parse_instruction already finding the instruction, then the adapter calling find_instruction_by_discriminator again)\n",
+              "subagent_type": "superpowers:code-reviewer"
+            },
+            "timestamp": "2026-02-27T15:38:11.198Z"
+          },
+          {
+            "type": "user",
+            "text": "[Request interrupted by user]",
+            "timestamp": "2026-02-27T15:40:16.112Z"
+          },
+          {
+            "type": "user",
+            "text": "continue",
+            "timestamp": "2026-02-27T15:40:22.082Z"
+          },
+          {
+            "type": "assistant",
+            "text": "The user wants me to continue. Let me check if the code review agent has completed.",
+            "timestamp": "2026-02-27T15:40:35.753Z"
+          },
+          {
+            "type": "tool_use",
+            "name": "TaskOutput",
+            "input": {
+              "block": true,
+              "task_id": "adea7f326ed5b9d41",
+              "timeout": 60000
+            },
+            "timestamp": "2026-02-27T15:40:37.762Z"
+          },
+          {
+            "type": "assistant",
+            "text": "The review agent is still running. Let me wait a bit more for it to finish.",
+            "timestamp": "2026-02-27T15:41:41.425Z"
+          },
+          {
+            "type": "tool_use",
+            "name": "TaskOutput",
+            "input": {
+              "block": true,
+              "task_id": "adea7f326ed5b9d41",
+              "timeout": 120000
+            },
+            "timestamp": "2026-02-27T15:41:42.237Z"
+          },
+          {
+            "type": "assistant",
+            "text": "The review agent has completed. Let me present the findings to the user.",
+            "timestamp": "2026-02-27T15:42:46.853Z"
+          },
+          {
+            "type": "assistant",
+            "text": "## Code Review: `sonar-idl` Extraction\n\nAll 365 main crate tests + 32 new `sonar-idl` tests pass. The extraction is well-structured overall. Here are the findings:\n\n---\n\n### Strengths\n\n- **Clean dependency boundary** — `sonar-idl` depends only on `anyhow`, `hex`, `serde`, `serde_json`, `sha2`, `solana-pubkey`. Zero CLI type leakage.\n- **Good module organization** — `models`, `discriminator`, `parser`, `registry`, `value` each have clear single responsibility.\n- **Thin adapter layer** — `anchor_idl.rs` only handles CLI-specific concerns (converting types, flattening account names for display).\n- **Comprehensive new tests** — 32 unit tests covering IDL deserialization, discriminator computation, and parsing.\n\n---\n\n### Important Issues\n\n**1. Double discriminator lookup in `parse_instruction`** (`src/parsers/instruction/anchor_idl.rs:110-118`)\n\n`sonar_idl::parse_instruction` already calls `find_instruction_by_discriminator` internally, then the adapter calls it **again** to get account names. This is a redundant O(n) scan.\n\n**Fix:** Add an `accounts: Vec\u003cIdlAccountItem\u003e` field to `IdlParsedInstruction` so the adapter doesn't need the second lookup:\n```rust\n// In sonar-idl\npub struct IdlParsedInstruction {\n    pub name: String,\n    pub fields: Vec\u003cIdlParsedField\u003e,\n    pub accounts: Vec\u003cIdlAccountItem\u003e,  // add this\n}\n```\n\n**2. `OrderedJsonValue` duplication + serialization roundtrip** (`anchor_idl.rs:44-65`)\n\nThere are now two independent `OrderedJsonValue` enums (CLI and library). The adapter bridges them via `serde_json::to_value` → recursive conversion, which allocates intermediate JSON values unnecessarily.\n\n**Options:** (a) Have CLI re-export `sonar_idl::OrderedJsonValue` directly, or (b) add a direct conversion without the JSON intermediate step.\n\n**3. Semantic change in fallback/unknown-type output format**\n\nThe original produced `\"\u003cTypeName: 0x...\u003e\"` strings for unrecognized types. The new code produces structured objects with `context`, `type_hint`, `raw_hex` fields. This changes output for any downstream consumer expecting the old string format. Likely intentional improvement, but worth confirming.\n\n---\n\n### Suggestions (non-blocking)\n\n- **`IdlRegistry` has no `register()` method** — only `new()` or `with_idl()`. Consider adding mutation support for cross-program type resolution.\n- **`to_snake_case` is `pub(crate)`** — library consumers computing discriminators for legacy camelCase names may need this.\n- **No `Deserialize` on library's `OrderedJsonValue`** — prevents round-tripping parsed results through JSON.\n- **`f32`/`f64` types not handled** in `parse_simple_type` (same gap as original, not a regression).\n- **Consider `#[non_exhaustive]`** on public enums for semver safety.\n\n---\n\n### Verdict\n\nWell-executed extraction. The **double discriminator lookup** is the main actionable item before merging. The `OrderedJsonValue` roundtrip and fallback format change are worth addressing but lower priority.",
+            "timestamp": "2026-02-27T15:42:58.746Z"
+          },
+          {
+            "type": "user",
+            "text": "fix 1 and 2",
+            "timestamp": "2026-02-27T15:47:40.176Z"
+          },
+          {
+            "type": "assistant",
+            "text": "The user wants me to fix:\n1. Double discriminator lookup in `parse_instruction` - add `accounts` field to `IdlParsedInstruction`\n2. `OrderedJsonValue` duplication - eliminate the roundtrip\n\nLet me first read the relevant files to understand the current state.",
+            "timestamp": "2026-02-27T15:47:45.718Z"
+          },
+          {
+            "type": "assistant",
+            "text": "Let me read the relevant files first.",
+            "timestamp": "2026-02-27T15:47:46.066Z"
+          },
+          {
+            "type": "tool_use",
+            "name": "Read",
+            "input": {
+              "file_path": "/Users/oker/Source/sonar/crates/sonar-idl/src/value.rs"
+            },
+            "timestamp": "2026-02-27T15:47:46.705Z"
+          },
+          {
+            "type": "tool_use",
+            "name": "Read",
+            "input": {
+              "file_path": "/Users/oker/Source/sonar/crates/sonar-idl/src/lib.rs"
+            },
+            "timestamp": "2026-02-27T15:47:46.910Z"
+          },
+          {
+            "type": "tool_use",
+            "name": "Read",
+            "input": {
+              "file_path": "/Users/oker/Source/sonar/crates/sonar-idl/src/parser.rs"
+            },
+            "timestamp": "2026-02-27T15:47:47.318Z"
+          },
+          {
+            "type": "tool_use",
+            "name": "Read",
+            "input": {
+              "file_path": "/Users/oker/Source/sonar/src/parsers/instruction/anchor_idl.rs"
+            },
+            "timestamp": "2026-02-27T15:47:47.714Z"
+          },
+          {
+            "type": "tool_use",
+            "name": "Read",
+            "input": {
+              "file_path": "/Users/oker/Source/sonar/src/parsers/instruction/mod.rs"
+            },
+            "timestamp": "2026-02-27T15:47:48.302Z"
+          },
+          {
+            "type": "assistant",
+            "text": "Now I have a clear picture. Let me make the two fixes:\n\n**Fix 1: Double discriminator lookup** - Add `accounts` field to `IdlParsedInstruction` in sonar-idl, populate it in `parse_instruction`, then use it directly in the adapter.\n\n**Fix 2: OrderedJsonValue duplication** - Replace the CLI's own `OrderedJsonValue` with a re-export from `sonar_idl`. This eliminates the serialization roundtrip in the adapter.\n\nLet me check what uses `OrderedJsonValue` in the CLI to understand the impact of making it a re-export.\n\n\nI'm looking at where `OrderedJsonValue` is defined in the CLI and tracing through all the places it's used to see how widespread the change would be.",
+            "timestamp": "2026-02-27T15:47:57.085Z"
+          },
+          {
+            "type": "assistant",
+            "text": "Now let me check all usages of the CLI's `OrderedJsonValue` to understand the impact of replacing it with a re-export.",
+            "timestamp": "2026-02-27T15:47:57.103Z"
+          },
+          {
+            "type": "tool_use",
+            "name": "Grep",
+            "input": {
+              "output_mode": "content",
+              "path": "/Users/oker/Source/sonar/src",
+              "pattern": "OrderedJsonValue"
+            },
+            "timestamp": "2026-02-27T15:47:57.916Z"
+          },
+          {
+            "type": "tool_use",
+            "name": "Grep",
+            "input": {
+              "output_mode": "content",
+              "path": "/Users/oker/Source/sonar/src/handlers",
+              "pattern": "OrderedJsonValue"
+            },
+            "timestamp": "2026-02-27T15:48:02.666Z"
+          },
+          {
+            "type": "assistant",
+            "text": "Good. `OrderedJsonValue` is used in:\n- `src/parsers/instruction/mod.rs` — definition + usage in `ParsedField`/`ParsedFieldValue`\n- `src/parsers/instruction/anchor_idl.rs` — adapter conversion\n- `src/output/text.rs` — pattern match on `OrderedJsonValue::Number`\n\nThe two types are identical. I'll replace the CLI's definition with a re-export from `sonar_idl`, then fix the double lookup. Let me also check the `text.rs` usage quickly.",
+            "timestamp": "2026-02-27T15:48:09.051Z"
+          },
+          {
+            "type": "tool_use",
+            "name": "Read",
+            "input": {
+              "file_path": "/Users/oker/Source/sonar/src/output/text.rs",
+              "limit": 15,
+              "offset": 290
+            },
+            "timestamp": "2026-02-27T15:48:10.023Z"
+          },
+          {
+            "type": "assistant",
+            "text": "Good — it just matches on `OrderedJsonValue::Number`. That will work fine with the re-export. Now let me make the changes.\n\n**Fix 1**: Add `accounts` to `IdlParsedInstruction` in `sonar-idl`, populate in `parse_instruction`.\n\n**Fix 2**: Export `OrderedJsonValue` from `sonar-idl`, re-export in CLI, remove the duplicate definition and serialization roundtrip.",
+            "timestamp": "2026-02-27T15:48:15.628Z"
+          },
+          {
+            "type": "tool_use",
+            "name": "Edit",
+            "input": {
+              "file_path": "/Users/oker/Source/sonar/crates/sonar-idl/src/parser.rs",
+              "new_string": "/// A fully parsed IDL instruction with resolved argument fields.\n#[derive(Debug, Clone, Serialize)]\npub struct IdlParsedInstruction {\n    pub name: String,\n    pub fields: Vec\u003cIdlParsedField\u003e,\n    /// The account items from the matched IDL instruction definition.\n    pub accounts: Vec\u003cIdlAccountItem\u003e,\n}",
+              "old_string": "/// A fully parsed IDL instruction with resolved argument fields.\n#[derive(Debug, Clone, Serialize)]\npub struct IdlParsedInstruction {\n    pub name: String,\n    pub fields: Vec\u003cIdlParsedField\u003e,\n}",
+              "replace_all": false
+            },
+            "timestamp": "2026-02-27T15:48:18.558Z"
+          }
+        ],
+        "total_additions": 37,
+        "total_deletions": 147,
+        "accepted_lines": 37,
+        "overriden_lines": 0
+      }
+    }
+  },
+  "agent_line_stats": {
+    "crates/sonar-idl/src/lib.rs": {
+      "Human": {
+        "file_path": "crates/sonar-idl/src/lib.rs",
+        "agent_type": "Human",
+        "additions": 42,
+        "deletions": 0,
+        "ai_accepted": 0
+      },
+      "claude::claude-opus-4-6": {
+        "file_path": "crates/sonar-idl/src/lib.rs",
+        "agent_type": "claude::claude-opus-4-6",
+        "additions": 5,
+        "deletions": 0,
+        "ai_accepted": 0
+      }
+    },
+    "crates/sonar-idl/src/parser.rs": {
+      "Human": {
+        "file_path": "crates/sonar-idl/src/parser.rs",
+        "agent_type": "Human",
+        "additions": 1015,
+        "deletions": 0,
+        "ai_accepted": 0
+      },
+      "claude::claude-opus-4-6": {
+        "file_path": "crates/sonar-idl/src/parser.rs",
+        "agent_type": "claude::claude-opus-4-6",
+        "additions": 5,
+        "deletions": 0,
+        "ai_accepted": 0
+      }
+    },
+    "src/parsers/instruction/anchor_idl.rs": {
+      "Human": {
+        "file_path": "src/parsers/instruction/anchor_idl.rs",
+        "agent_type": "Human",
+        "additions": 1641,
+        "deletions": 3200,
+        "ai_accepted": 0
+      },
+      "claude::claude-opus-4-6": {
+        "file_path": "src/parsers/instruction/anchor_idl.rs",
+        "agent_type": "claude::claude-opus-4-6",
+        "additions": 15,
+        "deletions": 976,
+        "ai_accepted": 0
+      }
+    },
+    "src/parsers/instruction/mod.rs": {
+      "claude::claude-opus-4-6": {
+        "file_path": "src/parsers/instruction/mod.rs",
+        "agent_type": "claude::claude-opus-4-6",
+        "additions": 1,
+        "deletions": 49,
+        "ai_accepted": 0
+      }
+    }
+  }
+}
