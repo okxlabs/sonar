@@ -1,0 +1,46 @@
+//! sonar-idl: Anchor IDL parsing and type resolution for Solana programs.
+//!
+//! This crate provides a pure, CLI-agnostic library for working with
+//! Anchor IDL files:
+//!
+//! - **Models**: Canonical IDL types (`Idl`, `IdlInstruction`, etc.) plus
+//!   backward-compatible deserialization of legacy (pre-0.30) IDL JSON.
+//! - **Registry**: `IdlRegistry` for multi-program type resolution.
+//! - **Parsing**: Binary deserialization of instruction args, account data,
+//!   and CPI events using IDL type definitions.
+//! - **Discriminator**: `sighash` for computing Anchor 8-byte discriminators.
+//! - **Value**: Internal JSON-like AST used by parser internals.
+
+mod discriminator;
+mod models;
+mod parser;
+mod registry;
+mod value;
+
+// ── Discriminator ──
+
+pub use discriminator::sighash;
+
+// ── Models ──
+
+pub use models::{
+    DefinedType, Idl, IdlAccount, IdlAccountItem, IdlAccounts, IdlArg, IdlEnumVariant, IdlEvent,
+    IdlField, IdlFields, IdlInstruction, IdlMetadata, IdlType, IdlTypeDefinition,
+    IdlTypeDefinitionBody, LegacyIdl, RawAnchorIdl,
+};
+
+// ── Registry ──
+
+pub use registry::IdlRegistry;
+
+// ── Value ──
+
+pub use value::OrderedJsonValue;
+
+// ── Parsing ──
+
+pub use parser::{
+    IdlParsedField, IdlParsedInstruction, find_event_by_discriminator,
+    find_instruction_by_discriminator, is_cpi_event_data, parse_account_data, parse_cpi_event_data,
+    parse_instruction,
+};

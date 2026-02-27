@@ -5877,6 +5877,7 @@ dependencies = [
  "solana-sysvar-id",
  "solana-transaction",
  "solana-transaction-status-client-types",
+ "sonar-idl",
  "sonar-sim",
  "spl-pod",
  "spl-token",
@@ -5887,6 +5888,18 @@ dependencies = [
  "terminal_size",
  "toml",
  "unicode-width",
+]
+
+[[package]]
+name = "sonar-idl"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "hex",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "solana-pubkey 3.0.0",
 ]
 
 [[package]]
