@@ -1,7 +1,12 @@
 use std::str::FromStr;
 
 use anyhow::{Context, Result, anyhow};
+use sha2::{Digest, Sha256};
+use solana_client::rpc_client::RpcClient;
+use solana_loader_v3_interface::state::UpgradeableLoaderState;
 use solana_pubkey::Pubkey;
+use solana_sdk_ids::bpf_loader_upgradeable;
+use std::io::Write;
 
 use crate::cli::ProgramDataArgs;
 
@@ -15,9 +20,6 @@ enum UpgradeableAccountKind {
 }
 
 pub(crate) fn handle(args: ProgramDataArgs) -> Result<()> {
-    use sha2::{Digest, Sha256};
-    use solana_client::rpc_client::RpcClient;
-
     let address = Pubkey::from_str(&args.address)
         .with_context(|| format!("Invalid address: {}", args.address))?;
 
@@ -86,8 +88,6 @@ pub(crate) fn handle(args: ProgramDataArgs) -> Result<()> {
 }
 
 fn ensure_upgradeable_owner(address: Pubkey, owner: &Pubkey) -> Result<()> {
-    use solana_sdk_ids::bpf_loader_upgradeable;
-
     if *owner != bpf_loader_upgradeable::id() {
         return Err(anyhow!(
             "Account {} is not owned by BPF Loader Upgradeable (owner: {})",
@@ -103,8 +103,6 @@ fn classify_upgradeable_account(
     address: Pubkey,
     account_data: &[u8],
 ) -> Result<UpgradeableAccountKind> {
-    use solana_loader_v3_interface::state::UpgradeableLoaderState;
-
     let state: UpgradeableLoaderState = bincode::deserialize(account_data).with_context(|| {
         format!("Failed to deserialize upgradeable loader account state: {address}")
     })?;
@@ -142,8 +140,6 @@ fn is_stdout_output_path(path: &std::path::Path) -> bool {
 }
 
 fn write_raw_bytes_to_stdout(data: &[u8]) -> Result<()> {
-    use std::io::Write;
-
     let stdout = std::io::stdout();
     let mut handle = stdout.lock();
     handle.write_all(data).with_context(|| "Failed to write program data to stdout")?;

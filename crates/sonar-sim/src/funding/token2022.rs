@@ -1,6 +1,9 @@
 use solana_account::{Account, AccountSharedData, ReadableAccount};
 use solana_pubkey::Pubkey;
+use spl_token::solana_program::{program_option::COption, pubkey::Pubkey as ProgramPubkey};
 use spl_token_2022::extension::{BaseStateWithExtensions, BaseStateWithExtensionsMut};
+use spl_token_2022::extension::{ExtensionType, StateWithExtensions, StateWithExtensionsMut};
+use spl_token_2022::state::{Account as Token2022Account, AccountState, Mint as Token2022Mint};
 
 use crate::error::{Result, SonarSimError};
 use crate::token_decode::{TokenProgramKind, token2022_program_id};
@@ -11,10 +14,6 @@ pub(super) fn build_token_account_with_extensions(
     mint: &Pubkey,
     mint_account: &AccountSharedData,
 ) -> Result<AccountSharedData> {
-    use spl_token::solana_program::{program_option::COption, pubkey::Pubkey as ProgramPubkey};
-    use spl_token_2022::extension::{ExtensionType, StateWithExtensions, StateWithExtensionsMut};
-    use spl_token_2022::state::{Account as Token2022Account, AccountState, Mint as Token2022Mint};
-
     let mint_state =
         StateWithExtensions::<Token2022Mint>::unpack(mint_account.data()).map_err(|e| {
             SonarSimError::Token {
@@ -97,7 +96,9 @@ pub(super) fn update_token_balance_in_account(
 mod tests {
     use solana_account::{Account, ReadableAccount};
     use solana_pubkey::Pubkey;
+    use spl_token::solana_program::program_option::COption;
     use spl_token::solana_program::program_pack::Pack;
+    use spl_token_2022::extension::transfer_fee::TransferFeeConfig;
     use spl_token_2022::extension::{
         BaseStateWithExtensions, BaseStateWithExtensionsMut, ExtensionType, StateWithExtensions,
         StateWithExtensionsMut,
@@ -108,9 +109,6 @@ mod tests {
     use crate::token_decode::token2022_program_id;
 
     fn mint_account_base_only() -> AccountSharedData {
-        use spl_token::solana_program::program_option::COption;
-        use spl_token::solana_program::program_pack::Pack;
-
         let mint = Token2022Mint {
             mint_authority: COption::None,
             supply: 0,
@@ -130,9 +128,6 @@ mod tests {
     }
 
     fn mint_account_with_transfer_fee_config() -> AccountSharedData {
-        use spl_token::solana_program::program_option::COption;
-        use spl_token_2022::extension::transfer_fee::TransferFeeConfig;
-
         let account_len = ExtensionType::try_calculate_account_len::<Token2022Mint>(&[
             ExtensionType::TransferFeeConfig,
         ])

@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use anyhow::{Result, anyhow};
+use serde::de::Error;
 use serde::{Deserialize, Serialize};
 use serde_json::{Number as JsonNumber, Value as JsonValue};
 use sha2::{Digest, Sha256};
@@ -269,8 +270,6 @@ fn deserialize_optional_idl_fields<'de, D>(deserializer: D) -> Result<Option<Idl
 where
     D: serde::Deserializer<'de>,
 {
-    use serde::de::Error;
-
     // Actually, a simpler approach is to use Option::deserialize and handle the Some case
     let value = Option::<serde_json::Value>::deserialize(deserializer)?;
 

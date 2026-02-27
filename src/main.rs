@@ -6,7 +6,7 @@ mod output;
 mod parsers;
 mod utils;
 
-use std::io::IsTerminal;
+use std::io::{IsTerminal, Write};
 
 use anyhow::Result;
 use clap::{CommandFactory, Parser};
@@ -111,8 +111,6 @@ fn run() -> Result<()> {
 /// * Format: `warning: <msg>` / `error: <msg>` for user-visible levels;
 ///   debug/trace include the module target for developers.
 fn init_logger() {
-    use std::io::Write;
-
     env_logger::Builder::new()
         .filter_level(log::LevelFilter::Warn)
         .parse_default_env()

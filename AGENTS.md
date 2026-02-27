@@ -52,6 +52,7 @@ cargo run -- completions zsh
 ## Coding Rules
 
 - Naming: `snake_case` (fn/var), `PascalCase` (types), `UPPER_SNAKE_CASE` (const)
+- Imports: keep `use` declarations at module scope (or test module scope), not inside function bodies
 - Errors: use `anyhow::Result<T>` and add `.context(...)` on fallible boundaries
 - Keep modules single-purpose; prefer `pub(crate)` for internal APIs
 - User-facing error messages should be English

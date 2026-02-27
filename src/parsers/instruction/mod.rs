@@ -353,10 +353,8 @@ impl ParserRegistry {
         _account_plan: &crate::core::transaction::MessageAccountPlan,
         _lookup_locations: &[crate::core::transaction::LookupLocation],
     ) -> Option<ParsedInstruction> {
-        use crate::parsers::instruction::anchor_idl;
-
         // Check if this is a CPI event
-        if !anchor_idl::is_anchor_cpi_event(instruction) {
+        if !self::anchor_idl::is_anchor_cpi_event(instruction) {
             log::debug!("Not a CPI event for program: {}", program_id);
             return None;
         }

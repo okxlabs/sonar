@@ -1,8 +1,7 @@
 use super::types::{ConvertValue, FixedIntSpec};
+use num_bigint::BigUint;
 
 pub(crate) fn parse_number(input: &str) -> Result<num_bigint::BigUint, String> {
-    use num_bigint::BigUint;
-
     let input = input.trim();
     if input.is_empty() {
         return Err("Integer cannot be empty".to_string());
@@ -352,7 +351,6 @@ mod tests {
 
     #[test]
     fn biguint_to_u128_too_large() {
-        use num_bigint::BigUint;
         let max_plus_one = BigUint::from(u128::MAX) + BigUint::from(1u32);
         assert_eq!(biguint_to_u128(&max_plus_one), None);
     }

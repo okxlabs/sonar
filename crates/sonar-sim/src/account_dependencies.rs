@@ -53,6 +53,9 @@ fn token_account_mint(account: &AccountSharedData) -> Option<Pubkey> {
 mod tests {
     use super::*;
     use solana_account::Account;
+    use spl_token::solana_program::program_pack::Pack;
+    use spl_token::solana_program::{program_option::COption, pubkey::Pubkey as ProgramPubkey};
+    use spl_token::state::{Account as SplAccount, AccountState};
 
     fn make_bpf_program(programdata_address: &Pubkey) -> AccountSharedData {
         let state = UpgradeableLoaderState::Program { programdata_address: *programdata_address };
@@ -67,10 +70,6 @@ mod tests {
     }
 
     fn make_token_account(mint: &Pubkey) -> AccountSharedData {
-        use spl_token::solana_program::program_option::COption;
-        use spl_token::solana_program::pubkey::Pubkey as ProgramPubkey;
-        use spl_token::state::{Account as SplAccount, AccountState};
-
         let owner = Pubkey::new_unique();
         let state = SplAccount {
             mint: ProgramPubkey::new_from_array(mint.to_bytes()),

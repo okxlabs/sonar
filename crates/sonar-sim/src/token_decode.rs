@@ -165,6 +165,7 @@ mod tests {
     use super::*;
     use solana_account::Account;
     use spl_token::solana_program::program_option::COption;
+    use spl_token::solana_program::pubkey::Pubkey as ProgramPubkey;
     use spl_token::state::AccountState;
 
     fn make_mint(decimals: u8, owner: Pubkey) -> Account {
@@ -181,8 +182,6 @@ mod tests {
     }
 
     fn make_token_account(mint: &Pubkey, token_owner: &Pubkey, amount: u64) -> Vec<u8> {
-        use spl_token::solana_program::pubkey::Pubkey as ProgramPubkey;
-
         let state = SplTokenAccount {
             mint: ProgramPubkey::new_from_array(mint.to_bytes()),
             owner: ProgramPubkey::new_from_array(token_owner.to_bytes()),

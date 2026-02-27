@@ -3,12 +3,13 @@ use std::str::FromStr;
 use anyhow::Result;
 use colored::Colorize;
 use serde::Serialize;
+use serde::ser::SerializeMap;
 use solana_account::ReadableAccount;
 use solana_pubkey::Pubkey;
 use unicode_width::UnicodeWidthStr;
 
 use crate::parsers::{
-    instruction::{ParsedField, ParserRegistry},
+    instruction::{OrderedJsonValue, ParsedField, ParsedFieldValue, ParserRegistry},
     log_parser::{LogEntry, LogEntryWithDepth, parse_logs_by_instruction},
 };
 use sonar_sim::ResolvedAccounts;
@@ -281,8 +282,6 @@ fn render_summary_header(simulation: &SimulationSection, transaction: &Transacti
 
 /// Extract compute unit limit from SetComputeUnitLimit instruction if present.
 fn extract_compute_unit_limit(transaction: &TransactionSection) -> Option<u64> {
-    use crate::parsers::instruction::{OrderedJsonValue, ParsedFieldValue};
-
     for ix in &transaction.instructions {
         if let Some(parsed) = &ix.parsed {
             if parsed.name == "SetComputeUnitLimit" {
@@ -853,8 +852,6 @@ impl Serialize for OrderedFields<'_> {
     where
         S: serde::Serializer,
     {
-        use serde::ser::SerializeMap;
-
         let mut map = serializer.serialize_map(Some(self.0.len()))?;
         for field in self.0 {
             map.serialize_entry(&field.name, &field.value)?;

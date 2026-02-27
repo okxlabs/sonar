@@ -8,10 +8,15 @@ use anyhow::{Context, Result, anyhow};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use serde::Serialize;
+use solana_client::rpc_client::RpcClient;
+use solana_client::rpc_config::RpcTransactionConfig;
+use solana_commitment_config::CommitmentConfig;
 use solana_message::VersionedMessage;
 use solana_message::inner_instruction::InnerInstructionsList;
 use solana_signature::Signature;
 use solana_transaction::versioned::{TransactionVersion, VersionedTransaction};
+use solana_transaction_status_client_types::UiTransactionEncoding;
+use std::io::{IsTerminal, Read};
 use std::path::PathBuf;
 use std::str::FromStr;
 
@@ -128,24 +133,19 @@ pub fn read_raw_transaction(inline: Option<String>) -> Result<String> {
         } else {
             Ok(trimmed.to_owned())
         }
-    } else {
-        use std::io::{IsTerminal, Read};
-        if !std::io::stdin().is_terminal() {
-            let mut buf = String::new();
-            std::io::stdin()
-                .read_to_string(&mut buf)
-                .context("Failed to read transaction from stdin")?;
-            let trimmed = buf.trim();
-            if trimmed.is_empty() {
-                Err(anyhow!("No transaction data received from stdin"))
-            } else {
-                Ok(trimmed.to_owned())
-            }
+    } else if !std::io::stdin().is_terminal() {
+        let mut buf = String::new();
+        std::io::stdin()
+            .read_to_string(&mut buf)
+            .context("Failed to read transaction from stdin")?;
+        let trimmed = buf.trim();
+        if trimmed.is_empty() {
+            Err(anyhow!("No transaction data received from stdin"))
         } else {
-            Err(anyhow!(
-                "No transaction provided. Pass TX as a positional argument or pipe via stdin"
-            ))
+            Ok(trimmed.to_owned())
         }
+    } else {
+        Err(anyhow!("No transaction provided. Pass TX as a positional argument or pipe via stdin"))
     }
 }
 
@@ -164,11 +164,6 @@ pub fn fetch_transaction_from_rpc(
     signature: &str,
     _progress: Option<&Progress>,
 ) -> Result<String> {
-    use solana_client::rpc_client::RpcClient;
-    use solana_client::rpc_config::RpcTransactionConfig;
-    use solana_commitment_config::CommitmentConfig;
-    use solana_transaction_status_client_types::UiTransactionEncoding;
-
     let parsed_sig =
         signature.parse().with_context(|| format!("Invalid signature format: {}", signature))?;
 
@@ -422,6 +417,8 @@ pub(crate) fn classify_account_reference(
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use super::*;
     use base64::Engine;
     use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
@@ -504,8 +501,6 @@ mod tests {
 
     #[test]
     fn tx_input_resolver_prefers_cache_for_signature() {
-        use std::fs;
-
         let (versioned, _) = sample_transaction();
         let bytes = bincode::serialize(&versioned).unwrap();
         let raw_base64 = BASE64_STANDARD.encode(&bytes);
@@ -582,31 +577,31 @@ mod tests {
 
         assert_eq!(locations[0].table_account, table1);
         assert_eq!(locations[0].table_index, 0);
-        assert_eq!(locations[0].writable, true);
+        assert!(locations[0].writable);
 
         assert_eq!(locations[1].table_account, table1);
         assert_eq!(locations[1].table_index, 1);
-        assert_eq!(locations[1].writable, true);
+        assert!(locations[1].writable);
 
         assert_eq!(locations[2].table_account, table2);
         assert_eq!(locations[2].table_index, 5);
-        assert_eq!(locations[2].writable, true);
+        assert!(locations[2].writable);
 
         assert_eq!(locations[3].table_account, table2);
         assert_eq!(locations[3].table_index, 6);
-        assert_eq!(locations[3].writable, true);
+        assert!(locations[3].writable);
 
         assert_eq!(locations[4].table_account, table1);
         assert_eq!(locations[4].table_index, 2);
-        assert_eq!(locations[4].writable, false);
+        assert!(!locations[4].writable);
 
         assert_eq!(locations[5].table_account, table1);
         assert_eq!(locations[5].table_index, 3);
-        assert_eq!(locations[5].writable, false);
+        assert!(!locations[5].writable);
 
         assert_eq!(locations[6].table_account, table2);
         assert_eq!(locations[6].table_index, 7);
-        assert_eq!(locations[6].writable, false);
+        assert!(!locations[6].writable);
     }
 
     #[test]
@@ -629,12 +624,12 @@ mod tests {
         assert_eq!(locations.len(), 3);
 
         assert_eq!(locations[0].table_index, 10);
-        assert_eq!(locations[0].writable, true);
+        assert!(locations[0].writable);
 
         assert_eq!(locations[1].table_index, 20);
-        assert_eq!(locations[1].writable, false);
+        assert!(!locations[1].writable);
 
         assert_eq!(locations[2].table_index, 21);
-        assert_eq!(locations[2].writable, false);
+        assert!(!locations[2].writable);
     }
 }

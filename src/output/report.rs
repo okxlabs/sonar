@@ -4,6 +4,7 @@ use std::str::FromStr;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use serde::{Serialize, Serializer};
+use solana_account::AccountSharedData;
 use solana_pubkey::Pubkey;
 use solana_transaction::versioned::TransactionVersion;
 
@@ -271,8 +272,6 @@ fn compute_bundle_overall_balance_changes(
     simulations: &[SimulationResult],
     balance_opts: BalanceChangeOptions,
 ) -> (Vec<SolBalanceChangeSection>, Vec<TokenBalanceChangeSection>) {
-    use solana_account::AccountSharedData;
-
     if !balance_opts.show_balance_change || simulations.is_empty() {
         return (Vec::new(), Vec::new());
     }

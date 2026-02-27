@@ -135,6 +135,8 @@ pub fn create_idl_fetcher(loader: &AccountLoader, progress: Option<Progress>) ->
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+
     use super::*;
     use solana_account::{Account, ReadableAccount};
     use solana_clock::Clock;
@@ -147,6 +149,7 @@ mod tests {
     use solana_sysvar_id::SysvarId;
     use solana_transaction::Transaction;
     use solana_transaction::versioned::VersionedTransaction;
+    use sonar_sim::AccountAppender;
     use sonar_sim::ResolvedAccounts;
     use sonar_sim::{FakeAccountProvider, RpcAccountProvider};
 
@@ -220,8 +223,6 @@ mod tests {
 
     #[test]
     fn offline_mode_does_not_call_rpc_provider() {
-        use std::sync::atomic::{AtomicBool, Ordering};
-
         struct NeverCalledProvider {
             called: Arc<AtomicBool>,
         }
@@ -259,8 +260,6 @@ mod tests {
 
     #[test]
     fn in_memory_cache_avoids_duplicate_provider_calls() {
-        use std::sync::atomic::{AtomicUsize, Ordering};
-
         struct CountingProvider {
             accounts: std::collections::HashMap<Pubkey, AccountSharedData>,
             call_count: Arc<AtomicUsize>,
@@ -361,8 +360,6 @@ mod tests {
 
     #[test]
     fn append_accounts_fetches_additional_accounts() {
-        use sonar_sim::AccountAppender;
-
         let extra = Pubkey::new_unique();
 
         let mut accounts = std::collections::HashMap::new();

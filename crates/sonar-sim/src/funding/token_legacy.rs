@@ -1,6 +1,8 @@
 use solana_account::{Account, AccountSharedData};
 use solana_pubkey::Pubkey;
 use spl_token::solana_program::program_pack::Pack;
+use spl_token::solana_program::{program_option::COption, pubkey::Pubkey as ProgramPubkey};
+use spl_token::state::{Account as SplAccount, AccountState};
 
 use crate::error::{Result, SonarSimError};
 use crate::token_decode::{TokenProgramKind, legacy_program_id};
@@ -10,9 +12,6 @@ pub(super) fn build_token_account(
     account_pubkey: &Pubkey,
     mint: &Pubkey,
 ) -> Result<AccountSharedData> {
-    use spl_token::solana_program::{program_option::COption, pubkey::Pubkey as ProgramPubkey};
-    use spl_token::state::{Account as SplAccount, AccountState};
-
     let mut data = vec![0u8; SplAccount::LEN];
     let state = SplAccount {
         mint: ProgramPubkey::new_from_array(mint.to_bytes()),
@@ -59,6 +58,7 @@ mod tests {
     use solana_account::ReadableAccount;
     use solana_pubkey::Pubkey;
     use spl_token::solana_program::program_pack::Pack;
+    use spl_token::state::Account as SplAccount;
 
     use crate::token_decode::token2022_program_id;
 
@@ -71,7 +71,6 @@ mod tests {
         let account = build_token_account(&token, &mint).unwrap();
         assert_eq!(*account.owner(), legacy_program_id());
 
-        use spl_token::state::Account as SplAccount;
         let parsed = SplAccount::unpack(&account.data()[..SplAccount::LEN]).unwrap();
         assert_eq!(Pubkey::new_from_array(parsed.mint.to_bytes()), mint);
         assert_eq!(parsed.amount, 0);
@@ -88,7 +87,6 @@ mod tests {
         assert_eq!(result.decimals, 6);
         assert!((result.ui_amount - 42.0).abs() < f64::EPSILON);
 
-        use spl_token::state::Account as SplAccount;
         let parsed = SplAccount::unpack(&account.data[..SplAccount::LEN]).unwrap();
         assert_eq!(parsed.amount, 42_000_000);
     }

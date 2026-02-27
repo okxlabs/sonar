@@ -260,6 +260,8 @@ mod tests {
     use solana_account::{Account, AccountSharedData, ReadableAccount};
     use solana_pubkey::Pubkey;
     use spl_token::solana_program::program_pack::Pack;
+    use spl_token::solana_program::{program_option::COption, pubkey::Pubkey as ProgramPubkey};
+    use spl_token::state::{Account as SplAccount, AccountState, Mint as SplMint};
 
     use crate::token_decode::{legacy_program_id, raw_to_ui_amount};
     use crate::types::{AccountAppender, ResolvedAccounts, TokenAmount, TokenFunding};
@@ -295,8 +297,8 @@ mod tests {
             TokenFunding { account: token, mint: Some(mint), amount: TokenAmount::Raw(1_500_000) };
         let before_data = resolved.accounts.get(&token).unwrap().data().to_vec();
 
-        let prepared = prepare_token_fundings(&mut loader, &resolved, &[funding])
-            .expect("prepares funding");
+        let prepared =
+            prepare_token_fundings(&mut loader, &resolved, &[funding]).expect("prepares funding");
         assert_eq!(prepared.len(), 1);
         let summary = &prepared[0];
         assert_eq!(summary.mint, mint);
@@ -314,7 +316,6 @@ mod tests {
         apply_token_fundings(&mut svm, &prepared, &resolved).expect("applies funding to svm");
 
         let updated_in_svm = svm.get_account(&token).unwrap();
-        use spl_token::state::Account as SplAccount;
         let parsed = SplAccount::unpack(&updated_in_svm.data[..SplAccount::LEN]).unwrap();
         assert_eq!(parsed.amount, summary.amount_raw);
     }
@@ -348,9 +349,6 @@ mod tests {
     }
 
     fn spl_token_account_and_mint(mint: &Pubkey, owner: &Pubkey) -> (Account, Account) {
-        use spl_token::solana_program::{program_option::COption, pubkey::Pubkey as ProgramPubkey};
-        use spl_token::state::{Account as SplAccount, AccountState, Mint as SplMint};
-
         let token_state = SplAccount {
             mint: ProgramPubkey::new_from_array(mint.to_bytes()),
             owner: ProgramPubkey::new_from_array(owner.to_bytes()),

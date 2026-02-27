@@ -248,10 +248,9 @@ pub fn convert(args: &ConvertArgs) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use clap::Parser;
 
     fn parse_convert_args(argv: &[&str]) -> ConvertArgs {
-        use clap::Parser;
-
         let cli = crate::cli::Cli::try_parse_from(argv).unwrap();
         match cli.command {
             Some(crate::cli::Commands::Convert(args)) => args,
@@ -261,8 +260,6 @@ mod tests {
 
     #[test]
     fn cli_parses_three_positionals() {
-        use clap::Parser;
-
         let cli =
             crate::cli::Cli::try_parse_from(["sonar", "convert", "hex", "int", "0x123"]).unwrap();
         match cli.command {
@@ -277,8 +274,6 @@ mod tests {
 
     #[test]
     fn cli_allows_missing_input_for_stdin() {
-        use clap::Parser;
-
         let cli = crate::cli::Cli::try_parse_from(["sonar", "convert", "hex", "int"]).unwrap();
         match cli.command {
             Some(crate::cli::Commands::Convert(args)) => {
@@ -292,8 +287,6 @@ mod tests {
 
     #[test]
     fn cli_rejects_removed_from_flag() {
-        use clap::Parser;
-
         let err =
             crate::cli::Cli::try_parse_from(["sonar", "convert", "-f", "hex", "int", "0x123"])
                 .unwrap_err();
@@ -302,8 +295,6 @@ mod tests {
 
     #[test]
     fn cli_rejects_removed_to_flag() {
-        use clap::Parser;
-
         let err =
             crate::cli::Cli::try_parse_from(["sonar", "convert", "hex", "int", "0x123", "-t"])
                 .unwrap_err();
@@ -312,8 +303,6 @@ mod tests {
 
     #[test]
     fn cli_rejects_removed_hex_array_name() {
-        use clap::Parser;
-
         let err =
             crate::cli::Cli::try_parse_from(["sonar", "convert", "hex", "hex-array", "0x1234"])
                 .unwrap_err();
@@ -322,8 +311,6 @@ mod tests {
 
     #[test]
     fn cli_rejects_removed_number_alias() {
-        use clap::Parser;
-
         let err = crate::cli::Cli::try_parse_from(["sonar", "convert", "number", "hex", "255"])
             .unwrap_err();
         assert!(err.to_string().contains("invalid value 'number'"));
@@ -331,8 +318,6 @@ mod tests {
 
     #[test]
     fn cli_rejects_removed_utf8_alias() {
-        use clap::Parser;
-
         let err =
             crate::cli::Cli::try_parse_from(["sonar", "convert", "hex", "utf8", "0x48656c6c6f"])
                 .unwrap_err();
@@ -341,8 +326,6 @@ mod tests {
 
     #[test]
     fn cli_rejects_removed_dec_array_alias() {
-        use clap::Parser;
-
         let err =
             crate::cli::Cli::try_parse_from(["sonar", "convert", "hex", "dec-array", "0x1234"])
                 .unwrap_err();
@@ -351,8 +334,6 @@ mod tests {
 
     #[test]
     fn cli_accepts_kept_scheme_b_aliases() {
-        use clap::Parser;
-
         let cli =
             crate::cli::Cli::try_parse_from(["sonar", "convert", "hb", "lam", "[0x01]"]).unwrap();
         match cli.command {
@@ -367,8 +348,6 @@ mod tests {
 
     #[test]
     fn cli_accepts_keypair_kp_alias() {
-        use clap::Parser;
-
         let cli =
             crate::cli::Cli::try_parse_from(["sonar", "convert", "kp", "pubkey", "0x00"]).unwrap();
         match cli.command {
@@ -382,8 +361,6 @@ mod tests {
 
     #[test]
     fn cli_accepts_binary_and_bin_alias() {
-        use clap::Parser;
-
         let full =
             crate::cli::Cli::try_parse_from(["sonar", "convert", "hex", "binary", "0x01"]).unwrap();
         match full.command {
@@ -405,8 +382,6 @@ mod tests {
 
     #[test]
     fn cli_rejects_removed_short_aliases() {
-        use clap::Parser;
-
         let cases = [
             ["sonar", "convert", "h", "int", "0x12"],
             ["sonar", "convert", "num", "hex", "12"],
@@ -424,8 +399,6 @@ mod tests {
 
     #[test]
     fn cli_accepts_new_top3_formats() {
-        use clap::Parser;
-
         let cases: Vec<Vec<&str>> = vec![
             vec!["sonar", "convert", "pubkey", "hex", "11111111111111111111111111111111"],
             vec![

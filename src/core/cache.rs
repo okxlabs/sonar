@@ -203,8 +203,6 @@ mod tests {
 
     #[test]
     fn derive_cache_key_bundle_is_order_sensitive() {
-        use sha2::{Digest, Sha256};
-
         let mut hasher1 = Sha256::new();
         hasher1.update(b"key_a:");
         hasher1.update(b"key_b:");

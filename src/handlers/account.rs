@@ -4,10 +4,17 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 use anyhow::{Context, Result, anyhow};
+use base64::{Engine as _, engine::general_purpose};
 use serde_json::Value;
+use solana_address_lookup_table_interface::state::AddressLookupTable;
+use solana_client::rpc_client::RpcClient;
+use solana_commitment_config::CommitmentConfig;
+use solana_loader_v3_interface::state::UpgradeableLoaderState;
 use solana_pubkey::Pubkey;
+use solana_sdk_ids::{address_lookup_table, bpf_loader_upgradeable};
 
 use crate::cli::AccountArgs;
+use crate::parsers::instruction::anchor_idl::{IdlRegistry, RawAnchorIdl, parse_account_data};
 use crate::{
     core::idl_fetcher, parsers::metaplex_metadata_decoder, parsers::token_account_decoder,
 };
@@ -24,7 +31,6 @@ pub(crate) fn handle(args: AccountArgs) -> Result<()> {
             } else {
                 let pk = Pubkey::from_str(input)
                     .with_context(|| format!("Invalid account pubkey: {input}"))?;
-                use solana_client::rpc_client::RpcClient;
                 let client = RpcClient::new(&args.rpc.rpc_url);
                 let acct = client
                     .get_account(&pk)
@@ -49,7 +55,6 @@ pub(crate) fn handle(args: AccountArgs) -> Result<()> {
         return Ok(());
     }
 
-    use solana_client::rpc_client::RpcClient;
     let client = RpcClient::new(&args.rpc.rpc_url);
 
     let (mut output, account_type, metadata_output) =
@@ -137,8 +142,6 @@ fn parse_solana_account_json(json: &Value) -> Result<(String, solana_account::Ac
 
 /// Parse the `data` field which can be either `["<base64>", "base64"]` or a raw base64 string.
 fn parse_account_data_field(acct: &Value) -> Result<Vec<u8>> {
-    use base64::{Engine as _, engine::general_purpose};
-
     match acct.get("data") {
         Some(Value::Array(arr)) => {
             let b64 = arr
@@ -163,11 +166,6 @@ fn decode_account_output(
     account_pubkey: &Pubkey,
     account: &solana_account::Account,
 ) -> Result<(Value, String, Option<Value>)> {
-    use crate::parsers::instruction::anchor_idl::{IdlRegistry, RawAnchorIdl, parse_account_data};
-    use solana_address_lookup_table_interface::state::AddressLookupTable;
-    use solana_loader_v3_interface::state::UpgradeableLoaderState;
-    use solana_sdk_ids::{address_lookup_table, bpf_loader_upgradeable};
-
     if *account_pubkey == solana_sdk_ids::sysvar::clock::id() {
         if let Ok(clock) = bincode::deserialize::<solana_clock::Clock>(account.data.as_slice()) {
             let data_json = if args.json {
@@ -423,8 +421,6 @@ fn format_timestamp_with_utc(ts: i64) -> String {
 }
 
 fn build_programdata_json(account: &solana_account::Account) -> Result<Value> {
-    use solana_loader_v3_interface::state::UpgradeableLoaderState;
-
     const PROGRAM_DATA_HEADER_SIZE: usize = 45;
 
     let state: UpgradeableLoaderState = bincode::deserialize(account.data.as_slice())
@@ -467,8 +463,6 @@ fn print_raw_account_data(account: &solana_account::Account) {
 }
 
 fn raw_account_data_json(account: &solana_account::Account) -> Value {
-    use base64::{Engine as _, engine::general_purpose};
-
     let data_b64 = general_purpose::STANDARD.encode(&account.data);
     serde_json::json!({
         "lamports": account.lamports,
@@ -503,8 +497,6 @@ fn fetch_metadata_for_mint(
     client: &solana_client::rpc_client::RpcClient,
     mint_pubkey: &Pubkey,
 ) -> Result<(solana_account::Account, Value)> {
-    use solana_commitment_config::CommitmentConfig;
-
     let metadata_pda = metaplex_metadata_decoder::derive_metadata_pda(mint_pubkey);
     let response = client
         .get_account_with_commitment(&metadata_pda, CommitmentConfig::processed())
@@ -538,15 +530,20 @@ fn fetch_metadata_for_mint(
 
 #[cfg(test)]
 mod tests {
+    use std::io::Write;
+
     use super::{
         load_account_json, parse_account_data_field, parse_solana_account_json,
         should_enrich_with_metaplex_metadata,
     };
     use crate::parsers::token_account_decoder;
+    use base64::{Engine as _, engine::general_purpose};
     use solana_pubkey::Pubkey;
     use spl_token::solana_program::program_option::COption;
     use spl_token::solana_program::program_pack::Pack;
     use spl_token::solana_program::pubkey::Pubkey as ProgramPubkey;
+    use spl_token::state::{Account as TokenAccount, AccountState, Mint as LegacyMint};
+    use spl_token_2022::state::Mint as Token2022Mint;
 
     fn legacy_owner_pubkey() -> Pubkey {
         Pubkey::new_from_array(spl_token::ID.to_bytes())
@@ -558,17 +555,15 @@ mod tests {
 
     #[test]
     fn should_enrich_metadata_for_legacy_mint() {
-        use spl_token::state::Mint;
-
-        let mint = Mint {
+        let mint = LegacyMint {
             mint_authority: COption::Some(ProgramPubkey::new_unique()),
             supply: 1_000_000,
             decimals: 6,
             is_initialized: true,
             freeze_authority: COption::None,
         };
-        let mut data = vec![0u8; Mint::LEN];
-        Mint::pack(mint, &mut data).unwrap();
+        let mut data = vec![0u8; LegacyMint::LEN];
+        LegacyMint::pack(mint, &mut data).unwrap();
 
         let account = solana_account::Account {
             lamports: 1,
@@ -583,17 +578,15 @@ mod tests {
 
     #[test]
     fn should_enrich_metadata_for_token2022_mint() {
-        use spl_token_2022::state::Mint;
-
-        let mint = Mint {
+        let mint = Token2022Mint {
             mint_authority: COption::Some(ProgramPubkey::new_unique()),
             supply: 2_000_000,
             decimals: 9,
             is_initialized: true,
             freeze_authority: COption::None,
         };
-        let mut data = vec![0u8; Mint::LEN];
-        Mint::pack(mint, &mut data).unwrap();
+        let mut data = vec![0u8; Token2022Mint::LEN];
+        Token2022Mint::pack(mint, &mut data).unwrap();
 
         let account = solana_account::Account {
             lamports: 1,
@@ -608,8 +601,6 @@ mod tests {
 
     #[test]
     fn should_not_enrich_metadata_for_token_account() {
-        use spl_token::state::{Account as TokenAccount, AccountState};
-
         let token_account = TokenAccount {
             mint: ProgramPubkey::new_unique(),
             owner: ProgramPubkey::new_unique(),
@@ -636,9 +627,6 @@ mod tests {
 
     #[test]
     fn load_account_from_solana_cli_json_file() {
-        use base64::{Engine as _, engine::general_purpose};
-        use std::io::Write;
-
         let raw_data = vec![1u8, 2, 3, 4, 5];
         let b64 = general_purpose::STANDARD.encode(&raw_data);
         let owner = "11111111111111111111111111111111";
@@ -671,9 +659,6 @@ mod tests {
 
     #[test]
     fn load_account_flat_json_without_pubkey() {
-        use base64::{Engine as _, engine::general_purpose};
-        use std::io::Write;
-
         let raw_data = vec![10u8, 20, 30];
         let b64 = general_purpose::STANDARD.encode(&raw_data);
         let json = serde_json::json!({
@@ -697,8 +682,6 @@ mod tests {
 
     #[test]
     fn parse_data_field_base64_string() {
-        use base64::{Engine as _, engine::general_purpose};
-
         let raw = vec![0xDE, 0xAD, 0xBE, 0xEF];
         let b64 = general_purpose::STANDARD.encode(&raw);
         let json = serde_json::json!({ "data": b64 });
@@ -723,8 +706,6 @@ mod tests {
 
     #[test]
     fn parse_solana_account_json_flat_format() {
-        use base64::{Engine as _, engine::general_purpose};
-
         let raw_data = vec![10u8, 20, 30];
         let b64 = general_purpose::STANDARD.encode(&raw_data);
         let json = serde_json::json!({

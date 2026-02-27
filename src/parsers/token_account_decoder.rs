@@ -7,6 +7,26 @@ use serde_json::{Value, json};
 use solana_pubkey::Pubkey;
 use spl_token::solana_program::program_option::COption;
 use spl_token::solana_program::program_pack::Pack;
+use spl_token::state::{Account as LegacyTokenAccount, Mint as LegacyMint};
+use spl_token_2022::extension::{
+    BaseStateWithExtensions, ExtensionType, StateWithExtensions,
+    cpi_guard::CpiGuard,
+    default_account_state::DefaultAccountState,
+    group_member_pointer::GroupMemberPointer,
+    group_pointer::GroupPointer,
+    interest_bearing_mint::InterestBearingConfig,
+    memo_transfer::MemoTransfer,
+    metadata_pointer::MetadataPointer,
+    mint_close_authority::MintCloseAuthority,
+    pausable::PausableConfig,
+    permanent_delegate::PermanentDelegate,
+    scaled_ui_amount::ScaledUiAmountConfig,
+    transfer_fee::{TransferFeeAmount, TransferFeeConfig},
+    transfer_hook::{TransferHook, TransferHookAccount},
+};
+use spl_token_2022::state::{Account as Token2022Account, Mint as Token2022Mint};
+use spl_token_group_interface::state::{TokenGroup, TokenGroupMember};
+use spl_token_metadata_interface::state::TokenMetadata;
 
 /// Token program ID
 fn legacy_program_id() -> Pubkey {
@@ -52,27 +72,25 @@ pub fn decode_spl_token_account(account: &solana_account::Account) -> Option<Val
 
 /// Decode legacy SPL Token account (mint or token account)
 fn decode_legacy_token_account(account: &solana_account::Account) -> Option<Value> {
-    use spl_token::state::{Account as TokenAccount, Mint};
-
     let data = &account.data;
 
     // Try to decode as Mint first (82 bytes)
-    if data.len() == Mint::LEN {
-        if let Ok(mint) = Mint::unpack(data) {
+    if data.len() == LegacyMint::LEN {
+        if let Ok(mint) = LegacyMint::unpack(data) {
             return Some(build_legacy_mint_json(account, &mint));
         }
     }
 
     // Try to decode as Token Account (165 bytes)
-    if data.len() == TokenAccount::LEN {
-        if let Ok(token_account) = TokenAccount::unpack(data) {
+    if data.len() == LegacyTokenAccount::LEN {
+        if let Ok(token_account) = LegacyTokenAccount::unpack(data) {
             return Some(build_legacy_account_json(account, &token_account));
         }
     }
 
     // If exact length doesn't match, try both
-    if data.len() >= Mint::LEN {
-        if let Ok(mint) = Mint::unpack(&data[..Mint::LEN]) {
+    if data.len() >= LegacyMint::LEN {
+        if let Ok(mint) = LegacyMint::unpack(&data[..LegacyMint::LEN]) {
             // Check if it looks like an initialized mint
             if mint.is_initialized {
                 return Some(build_legacy_mint_json(account, &mint));
@@ -80,8 +98,8 @@ fn decode_legacy_token_account(account: &solana_account::Account) -> Option<Valu
         }
     }
 
-    if data.len() >= TokenAccount::LEN {
-        if let Ok(token_account) = TokenAccount::unpack(&data[..TokenAccount::LEN]) {
+    if data.len() >= LegacyTokenAccount::LEN {
+        if let Ok(token_account) = LegacyTokenAccount::unpack(&data[..LegacyTokenAccount::LEN]) {
             return Some(build_legacy_account_json(account, &token_account));
         }
     }
@@ -134,9 +152,6 @@ fn build_legacy_account_json(
 
 /// Decode Token-2022 account (mint or token account with extensions)
 fn decode_token2022_account(account: &solana_account::Account) -> Option<Value> {
-    use spl_token_2022::extension::StateWithExtensions;
-    use spl_token_2022::state::{Account as Token2022Account, Mint as Token2022Mint};
-
     let data = &account.data;
 
     // Token-2022 uses StateWithExtensions to parse accounts with extensions
@@ -160,8 +175,6 @@ fn build_token2022_mint_json(
     account: &solana_account::Account,
     state: &spl_token_2022::extension::StateWithExtensions<spl_token_2022::state::Mint>,
 ) -> Value {
-    use spl_token_2022::extension::BaseStateWithExtensions;
-
     let mint = &state.base;
     let mut result = base_account_json(account);
 
@@ -190,8 +203,6 @@ fn build_token2022_account_json(
     account: &solana_account::Account,
     state: &spl_token_2022::extension::StateWithExtensions<spl_token_2022::state::Account>,
 ) -> Value {
-    use spl_token_2022::extension::BaseStateWithExtensions;
-
     let token_account = &state.base;
     let mut result = base_account_json(account);
 
@@ -221,7 +232,6 @@ fn build_token2022_account_json(
 /// Macro to reduce boilerplate for extension parsing
 macro_rules! ext_json {
     ($state:expr, $type_name:literal, $ext_type:ty, |$ext:ident| $data:expr) => {{
-        use spl_token_2022::extension::BaseStateWithExtensions;
         match $state.get_extension::<$ext_type>() {
             Ok($ext) => json!({ "type": $type_name, "data": $data }),
             Err(_) => null_extension($type_name),
@@ -232,7 +242,6 @@ macro_rules! ext_json {
 /// Macro for variable-length extensions (like TokenMetadata)
 macro_rules! ext_json_varlen {
     ($state:expr, $type_name:literal, $ext_type:ty, |$ext:ident| $data:expr) => {{
-        use spl_token_2022::extension::BaseStateWithExtensions;
         match $state.get_variable_len_extension::<$ext_type>() {
             Ok($ext) => json!({ "type": $type_name, "data": $data }),
             Err(_) => null_extension($type_name),
@@ -243,19 +252,8 @@ macro_rules! ext_json_varlen {
 /// Parse mint extensions
 fn parse_mint_extensions(
     state: &spl_token_2022::extension::StateWithExtensions<spl_token_2022::state::Mint>,
-    extension_types: &[spl_token_2022::extension::ExtensionType],
+    extension_types: &[ExtensionType],
 ) -> Vec<Value> {
-    use spl_token_2022::extension::{
-        ExtensionType, default_account_state::DefaultAccountState,
-        group_member_pointer::GroupMemberPointer, group_pointer::GroupPointer,
-        interest_bearing_mint::InterestBearingConfig, metadata_pointer::MetadataPointer,
-        mint_close_authority::MintCloseAuthority, pausable::PausableConfig,
-        permanent_delegate::PermanentDelegate, scaled_ui_amount::ScaledUiAmountConfig,
-        transfer_fee::TransferFeeConfig, transfer_hook::TransferHook,
-    };
-    use spl_token_group_interface::state::{TokenGroup, TokenGroupMember};
-    use spl_token_metadata_interface::state::TokenMetadata;
-
     extension_types
         .iter()
         .map(|ext_type| match ext_type {
@@ -377,13 +375,8 @@ fn parse_mint_extensions(
 /// Parse account extensions
 fn parse_account_extensions(
     state: &spl_token_2022::extension::StateWithExtensions<spl_token_2022::state::Account>,
-    extension_types: &[spl_token_2022::extension::ExtensionType],
+    extension_types: &[ExtensionType],
 ) -> Vec<Value> {
-    use spl_token_2022::extension::{
-        ExtensionType, cpi_guard::CpiGuard, memo_transfer::MemoTransfer,
-        transfer_fee::TransferFeeAmount, transfer_hook::TransferHookAccount,
-    };
-
     extension_types
         .iter()
         .map(|ext_type| match ext_type {
@@ -468,16 +461,20 @@ fn pod_option_pubkey_to_string(opt: &spl_pod::optional_keys::OptionalNonZeroPubk
 #[cfg(test)]
 mod tests {
     use super::*;
+    use spl_token::solana_program::program_option::COption;
     use spl_token::solana_program::program_pack::Pack;
+    use spl_token::solana_program::pubkey::Pubkey as ProgramPubkey;
+    use spl_token::state::{
+        Account as LegacyTokenAccount, AccountState as LegacyAccountState, Mint as LegacyMint,
+    };
+    use spl_token_2022::state::{
+        Account as Token2022Account, AccountState as Token2022AccountState, Mint as Token2022Mint,
+    };
 
     #[test]
     fn test_decode_legacy_mint() {
-        use spl_token::solana_program::program_option::COption;
-        use spl_token::solana_program::pubkey::Pubkey as ProgramPubkey;
-        use spl_token::state::Mint;
-
         let mint_authority = ProgramPubkey::new_unique();
-        let mint = Mint {
+        let mint = LegacyMint {
             mint_authority: COption::Some(mint_authority),
             supply: 1_000_000_000,
             decimals: 9,
@@ -485,8 +482,8 @@ mod tests {
             freeze_authority: COption::None,
         };
 
-        let mut data = vec![0u8; Mint::LEN];
-        Mint::pack(mint, &mut data).unwrap();
+        let mut data = vec![0u8; LegacyMint::LEN];
+        LegacyMint::pack(mint, &mut data).unwrap();
 
         let account = solana_account::Account {
             lamports: 1_000_000,
@@ -505,7 +502,7 @@ mod tests {
         assert_eq!(json["owner"], legacy_program_id().to_string());
         assert_eq!(json["executable"], false);
         assert_eq!(json["rentEpoch"], 0);
-        assert_eq!(json["space"], Mint::LEN);
+        assert_eq!(json["space"], LegacyMint::LEN);
         // Mint data (nested under "data")
         assert_eq!(json["data"]["decimals"], 9);
         assert_eq!(json["data"]["supply"], "1000000000");
@@ -514,25 +511,21 @@ mod tests {
 
     #[test]
     fn test_decode_legacy_token_account() {
-        use spl_token::solana_program::program_option::COption;
-        use spl_token::solana_program::pubkey::Pubkey as ProgramPubkey;
-        use spl_token::state::{Account as TokenAccount, AccountState};
-
         let mint = ProgramPubkey::new_unique();
         let token_owner = ProgramPubkey::new_unique();
-        let token_account = TokenAccount {
+        let token_account = LegacyTokenAccount {
             mint,
             owner: token_owner,
             amount: 500_000,
             delegate: COption::None,
-            state: AccountState::Initialized,
+            state: LegacyAccountState::Initialized,
             is_native: COption::None,
             delegated_amount: 0,
             close_authority: COption::None,
         };
 
-        let mut data = vec![0u8; TokenAccount::LEN];
-        TokenAccount::pack(token_account, &mut data).unwrap();
+        let mut data = vec![0u8; LegacyTokenAccount::LEN];
+        LegacyTokenAccount::pack(token_account, &mut data).unwrap();
 
         let account = solana_account::Account {
             lamports: 2_000_000,
@@ -550,7 +543,7 @@ mod tests {
         assert_eq!(json["lamports"], 2_000_000);
         assert_eq!(json["owner"], legacy_program_id().to_string());
         assert_eq!(json["executable"], false);
-        assert_eq!(json["space"], TokenAccount::LEN);
+        assert_eq!(json["space"], LegacyTokenAccount::LEN);
         // Token account data (nested under "data")
         assert_eq!(json["data"]["token_owner"], token_owner.to_string());
         assert_eq!(json["data"]["amount"], "500000");
@@ -589,12 +582,8 @@ mod tests {
 
     #[test]
     fn test_decode_token2022_mint() {
-        use spl_token::solana_program::program_option::COption;
-        use spl_token::solana_program::pubkey::Pubkey as ProgramPubkey;
-        use spl_token_2022::state::Mint;
-
         let mint_authority = ProgramPubkey::new_unique();
-        let mint = Mint {
+        let mint = Token2022Mint {
             mint_authority: COption::Some(mint_authority),
             supply: 2_000_000_000,
             decimals: 6,
@@ -602,8 +591,8 @@ mod tests {
             freeze_authority: COption::None,
         };
 
-        let mut data = vec![0u8; Mint::LEN];
-        Mint::pack(mint, &mut data).unwrap();
+        let mut data = vec![0u8; Token2022Mint::LEN];
+        Token2022Mint::pack(mint, &mut data).unwrap();
 
         let account = solana_account::Account {
             lamports: 3_000_000,
@@ -621,7 +610,7 @@ mod tests {
         assert_eq!(json["lamports"], 3_000_000);
         assert_eq!(json["owner"], token2022_program_id().to_string());
         assert_eq!(json["executable"], false);
-        assert_eq!(json["space"], Mint::LEN);
+        assert_eq!(json["space"], Token2022Mint::LEN);
         // Mint data (nested under "data")
         assert_eq!(json["data"]["decimals"], 6);
         assert_eq!(json["data"]["supply"], "2000000000");
@@ -630,25 +619,21 @@ mod tests {
 
     #[test]
     fn test_decode_token2022_token_account() {
-        use spl_token::solana_program::program_option::COption;
-        use spl_token::solana_program::pubkey::Pubkey as ProgramPubkey;
-        use spl_token_2022::state::{Account as TokenAccount, AccountState};
-
         let mint = ProgramPubkey::new_unique();
         let token_owner = ProgramPubkey::new_unique();
-        let token_account = TokenAccount {
+        let token_account = Token2022Account {
             mint,
             owner: token_owner,
             amount: 750_000,
             delegate: COption::None,
-            state: AccountState::Initialized,
+            state: Token2022AccountState::Initialized,
             is_native: COption::None,
             delegated_amount: 0,
             close_authority: COption::None,
         };
 
-        let mut data = vec![0u8; TokenAccount::LEN];
-        TokenAccount::pack(token_account, &mut data).unwrap();
+        let mut data = vec![0u8; Token2022Account::LEN];
+        Token2022Account::pack(token_account, &mut data).unwrap();
 
         let account = solana_account::Account {
             lamports: 4_000_000,
@@ -666,7 +651,7 @@ mod tests {
         assert_eq!(json["lamports"], 4_000_000);
         assert_eq!(json["owner"], token2022_program_id().to_string());
         assert_eq!(json["executable"], false);
-        assert_eq!(json["space"], TokenAccount::LEN);
+        assert_eq!(json["space"], Token2022Account::LEN);
         // Token account data (nested under "data")
         assert_eq!(json["data"]["token_owner"], token_owner.to_string());
         assert_eq!(json["data"]["amount"], "750000");

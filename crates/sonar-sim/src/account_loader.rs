@@ -334,6 +334,8 @@ fn resolve_lookup_indexes(addresses: &[Pubkey], indexes: &[u8]) -> Result<Vec<Pu
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
     use super::*;
     use crate::rpc_provider::FakeAccountProvider;
     use solana_account::Account;
@@ -343,7 +345,10 @@ mod tests {
     use solana_signer::Signer;
     use solana_system_interface::instruction as system_instruction;
     use solana_transaction::Transaction;
+    use spl_token::solana_program::program_option::COption;
     use spl_token::solana_program::program_pack::Pack;
+    use spl_token::solana_program::pubkey::Pubkey as ProgramPubkey;
+    use spl_token::state::{Account as SplAccount, AccountState};
 
     fn system_account(lamports: u64) -> Account {
         Account {
@@ -367,10 +372,6 @@ mod tests {
     }
 
     fn make_token_account(mint: &Pubkey) -> AccountSharedData {
-        use spl_token::solana_program::program_option::COption;
-        use spl_token::solana_program::pubkey::Pubkey as ProgramPubkey;
-        use spl_token::state::{Account as SplAccount, AccountState};
-
         let owner = Pubkey::new_unique();
         let state = SplAccount {
             mint: ProgramPubkey::new_from_array(mint.to_bytes()),
@@ -414,8 +415,6 @@ mod tests {
 
     #[test]
     fn in_memory_cache_avoids_duplicate_provider_calls() {
-        use std::sync::atomic::{AtomicUsize, Ordering};
-
         struct CountingProvider {
             accounts: std::collections::HashMap<Pubkey, AccountSharedData>,
             call_count: Arc<AtomicUsize>,
@@ -466,8 +465,6 @@ mod tests {
 
     #[test]
     fn repeated_append_accounts_does_not_refetch_known_missing_token_mint() {
-        use std::sync::atomic::{AtomicUsize, Ordering};
-
         struct CountingProvider {
             accounts: std::collections::HashMap<Pubkey, AccountSharedData>,
             call_count: Arc<AtomicUsize>,
@@ -570,8 +567,6 @@ mod tests {
 
     #[test]
     fn dependency_resolution_stops_when_missing_keys_repeat() {
-        use std::sync::atomic::{AtomicUsize, Ordering};
-
         struct MissingOnlyProvider {
             call_count: Arc<AtomicUsize>,
         }

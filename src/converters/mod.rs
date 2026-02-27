@@ -14,6 +14,7 @@ use std::{
 };
 
 use base64::Engine;
+use num_bigint::BigUint;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 
@@ -114,7 +115,6 @@ fn format_target(
             Ok(format_sol(lamports))
         }
         OutputFormat::Int => {
-            use num_bigint::BigUint;
             let bytes = value_to_bytes(value, big_endian);
             let num = if big_endian {
                 BigUint::from_bytes_be(&bytes)
