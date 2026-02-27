@@ -17,7 +17,7 @@ use crate::error::{Result, SonarSimError};
 
 /// Known SPL-compatible token programs.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub(crate) enum TokenProgramKind {
+pub enum TokenProgramKind {
     Legacy,
     Token2022,
 }

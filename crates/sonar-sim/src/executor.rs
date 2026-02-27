@@ -11,32 +11,11 @@ use solana_sysvar_id::SysvarId;
 use solana_transaction::versioned::VersionedTransaction;
 
 use crate::error::{Result, SonarSimError};
-use crate::funding::apply_sol_fundings;
+use crate::funding::{apply_sol_fundings, apply_token_fundings};
 use crate::types::{
     AccountDataPatch, AccountReplacement, PreparedTokenFunding, ResolvedAccounts, ResolvedLookup,
     ReturnData, SimulationMetadata, SolFunding,
 };
-
-// ── Inlined native_ids ──
-const NATIVE_PROGRAM_IDS: [Pubkey; 17] = [
-    solana_sdk_ids::system_program::id(),
-    solana_sdk_ids::bpf_loader::id(),
-    solana_sdk_ids::bpf_loader_deprecated::id(),
-    bpf_loader_upgradeable::id(),
-    solana_sdk_ids::vote::id(),
-    solana_sdk_ids::stake::id(),
-    solana_sdk_ids::config::id(),
-    solana_sdk_ids::compute_budget::id(),
-    solana_sdk_ids::address_lookup_table::id(),
-    solana_sdk_ids::ed25519_program::id(),
-    solana_sdk_ids::secp256k1_program::id(),
-    solana_sdk_ids::sysvar::clock::id(),
-    solana_sdk_ids::sysvar::rent::id(),
-    solana_sdk_ids::sysvar::slot_hashes::id(),
-    solana_sdk_ids::sysvar::epoch_schedule::id(),
-    solana_sdk_ids::sysvar::instructions::id(),
-    solana_sdk_ids::sysvar::recent_blockhashes::id(),
-];
 
 // Program set preloaded by default in `LiteSVM::new()` (builtins + default programs).
 // These programs do not need to be fetched via RPC or written into the local account cache.
@@ -60,8 +39,19 @@ const LITESVM_BUILTIN_PROGRAM_IDS: [Pubkey; 16] = [
     pubkey!("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"), // ATA Program
 ];
 
+// Sysvars are native and should also be considered local-only,
+// but they are not part of the LiteSVM builtin program list.
+const EXTRA_NATIVE_SYSVAR_IDS: [Pubkey; 6] = [
+    solana_sdk_ids::sysvar::clock::id(),
+    solana_sdk_ids::sysvar::rent::id(),
+    solana_sdk_ids::sysvar::slot_hashes::id(),
+    solana_sdk_ids::sysvar::epoch_schedule::id(),
+    solana_sdk_ids::sysvar::instructions::id(),
+    solana_sdk_ids::sysvar::recent_blockhashes::id(),
+];
+
 pub fn is_native_or_sysvar(pubkey: &Pubkey) -> bool {
-    NATIVE_PROGRAM_IDS.contains(pubkey)
+    is_litesvm_builtin_program(pubkey) || EXTRA_NATIVE_SYSVAR_IDS.contains(pubkey)
 }
 
 pub fn is_litesvm_builtin_program(pubkey: &Pubkey) -> bool {
@@ -180,7 +170,27 @@ impl StateMutationOptions {
         apply_replacements(svm, &self.replacements, resolved)?;
         apply_sol_fundings(svm, &self.fundings)?;
         apply_data_patches(svm, &self.data_patches)?;
+        apply_token_fundings(svm, &self.token_fundings, resolved)?;
         Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct AppliedRecord {
+    pub replacements: Vec<AccountReplacement>,
+    pub fundings: Vec<SolFunding>,
+    pub token_fundings: Vec<PreparedTokenFunding>,
+    pub data_patches: Vec<AccountDataPatch>,
+}
+
+impl From<StateMutationOptions> for AppliedRecord {
+    fn from(value: StateMutationOptions) -> Self {
+        Self {
+            replacements: value.replacements,
+            fundings: value.fundings,
+            token_fundings: value.token_fundings,
+            data_patches: value.data_patches,
+        }
     }
 }
 
@@ -319,7 +329,7 @@ pub fn apply_timestamp(svm: &mut LiteSVM, ts: i64) -> Result<()> {
 pub struct TransactionExecutor {
     svm: LiteSVM,
     resolved: ResolvedAccounts,
-    mutations: StateMutationOptions,
+    record: AppliedRecord,
 }
 
 impl TransactionExecutor {
@@ -334,6 +344,8 @@ impl TransactionExecutor {
         load_accounts(&mut svm, &resolved)?;
         mutations.apply(&mut svm, &resolved)?;
 
+        let record = AppliedRecord::from(mutations);
+
         if let Some(slot) = execution.slot {
             apply_slot(&mut svm, slot);
         }
@@ -341,7 +353,7 @@ impl TransactionExecutor {
             apply_timestamp(&mut svm, ts)?;
         }
 
-        Ok(Self { svm, resolved, mutations })
+        Ok(Self { svm, resolved, record })
     }
 
     /// Execute a transaction and persist state changes to the SVM.
@@ -404,21 +416,21 @@ impl TransactionExecutor {
     }
 
     /// Execute multiple transactions sequentially as a bundle.
-    pub fn execute_bundle(&mut self, txs: &[&VersionedTransaction]) -> Vec<SimulationResult> {
+    pub fn execute_bundle(
+        &mut self,
+        txs: &[&VersionedTransaction],
+    ) -> Vec<Result<SimulationResult>> {
         let mut results = Vec::with_capacity(txs.len());
 
         for tx in txs {
-            let result = self.execute(tx).unwrap_or_else(|err| SimulationResult {
-                status: ExecutionStatus::Failed(err.to_string()),
-                meta: SimulationMetadata::default(),
-                post_accounts: HashMap::new(),
-                pre_accounts: HashMap::new(),
-            });
-
-            let failed = matches!(result.status, ExecutionStatus::Failed(_));
+            let result = self.execute(tx);
+            let should_stop = match &result {
+                Ok(simulation) => matches!(simulation.status, ExecutionStatus::Failed(_)),
+                Err(_) => true,
+            };
             results.push(result);
 
-            if failed {
+            if should_stop {
                 break;
             }
         }
@@ -431,23 +443,23 @@ impl TransactionExecutor {
     }
 
     pub fn replacements(&self) -> &[AccountReplacement] {
-        &self.mutations.replacements
+        &self.record.replacements
     }
 
     pub fn fundings(&self) -> &[SolFunding] {
-        &self.mutations.fundings
+        &self.record.fundings
     }
 
     pub fn token_fundings(&self) -> &[PreparedTokenFunding] {
-        &self.mutations.token_fundings
+        &self.record.token_fundings
     }
 
     pub fn data_patches(&self) -> &[AccountDataPatch] {
-        &self.mutations.data_patches
+        &self.record.data_patches
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SimulationResult {
     pub status: ExecutionStatus,
     pub meta: SimulationMetadata,
@@ -467,7 +479,7 @@ fn convert_metadata(meta: &litesvm::types::TransactionMetadata) -> SimulationMet
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum ExecutionStatus {
     Succeeded,
     Failed(String),
@@ -546,6 +558,7 @@ mod tests {
         let results = executor.execute_bundle(&tx_refs);
 
         assert_eq!(results.len(), 2);
+        assert!(results.iter().all(|r| r.is_ok()));
     }
 
     #[test]
@@ -569,7 +582,7 @@ mod tests {
         let results = executor.execute_bundle(&tx_refs);
 
         assert_eq!(results.len(), 1, "bundle should stop after first failure");
-        assert!(matches!(results[0].status, ExecutionStatus::Failed(_)));
+        assert!(matches!(results[0].as_ref().map(|r| &r.status), Ok(&ExecutionStatus::Failed(_))));
     }
 
     #[test]
@@ -591,8 +604,8 @@ mod tests {
 
         let results = executor.execute_bundle(&tx_refs);
         assert_eq!(results.len(), 2);
-        assert!(matches!(results[0].status, ExecutionStatus::Succeeded));
-        assert!(matches!(results[1].status, ExecutionStatus::Succeeded));
+        assert!(matches!(results[0].as_ref().map(|r| &r.status), Ok(&ExecutionStatus::Succeeded)));
+        assert!(matches!(results[1].as_ref().map(|r| &r.status), Ok(&ExecutionStatus::Succeeded)));
     }
 
     #[test]

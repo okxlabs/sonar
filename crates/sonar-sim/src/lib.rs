@@ -25,6 +25,7 @@ pub use error::{Result, SonarSimError};
 
 // ── Types ──
 
+pub use token_decode::TokenProgramKind;
 pub use types::{
     AccountAppender, AccountDataPatch, AccountReplacement, AccountSource, FetchEvent,
     FetchObserver, FetchPolicy, PreparedTokenFunding, ResolvedAccounts, ResolvedLookup, ReturnData,

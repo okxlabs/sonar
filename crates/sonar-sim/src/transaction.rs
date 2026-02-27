@@ -81,14 +81,10 @@ pub fn parse_raw_transaction(raw: &str) -> Result<ParsedTransaction> {
         }
     }
 
-    let merged = errors.join("； ");
+    let merged = errors.join("; ");
     Err(SonarSimError::TransactionParse {
         reason: format!("Failed to parse raw transaction: {merged}"),
     })
-}
-
-pub(crate) fn collect_account_plan(tx: &VersionedTransaction) -> MessageAccountPlan {
-    MessageAccountPlan::from_transaction(tx)
 }
 
 fn build_address_lookup_plan(message: &VersionedMessage) -> Vec<AddressLookupPlan> {
@@ -107,9 +103,11 @@ fn build_address_lookup_plan(message: &VersionedMessage) -> Vec<AddressLookupPla
         .unwrap_or_default()
 }
 
-/// Builds lookup table account position mapping table
+/// Builds lookup table account position mapping table.
 ///
-/// This function builds account index mapping according to Solana V0 transaction spec.
+/// According to Solana v0 message ordering rules, all writable lookup
+/// addresses from all tables must come first, followed by all readonly
+/// lookup addresses from all tables. This function preserves that order.
 pub fn build_lookup_locations(plan: &[AddressLookupPlan]) -> Vec<LookupLocation> {
     let mut locations = Vec::new();
 

@@ -113,6 +113,7 @@ pub(crate) fn handle(args: DecodeArgs) -> Result<()> {
 }
 
 /// Handle bundle decode (multiple transactions decoded without simulation).
+#[allow(clippy::too_many_arguments)]
 fn handle_bundle(
     tx_inputs: Vec<String>,
     rpc_url: &str,

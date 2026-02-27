@@ -4,14 +4,13 @@ use spl_token_2022::extension::{BaseStateWithExtensions, BaseStateWithExtensions
 
 use crate::error::{Result, SonarSimError};
 use crate::token_decode::{TokenProgramKind, token2022_program_id};
-use crate::types::{PreparedTokenFunding, ResolvedAccounts};
+use crate::types::PreparedTokenFunding;
 
-pub(super) fn create_token_account_with_extensions(
-    resolved: &mut ResolvedAccounts,
+pub(super) fn build_token_account_with_extensions(
     account_pubkey: &Pubkey,
     mint: &Pubkey,
     mint_account: &AccountSharedData,
-) -> Result<()> {
+) -> Result<AccountSharedData> {
     use spl_token::solana_program::{program_option::COption, pubkey::Pubkey as ProgramPubkey};
     use spl_token_2022::extension::{ExtensionType, StateWithExtensions, StateWithExtensionsMut};
     use spl_token_2022::state::{Account as Token2022Account, AccountState, Mint as Token2022Mint};
@@ -68,28 +67,24 @@ pub(super) fn create_token_account_with_extensions(
         })?;
     }
 
-    resolved.accounts.insert(
-        *account_pubkey,
-        AccountSharedData::from(Account {
-            lamports: 0,
-            data,
-            owner: token2022_program_id(),
-            executable: false,
-            rent_epoch: 0,
-        }),
-    );
-    Ok(())
+    Ok(AccountSharedData::from(Account {
+        lamports: 0,
+        data,
+        owner: token2022_program_id(),
+        executable: false,
+        rent_epoch: 0,
+    }))
 }
 
-pub(super) fn update_token_balance(
-    resolved: &mut ResolvedAccounts,
+pub(super) fn update_token_balance_in_account(
+    account: &mut Account,
     account_pubkey: &Pubkey,
     mint: &Pubkey,
     amount_raw: u64,
     decimals: u8,
 ) -> Result<PreparedTokenFunding> {
-    super::update_token_amount::<spl_token_2022::state::Account>(
-        resolved,
+    super::common::update_token_amount_account::<spl_token_2022::state::Account>(
+        account,
         account_pubkey,
         mint,
         amount_raw,
@@ -100,8 +95,6 @@ pub(super) fn update_token_balance(
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
-
     use solana_account::{Account, ReadableAccount};
     use solana_pubkey::Pubkey;
     use spl_token::solana_program::program_pack::Pack;
@@ -111,10 +104,8 @@ mod tests {
     };
     use spl_token_2022::state::{Account as Token2022Account, Mint as Token2022Mint};
 
-    use crate::token_decode::token2022_program_id;
-    use crate::types::ResolvedAccounts;
-
     use super::*;
+    use crate::token_decode::token2022_program_id;
 
     fn mint_account_base_only() -> AccountSharedData {
         use spl_token::solana_program::program_option::COption;
@@ -174,12 +165,8 @@ mod tests {
     fn create_base_only_account() {
         let mint = Pubkey::new_unique();
         let token = Pubkey::new_unique();
-        let mut resolved = ResolvedAccounts { accounts: HashMap::new(), lookups: vec![] };
-
         let mint_account = mint_account_base_only();
-        create_token_account_with_extensions(&mut resolved, &token, &mint, &mint_account).unwrap();
-
-        let account = resolved.accounts.get(&token).expect("account created");
+        let account = build_token_account_with_extensions(&token, &mint, &mint_account).unwrap();
         assert_eq!(*account.owner(), token2022_program_id());
         assert_eq!(
             account.data().len(),
@@ -196,12 +183,8 @@ mod tests {
     fn create_account_with_transfer_fee_extension() {
         let mint = Pubkey::new_unique();
         let token = Pubkey::new_unique();
-        let mut resolved = ResolvedAccounts { accounts: HashMap::new(), lookups: vec![] };
-
         let mint_account = mint_account_with_transfer_fee_config();
-        create_token_account_with_extensions(&mut resolved, &token, &mint, &mint_account).unwrap();
-
-        let account = resolved.accounts.get(&token).expect("account created");
+        let account = build_token_account_with_extensions(&token, &mint, &mint_account).unwrap();
         assert_eq!(*account.owner(), token2022_program_id());
         assert!(
             account.data().len() > Token2022Account::LEN,
@@ -222,18 +205,16 @@ mod tests {
     fn update_sets_amount() {
         let mint = Pubkey::new_unique();
         let token = Pubkey::new_unique();
-        let mut resolved = ResolvedAccounts { accounts: HashMap::new(), lookups: vec![] };
-
         let mint_account = mint_account_base_only();
-        create_token_account_with_extensions(&mut resolved, &token, &mint, &mint_account).unwrap();
-
-        let result = update_token_balance(&mut resolved, &token, &mint, 5_000_000, 6).unwrap();
+        let mut account = Account::from(
+            build_token_account_with_extensions(&token, &mint, &mint_account).unwrap(),
+        );
+        let result =
+            update_token_balance_in_account(&mut account, &token, &mint, 5_000_000, 6).unwrap();
         assert_eq!(result.amount_raw, 5_000_000);
         assert!((result.ui_amount - 5.0).abs() < f64::EPSILON);
 
-        let account = resolved.accounts.get(&token).unwrap();
-        let state =
-            StateWithExtensions::<Token2022Account>::unpack(account.data()).expect("unpack");
+        let state = StateWithExtensions::<Token2022Account>::unpack(&account.data).expect("unpack");
         assert_eq!(state.base.amount, 5_000_000);
     }
 }

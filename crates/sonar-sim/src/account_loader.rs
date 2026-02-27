@@ -11,13 +11,13 @@ use solana_slot_hashes::SlotHashes;
 use solana_sysvar_id::SysvarId;
 use solana_transaction::versioned::VersionedTransaction;
 
-use crate::account_fetcher::{AccountFetcher, format_pubkeys};
-use crate::error::{Result, SonarSimError};
 use crate::account_dependencies::{
     collect_bpf_upgradeable_programdata_dependencies, collect_token_mint_dependencies,
 };
+use crate::account_fetcher::{AccountFetcher, format_pubkeys};
+use crate::error::{Result, SonarSimError};
 use crate::rpc_provider::RpcAccountProvider;
-use crate::transaction::{AddressLookupPlan, collect_account_plan};
+use crate::transaction::{AddressLookupPlan, MessageAccountPlan};
 use crate::types::{
     AccountAppender, AccountSource, FetchObserver, FetchPolicy, ResolvedAccounts, ResolvedLookup,
 };
@@ -72,7 +72,7 @@ impl AccountLoader {
     }
 
     pub fn load_for_transaction(&mut self, tx: &VersionedTransaction) -> Result<ResolvedAccounts> {
-        self.load_from_plans(&[collect_account_plan(tx)])
+        self.load_from_plans(&[MessageAccountPlan::from_transaction(tx)])
     }
 
     /// Load accounts for multiple transactions (bundle simulation).
@@ -84,14 +84,11 @@ impl AccountLoader {
         if txs.is_empty() {
             return Ok(ResolvedAccounts { accounts: HashMap::new(), lookups: Vec::new() });
         }
-        let plans: Vec<_> = txs.iter().map(|tx| collect_account_plan(tx)).collect();
+        let plans: Vec<_> = txs.iter().map(|tx| MessageAccountPlan::from_transaction(tx)).collect();
         self.load_from_plans(&plans)
     }
 
-    fn load_from_plans(
-        &mut self,
-        plans: &[crate::transaction::MessageAccountPlan],
-    ) -> Result<ResolvedAccounts> {
+    fn load_from_plans(&mut self, plans: &[MessageAccountPlan]) -> Result<ResolvedAccounts> {
         let initial = collect_initial_accounts(plans);
         let mut accounts = HashMap::new();
 
@@ -125,7 +122,7 @@ impl AccountLoader {
 
     fn resolve_all_lookups(
         &mut self,
-        plans: &[crate::transaction::MessageAccountPlan],
+        plans: &[MessageAccountPlan],
         accounts: &mut HashMap<Pubkey, AccountSharedData>,
     ) -> Result<(Vec<ResolvedLookup>, Vec<Pubkey>)> {
         let mut lookups = Vec::new();
@@ -297,7 +294,7 @@ impl AccountAppender for AccountLoader {
     }
 }
 
-fn collect_initial_accounts(plans: &[crate::transaction::MessageAccountPlan]) -> Vec<Pubkey> {
+fn collect_initial_accounts(plans: &[MessageAccountPlan]) -> Vec<Pubkey> {
     let mut keys = Vec::new();
     let mut seen = HashSet::new();
 

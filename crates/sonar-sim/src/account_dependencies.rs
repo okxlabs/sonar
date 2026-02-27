@@ -4,7 +4,8 @@ use solana_account::{AccountSharedData, ReadableAccount};
 use solana_loader_v3_interface::state::UpgradeableLoaderState;
 use solana_pubkey::Pubkey;
 use solana_sdk_ids::bpf_loader_upgradeable;
-use spl_token::solana_program::program_pack::Pack;
+
+use crate::token_decode;
 
 /// Collect missing ProgramData accounts for BPF Upgradeable program accounts.
 pub(crate) fn collect_bpf_upgradeable_programdata_dependencies(
@@ -44,18 +45,8 @@ pub(crate) fn collect_token_mint_dependencies(
 }
 
 fn token_account_mint(account: &AccountSharedData) -> Option<Pubkey> {
-    let owner = *account.owner();
-    if owner == spl_token::ID {
-        let token_account = spl_token::state::Account::unpack(account.data()).ok()?;
-        return Some(Pubkey::new_from_array(token_account.mint.to_bytes()));
-    }
-    if owner == spl_token_2022::ID {
-        use spl_token_2022::extension::StateWithExtensions;
-        use spl_token_2022::state::Account as Token2022Account;
-        let token_account = StateWithExtensions::<Token2022Account>::unpack(account.data()).ok()?;
-        return Some(Pubkey::new_from_array(token_account.base.mint.to_bytes()));
-    }
-    None
+    token_decode::try_decode_token_account(account.data(), account.owner())
+        .map(|decoded| decoded.mint)
 }
 
 #[cfg(test)]

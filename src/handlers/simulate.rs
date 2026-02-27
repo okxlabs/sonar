@@ -149,7 +149,7 @@ pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
     } else {
         prepare_token_fundings(
             &mut prepared.account_loader,
-            &mut prepared.resolved_accounts,
+            &prepared.resolved_accounts,
             &token_funding_requests,
         )?
     };
@@ -276,7 +276,7 @@ fn handle_bundle(
     } else {
         prepare_token_fundings(
             &mut prepared.account_loader,
-            &mut prepared.resolved_accounts,
+            &prepared.resolved_accounts,
             &token_funding_requests,
         )?
     };
@@ -321,7 +321,16 @@ fn handle_bundle(
     let total_tx_count = parsed_txs.len();
     let mut executor = TransactionExecutor::prepare(prepared.resolved_accounts, sim_opts)?;
 
-    let simulations = executor.execute_bundle(&tx_refs);
+    let bundle_results = executor.execute_bundle(&tx_refs);
+    let simulations: Vec<_> = bundle_results
+        .into_iter()
+        .enumerate()
+        .map(|(index, result)| {
+            result.map_err(|err| {
+                anyhow::anyhow!("Bundle execution internal error at tx #{}: {}", index + 1, err)
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
 
     // Update transaction summaries with inner instructions from simulation
     // Note: simulations may be shorter than parsed_txs due to fail-fast behavior

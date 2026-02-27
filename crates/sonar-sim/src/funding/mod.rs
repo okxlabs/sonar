@@ -1,12 +1,15 @@
+mod common;
 mod sol;
 mod token2022;
 mod token_legacy;
 
 pub use sol::apply_sol_fundings;
 
-use solana_account::{AccountSharedData, ReadableAccount, WritableAccount};
+use std::collections::HashMap;
+
+use litesvm::LiteSVM;
+use solana_account::{Account, AccountSharedData, ReadableAccount};
 use solana_pubkey::Pubkey;
-use spl_token::solana_program::program_pack::Pack;
 
 use crate::error::{Result, SonarSimError};
 use crate::token_decode::{self, TokenProgramKind, ensure_same_program, raw_to_ui_amount};
@@ -14,98 +17,46 @@ use crate::types::{
     AccountAppender, PreparedTokenFunding, ResolvedAccounts, TokenAmount, TokenFunding,
 };
 
-pub(super) trait TokenAmountMut:
-    Pack + spl_token::solana_program::program_pack::IsInitialized
-{
-    fn set_amount(&mut self, amount: u64);
-}
-
-impl TokenAmountMut for spl_token::state::Account {
-    fn set_amount(&mut self, amount: u64) {
-        self.amount = amount;
-    }
-}
-
-impl TokenAmountMut for spl_token_2022::state::Account {
-    fn set_amount(&mut self, amount: u64) {
-        self.amount = amount;
-    }
-}
-
-pub(super) fn update_token_amount<T: TokenAmountMut>(
-    resolved: &mut ResolvedAccounts,
-    account_pubkey: &Pubkey,
-    mint: &Pubkey,
-    amount_raw: u64,
-    decimals: u8,
-    program_kind: TokenProgramKind,
-) -> Result<PreparedTokenFunding> {
-    let account = resolved
-        .accounts
-        .get_mut(account_pubkey)
-        .ok_or(SonarSimError::AccountNotFound { pubkey: *account_pubkey })?;
-    ensure_same_program(program_kind, account.owner(), "token account")?;
-    if account.data().len() < T::LEN {
-        return Err(SonarSimError::Token {
-            account: Some(*account_pubkey),
-            reason: format!(
-                "Token account data is smaller than expected: {} < {}",
-                account.data().len(),
-                T::LEN
-            ),
-        });
-    }
-    let data = account.data_as_mut_slice();
-    let (account_bytes, _) = data.split_at_mut(T::LEN);
-    let mut parsed = T::unpack(account_bytes).map_err(|err| SonarSimError::Token {
-        account: Some(*account_pubkey),
-        reason: format!("Failed to unpack token account {account_pubkey}: {err}"),
-    })?;
-    parsed.set_amount(amount_raw);
-    T::pack(parsed, account_bytes).map_err(|err| SonarSimError::Token {
-        account: Some(*account_pubkey),
-        reason: format!("Failed to update token account {account_pubkey}: {err}"),
-    })?;
-    Ok(PreparedTokenFunding {
-        account: *account_pubkey,
-        mint: *mint,
-        decimals,
-        amount_raw,
-        ui_amount: raw_to_ui_amount(amount_raw, decimals),
-    })
-}
-
 pub fn prepare_token_fundings(
     loader: &mut dyn AccountAppender,
-    resolved: &mut ResolvedAccounts,
+    resolved: &ResolvedAccounts,
     requests: &[TokenFunding],
 ) -> Result<Vec<PreparedTokenFunding>> {
     let mut prepared = Vec::new();
     if requests.is_empty() {
         return Ok(prepared);
     }
+    let mut extras: HashMap<Pubkey, AccountSharedData> = HashMap::new();
 
     let total = requests.len();
     for (index, request) in requests.iter().enumerate() {
         log::debug!("Preparing token fundings ({}/{})", index + 1, total);
-        let summary = prepare_single_token_funding(loader, resolved, request).map_err(|e| {
-            SonarSimError::Token {
+        let summary = prepare_single_token_funding(loader, resolved, &mut extras, request)
+            .map_err(|e| SonarSimError::Token {
                 account: Some(request.account),
                 reason: format!("Failed to prepare token funding for {}: {e}", request.account),
-            }
-        })?;
+            })?;
         prepared.push(summary);
     }
 
     Ok(prepared)
 }
 
+fn lookup_account<'a>(
+    resolved: &'a ResolvedAccounts,
+    extras: &'a HashMap<Pubkey, AccountSharedData>,
+    pubkey: &Pubkey,
+) -> Option<&'a AccountSharedData> {
+    resolved.accounts.get(pubkey).or_else(|| extras.get(pubkey))
+}
+
 fn prepare_single_token_funding(
     loader: &mut dyn AccountAppender,
-    resolved: &mut ResolvedAccounts,
+    resolved: &ResolvedAccounts,
+    extras: &mut HashMap<Pubkey, AccountSharedData>,
     request: &TokenFunding,
 ) -> Result<PreparedTokenFunding> {
-    ensure_account_loaded(loader, resolved, &request.account).map_err(|e| {
+    ensure_account_loaded(loader, resolved, extras, &request.account).map_err(|e| {
         SonarSimError::Token {
             account: Some(request.account),
             reason: format!(
@@ -115,7 +66,7 @@ fn prepare_single_token_funding(
         }
     })?;
 
-    let mint = if let Some(account) = resolved.accounts.get(&request.account) {
+    let mint = if let Some(account) = lookup_account(resolved, extras, &request.account) {
         let detected_mint =
             detect_mint_from_token_account(account).map_err(|e| SonarSimError::Token {
                 account: Some(request.account),
@@ -147,13 +98,11 @@ fn prepare_single_token_funding(
         })?
     };
 
-    ensure_account_loaded(loader, resolved, &mint).map_err(|e| SonarSimError::Token {
+    ensure_account_loaded(loader, resolved, extras, &mint).map_err(|e| SonarSimError::Token {
         account: Some(mint),
         reason: format!("Failed to load mint account {}: {e}", mint),
     })?;
-    let mint_account = resolved
-        .accounts
-        .get(&mint)
+    let mint_account = lookup_account(resolved, extras, &mint)
         .ok_or(SonarSimError::AccountNotFound { pubkey: mint })?
         .clone();
 
@@ -174,88 +123,106 @@ fn prepare_single_token_funding(
             reason: format!("Failed to resolve token amount for {}: {e}", request.account),
         })?;
 
-    if !resolved.accounts.contains_key(&request.account) {
-        create_missing_token_account(
-            resolved,
-            &request.account,
-            &mint,
-            program_kind,
-            &mint_account,
-        )?;
+    if let Some(account) = lookup_account(resolved, extras, &request.account) {
+        ensure_same_program(program_kind, account.owner(), "token account")?;
     }
 
-    match program_kind {
-        TokenProgramKind::Legacy => token_legacy::update_token_balance(
-            resolved,
-            &request.account,
-            &mint,
-            amount_raw,
-            decimals,
-        ),
-        TokenProgramKind::Token2022 => {
-            token2022::update_token_balance(resolved, &request.account, &mint, amount_raw, decimals)
-        }
+    Ok(PreparedTokenFunding {
+        account: request.account,
+        mint,
+        decimals,
+        amount_raw,
+        ui_amount: raw_to_ui_amount(amount_raw, decimals),
+        program_kind,
+    })
+}
+
+pub fn apply_token_fundings(
+    svm: &mut LiteSVM,
+    fundings: &[PreparedTokenFunding],
+    resolved: &ResolvedAccounts,
+) -> Result<()> {
+    for funding in fundings {
+        apply_single_token_funding(svm, funding, resolved)?;
     }
+    Ok(())
+}
+
+fn apply_single_token_funding(
+    svm: &mut LiteSVM,
+    funding: &PreparedTokenFunding,
+    resolved: &ResolvedAccounts,
+) -> Result<()> {
+    let kind = funding.program_kind;
+
+    let mut account = if let Some(existing) = svm.get_account(&funding.account) {
+        existing
+    } else {
+        let mint_account = resolved
+            .accounts
+            .get(&funding.mint)
+            .ok_or(SonarSimError::AccountNotFound { pubkey: funding.mint })?;
+        let created = match kind {
+            TokenProgramKind::Legacy => {
+                token_legacy::build_token_account(&funding.account, &funding.mint)?
+            }
+            TokenProgramKind::Token2022 => token2022::build_token_account_with_extensions(
+                &funding.account,
+                &funding.mint,
+                mint_account,
+            )?,
+        };
+        Account::from(created)
+    };
+
+    let _ = match kind {
+        TokenProgramKind::Legacy => token_legacy::update_token_balance_in_account(
+            &mut account,
+            &funding.account,
+            &funding.mint,
+            funding.amount_raw,
+            funding.decimals,
+        )?,
+        TokenProgramKind::Token2022 => token2022::update_token_balance_in_account(
+            &mut account,
+            &funding.account,
+            &funding.mint,
+            funding.amount_raw,
+            funding.decimals,
+        )?,
+    };
+
+    svm.set_account(funding.account, account).map_err(|e| SonarSimError::Svm {
+        reason: format!("Failed to set token funding account `{}`: {}", funding.account, e),
+    })?;
+    Ok(())
 }
 
 fn detect_mint_from_token_account(account: &AccountSharedData) -> Result<Pubkey> {
-    const MINT_OFFSET: usize = 0;
-    const MINT_LEN: usize = 32;
-
-    if TokenProgramKind::from_owner(account.owner()).is_none() {
-        return Err(SonarSimError::Token {
+    token_decode::try_decode_token_account(account.data(), account.owner())
+        .map(|decoded| decoded.mint)
+        .ok_or_else(|| SonarSimError::Token {
             account: None,
             reason: format!(
-                "Token account is not owned by any known SPL Token program (owner: {})",
+                "Token account is not owned by any known SPL Token program or cannot be decoded (owner: {})",
                 account.owner()
             ),
-        });
-    }
-    let data = account.data();
-    if data.len() < MINT_OFFSET + MINT_LEN {
-        return Err(SonarSimError::Token {
-            account: None,
-            reason: format!(
-                "Token account data too small to read mint: {} < {}",
-                data.len(),
-                MINT_OFFSET + MINT_LEN
-            ),
-        });
-    }
-    let mint_bytes: [u8; 32] =
-        data[MINT_OFFSET..MINT_OFFSET + MINT_LEN].try_into().expect("slice length is 32");
-    Ok(Pubkey::new_from_array(mint_bytes))
-}
-
-fn create_missing_token_account(
-    resolved: &mut ResolvedAccounts,
-    account_pubkey: &Pubkey,
-    mint: &Pubkey,
-    kind: TokenProgramKind,
-    mint_account: &AccountSharedData,
-) -> Result<()> {
-    match kind {
-        TokenProgramKind::Legacy => {
-            token_legacy::create_token_account(resolved, account_pubkey, mint)
-        }
-        TokenProgramKind::Token2022 => token2022::create_token_account_with_extensions(
-            resolved,
-            account_pubkey,
-            mint,
-            mint_account,
-        ),
-    }
+        })
 }
 
 fn ensure_account_loaded(
     loader: &mut dyn AccountAppender,
-    resolved: &mut ResolvedAccounts,
+    resolved: &ResolvedAccounts,
+    extras: &mut HashMap<Pubkey, AccountSharedData>,
     pubkey: &Pubkey,
 ) -> Result<()> {
-    if resolved.accounts.contains_key(pubkey) {
+    if resolved.accounts.contains_key(pubkey) || extras.contains_key(pubkey) {
         return Ok(());
     }
-    loader.append_accounts(resolved, &[*pubkey])
+    let mut temp = ResolvedAccounts { accounts: HashMap::new(), lookups: Vec::new() };
+    loader.append_accounts(&mut temp, &[*pubkey])?;
+    extras.extend(temp.accounts);
+    Ok(())
 }
 
 /// Convert a [`TokenAmount`] to a raw `u64` value using the mint's decimals.
@@ -289,6 +256,7 @@ fn resolve_token_amount(amount: &TokenAmount, decimals: u8) -> Result<u64> {
 mod tests {
     use std::collections::HashMap;
 
+    use litesvm::LiteSVM;
     use solana_account::{Account, AccountSharedData, ReadableAccount};
     use solana_pubkey::Pubkey;
     use spl_token::solana_program::program_pack::Pack;
@@ -311,7 +279,7 @@ mod tests {
     }
 
     #[test]
-    fn prepares_spl_token_funding_and_updates_account_data() {
+    fn prepares_spl_token_funding_without_mutating_account_data() {
         let mut loader = NoopAppender;
         let mint = Pubkey::new_unique();
         let token = Pubkey::new_unique();
@@ -325,7 +293,9 @@ mod tests {
 
         let funding =
             TokenFunding { account: token, mint: Some(mint), amount: TokenAmount::Raw(1_500_000) };
-        let prepared = prepare_token_fundings(&mut loader, &mut resolved, &[funding])
+        let before_data = resolved.accounts.get(&token).unwrap().data().to_vec();
+
+        let prepared = prepare_token_fundings(&mut loader, &resolved, &[funding])
             .expect("prepares funding");
         assert_eq!(prepared.len(), 1);
         let summary = &prepared[0];
@@ -335,8 +305,17 @@ mod tests {
         assert!(summary.amount_raw > 0);
 
         let updated_account = resolved.accounts.get(&token).unwrap();
+        assert_eq!(updated_account.data(), before_data);
+
+        let mut svm = LiteSVM::new().with_blockhash_check(false).with_sigverify(false);
+        svm.set_account(token, Account::from(updated_account.clone())).unwrap();
+        svm.set_account(mint, mint_account.clone()).unwrap();
+
+        apply_token_fundings(&mut svm, &prepared, &resolved).expect("applies funding to svm");
+
+        let updated_in_svm = svm.get_account(&token).unwrap();
         use spl_token::state::Account as SplAccount;
-        let parsed = SplAccount::unpack(&updated_account.data()[..SplAccount::LEN]).unwrap();
+        let parsed = SplAccount::unpack(&updated_in_svm.data[..SplAccount::LEN]).unwrap();
         assert_eq!(parsed.amount, summary.amount_raw);
     }
 
