@@ -1,0 +1,36 @@
+crates/sonar-sim/src/known_programs.rs
+  f7d11ba 1-43
+crates/sonar-sim/src/account_fetcher.rs
+  f7d11ba 92,540
+crates/sonar-sim/src/lib.rs
+  f7d11ba 17,58
+crates/sonar-sim/src/funding/mod.rs
+  f7d11ba 294,377,384
+crates/sonar-sim/src/executor.rs
+---
+{
+  "metadata": {
+    "base_commit_sha": "dd2df13a8bc435c35e9eee7c66687f6392ce90c5",
+    "prompts": {}
+  },
+  "agent_line_stats": {
+    "crates/sonar-sim/src/funding/mod.rs": {
+      "Human": {
+        "file_path": "crates/sonar-sim/src/funding/mod.rs",
+        "agent_type": "Human",
+        "additions": 0,
+        "deletions": 1,
+        "ai_accepted": 0
+      }
+    },
+    "crates/sonar-sim/src/lib.rs": {
+      "Human": {
+        "file_path": "crates/sonar-sim/src/lib.rs",
+        "agent_type": "Human",
+        "additions": 0,
+        "deletions": 1,
+        "ai_accepted": 0
+      }
+    }
+  }
+}
