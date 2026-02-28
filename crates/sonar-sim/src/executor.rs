@@ -134,25 +134,6 @@ impl StateMutationOptions {
     }
 }
 
-#[derive(Debug, Clone, Default)]
-pub struct AppliedRecord {
-    pub replacements: Vec<AccountReplacement>,
-    pub fundings: Vec<SolFunding>,
-    pub token_fundings: Vec<PreparedTokenFunding>,
-    pub data_patches: Vec<AccountDataPatch>,
-}
-
-impl From<StateMutationOptions> for AppliedRecord {
-    fn from(value: StateMutationOptions) -> Self {
-        Self {
-            replacements: value.replacements,
-            fundings: value.fundings,
-            token_fundings: value.token_fundings,
-            data_patches: value.data_patches,
-        }
-    }
-}
-
 // ── Pipeline steps ──
 //
 // Each function performs a single, testable stage of executor preparation.
@@ -288,7 +269,7 @@ pub fn apply_timestamp(svm: &mut LiteSVM, ts: i64) -> Result<()> {
 pub struct TransactionExecutor {
     svm: LiteSVM,
     resolved: ResolvedAccounts,
-    record: AppliedRecord,
+    record: StateMutationOptions,
 }
 
 impl TransactionExecutor {
@@ -302,8 +283,7 @@ impl TransactionExecutor {
 
         load_accounts(&mut svm, &resolved)?;
         mutations.apply(&mut svm, &resolved)?;
-
-        let record = AppliedRecord::from(mutations);
+        let record = mutations;
 
         if let Some(slot) = execution.slot {
             apply_slot(&mut svm, slot);
