@@ -235,21 +235,11 @@ pub(crate) fn format_pubkeys(pubkeys: &[Pubkey]) -> String {
 mod tests {
     use super::*;
     use crate::rpc_provider::FakeAccountProvider;
+    use crate::test_utils::system_account;
     use crate::types::{AccountSource, FetchObserver, FetchPolicy};
-    use solana_account::Account;
     use std::str::FromStr;
     use std::sync::Mutex;
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-
-    fn system_account(lamports: u64) -> Account {
-        Account {
-            lamports,
-            data: vec![],
-            owner: solana_sdk_ids::system_program::id(),
-            executable: false,
-            rent_epoch: 0,
-        }
-    }
 
     #[test]
     fn fetcher_deduplicates_against_destination() {

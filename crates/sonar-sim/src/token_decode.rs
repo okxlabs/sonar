@@ -163,10 +163,9 @@ pub(crate) fn ensure_same_program(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_utils::make_token_account_data;
     use solana_account::Account;
     use spl_token::solana_program::program_option::COption;
-    use spl_token::solana_program::pubkey::Pubkey as ProgramPubkey;
-    use spl_token::state::AccountState;
 
     fn make_mint(decimals: u8, owner: Pubkey) -> Account {
         let state = SplMint {
@@ -179,22 +178,6 @@ mod tests {
         let mut data = vec![0u8; SplMint::LEN];
         SplMint::pack(state, &mut data).unwrap();
         Account { lamports: 0, data, owner, executable: false, rent_epoch: 0 }
-    }
-
-    fn make_token_account(mint: &Pubkey, token_owner: &Pubkey, amount: u64) -> Vec<u8> {
-        let state = SplTokenAccount {
-            mint: ProgramPubkey::new_from_array(mint.to_bytes()),
-            owner: ProgramPubkey::new_from_array(token_owner.to_bytes()),
-            amount,
-            delegate: COption::None,
-            state: AccountState::Initialized,
-            is_native: COption::None,
-            delegated_amount: 0,
-            close_authority: COption::None,
-        };
-        let mut data = vec![0u8; SplTokenAccount::LEN];
-        SplTokenAccount::pack(state, &mut data).unwrap();
-        data
     }
 
     #[test]
@@ -280,7 +263,7 @@ mod tests {
     fn decode_token_account_legacy() {
         let mint = Pubkey::new_unique();
         let owner = Pubkey::new_unique();
-        let data = make_token_account(&mint, &owner, 42);
+        let data = make_token_account_data(&mint, &owner, 42);
 
         let decoded = try_decode_token_account(&data, &legacy_program_id()).unwrap();
         assert_eq!(decoded.mint, mint);
@@ -292,7 +275,7 @@ mod tests {
     fn decode_token_account_2022() {
         let mint = Pubkey::new_unique();
         let owner = Pubkey::new_unique();
-        let data = make_token_account(&mint, &owner, 100);
+        let data = make_token_account_data(&mint, &owner, 100);
 
         let decoded = try_decode_token_account(&data, &token2022_program_id()).unwrap();
         assert_eq!(decoded.mint, mint);

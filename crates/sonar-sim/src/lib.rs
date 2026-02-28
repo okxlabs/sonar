@@ -16,6 +16,8 @@ pub(crate) mod executor;
 pub(crate) mod funding;
 pub(crate) mod known_programs;
 pub(crate) mod rpc_provider;
+#[cfg(test)]
+pub(crate) mod test_utils;
 pub(crate) mod token_decode;
 pub(crate) mod transaction;
 pub(crate) mod types;

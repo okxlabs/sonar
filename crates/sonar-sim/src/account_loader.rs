@@ -338,61 +338,9 @@ mod tests {
 
     use super::*;
     use crate::rpc_provider::FakeAccountProvider;
-    use solana_account::Account;
-    use solana_hash::Hash;
+    use crate::test_utils::{create_transfer_tx, make_token_account_shared, system_account};
     use solana_keypair::Keypair;
-    use solana_message::Message;
     use solana_signer::Signer;
-    use solana_system_interface::instruction as system_instruction;
-    use solana_transaction::Transaction;
-    use spl_token::solana_program::program_option::COption;
-    use spl_token::solana_program::program_pack::Pack;
-    use spl_token::solana_program::pubkey::Pubkey as ProgramPubkey;
-    use spl_token::state::{Account as SplAccount, AccountState};
-
-    fn system_account(lamports: u64) -> Account {
-        Account {
-            lamports,
-            data: vec![],
-            owner: solana_sdk_ids::system_program::id(),
-            executable: false,
-            rent_epoch: 0,
-        }
-    }
-
-    fn create_transfer_tx(
-        payer: &Keypair,
-        recipient: &Pubkey,
-        lamports: u64,
-    ) -> VersionedTransaction {
-        let blockhash = Hash::new_unique();
-        let ix = system_instruction::transfer(&payer.pubkey(), recipient, lamports);
-        let message = Message::new(&[ix], Some(&payer.pubkey()));
-        VersionedTransaction::from(Transaction::new(&[payer], message, blockhash))
-    }
-
-    fn make_token_account(mint: &Pubkey) -> AccountSharedData {
-        let owner = Pubkey::new_unique();
-        let state = SplAccount {
-            mint: ProgramPubkey::new_from_array(mint.to_bytes()),
-            owner: ProgramPubkey::new_from_array(owner.to_bytes()),
-            amount: 0,
-            delegate: COption::None,
-            state: AccountState::Initialized,
-            is_native: COption::None,
-            delegated_amount: 0,
-            close_authority: COption::None,
-        };
-        let mut data = vec![0u8; SplAccount::LEN];
-        SplAccount::pack(state, &mut data).unwrap();
-        AccountSharedData::from(Account {
-            lamports: 1,
-            data,
-            owner: spl_token::ID,
-            executable: false,
-            rent_epoch: 0,
-        })
-    }
 
     #[test]
     fn loader_returns_accounts_from_provider() {
@@ -484,7 +432,7 @@ mod tests {
         let missing_mint = Pubkey::new_unique();
         let call_count = Arc::new(AtomicUsize::new(0));
         let provider = CountingProvider {
-            accounts: HashMap::from([(token_account, make_token_account(&missing_mint))]),
+            accounts: HashMap::from([(token_account, make_token_account_shared(&missing_mint))]),
             call_count: call_count.clone(),
         };
         let mut loader = AccountLoader::with_provider(Arc::new(provider));
@@ -589,7 +537,7 @@ mod tests {
         let mut loader = AccountLoader::with_provider(Arc::new(provider));
 
         let mut resolved = ResolvedAccounts {
-            accounts: HashMap::from([(token_account, make_token_account(&missing_mint))]),
+            accounts: HashMap::from([(token_account, make_token_account_shared(&missing_mint))]),
             lookups: vec![],
         };
 
@@ -631,7 +579,7 @@ mod tests {
             AccountLoader::with_provider(Arc::new(NeverCalledProvider)).with_policy(policy);
 
         let mut resolved = ResolvedAccounts {
-            accounts: HashMap::from([(token_account, make_token_account(&missing_mint))]),
+            accounts: HashMap::from([(token_account, make_token_account_shared(&missing_mint))]),
             lookups: vec![],
         };
 

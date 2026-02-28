@@ -52,10 +52,8 @@ fn token_account_mint(account: &AccountSharedData) -> Option<Pubkey> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_utils::make_token_account_shared;
     use solana_account::Account;
-    use spl_token::solana_program::program_pack::Pack;
-    use spl_token::solana_program::{program_option::COption, pubkey::Pubkey as ProgramPubkey};
-    use spl_token::state::{Account as SplAccount, AccountState};
 
     fn make_bpf_program(programdata_address: &Pubkey) -> AccountSharedData {
         let state = UpgradeableLoaderState::Program { programdata_address: *programdata_address };
@@ -65,29 +63,6 @@ mod tests {
             data,
             owner: bpf_loader_upgradeable::id(),
             executable: true,
-            rent_epoch: 0,
-        })
-    }
-
-    fn make_token_account(mint: &Pubkey) -> AccountSharedData {
-        let owner = Pubkey::new_unique();
-        let state = SplAccount {
-            mint: ProgramPubkey::new_from_array(mint.to_bytes()),
-            owner: ProgramPubkey::new_from_array(owner.to_bytes()),
-            amount: 0,
-            delegate: COption::None,
-            state: AccountState::Initialized,
-            is_native: COption::None,
-            delegated_amount: 0,
-            close_authority: COption::None,
-        };
-        let mut data = vec![0u8; SplAccount::LEN];
-        SplAccount::pack(state, &mut data).unwrap();
-        AccountSharedData::from(Account {
-            lamports: 1,
-            data,
-            owner: spl_token::ID,
-            executable: false,
             rent_epoch: 0,
         })
     }
@@ -132,7 +107,7 @@ mod tests {
         let token_key = Pubkey::new_unique();
 
         let mut accounts = HashMap::new();
-        accounts.insert(token_key, make_token_account(&mint_key));
+        accounts.insert(token_key, make_token_account_shared(&mint_key));
 
         let missing = collect_token_mint_dependencies(&accounts);
         assert_eq!(missing, vec![mint_key]);
@@ -144,7 +119,7 @@ mod tests {
         let token_key = Pubkey::new_unique();
 
         let mut accounts = HashMap::new();
-        accounts.insert(token_key, make_token_account(&mint_key));
+        accounts.insert(token_key, make_token_account_shared(&mint_key));
         accounts.insert(
             mint_key,
             AccountSharedData::from(Account {
