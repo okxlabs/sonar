@@ -13,8 +13,8 @@ use solana_transaction::versioned::VersionedTransaction;
 use crate::error::{Result, SonarSimError};
 use crate::funding::{apply_sol_fundings, apply_token_fundings};
 use crate::types::{
-    AccountDataPatch, AccountReplacement, PreparedTokenFunding, ResolvedAccounts, ResolvedLookup,
-    ReturnData, SimulationMetadata, SolFunding,
+    AccountDataPatch, AccountReplacement, PreparedTokenFunding, ResolvedAccounts, ReturnData,
+    SimulationMetadata, SolFunding,
 };
 
 /// Whether the simulator should verify transaction signatures.
@@ -422,12 +422,6 @@ fn convert_metadata(meta: &litesvm::types::TransactionMetadata) -> SimulationMet
 pub enum ExecutionStatus {
     Succeeded,
     Failed(String),
-}
-
-impl ResolvedAccounts {
-    pub fn lookup_details(&self) -> &[ResolvedLookup] {
-        &self.lookups
-    }
 }
 
 fn account_priority(account: &AccountSharedData) -> u8 {

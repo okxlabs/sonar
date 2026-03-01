@@ -12,6 +12,12 @@ pub struct ResolvedAccounts {
     pub lookups: Vec<ResolvedLookup>,
 }
 
+impl ResolvedAccounts {
+    pub fn lookup_details(&self) -> &[ResolvedLookup] {
+        &self.lookups
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct ResolvedLookup {
     pub account_key: Pubkey,
