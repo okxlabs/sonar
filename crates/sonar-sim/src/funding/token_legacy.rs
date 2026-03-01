@@ -1,5 +1,6 @@
 use solana_account::{Account, AccountSharedData};
 use solana_pubkey::Pubkey;
+use solana_rent::Rent;
 use spl_token::solana_program::program_pack::Pack;
 use spl_token::solana_program::{program_option::COption, pubkey::Pubkey as ProgramPubkey};
 use spl_token::state::{Account as SplAccount, AccountState};
@@ -11,6 +12,7 @@ use crate::types::PreparedTokenFunding;
 pub(super) fn build_token_account(
     account_pubkey: &Pubkey,
     mint: &Pubkey,
+    rent: &Rent,
 ) -> Result<AccountSharedData> {
     let mut data = vec![0u8; SplAccount::LEN];
     let state = SplAccount {
@@ -28,7 +30,7 @@ pub(super) fn build_token_account(
         reason: format!("Failed to pack new SPL token account: {err}"),
     })?;
     Ok(AccountSharedData::from(Account {
-        lamports: 0,
+        lamports: rent.minimum_balance(SplAccount::LEN),
         data,
         owner: legacy_program_id(),
         executable: false,
@@ -57,6 +59,7 @@ pub(super) fn update_token_balance_in_account(
 mod tests {
     use solana_account::ReadableAccount;
     use solana_pubkey::Pubkey;
+    use solana_rent::Rent;
     use spl_token::solana_program::program_pack::Pack;
     use spl_token::state::Account as SplAccount;
 
@@ -68,8 +71,10 @@ mod tests {
     fn create_initializes_valid_account() {
         let mint = Pubkey::new_unique();
         let token = Pubkey::new_unique();
-        let account = build_token_account(&token, &mint).unwrap();
+        let rent = Rent::default();
+        let account = build_token_account(&token, &mint, &rent).unwrap();
         assert_eq!(*account.owner(), legacy_program_id());
+        assert_eq!(account.lamports(), rent.minimum_balance(SplAccount::LEN));
 
         let parsed = SplAccount::unpack(&account.data()[..SplAccount::LEN]).unwrap();
         assert_eq!(Pubkey::new_from_array(parsed.mint.to_bytes()), mint);
@@ -80,7 +85,8 @@ mod tests {
     fn update_sets_amount() {
         let mint = Pubkey::new_unique();
         let token = Pubkey::new_unique();
-        let mut account = Account::from(build_token_account(&token, &mint).unwrap());
+        let mut account =
+            Account::from(build_token_account(&token, &mint, &Rent::default()).unwrap());
         let result =
             update_token_balance_in_account(&mut account, &token, &mint, 42_000_000, 6).unwrap();
         assert_eq!(result.amount_raw, 42_000_000);

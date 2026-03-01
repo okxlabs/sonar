@@ -5922,6 +5922,7 @@ dependencies = [
  "solana-message",
  "solana-native-token",
  "solana-pubkey 3.0.0",
+ "solana-rent",
  "solana-sdk-ids",
  "solana-signature",
  "solana-signer",

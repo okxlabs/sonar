@@ -10,6 +10,7 @@ use std::collections::HashMap;
 use litesvm::LiteSVM;
 use solana_account::{Account, AccountSharedData, ReadableAccount};
 use solana_pubkey::Pubkey;
+use solana_rent::Rent;
 
 use crate::error::{Result, SonarSimError};
 use crate::token_decode::{self, TokenProgramKind, ensure_same_program, raw_to_ui_amount};
@@ -158,18 +159,20 @@ fn apply_single_token_funding(
     let mut account = if let Some(existing) = svm.get_account(&funding.account) {
         existing
     } else {
+        let rent = read_rent_from_svm(svm)?;
         let mint_account = resolved
             .accounts
             .get(&funding.mint)
             .ok_or(SonarSimError::AccountNotFound { pubkey: funding.mint })?;
         let created = match kind {
             TokenProgramKind::Legacy => {
-                token_legacy::build_token_account(&funding.account, &funding.mint)?
+                token_legacy::build_token_account(&funding.account, &funding.mint, &rent)?
             }
             TokenProgramKind::Token2022 => token2022::build_token_account_with_extensions(
                 &funding.account,
                 &funding.mint,
                 mint_account,
+                &rent,
             )?,
         };
         Account::from(created)
@@ -196,6 +199,16 @@ fn apply_single_token_funding(
         reason: format!("Failed to set token funding account `{}`: {}", funding.account, e),
     })?;
     Ok(())
+}
+
+fn read_rent_from_svm(svm: &LiteSVM) -> Result<Rent> {
+    let rent_id = solana_sdk_ids::sysvar::rent::id();
+    let rent_account = svm.get_account(&rent_id).ok_or_else(|| SonarSimError::Svm {
+        reason: "Rent sysvar account not found in SVM".into(),
+    })?;
+    bincode::deserialize(&rent_account.data).map_err(|e| SonarSimError::Serialization {
+        reason: format!("Failed to deserialize Rent sysvar: {e}"),
+    })
 }
 
 fn detect_mint_from_token_account(account: &AccountSharedData) -> Result<Pubkey> {
@@ -346,6 +359,36 @@ mod tests {
     fn raw_to_ui_zero_decimals() {
         let ui = raw_to_ui_amount(42, 0);
         assert!((ui - 42.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn apply_token_funding_creates_rent_exempt_account() {
+        let mut loader = NoopAppender;
+        let mint = Pubkey::new_unique();
+        let token = Pubkey::new_unique();
+        let owner = Pubkey::new_unique();
+
+        let (_, mint_account) = spl_token_account_and_mint(&mint, &owner);
+        let mint_shared = AccountSharedData::from(mint_account.clone());
+
+        let mut resolved = ResolvedAccounts { accounts: HashMap::new(), lookups: vec![] };
+        resolved.accounts.insert(mint, mint_shared.clone());
+
+        let funding =
+            TokenFunding { account: token, mint: Some(mint), amount: TokenAmount::Raw(1_500_000) };
+        let prepared =
+            prepare_token_fundings(&mut loader, &resolved, &[funding]).expect("prepares funding");
+
+        let mut svm = LiteSVM::new().with_blockhash_check(false).with_sigverify(false);
+        svm.set_account(mint, mint_account).unwrap();
+
+        let rent = read_rent_from_svm(&svm).expect("Rent sysvar should exist");
+        let expected = rent.minimum_balance(SplAccount::LEN);
+
+        apply_token_fundings(&mut svm, &prepared, &resolved).expect("applies funding to svm");
+
+        let created = svm.get_account(&token).expect("token account should be created");
+        assert_eq!(created.lamports, expected);
     }
 
     fn spl_token_account_and_mint(mint: &Pubkey, owner: &Pubkey) -> (Account, Account) {

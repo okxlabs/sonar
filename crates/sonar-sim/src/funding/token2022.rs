@@ -1,5 +1,6 @@
 use solana_account::{Account, AccountSharedData, ReadableAccount};
 use solana_pubkey::Pubkey;
+use solana_rent::Rent;
 use spl_token::solana_program::{program_option::COption, pubkey::Pubkey as ProgramPubkey};
 use spl_token_2022::extension::{BaseStateWithExtensions, BaseStateWithExtensionsMut};
 use spl_token_2022::extension::{ExtensionType, StateWithExtensions, StateWithExtensionsMut};
@@ -13,6 +14,7 @@ pub(super) fn build_token_account_with_extensions(
     account_pubkey: &Pubkey,
     mint: &Pubkey,
     mint_account: &AccountSharedData,
+    rent: &Rent,
 ) -> Result<AccountSharedData> {
     let mint_state =
         StateWithExtensions::<Token2022Mint>::unpack(mint_account.data()).map_err(|e| {
@@ -67,7 +69,7 @@ pub(super) fn build_token_account_with_extensions(
     }
 
     Ok(AccountSharedData::from(Account {
-        lamports: 0,
+        lamports: rent.minimum_balance(account_len),
         data,
         owner: token2022_program_id(),
         executable: false,
@@ -96,6 +98,7 @@ pub(super) fn update_token_balance_in_account(
 mod tests {
     use solana_account::{Account, ReadableAccount};
     use solana_pubkey::Pubkey;
+    use solana_rent::Rent;
     use spl_token::solana_program::program_option::COption;
     use spl_token::solana_program::program_pack::Pack;
     use spl_token_2022::extension::transfer_fee::TransferFeeConfig;
@@ -161,8 +164,11 @@ mod tests {
         let mint = Pubkey::new_unique();
         let token = Pubkey::new_unique();
         let mint_account = mint_account_base_only();
-        let account = build_token_account_with_extensions(&token, &mint, &mint_account).unwrap();
+        let rent = Rent::default();
+        let account =
+            build_token_account_with_extensions(&token, &mint, &mint_account, &rent).unwrap();
         assert_eq!(*account.owner(), token2022_program_id());
+        assert_eq!(account.lamports(), rent.minimum_balance(Token2022Account::LEN));
         assert_eq!(
             account.data().len(),
             Token2022Account::LEN,
@@ -179,12 +185,15 @@ mod tests {
         let mint = Pubkey::new_unique();
         let token = Pubkey::new_unique();
         let mint_account = mint_account_with_transfer_fee_config();
-        let account = build_token_account_with_extensions(&token, &mint, &mint_account).unwrap();
+        let rent = Rent::default();
+        let account =
+            build_token_account_with_extensions(&token, &mint, &mint_account, &rent).unwrap();
         assert_eq!(*account.owner(), token2022_program_id());
         assert!(
             account.data().len() > Token2022Account::LEN,
             "account with TransferFeeAmount extension must be larger than base"
         );
+        assert_eq!(account.lamports(), rent.minimum_balance(account.data().len()));
         let state =
             StateWithExtensions::<Token2022Account>::unpack(account.data()).expect("unpack");
         assert_eq!(state.base.amount, 0);
@@ -202,7 +211,8 @@ mod tests {
         let token = Pubkey::new_unique();
         let mint_account = mint_account_base_only();
         let mut account = Account::from(
-            build_token_account_with_extensions(&token, &mint, &mint_account).unwrap(),
+            build_token_account_with_extensions(&token, &mint, &mint_account, &Rent::default())
+                .unwrap(),
         );
         let result =
             update_token_balance_in_account(&mut account, &token, &mint, 5_000_000, 6).unwrap();
