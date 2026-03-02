@@ -46,6 +46,8 @@ pub enum ConvertInputFormat {
     U64,
     /// Unsigned 128-bit integer
     U128,
+    /// Unsigned 256-bit integer
+    U256,
     /// Signed 8-bit integer
     I8,
     /// Signed 16-bit integer
@@ -56,6 +58,8 @@ pub enum ConvertInputFormat {
     I64,
     /// Signed 128-bit integer
     I128,
+    /// Signed 256-bit integer
+    I256,
     /// Lamports amount (alias: lam)
     #[value(alias = "lam")]
     Lamports,
@@ -102,6 +106,8 @@ pub enum ConvertOutputFormat {
     U64,
     /// Unsigned 128-bit integer output
     U128,
+    /// Unsigned 256-bit integer output
+    U256,
     /// Signed 8-bit integer output
     I8,
     /// Signed 16-bit integer output
@@ -112,6 +118,8 @@ pub enum ConvertOutputFormat {
     I64,
     /// Signed 128-bit integer output
     I128,
+    /// Signed 256-bit integer output
+    I256,
     /// Lamports output (alias: lam)
     #[value(alias = "lam")]
     Lamports,
@@ -136,7 +144,7 @@ EXAMPLES:
 FORMATS:
   Generic:  int, hex, hex-bytes (hb), bytes, text, binary (bin), base64 (b64), base58 (b58)
   Solana:   pubkey (pk), signature (sig), keypair (kp, input only), lamports (lam), sol
-  Fixed:    u8, u16, u32, u64, u128, i8, i16, i32, i64, i128
+  Fixed:    u8, u16, u32, u64, u128, u256, i8, i16, i32, i64, i128, i256
 ")]
 pub struct ConvertArgs {
     /// Input format
@@ -187,11 +195,13 @@ impl From<ConvertInputFormat> for InputFormat {
             ConvertInputFormat::U32 => Self::U32,
             ConvertInputFormat::U64 => Self::U64,
             ConvertInputFormat::U128 => Self::U128,
+            ConvertInputFormat::U256 => Self::U256,
             ConvertInputFormat::I8 => Self::I8,
             ConvertInputFormat::I16 => Self::I16,
             ConvertInputFormat::I32 => Self::I32,
             ConvertInputFormat::I64 => Self::I64,
             ConvertInputFormat::I128 => Self::I128,
+            ConvertInputFormat::I256 => Self::I256,
             ConvertInputFormat::Lamports => Self::Lamports,
             ConvertInputFormat::Sol => Self::Sol,
         }
@@ -216,11 +226,13 @@ impl From<ConvertOutputFormat> for OutputFormat {
             ConvertOutputFormat::U32 => Self::U32,
             ConvertOutputFormat::U64 => Self::U64,
             ConvertOutputFormat::U128 => Self::U128,
+            ConvertOutputFormat::U256 => Self::U256,
             ConvertOutputFormat::I8 => Self::I8,
             ConvertOutputFormat::I16 => Self::I16,
             ConvertOutputFormat::I32 => Self::I32,
             ConvertOutputFormat::I64 => Self::I64,
             ConvertOutputFormat::I128 => Self::I128,
+            ConvertOutputFormat::I256 => Self::I256,
             ConvertOutputFormat::Lamports => Self::Lamports,
             ConvertOutputFormat::Sol => Self::Sol,
         }

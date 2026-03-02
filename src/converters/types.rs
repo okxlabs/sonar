@@ -16,11 +16,13 @@ pub enum InputFormat {
     U32,
     U64,
     U128,
+    U256,
     I8,
     I16,
     I32,
     I64,
     I128,
+    I256,
     Lamports,
     Sol,
 }
@@ -42,11 +44,13 @@ pub enum OutputFormat {
     U32,
     U64,
     U128,
+    U256,
     I8,
     I16,
     I32,
     I64,
     I128,
+    I256,
     Lamports,
     Sol,
 }
@@ -75,6 +79,8 @@ pub(crate) enum ConvertValue {
     Number(num_bigint::BigUint),
     FixedUnsigned { value: u128, bits: u16 },
     FixedSigned { value: i128, bits: u16 },
+    FixedBigUnsigned { value: num_bigint::BigUint, bits: u16 },
+    FixedBigSigned { value: num_bigint::BigInt, bits: u16 },
     Lamports(u64),
 }
 
@@ -85,11 +91,13 @@ pub(crate) enum FixedIntSpec {
     U32,
     U64,
     U128,
+    U256,
     I8,
     I16,
     I32,
     I64,
     I128,
+    I256,
 }
 
 impl FixedIntSpec {
@@ -100,6 +108,7 @@ impl FixedIntSpec {
             Self::U32 | Self::I32 => 32,
             Self::U64 | Self::I64 => 64,
             Self::U128 | Self::I128 => 128,
+            Self::U256 | Self::I256 => 256,
         }
     }
 
@@ -108,7 +117,11 @@ impl FixedIntSpec {
     }
 
     pub fn is_signed(self) -> bool {
-        matches!(self, Self::I8 | Self::I16 | Self::I32 | Self::I64 | Self::I128)
+        matches!(self, Self::I8 | Self::I16 | Self::I32 | Self::I64 | Self::I128 | Self::I256)
+    }
+
+    pub fn is_big(self) -> bool {
+        matches!(self, Self::U256 | Self::I256)
     }
 
     pub fn name(self) -> &'static str {
@@ -118,11 +131,13 @@ impl FixedIntSpec {
             Self::U32 => "u32",
             Self::U64 => "u64",
             Self::U128 => "u128",
+            Self::U256 => "u256",
             Self::I8 => "i8",
             Self::I16 => "i16",
             Self::I32 => "i32",
             Self::I64 => "i64",
             Self::I128 => "i128",
+            Self::I256 => "i256",
         }
     }
 }
@@ -134,11 +149,13 @@ pub(crate) fn input_fixed_int_spec(format: InputFormat) -> Option<FixedIntSpec> 
         InputFormat::U32 => Some(FixedIntSpec::U32),
         InputFormat::U64 => Some(FixedIntSpec::U64),
         InputFormat::U128 => Some(FixedIntSpec::U128),
+        InputFormat::U256 => Some(FixedIntSpec::U256),
         InputFormat::I8 => Some(FixedIntSpec::I8),
         InputFormat::I16 => Some(FixedIntSpec::I16),
         InputFormat::I32 => Some(FixedIntSpec::I32),
         InputFormat::I64 => Some(FixedIntSpec::I64),
         InputFormat::I128 => Some(FixedIntSpec::I128),
+        InputFormat::I256 => Some(FixedIntSpec::I256),
         _ => None,
     }
 }
@@ -150,11 +167,13 @@ pub(crate) fn output_fixed_int_spec(format: OutputFormat) -> Option<FixedIntSpec
         OutputFormat::U32 => Some(FixedIntSpec::U32),
         OutputFormat::U64 => Some(FixedIntSpec::U64),
         OutputFormat::U128 => Some(FixedIntSpec::U128),
+        OutputFormat::U256 => Some(FixedIntSpec::U256),
         OutputFormat::I8 => Some(FixedIntSpec::I8),
         OutputFormat::I16 => Some(FixedIntSpec::I16),
         OutputFormat::I32 => Some(FixedIntSpec::I32),
         OutputFormat::I64 => Some(FixedIntSpec::I64),
         OutputFormat::I128 => Some(FixedIntSpec::I128),
+        OutputFormat::I256 => Some(FixedIntSpec::I256),
         _ => None,
     }
 }

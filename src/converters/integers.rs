@@ -1,5 +1,5 @@
 use super::types::{ConvertValue, FixedIntSpec};
-use num_bigint::BigUint;
+use num_bigint::{BigInt, BigUint, Sign};
 
 pub(crate) fn parse_number(input: &str) -> Result<num_bigint::BigUint, String> {
     let input = input.trim();
@@ -25,6 +25,27 @@ pub(crate) fn parse_fixed_integer(input: &str, spec: FixedIntSpec) -> Result<Con
     let trimmed = input.trim();
     if trimmed.is_empty() {
         return Err(format!("{} cannot be empty", spec.name()));
+    }
+
+    if spec.is_big() {
+        if spec.is_signed() {
+            let value = trimmed
+                .parse::<BigInt>()
+                .map_err(|e| format!("Invalid {} value '{}': {}", spec.name(), trimmed, e))?;
+            let (min, max) = big_signed_bounds(spec.bits());
+            if value < min || value > max {
+                return Err(format!("{} value {} is out of range", spec.name(), value));
+            }
+            return Ok(ConvertValue::FixedBigSigned { value, bits: spec.bits() });
+        } else {
+            let value = trimmed
+                .parse::<BigUint>()
+                .map_err(|e| format!("Invalid {} value '{}': {}", spec.name(), trimmed, e))?;
+            if value.bits() > u64::from(spec.bits()) {
+                return Err(format!("{} value {} is out of range", spec.name(), value));
+            }
+            return Ok(ConvertValue::FixedBigUnsigned { value, bits: spec.bits() });
+        }
     }
 
     if spec.is_signed() {
@@ -53,6 +74,76 @@ pub(crate) fn format_fixed_integer(
     big_endian: bool,
 ) -> Result<String, String> {
     let out_of_range = |value: &str| format!("{} value {} is out of range", spec.name(), value);
+
+    if spec.is_big() && spec.is_signed() {
+        let (min, max) = big_signed_bounds(spec.bits());
+        let signed_value = match value {
+            ConvertValue::Bytes(bytes) => {
+                if bytes.len() != spec.bytes() {
+                    return Err(format!(
+                        "{} requires exactly {} bytes, got {}",
+                        spec.name(),
+                        spec.bytes(),
+                        bytes.len()
+                    ));
+                }
+                decode_big_signed(bytes, big_endian)
+            }
+            ConvertValue::Number(num) => BigInt::from(num.clone()),
+            ConvertValue::FixedUnsigned { value, .. } => BigInt::from(*value),
+            ConvertValue::FixedBigUnsigned { value, .. } => BigInt::from(value.clone()),
+            ConvertValue::FixedBigSigned { value, .. } => value.clone(),
+            ConvertValue::FixedSigned { value, .. } => BigInt::from(*value),
+            ConvertValue::Lamports(value) => BigInt::from(*value),
+        };
+
+        if signed_value < min || signed_value > max {
+            return Err(out_of_range(&signed_value.to_string()));
+        }
+        return Ok(signed_value.to_string());
+    }
+
+    if spec.is_big() {
+        let max_bits = u64::from(spec.bits());
+        let big_value = match value {
+            ConvertValue::Bytes(bytes) => {
+                if bytes.len() != spec.bytes() {
+                    return Err(format!(
+                        "{} requires exactly {} bytes, got {}",
+                        spec.name(),
+                        spec.bytes(),
+                        bytes.len()
+                    ));
+                }
+                if big_endian {
+                    BigUint::from_bytes_be(bytes)
+                } else {
+                    BigUint::from_bytes_le(bytes)
+                }
+            }
+            ConvertValue::Number(num) => num.clone(),
+            ConvertValue::FixedUnsigned { value, .. } => BigUint::from(*value),
+            ConvertValue::FixedBigUnsigned { value, .. } => value.clone(),
+            ConvertValue::FixedBigSigned { value, .. } => {
+                if value.sign() == Sign::Minus {
+                    return Err(out_of_range(&value.to_string()));
+                }
+                value.to_biguint().unwrap()
+            }
+            ConvertValue::FixedSigned { value, .. } => {
+                if *value < 0 {
+                    return Err(out_of_range(&value.to_string()));
+                }
+                BigUint::from(*value as u128)
+            }
+            ConvertValue::Lamports(value) => BigUint::from(*value),
+        };
+
+        if big_value.bits() > max_bits {
+            return Err(out_of_range(&big_value.to_string()));
+        }
+        return Ok(big_value.to_string());
+    }
 
     if spec.is_signed() {
         let (min, max) = signed_bounds(spec.bits());
@@ -87,6 +178,21 @@ pub(crate) fn format_fixed_integer(
                 *value as i128
             }
             ConvertValue::FixedSigned { value, .. } => *value,
+            ConvertValue::FixedBigUnsigned { value, .. } => {
+                let raw = value.to_string();
+                let as_u128 = biguint_to_u128(value).ok_or_else(|| out_of_range(&raw))?;
+                let max_u128 =
+                    u128::try_from(max).expect("signed max should always be non-negative");
+                if as_u128 > max_u128 {
+                    return Err(out_of_range(&raw));
+                }
+                as_u128 as i128
+            }
+            ConvertValue::FixedBigSigned { value, .. } => {
+                let raw = value.to_string();
+                let as_i128 = i128::try_from(value).map_err(|_| out_of_range(&raw))?;
+                as_i128
+            }
             ConvertValue::Lamports(value) => {
                 let as_u128 = u128::from(*value);
                 let max_u128 =
@@ -131,6 +237,18 @@ pub(crate) fn format_fixed_integer(
                 }
                 *value as u128
             }
+            ConvertValue::FixedBigUnsigned { value, .. } => {
+                let raw = value.to_string();
+                biguint_to_u128(value).ok_or_else(|| out_of_range(&raw))?
+            }
+            ConvertValue::FixedBigSigned { value, .. } => {
+                let raw = value.to_string();
+                if value.sign() == Sign::Minus {
+                    return Err(out_of_range(&raw));
+                }
+                let as_u128 = u128::try_from(value).map_err(|_| out_of_range(&raw))?;
+                as_u128
+            }
             ConvertValue::Lamports(value) => u128::from(*value),
         };
 
@@ -158,6 +276,21 @@ pub(crate) fn value_to_bytes(value: &ConvertValue, big_endian: bool) -> Vec<u8> 
             } else {
                 value.to_le_bytes()[..width].to_vec()
             }
+        }
+        ConvertValue::FixedBigUnsigned { value, bits } => {
+            let width = usize::from(bits / 8);
+            let be_bytes = value.to_bytes_be();
+            let mut buf = vec![0u8; width];
+            let offset = width.saturating_sub(be_bytes.len());
+            buf[offset..].copy_from_slice(&be_bytes[be_bytes.len().saturating_sub(width)..]);
+            if !big_endian {
+                buf.reverse();
+            }
+            buf
+        }
+        ConvertValue::FixedBigSigned { value, bits } => {
+            let width = usize::from(bits / 8);
+            encode_big_signed(value, width, big_endian)
         }
         ConvertValue::FixedSigned { value, bits } => {
             let width = usize::from(bits / 8);
@@ -201,6 +334,76 @@ pub(crate) fn signed_bounds(bits: u16) -> (i128, i128) {
     }
 }
 
+pub(crate) fn big_signed_bounds(bits: u16) -> (BigInt, BigInt) {
+    let max = (BigInt::from(1) << (bits - 1)) - 1;
+    let min = -(BigInt::from(1) << (bits - 1));
+    (min, max)
+}
+
+fn encode_big_signed(value: &BigInt, width: usize, big_endian: bool) -> Vec<u8> {
+    let mut buf = match value.sign() {
+        Sign::Minus => vec![0xFFu8; width],
+        _ => vec![0u8; width],
+    };
+
+    let (sign, magnitude) = value.to_bytes_be();
+    if sign == Sign::Minus {
+        // Two's complement: invert all bits and add 1
+        let mut twos = vec![0u8; width];
+        let offset = width.saturating_sub(magnitude.len());
+        twos[offset..].copy_from_slice(&magnitude[magnitude.len().saturating_sub(width)..]);
+        // Negate: flip bits then add 1
+        for b in &mut twos {
+            *b = !*b;
+        }
+        let mut carry = 1u16;
+        for b in twos.iter_mut().rev() {
+            let sum = u16::from(*b) + carry;
+            *b = sum as u8;
+            carry = sum >> 8;
+        }
+        buf = twos;
+    } else {
+        let be_bytes = magnitude;
+        let offset = width.saturating_sub(be_bytes.len());
+        buf[offset..].copy_from_slice(&be_bytes[be_bytes.len().saturating_sub(width)..]);
+    }
+
+    if !big_endian {
+        buf.reverse();
+    }
+    buf
+}
+
+fn decode_big_signed(bytes: &[u8], big_endian: bool) -> BigInt {
+    let ordered: Vec<u8> = if big_endian {
+        bytes.to_vec()
+    } else {
+        let mut v = bytes.to_vec();
+        v.reverse();
+        v
+    };
+
+    // Check sign bit (MSB of first byte in big-endian)
+    let negative = (ordered[0] & 0x80) != 0;
+    if negative {
+        // Two's complement: flip bits, add 1, negate
+        let mut mag = ordered;
+        for b in &mut mag {
+            *b = !*b;
+        }
+        let mut carry = 1u16;
+        for b in mag.iter_mut().rev() {
+            let sum = u16::from(*b) + carry;
+            *b = sum as u8;
+            carry = sum >> 8;
+        }
+        -BigInt::from_bytes_be(Sign::Plus, &mag)
+    } else {
+        BigInt::from_bytes_be(Sign::Plus, &ordered)
+    }
+}
+
 pub(crate) fn decode_fixed_unsigned(bytes: &[u8], big_endian: bool) -> u128 {
     let mut buf = [0u8; 16];
     if big_endian {
@@ -228,22 +431,6 @@ pub(crate) fn decode_fixed_signed(bytes: &[u8], big_endian: bool) -> i128 {
     } else {
         buf[..bytes.len()].copy_from_slice(bytes);
         i128::from_le_bytes(buf)
-    }
-}
-
-pub(crate) fn bytes_to_u64(bytes: &[u8], big_endian: bool) -> u64 {
-    if bytes.is_empty() {
-        return 0;
-    }
-
-    let mut buf = [0u8; 8];
-    let len = bytes.len().min(8);
-    if big_endian {
-        buf[8 - len..].copy_from_slice(&bytes[..len]);
-        u64::from_be_bytes(buf)
-    } else {
-        buf[..len].copy_from_slice(&bytes[..len]);
-        u64::from_le_bytes(buf)
     }
 }
 
@@ -326,21 +513,6 @@ mod tests {
     #[test]
     fn decode_signed_negative_le() {
         assert_eq!(decode_fixed_signed(&[0xfe, 0xff], false), -2);
-    }
-
-    #[test]
-    fn bytes_to_u64_be() {
-        assert_eq!(bytes_to_u64(&[0, 0, 0, 0, 0, 0, 0, 1], true), 1);
-    }
-
-    #[test]
-    fn bytes_to_u64_le() {
-        assert_eq!(bytes_to_u64(&[1, 0, 0, 0, 0, 0, 0, 0], false), 1);
-    }
-
-    #[test]
-    fn bytes_to_u64_empty() {
-        assert_eq!(bytes_to_u64(&[], true), 0);
     }
 
     #[test]

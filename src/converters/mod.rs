@@ -14,14 +14,12 @@ use std::{
 };
 
 use base64::Engine;
-use num_bigint::BigUint;
+use num_bigint::{BigUint, Sign};
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 
 use bytes::{format_binary, format_bytes, parse_binary_input, parse_bytes_input};
-use integers::{
-    bytes_to_u64, format_fixed_integer, parse_fixed_integer, parse_number, value_to_bytes,
-};
+use integers::{format_fixed_integer, parse_fixed_integer, parse_number, value_to_bytes};
 use sol::{format_sol, parse_sol_to_lamports};
 use text::{bytes_to_utf8, format_base64_error};
 use types::{ByteFormat, ConvertValue, input_fixed_int_spec, output_fixed_int_spec};
@@ -101,17 +99,11 @@ fn format_target(
 
     match target {
         OutputFormat::Lamports => {
-            let lamports = match value {
-                ConvertValue::Lamports(v) => *v,
-                _ => bytes_to_u64(&value_to_bytes(value, big_endian), big_endian),
-            };
+            let lamports = value_to_lamports(value, big_endian)?;
             Ok(lamports.to_string())
         }
         OutputFormat::Sol => {
-            let lamports = match value {
-                ConvertValue::Lamports(v) => *v,
-                _ => bytes_to_u64(&value_to_bytes(value, big_endian), big_endian),
-            };
+            let lamports = value_to_lamports(value, big_endian)?;
             Ok(format_sol(lamports))
         }
         OutputFormat::Int => {
@@ -174,6 +166,59 @@ fn format_target(
             Ok(Signature::from(bytes).to_string())
         }
         _ => unreachable!("fixed integer formats handled before match"),
+    }
+}
+
+fn biguint_to_u64(value: &BigUint) -> Option<u64> {
+    let bytes = value.to_bytes_be();
+    if bytes.len() > 8 {
+        return None;
+    }
+    let mut buf = [0u8; 8];
+    buf[8 - bytes.len()..].copy_from_slice(&bytes);
+    Some(u64::from_be_bytes(buf))
+}
+
+fn value_to_lamports(value: &ConvertValue, big_endian: bool) -> Result<u64, String> {
+    let out_of_range = |raw: &str| format!("Lamports value {} is out of range for u64", raw);
+
+    match value {
+        ConvertValue::Lamports(v) => Ok(*v),
+        ConvertValue::Number(num) => {
+            let raw = num.to_string();
+            biguint_to_u64(num).ok_or_else(|| out_of_range(&raw))
+        }
+        ConvertValue::FixedUnsigned { value, .. } => {
+            u64::try_from(*value).map_err(|_| out_of_range(&value.to_string()))
+        }
+        ConvertValue::FixedSigned { value, .. } => {
+            if *value < 0 {
+                return Err(out_of_range(&value.to_string()));
+            }
+            u64::try_from(*value).map_err(|_| out_of_range(&value.to_string()))
+        }
+        ConvertValue::FixedBigUnsigned { value, .. } => {
+            let raw = value.to_string();
+            biguint_to_u64(value).ok_or_else(|| out_of_range(&raw))
+        }
+        ConvertValue::FixedBigSigned { value, .. } => {
+            if value.sign() == Sign::Minus {
+                return Err(out_of_range(&value.to_string()));
+            }
+            let (_, magnitude) = value.to_bytes_be();
+            let num = BigUint::from_bytes_be(&magnitude);
+            let raw = value.to_string();
+            biguint_to_u64(&num).ok_or_else(|| out_of_range(&raw))
+        }
+        ConvertValue::Bytes(bytes) => {
+            let num = if big_endian {
+                BigUint::from_bytes_be(bytes)
+            } else {
+                BigUint::from_bytes_le(bytes)
+            };
+            let raw = num.to_string();
+            biguint_to_u64(&num).ok_or_else(|| out_of_range(&raw))
+        }
     }
 }
 
@@ -263,6 +308,32 @@ mod tests {
     fn convert_lamports_to_sol() {
         let output = convert(&req(InputFormat::Lamports, "1500000000", OutputFormat::Sol)).unwrap();
         assert_eq!(output, "1.5");
+    }
+
+    #[test]
+    fn convert_u128_to_lamports_small_value() {
+        let output = convert(&req(InputFormat::U128, "1", OutputFormat::Lamports)).unwrap();
+        assert_eq!(output, "1");
+    }
+
+    #[test]
+    fn convert_u256_to_lamports_small_value() {
+        let output = convert(&req(InputFormat::U256, "1", OutputFormat::Lamports)).unwrap();
+        assert_eq!(output, "1");
+    }
+
+    #[test]
+    fn convert_u128_to_lamports_rejects_overflow() {
+        let err = convert(&req(InputFormat::U128, "18446744073709551616", OutputFormat::Lamports))
+            .unwrap_err();
+        assert!(err.contains("out of range"));
+    }
+
+    #[test]
+    fn convert_hex_to_lamports_rejects_overflow() {
+        let err = convert(&req(InputFormat::Hex, "0x010000000000000000", OutputFormat::Lamports))
+            .unwrap_err();
+        assert!(err.contains("out of range"));
     }
 
     #[test]
