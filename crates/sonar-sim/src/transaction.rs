@@ -1,3 +1,5 @@
+use std::fmt;
+
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use bs58::decode::Error as Base58Error;
@@ -13,6 +15,15 @@ use crate::error::{Result, SonarSimError};
 pub enum RawTransactionEncoding {
     Base58,
     Base64,
+}
+
+impl fmt::Display for RawTransactionEncoding {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Base58 => f.write_str("base58"),
+            Self::Base64 => f.write_str("base64"),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -209,6 +220,12 @@ mod tests {
 
         let parsed = parse_raw_transaction(&base58).expect("parse base58");
         assert_eq!(parsed.encoding, RawTransactionEncoding::Base58);
+    }
+
+    #[test]
+    fn raw_transaction_encoding_display() {
+        assert_eq!(RawTransactionEncoding::Base58.to_string(), "base58");
+        assert_eq!(RawTransactionEncoding::Base64.to_string(), "base64");
     }
 
     #[test]

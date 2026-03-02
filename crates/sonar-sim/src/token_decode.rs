@@ -6,6 +6,8 @@
 //! a new compatible token program only requires extending
 //! [`TokenProgramKind`] — no new decode paths are needed.
 
+use std::fmt;
+
 use solana_account::ReadableAccount;
 use solana_pubkey::Pubkey;
 use spl_token::solana_program::program_pack::Pack;
@@ -45,6 +47,12 @@ impl TokenProgramKind {
             Self::Legacy => "SPL Token",
             Self::Token2022 => "SPL Token 2022",
         }
+    }
+}
+
+impl fmt::Display for TokenProgramKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.program_name())
     }
 }
 
@@ -199,6 +207,12 @@ mod tests {
     #[test]
     fn kind_from_owner_unknown() {
         assert_eq!(TokenProgramKind::from_owner(&Pubkey::new_unique()), None);
+    }
+
+    #[test]
+    fn token_program_kind_display() {
+        assert_eq!(TokenProgramKind::Legacy.to_string(), "SPL Token");
+        assert_eq!(TokenProgramKind::Token2022.to_string(), "SPL Token 2022");
     }
 
     #[test]

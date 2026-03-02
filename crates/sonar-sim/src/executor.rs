@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fmt;
 
 use litesvm::LiteSVM;
 use litesvm::types::{TransactionMetadata, TransactionResult};
@@ -38,6 +39,15 @@ impl SignatureVerification {
 impl From<bool> for SignatureVerification {
     fn from(verify: bool) -> Self {
         if verify { Self::Verify } else { Self::Skip }
+    }
+}
+
+impl fmt::Display for SignatureVerification {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Verify => f.write_str("verify"),
+            Self::Skip => f.write_str("skip"),
+        }
     }
 }
 
@@ -485,6 +495,15 @@ pub enum ExecutionStatus {
     Failed(String),
 }
 
+impl fmt::Display for ExecutionStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Succeeded => f.write_str("succeeded"),
+            Self::Failed(reason) => write!(f, "failed: {reason}"),
+        }
+    }
+}
+
 fn account_priority(account: &AccountSharedData) -> u8 {
     if *account.owner() == bpf_loader_upgradeable::id() {
         if let Ok(state) = bincode::deserialize::<UpgradeableLoaderState>(account.data()) {
@@ -649,6 +668,21 @@ mod tests {
 
         let result = runner.execute(&tx).expect("execute should not error");
         assert!(matches!(result.status, ExecutionStatus::Succeeded));
+    }
+
+    #[test]
+    fn signature_verification_display() {
+        assert_eq!(SignatureVerification::Verify.to_string(), "verify");
+        assert_eq!(SignatureVerification::Skip.to_string(), "skip");
+    }
+
+    #[test]
+    fn execution_status_display() {
+        assert_eq!(ExecutionStatus::Succeeded.to_string(), "succeeded");
+        assert_eq!(
+            ExecutionStatus::Failed("insufficient funds".to_string()).to_string(),
+            "failed: insufficient funds"
+        );
     }
 
     #[test]
