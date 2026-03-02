@@ -1,41 +1,5 @@
-use std::collections::HashMap;
-
-use solana_account::AccountSharedData;
 use solana_message::inner_instruction::InnerInstructionsList;
 use solana_pubkey::Pubkey;
-
-use crate::token_decode::TokenProgramKind;
-
-#[derive(Debug, Clone)]
-pub struct ResolvedAccounts {
-    pub accounts: HashMap<Pubkey, AccountSharedData>,
-    pub lookups: Vec<ResolvedLookup>,
-}
-
-impl ResolvedAccounts {
-    pub fn lookup_details(&self) -> &[ResolvedLookup] {
-        &self.lookups
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct ResolvedLookup {
-    pub account_key: Pubkey,
-    pub writable_indexes: Vec<u8>,
-    pub readonly_indexes: Vec<u8>,
-    pub writable_addresses: Vec<Pubkey>,
-    pub readonly_addresses: Vec<Pubkey>,
-}
-
-#[derive(Clone, Debug)]
-pub struct PreparedTokenFunding {
-    pub account: Pubkey,
-    pub mint: Pubkey,
-    pub decimals: u8,
-    pub amount_raw: u64,
-    pub ui_amount: f64,
-    pub program_kind: TokenProgramKind,
-}
 
 /// Backend-agnostic return data from a simulated transaction.
 ///

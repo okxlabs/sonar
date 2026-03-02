@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use solana_account::AccountSharedData;
 use solana_pubkey::Pubkey;
 
-use super::ResolvedAccounts;
+use super::accounts::ResolvedAccounts;
 use crate::error::Result;
 
 /// Minimal abstraction for on-demand account loading.

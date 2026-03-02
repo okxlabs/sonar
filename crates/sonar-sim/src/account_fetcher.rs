@@ -33,14 +33,7 @@ impl AccountFetcher {
         if rpc_url.is_empty() {
             return Err(SonarSimError::Validation { reason: "RPC URL cannot be empty".into() });
         }
-        Ok(Self {
-            provider: Arc::new(SolanaRpcProvider::new(rpc_url)),
-            cache: HashMap::new(),
-            missing_cache: HashSet::new(),
-            sources: Vec::new(),
-            policy: None,
-            observers: Vec::new(),
-        })
+        Ok(Self::with_provider(Arc::new(SolanaRpcProvider::new(rpc_url))))
     }
 
     pub fn with_provider(provider: Arc<dyn RpcAccountProvider>) -> Self {

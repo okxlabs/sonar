@@ -1,22 +1,6 @@
-use std::path::PathBuf;
-
-use solana_account::Account;
 use solana_pubkey::Pubkey;
 
-#[derive(Clone, Debug)]
-pub enum AccountReplacement {
-    Program { program_id: Pubkey, so_path: PathBuf },
-    Account { pubkey: Pubkey, account: Account, source_path: PathBuf },
-}
-
-impl AccountReplacement {
-    pub fn pubkey(&self) -> Pubkey {
-        match self {
-            AccountReplacement::Program { program_id, .. } => *program_id,
-            AccountReplacement::Account { pubkey, .. } => *pubkey,
-        }
-    }
-}
+use crate::token_decode::TokenProgramKind;
 
 #[derive(Clone, Debug)]
 pub struct SolFunding {
@@ -41,8 +25,11 @@ pub struct TokenFunding {
 }
 
 #[derive(Clone, Debug)]
-pub struct AccountDataPatch {
-    pub pubkey: Pubkey,
-    pub offset: usize,
-    pub data: Vec<u8>,
+pub struct PreparedTokenFunding {
+    pub account: Pubkey,
+    pub mint: Pubkey,
+    pub decimals: u8,
+    pub amount_raw: u64,
+    pub ui_amount: f64,
+    pub program_kind: TokenProgramKind,
 }
