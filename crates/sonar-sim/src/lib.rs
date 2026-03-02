@@ -54,8 +54,9 @@ pub use rpc_provider::{FakeAccountProvider, RpcAccountProvider, SolanaRpcProvide
 // ── Simulation execution ──
 
 pub use executor::{
-    ExecutionOptions, ExecutionStatus, SignatureVerification, SimulationOptions,
-    SimulationOptionsBuilder, SimulationResult, StateMutationOptions, TransactionExecutor,
+    ExecutionOptions, ExecutionStatus, PreparedSimulation, SignatureVerification,
+    SimulationOptions, SimulationOptionsBuilder, SimulationResult, SimulationRunner,
+    StateMutationOptions,
 };
 pub use known_programs::{is_litesvm_builtin_program, is_native_or_sysvar};
 

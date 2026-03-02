@@ -7,7 +7,7 @@ use crate::parsers::instruction::ParserRegistry;
 use crate::utils::progress::Progress;
 use crate::{core::account_file, core::transaction, output};
 use sonar_sim::{
-    ExecutionOptions, SimulationOptions, StateMutationOptions, TransactionExecutor,
+    ExecutionOptions, PreparedSimulation, SimulationOptions, StateMutationOptions,
     prepare_token_fundings,
 };
 
@@ -54,7 +54,7 @@ pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
         .map(|raw| cli::parse_replacement(&raw).map_err(anyhow::Error::msg))
         .collect::<Result<Vec<_>>>()?;
 
-    let fundings = funding_args
+    let sol_fundings = funding_args
         .into_iter()
         .map(|raw| cli::parse_funding(&raw).map_err(anyhow::Error::msg))
         .collect::<Result<Vec<_>>>()?;
@@ -89,7 +89,7 @@ pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
             },
             mutations: StateMutationOptions {
                 replacements,
-                fundings,
+                sol_fundings,
                 data_patches,
                 ..Default::default()
             },
@@ -138,7 +138,7 @@ pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
 
     warn_unmatched_addresses(
         &replacements,
-        &fundings,
+        &sol_fundings,
         &token_funding_requests,
         &[&parsed_tx],
         &prepared.resolved_accounts,
@@ -189,14 +189,15 @@ pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
         },
         mutations: StateMutationOptions {
             replacements,
-            fundings,
+            sol_fundings,
             token_fundings: prepared_token_fundings,
             data_patches,
         },
     };
-    let mut executor = TransactionExecutor::prepare(prepared.resolved_accounts, sim_opts)?;
+    let mut runner =
+        PreparedSimulation::prepare(prepared.resolved_accounts, sim_opts)?.into_runner();
 
-    let simulation = executor.execute(&parsed_tx.transaction)?;
+    let simulation = runner.execute(&parsed_tx.transaction)?;
 
     // Update transaction summary with inner instructions from simulation
     parsed_tx.summary = transaction::TransactionSummary::from_transaction(
@@ -208,11 +209,11 @@ pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
     progress.finish();
     output::render(
         &parsed_tx,
-        executor.resolved_accounts(),
+        runner.resolved_accounts(),
         &simulation,
-        executor.replacements(),
-        executor.fundings(),
-        executor.token_fundings(),
+        runner.replacements(),
+        runner.sol_fundings(),
+        runner.token_fundings(),
         &mut parser_registry,
         &render_opts,
     )?;
@@ -264,7 +265,7 @@ fn handle_bundle(
     let parsed_tx_refs: Vec<_> = parsed_txs.iter().collect();
     warn_unmatched_addresses(
         &sim_opts.mutations.replacements,
-        &sim_opts.mutations.fundings,
+        &sim_opts.mutations.sol_fundings,
         &token_funding_requests,
         &parsed_tx_refs,
         &prepared.resolved_accounts,
@@ -319,9 +320,10 @@ fn handle_bundle(
 
     // Execute bundle simulation
     let total_tx_count = parsed_txs.len();
-    let mut executor = TransactionExecutor::prepare(prepared.resolved_accounts, sim_opts)?;
+    let mut runner =
+        PreparedSimulation::prepare(prepared.resolved_accounts, sim_opts)?.into_runner();
 
-    let bundle_results = executor.execute_bundle(&tx_refs);
+    let bundle_results = runner.execute_bundle(&tx_refs);
     let simulations: Vec<_> = bundle_results
         .into_iter()
         .enumerate()
@@ -353,11 +355,11 @@ fn handle_bundle(
     output::render_bundle(
         &updated_txs,
         total_tx_count,
-        executor.resolved_accounts(),
+        runner.resolved_accounts(),
         &simulations,
-        executor.replacements(),
-        executor.fundings(),
-        executor.token_fundings(),
+        runner.replacements(),
+        runner.sol_fundings(),
+        runner.token_fundings(),
         parser_registry,
         render_opts,
     )?;

@@ -51,12 +51,12 @@ pub struct ExecutionOptions {
 #[derive(Debug, Clone, Default)]
 pub struct StateMutationOptions {
     pub replacements: Vec<AccountReplacement>,
-    pub fundings: Vec<SolFunding>,
+    pub sol_fundings: Vec<SolFunding>,
     pub token_fundings: Vec<PreparedTokenFunding>,
     pub data_patches: Vec<AccountDataPatch>,
 }
 
-/// Simulation execution options passed to `TransactionExecutor::prepare`.
+/// Simulation execution options passed to [`PreparedSimulation::prepare`].
 ///
 /// Groups two concerns:
 /// - [`ExecutionOptions`]: VM-level knobs (signature verification, slot/time override).
@@ -103,8 +103,8 @@ impl SimulationOptionsBuilder {
         self
     }
 
-    pub fn fundings(mut self, fundings: Vec<SolFunding>) -> Self {
-        self.opts.mutations.fundings = fundings;
+    pub fn sol_fundings(mut self, sol_fundings: Vec<SolFunding>) -> Self {
+        self.opts.mutations.sol_fundings = sol_fundings;
         self
     }
 
@@ -127,7 +127,7 @@ impl StateMutationOptions {
     /// Apply all pre-simulation account mutations in deterministic order.
     pub fn apply(&self, svm: &mut LiteSVM, resolved: &ResolvedAccounts) -> Result<()> {
         apply_replacements(svm, &self.replacements, resolved)?;
-        apply_sol_fundings(svm, &self.fundings)?;
+        apply_sol_fundings(svm, &self.sol_fundings)?;
         apply_data_patches(svm, &self.data_patches)?;
         apply_token_fundings(svm, &self.token_fundings, resolved)?;
         Ok(())
@@ -136,8 +136,8 @@ impl StateMutationOptions {
 
 // ── Pipeline steps ──
 //
-// Each function performs a single, testable stage of executor preparation.
-// `TransactionExecutor::prepare` orchestrates them in order.
+// Each function performs a single, testable stage of preparation.
+// `PreparedSimulation::prepare` orchestrates them in order.
 
 /// Load resolved accounts into SVM, ordered so that BPF upgradeable
 /// ProgramData accounts are set before Program accounts that reference them.
@@ -266,13 +266,18 @@ pub fn apply_timestamp(svm: &mut LiteSVM, ts: i64) -> Result<()> {
     Ok(())
 }
 
-pub struct TransactionExecutor {
+/// Immutable prepared simulation state.
+///
+/// This type captures the pre-execution snapshot after loading accounts,
+/// applying mutations, and optional slot/timestamp overrides.
+/// Convert into [`SimulationRunner`] to execute transactions.
+pub struct PreparedSimulation {
     svm: LiteSVM,
     resolved: ResolvedAccounts,
     record: StateMutationOptions,
 }
 
-impl TransactionExecutor {
+impl PreparedSimulation {
     pub fn prepare(resolved: ResolvedAccounts, opts: SimulationOptions) -> Result<Self> {
         let SimulationOptions { execution, mutations } = opts;
 
@@ -295,6 +300,39 @@ impl TransactionExecutor {
         Ok(Self { svm, resolved, record })
     }
 
+    pub fn into_runner(self) -> SimulationRunner {
+        SimulationRunner { svm: self.svm, resolved: self.resolved, record: self.record }
+    }
+
+    pub fn resolved_accounts(&self) -> &ResolvedAccounts {
+        &self.resolved
+    }
+
+    pub fn replacements(&self) -> &[AccountReplacement] {
+        &self.record.replacements
+    }
+
+    pub fn sol_fundings(&self) -> &[SolFunding] {
+        &self.record.sol_fundings
+    }
+
+    pub fn token_fundings(&self) -> &[PreparedTokenFunding] {
+        &self.record.token_fundings
+    }
+
+    pub fn data_patches(&self) -> &[AccountDataPatch] {
+        &self.record.data_patches
+    }
+}
+
+/// Mutable simulation engine that executes transactions on prepared state.
+pub struct SimulationRunner {
+    svm: LiteSVM,
+    resolved: ResolvedAccounts,
+    record: StateMutationOptions,
+}
+
+impl SimulationRunner {
     /// Execute a transaction and persist state changes to the SVM.
     ///
     /// Takes pre/post account snapshots so that balance changes can be
@@ -385,8 +423,8 @@ impl TransactionExecutor {
         &self.record.replacements
     }
 
-    pub fn fundings(&self) -> &[SolFunding] {
-        &self.record.fundings
+    pub fn sol_fundings(&self) -> &[SolFunding] {
+        &self.record.sol_fundings
     }
 
     pub fn token_fundings(&self) -> &[PreparedTokenFunding] {
@@ -485,10 +523,11 @@ mod tests {
 
         let resolved = ResolvedAccounts { accounts, lookups: vec![] };
 
-        let mut executor = TransactionExecutor::prepare(resolved, SimulationOptions::default())
-            .expect("Failed to prepare executor");
+        let mut runner = PreparedSimulation::prepare(resolved, SimulationOptions::default())
+            .expect("Failed to prepare simulation")
+            .into_runner();
 
-        let results = executor.execute_bundle(&tx_refs);
+        let results = runner.execute_bundle(&tx_refs);
 
         assert_eq!(results.len(), 2);
         assert!(results.iter().all(|r| r.is_ok()));
@@ -509,10 +548,11 @@ mod tests {
         accounts.insert(payer.pubkey(), shared_system_account(1_000_000));
 
         let resolved = ResolvedAccounts { accounts, lookups: vec![] };
-        let mut executor = TransactionExecutor::prepare(resolved, SimulationOptions::default())
-            .expect("prepare should succeed");
+        let mut runner = PreparedSimulation::prepare(resolved, SimulationOptions::default())
+            .expect("prepare should succeed")
+            .into_runner();
 
-        let results = executor.execute_bundle(&tx_refs);
+        let results = runner.execute_bundle(&tx_refs);
 
         assert_eq!(results.len(), 1, "bundle should stop after first failure");
         assert!(matches!(results[0].as_ref().map(|r| &r.status), Ok(&ExecutionStatus::Failed(_))));
@@ -532,10 +572,11 @@ mod tests {
         accounts.insert(payer.pubkey(), shared_system_account(10_000_000_000));
 
         let resolved = ResolvedAccounts { accounts, lookups: vec![] };
-        let mut executor = TransactionExecutor::prepare(resolved, SimulationOptions::default())
-            .expect("prepare should succeed");
+        let mut runner = PreparedSimulation::prepare(resolved, SimulationOptions::default())
+            .expect("prepare should succeed")
+            .into_runner();
 
-        let results = executor.execute_bundle(&tx_refs);
+        let results = runner.execute_bundle(&tx_refs);
         assert_eq!(results.len(), 2);
         assert!(matches!(results[0].as_ref().map(|r| &r.status), Ok(&ExecutionStatus::Succeeded)));
         assert!(matches!(results[1].as_ref().map(|r| &r.status), Ok(&ExecutionStatus::Succeeded)));
@@ -552,10 +593,11 @@ mod tests {
         accounts.insert(payer.pubkey(), shared_system_account(10_000_000_000));
 
         let resolved = ResolvedAccounts { accounts, lookups: vec![] };
-        let mut executor = TransactionExecutor::prepare(resolved, SimulationOptions::default())
-            .expect("prepare should succeed");
+        let mut runner = PreparedSimulation::prepare(resolved, SimulationOptions::default())
+            .expect("prepare should succeed")
+            .into_runner();
 
-        let result = executor.execute(&tx).expect("execute should not error");
+        let result = runner.execute(&tx).expect("execute should not error");
         assert!(matches!(result.status, ExecutionStatus::Succeeded));
         assert!(!result.pre_accounts.is_empty());
         assert!(!result.post_accounts.is_empty());
@@ -572,13 +614,34 @@ mod tests {
         let resolved = ResolvedAccounts { accounts, lookups: vec![] };
 
         let opts = SimulationOptions::builder()
-            .fundings(vec![SolFunding { pubkey: payer.pubkey(), amount_lamports: 10_000_000_000 }])
+            .sol_fundings(vec![SolFunding {
+                pubkey: payer.pubkey(),
+                amount_lamports: 10_000_000_000,
+            }])
             .build();
 
-        let mut executor =
-            TransactionExecutor::prepare(resolved, opts).expect("prepare should succeed");
+        let mut runner = PreparedSimulation::prepare(resolved, opts)
+            .expect("prepare should succeed")
+            .into_runner();
 
-        let result = executor.execute(&tx).expect("execute should not error");
+        let result = runner.execute(&tx).expect("execute should not error");
+        assert!(matches!(result.status, ExecutionStatus::Succeeded));
+    }
+
+    #[test]
+    fn prepared_simulation_into_runner_executes() {
+        let payer = Keypair::new();
+        let recipient = Pubkey::new_unique();
+        let tx = create_transfer_transaction(&payer, &recipient, 1_000);
+
+        let mut accounts = HashMap::new();
+        accounts.insert(payer.pubkey(), shared_system_account(10_000_000_000));
+        let resolved = ResolvedAccounts { accounts, lookups: vec![] };
+
+        let prepared =
+            PreparedSimulation::prepare(resolved, SimulationOptions::default()).expect("prepare");
+        let mut runner = prepared.into_runner();
+        let result = runner.execute(&tx).expect("execute should not error");
         assert!(matches!(result.status, ExecutionStatus::Succeeded));
     }
 
