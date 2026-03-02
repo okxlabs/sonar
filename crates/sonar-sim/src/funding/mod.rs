@@ -7,12 +7,12 @@ pub use sol::apply_sol_fundings;
 
 use std::collections::HashMap;
 
-use litesvm::LiteSVM;
 use solana_account::{Account, AccountSharedData, ReadableAccount};
 use solana_pubkey::Pubkey;
 use solana_rent::Rent;
 
 use crate::error::{Result, SonarSimError};
+use crate::svm_backend::SvmBackend;
 use crate::token_decode::{self, TokenProgramKind, ensure_same_program, raw_to_ui_amount};
 use crate::types::{
     AccountAppender, PreparedTokenFunding, ResolvedAccounts, TokenAmount, TokenFunding,
@@ -138,8 +138,8 @@ fn prepare_single_token_funding(
     })
 }
 
-pub fn apply_token_fundings(
-    svm: &mut LiteSVM,
+pub fn apply_token_fundings<B: SvmBackend + ?Sized>(
+    svm: &mut B,
     fundings: &[PreparedTokenFunding],
     resolved: &ResolvedAccounts,
 ) -> Result<()> {
@@ -149,8 +149,8 @@ pub fn apply_token_fundings(
     Ok(())
 }
 
-fn apply_single_token_funding(
-    svm: &mut LiteSVM,
+fn apply_single_token_funding<B: SvmBackend + ?Sized>(
+    svm: &mut B,
     funding: &PreparedTokenFunding,
     resolved: &ResolvedAccounts,
 ) -> Result<()> {
@@ -201,7 +201,7 @@ fn apply_single_token_funding(
     Ok(())
 }
 
-fn read_rent_from_svm(svm: &LiteSVM) -> Result<Rent> {
+fn read_rent_from_svm<B: SvmBackend + ?Sized>(svm: &B) -> Result<Rent> {
     let rent_id = solana_sdk_ids::sysvar::rent::id();
     let rent_account = svm.get_account(&rent_id).ok_or_else(|| SonarSimError::Svm {
         reason: "Rent sysvar account not found in SVM".into(),

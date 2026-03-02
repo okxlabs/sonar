@@ -16,6 +16,7 @@ pub(crate) mod executor;
 pub(crate) mod funding;
 pub(crate) mod known_programs;
 pub(crate) mod rpc_provider;
+pub(crate) mod svm_backend;
 #[cfg(test)]
 pub(crate) mod test_utils;
 pub(crate) mod token_decode;
@@ -50,6 +51,7 @@ pub use account_loader::AccountLoader;
 // ── RPC provider trait + implementations ──
 
 pub use rpc_provider::{FakeAccountProvider, RpcAccountProvider, SolanaRpcProvider};
+pub use svm_backend::SvmBackend;
 
 // ── Simulation execution ──
 

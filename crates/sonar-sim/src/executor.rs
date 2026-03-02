@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use litesvm::LiteSVM;
+use litesvm::types::{TransactionMetadata, TransactionResult};
 use log::{info, warn};
 use solana_account::{Account, AccountSharedData, ReadableAccount};
 use solana_clock::Clock;
@@ -12,6 +13,7 @@ use solana_transaction::versioned::VersionedTransaction;
 
 use crate::error::{Result, SonarSimError};
 use crate::funding::{apply_sol_fundings, apply_token_fundings};
+use crate::svm_backend::SvmBackend;
 use crate::types::{
     AccountDataPatch, AccountReplacement, PreparedTokenFunding, ResolvedAccounts, ReturnData,
     SimulationMetadata, SolFunding,
@@ -125,7 +127,11 @@ impl SimulationOptionsBuilder {
 
 impl StateMutationOptions {
     /// Apply all pre-simulation account mutations in deterministic order.
-    pub fn apply(&self, svm: &mut LiteSVM, resolved: &ResolvedAccounts) -> Result<()> {
+    pub fn apply<B: SvmBackend + ?Sized>(
+        &self,
+        svm: &mut B,
+        resolved: &ResolvedAccounts,
+    ) -> Result<()> {
         apply_replacements(svm, &self.replacements, resolved)?;
         apply_sol_fundings(svm, &self.sol_fundings)?;
         apply_data_patches(svm, &self.data_patches)?;
@@ -141,7 +147,10 @@ impl StateMutationOptions {
 
 /// Load resolved accounts into SVM, ordered so that BPF upgradeable
 /// ProgramData accounts are set before Program accounts that reference them.
-pub fn load_accounts(svm: &mut LiteSVM, resolved: &ResolvedAccounts) -> Result<()> {
+pub fn load_accounts<B: SvmBackend + ?Sized>(
+    svm: &mut B,
+    resolved: &ResolvedAccounts,
+) -> Result<()> {
     let mut ordered: Vec<_> = resolved.accounts.iter().collect();
     ordered.sort_by_key(|(_, account)| account_priority(account));
     for (pubkey, account) in ordered {
@@ -153,8 +162,8 @@ pub fn load_accounts(svm: &mut LiteSVM, resolved: &ResolvedAccounts) -> Result<(
 }
 
 /// Apply program (.so) and account (.json) replacements into SVM.
-pub fn apply_replacements(
-    svm: &mut LiteSVM,
+pub fn apply_replacements<B: SvmBackend + ?Sized>(
+    svm: &mut B,
     replacements: &[AccountReplacement],
     resolved: &ResolvedAccounts,
 ) -> Result<()> {
@@ -206,7 +215,10 @@ pub fn apply_replacements(
 }
 
 /// Apply byte-level data patches to accounts already loaded in SVM.
-pub fn apply_data_patches(svm: &mut LiteSVM, patches: &[AccountDataPatch]) -> Result<()> {
+pub fn apply_data_patches<B: SvmBackend + ?Sized>(
+    svm: &mut B,
+    patches: &[AccountDataPatch],
+) -> Result<()> {
     for patch in patches {
         let mut account = svm
             .get_account(&patch.pubkey)
@@ -240,13 +252,13 @@ pub fn apply_data_patches(svm: &mut LiteSVM, patches: &[AccountDataPatch]) -> Re
 }
 
 /// Warp SVM clock to the given slot number.
-pub fn apply_slot(svm: &mut LiteSVM, slot: u64) {
+pub fn apply_slot<B: SvmBackend + ?Sized>(svm: &mut B, slot: u64) {
     info!("Warping SVM clock to slot {}", slot);
     svm.warp_to_slot(slot);
 }
 
 /// Override the Clock sysvar's `unix_timestamp` field.
-pub fn apply_timestamp(svm: &mut LiteSVM, ts: i64) -> Result<()> {
+pub fn apply_timestamp<B: SvmBackend + ?Sized>(svm: &mut B, ts: i64) -> Result<()> {
     let clock_id = Clock::id();
     let clock_account = svm.get_account(&clock_id).ok_or_else(|| SonarSimError::Svm {
         reason: "Clock sysvar account not found in SVM".into(),
@@ -271,20 +283,31 @@ pub fn apply_timestamp(svm: &mut LiteSVM, ts: i64) -> Result<()> {
 /// This type captures the pre-execution snapshot after loading accounts,
 /// applying mutations, and optional slot/timestamp overrides.
 /// Convert into [`SimulationRunner`] to execute transactions.
-pub struct PreparedSimulation {
-    svm: LiteSVM,
+pub struct PreparedSimulation<B: SvmBackend = LiteSVM> {
+    svm: B,
     resolved: ResolvedAccounts,
     record: StateMutationOptions,
 }
 
-impl PreparedSimulation {
+impl PreparedSimulation<LiteSVM> {
     pub fn prepare(resolved: ResolvedAccounts, opts: SimulationOptions) -> Result<Self> {
-        let SimulationOptions { execution, mutations } = opts;
-
-        let mut svm = LiteSVM::new()
+        let signature_verification = opts.execution.signature_verification;
+        let svm = LiteSVM::new()
             .with_log_bytes_limit(Some(1024 * 1024 * 10)) // 10M
             .with_blockhash_check(false)
-            .with_sigverify(execution.signature_verification.is_verify());
+            .with_sigverify(signature_verification.is_verify());
+
+        Self::prepare_with_backend(svm, resolved, opts)
+    }
+}
+
+impl<B: SvmBackend> PreparedSimulation<B> {
+    pub fn prepare_with_backend(
+        mut svm: B,
+        resolved: ResolvedAccounts,
+        opts: SimulationOptions,
+    ) -> Result<Self> {
+        let SimulationOptions { execution, mutations } = opts;
 
         load_accounts(&mut svm, &resolved)?;
         mutations.apply(&mut svm, &resolved)?;
@@ -300,7 +323,7 @@ impl PreparedSimulation {
         Ok(Self { svm, resolved, record })
     }
 
-    pub fn into_runner(self) -> SimulationRunner {
+    pub fn into_runner(self) -> SimulationRunner<B> {
         SimulationRunner { svm: self.svm, resolved: self.resolved, record: self.record }
     }
 
@@ -326,13 +349,13 @@ impl PreparedSimulation {
 }
 
 /// Mutable simulation engine that executes transactions on prepared state.
-pub struct SimulationRunner {
-    svm: LiteSVM,
+pub struct SimulationRunner<B: SvmBackend = LiteSVM> {
+    svm: B,
     resolved: ResolvedAccounts,
     record: StateMutationOptions,
 }
 
-impl SimulationRunner {
+impl<B: SvmBackend> SimulationRunner<B> {
     /// Execute a transaction and persist state changes to the SVM.
     ///
     /// Takes pre/post account snapshots so that balance changes can be
@@ -346,13 +369,13 @@ impl SimulationRunner {
         let post_accounts = self.snapshot_accounts(&account_keys);
 
         let simulation = match result {
-            litesvm::types::TransactionResult::Ok(info) => SimulationResult {
+            TransactionResult::Ok(info) => SimulationResult {
                 status: ExecutionStatus::Succeeded,
                 meta: convert_metadata(&info),
                 post_accounts,
                 pre_accounts,
             },
-            litesvm::types::TransactionResult::Err(failure) => SimulationResult {
+            TransactionResult::Err(failure) => SimulationResult {
                 status: ExecutionStatus::Failed(failure.err.to_string()),
                 meta: convert_metadata(&failure.meta),
                 post_accounts,
@@ -444,7 +467,7 @@ pub struct SimulationResult {
     pub pre_accounts: HashMap<Pubkey, AccountSharedData>,
 }
 
-fn convert_metadata(meta: &litesvm::types::TransactionMetadata) -> SimulationMetadata {
+fn convert_metadata(meta: &TransactionMetadata) -> SimulationMetadata {
     SimulationMetadata {
         logs: meta.logs.clone(),
         inner_instructions: meta.inner_instructions.clone(),

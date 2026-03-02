@@ -1,26 +1,32 @@
-use litesvm::LiteSVM;
 use log::info;
 use solana_account::{AccountSharedData, WritableAccount};
 
 use solana_native_token::LAMPORTS_PER_SOL;
 
 use crate::error::{Result, SonarSimError};
+use crate::svm_backend::SvmBackend;
 use crate::types::SolFunding;
 
-pub fn apply_sol_fundings(svm: &mut LiteSVM, fundings: &[SolFunding]) -> Result<()> {
+pub fn apply_sol_fundings<B: SvmBackend + ?Sized>(
+    svm: &mut B,
+    fundings: &[SolFunding],
+) -> Result<()> {
     for funding in fundings {
         apply_single_sol_funding(svm, funding)?;
     }
     Ok(())
 }
 
-fn apply_single_sol_funding(svm: &mut LiteSVM, funding: &SolFunding) -> Result<()> {
+fn apply_single_sol_funding<B: SvmBackend + ?Sized>(
+    svm: &mut B,
+    funding: &SolFunding,
+) -> Result<()> {
     let lamports = funding.amount_lamports;
     let sol = lamports as f64 / LAMPORTS_PER_SOL as f64;
     info!("Funding account {} with {} lamports ({:.9} SOL)", funding.pubkey, lamports, sol);
 
     if let Some(existing_account) = svm.get_account(&funding.pubkey) {
-        let mut updated = existing_account.clone();
+        let mut updated = existing_account;
         updated.set_lamports(lamports);
         svm.set_account(funding.pubkey, updated)
             .map_err(|e| SonarSimError::Svm { reason: e.to_string() })?;
