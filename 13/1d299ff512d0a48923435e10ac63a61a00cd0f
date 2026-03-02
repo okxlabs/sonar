@@ -1,0 +1,448 @@
+AGENTS.md
+  # agent: claude::claude-opus-4-6
+  948f13a 7-31
+---
+{
+  "metadata": {
+    "base_commit_sha": "131d299ff512d0a48923435e10ac63a61a00cd0f",
+    "prompts": {
+      "948f13a": {
+        "agent_id": {
+          "tool": "claude",
+          "id": "f86d7543-4c25-4136-9e5a-dd432871405c",
+          "model": "claude-opus-4-6"
+        },
+        "human_name": "fubin.jiang@okg.com",
+        "human_email": "fubin.jiang@okg.com",
+        "messages": [
+          {
+            "type": "user",
+            "text": "give rigrous review of @crates/sonar-sim/ , give architechture improvments tips",
+            "timestamp": "2026-02-28T01:23:23.133Z"
+          },
+          {
+            "type": "assistant",
+            "text": "\n\nI'll start by invoking the code review skill, then thoroughly explore the crate.",
+            "timestamp": "2026-02-28T01:23:59.720Z"
+          },
+          {
+            "type": "tool_use",
+            "name": "Skill",
+            "input": {
+              "skill": "superpowers:requesting-code-review"
+            },
+            "timestamp": "2026-02-28T01:23:59.918Z"
+          },
+          {
+            "type": "user",
+            "text": "Base directory for this skill: /Users/oker/.claude/plugins/cache/superpowers-marketplace/superpowers/4.0.3/skills/requesting-code-review\n\n# Requesting Code Review\n\nDispatch superpowers:code-reviewer subagent to catch issues before they cascade.\n\n**Core principle:** Review early, review often.\n\n## When to Request Review\n\n**Mandatory:**\n- After each task in subagent-driven development\n- After completing major feature\n- Before merge to main\n\n**Optional but valuable:**\n- When stuck (fresh perspective)\n- Before refactoring (baseline check)\n- After fixing complex bug\n\n## How to Request\n\n**1. Get git SHAs:**\n```bash\nBASE_SHA=$(git rev-parse HEAD~1)  # or origin/main\nHEAD_SHA=$(git rev-parse HEAD)\n```\n\n**2. Dispatch code-reviewer subagent:**\n\nUse Task tool with superpowers:code-reviewer type, fill template at `code-reviewer.md`\n\n**Placeholders:**\n- `{WHAT_WAS_IMPLEMENTED}` - What you just built\n- `{PLAN_OR_REQUIREMENTS}` - What it should do\n- `{BASE_SHA}` - Starting commit\n- `{HEAD_SHA}` - Ending commit\n- `{DESCRIPTION}` - Brief summary\n\n**3. Act on feedback:**\n- Fix Critical issues immediately\n- Fix Important issues before proceeding\n- Note Minor issues for later\n- Push back if reviewer is wrong (with reasoning)\n\n## Example\n\n```\n[Just completed Task 2: Add verification function]\n\nYou: Let me request code review before proceeding.\n\nBASE_SHA=$(git log --oneline | grep \"Task 1\" | head -1 | awk '{print }')\nHEAD_SHA=$(git rev-parse HEAD)\n\n[Dispatch superpowers:code-reviewer subagent]\n  WHAT_WAS_IMPLEMENTED: Verification and repair functions for conversation index\n  PLAN_OR_REQUIREMENTS: Task 2 from docs/plans/deployment-plan.md\n  BASE_SHA: a7981ec\n  HEAD_SHA: 3df7661\n  DESCRIPTION: Added verifyIndex() and repairIndex() with 4 issue types\n\n[Subagent returns]:\n  Strengths: Clean architecture, real tests\n  Issues:\n    Important: Missing progress indicators\n    Minor: Magic number (100) for reporting interval\n  Assessment: Ready to proceed\n\nYou: [Fix progress indicators]\n[Continue to Task 3]\n```\n\n## Integration with Workflows\n\n**Subagent-Driven Development:**\n- Review after EACH task\n- Catch issues before they compound\n- Fix before moving to next task\n\n**Executing Plans:**\n- Review after each batch (3 tasks)\n- Get feedback, apply, continue\n\n**Ad-Hoc Development:**\n- Review before merge\n- Review when stuck\n\n## Red Flags\n\n**Never:**\n- Skip review because \"it's simple\"\n- Ignore Critical issues\n- Proceed with unfixed Important issues\n- Argue with valid technical feedback\n\n**If reviewer wrong:**\n- Push back with technical reasoning\n- Show code/tests that prove it works\n- Request clarification\n\nSee template at: requesting-code-review/code-reviewer.md\n",
+            "timestamp": "2026-02-28T01:23:59.938Z"
+          },
+          {
+            "type": "assistant",
+            "text": "The user wants a rigorous review of the `crates/sonar-sim/` crate with architecture improvement tips. This is a review/analysis task, not an implementation task. Let me explore the crate thoroughly first, then provide a comprehensive review.\n\nLet me start by exploring the crate structure in parallel.",
+            "timestamp": "2026-02-28T01:26:05.604Z"
+          },
+          {
+            "type": "assistant",
+            "text": "I'll do a thorough exploration of the `sonar-sim` crate first, then dispatch a code reviewer for a rigorous analysis.",
+            "timestamp": "2026-02-28T01:26:06.358Z"
+          },
+          {
+            "type": "tool_use",
+            "name": "Bash",
+            "input": {
+              "command": "find /Users/oker/Source/sonar/crates/sonar-sim -type f -name '*.rs' | sort",
+              "description": "List all Rust source files in sonar-sim"
+            },
+            "timestamp": "2026-02-28T01:26:07.377Z"
+          },
+          {
+            "type": "tool_use",
+            "name": "Bash",
+            "input": {
+              "command": "wc -l /Users/oker/Source/sonar/crates/sonar-sim/src/*.rs /Users/oker/Source/sonar/crates/sonar-sim/src/**/*.rs 2\u003e/dev/null | sort -rn | head -30",
+              "description": "Line counts for all source files"
+            },
+            "timestamp": "2026-02-28T01:26:19.668Z"
+          },
+          {
+            "type": "assistant",
+            "text": "Now let me read all the files in parallel to get full context.",
+            "timestamp": "2026-02-28T01:26:22.538Z"
+          },
+          {
+            "type": "tool_use",
+            "name": "Read",
+            "input": {
+              "file_path": "/Users/oker/Source/sonar/crates/sonar-sim/Cargo.toml"
+            },
+            "timestamp": "2026-02-28T01:26:23.027Z"
+          },
+          {
+            "type": "tool_use",
+            "name": "Read",
+            "input": {
+              "file_path": "/Users/oker/Source/sonar/crates/sonar-sim/src/lib.rs"
+            },
+            "timestamp": "2026-02-28T01:26:25.988Z"
+          },
+          {
+            "type": "tool_use",
+            "name": "Read",
+            "input": {
+              "file_path": "/Users/oker/Source/sonar/crates/sonar-sim/src/executor.rs"
+            },
+            "timestamp": "2026-02-28T01:26:28.928Z"
+          },
+          {
+            "type": "tool_use",
+            "name": "Read",
+            "input": {
+              "file_path": "/Users/oker/Source/sonar/crates/sonar-sim/src/account_loader.rs"
+            },
+            "timestamp": "2026-02-28T01:26:32.922Z"
+          },
+          {
+            "type": "assistant",
+            "text": "Now let me read the remaining key files in parallel.",
+            "timestamp": "2026-02-28T01:26:36.161Z"
+          },
+          {
+            "type": "tool_use",
+            "name": "Read",
+            "input": {
+              "file_path": "/Users/oker/Source/sonar/crates/sonar-sim/src/account_fetcher.rs"
+            },
+            "timestamp": "2026-02-28T01:26:37.207Z"
+          },
+          {
+            "type": "tool_use",
+            "name": "Read",
+            "input": {
+              "file_path": "/Users/oker/Source/sonar/crates/sonar-sim/src/balance_changes.rs"
+            },
+            "timestamp": "2026-02-28T01:26:40.805Z"
+          },
+          {
+            "type": "tool_use",
+            "name": "Read",
+            "input": {
+              "file_path": "/Users/oker/Source/sonar/crates/sonar-sim/src/error.rs"
+            },
+            "timestamp": "2026-02-28T01:26:44.857Z"
+          },
+          {
+            "type": "tool_use",
+            "name": "Read",
+            "input": {
+              "file_path": "/Users/oker/Source/sonar/crates/sonar-sim/src/types/mod.rs"
+            },
+            "timestamp": "2026-02-28T01:26:47.577Z"
+          },
+          {
+            "type": "tool_use",
+            "name": "Read",
+            "input": {
+              "file_path": "/Users/oker/Source/sonar/crates/sonar-sim/src/types/inputs.rs"
+            },
+            "timestamp": "2026-02-28T01:26:50.268Z"
+          },
+          {
+            "type": "tool_use",
+            "name": "Read",
+            "input": {
+              "file_path": "/Users/oker/Source/sonar/crates/sonar-sim/src/types/resolved.rs"
+            },
+            "timestamp": "2026-02-28T01:26:53.083Z"
+          },
+          {
+            "type": "tool_use",
+            "name": "Read",
+            "input": {
+              "file_path": "/Users/oker/Source/sonar/crates/sonar-sim/src/types/traits.rs"
+            },
+            "timestamp": "2026-02-28T01:26:55.878Z"
+          },
+          {
+            "type": "tool_use",
+            "name": "Read",
+            "input": {
+              "file_path": "/Users/oker/Source/sonar/crates/sonar-sim/src/transaction.rs"
+            },
+            "timestamp": "2026-02-28T01:26:59.194Z"
+          },
+          {
+            "type": "tool_use",
+            "name": "Read",
+            "input": {
+              "file_path": "/Users/oker/Source/sonar/crates/sonar-sim/src/token_decode.rs"
+            },
+            "timestamp": "2026-02-28T01:27:02.341Z"
+          },
+          {
+            "type": "tool_use",
+            "name": "Read",
+            "input": {
+              "file_path": "/Users/oker/Source/sonar/crates/sonar-sim/src/funding/mod.rs"
+            },
+            "timestamp": "2026-02-28T01:27:05.930Z"
+          },
+          {
+            "type": "tool_use",
+            "name": "Read",
+            "input": {
+              "file_path": "/Users/oker/Source/sonar/crates/sonar-sim/src/funding/sol.rs"
+            },
+            "timestamp": "2026-02-28T01:27:09.671Z"
+          },
+          {
+            "type": "tool_use",
+            "name": "Read",
+            "input": {
+              "file_path": "/Users/oker/Source/sonar/crates/sonar-sim/src/funding/common.rs"
+            },
+            "timestamp": "2026-02-28T01:27:12.674Z"
+          },
+          {
+            "type": "tool_use",
+            "name": "Read",
+            "input": {
+              "file_path": "/Users/oker/Source/sonar/crates/sonar-sim/src/funding/token_legacy.rs"
+            },
+            "timestamp": "2026-02-28T01:27:15.626Z"
+          },
+          {
+            "type": "tool_use",
+            "name": "Read",
+            "input": {
+              "file_path": "/Users/oker/Source/sonar/crates/sonar-sim/src/funding/token2022.rs"
+            },
+            "timestamp": "2026-02-28T01:27:18.759Z"
+          },
+          {
+            "type": "assistant",
+            "text": "Now let me read the remaining files.",
+            "timestamp": "2026-02-28T01:27:22.215Z"
+          },
+          {
+            "type": "tool_use",
+            "name": "Read",
+            "input": {
+              "file_path": "/Users/oker/Source/sonar/crates/sonar-sim/src/rpc_provider.rs"
+            },
+            "timestamp": "2026-02-28T01:27:22.839Z"
+          },
+          {
+            "type": "tool_use",
+            "name": "Read",
+            "input": {
+              "file_path": "/Users/oker/Source/sonar/crates/sonar-sim/src/account_dependencies.rs"
+            },
+            "timestamp": "2026-02-28T01:27:25.802Z"
+          },
+          {
+            "type": "tool_use",
+            "name": "Read",
+            "input": {
+              "file_path": "/Users/oker/Source/sonar/crates/sonar-sim/src/known_programs.rs"
+            },
+            "timestamp": "2026-02-28T01:27:28.811Z"
+          },
+          {
+            "type": "assistant",
+            "text": "Now I have a comprehensive understanding of the entire crate. Let me compile a thorough architecture review.\n\nLet me think about the key areas:\n\n1. **Overall Architecture** - The crate follows a layered pipeline pattern: Transaction parsing → Account loading → Execution → Balance change computation. This is clean.\n\n2. **Module Structure**:\n   - `lib.rs` - facade with pub(crate) internals, good\n   - `transaction.rs` - parsing raw tx bytes\n   - `account_loader.rs` - high-level orchestrator\n   - `account_fetcher.rs` - low-level fetch with caching/dedup/policy\n   - `account_dependencies.rs` - dependency resolution rules\n   - `executor.rs` - LiteSVM execution wrapper\n   - `balance_changes.rs` - pre/post balance diff computation\n   - `funding/` - SOL and token funding utilities\n   - `token_decode.rs` - shared SPL token decoding\n   - `known_programs.rs` - program/sysvar ID lists\n   - `rpc_provider.rs` - RPC trait + impls\n   - `types/` - shared types (inputs, resolved, traits)\n   - `error.rs` - error enum\n\nNow let me identify the issues:\n\n### Critical/\n\n`AccountFetcher` isn't thread-safe since it uses a non-concurrent `HashMap` for caching, but the provider traits it implements require `Send + Sync` bounds—this appears intentional for single-threaded use, but it prevents `AccountLoader` from being shared across threads. Also, `SolFunding`'s `apply_sol_fundings` function replaces the account's lamports entirely rather than adding to them, which is semantically correct but the naming around `amount_lamports` obscures whether it's an addition or replacement.\n\nThere's an O(n*m) performance issue in `collect_transaction_accounts` where it scans through all resolved lookups for each address table lookup instead of using a HashMap for constant-time access. `ResolvedAccounts` exposes its fields publicly but also has a `lookup_details()` method that returns the same data, and the method implementation is oddly placed in executor.rs rather than with the struct definition. Finally, `AppliedRecord` seems to duplicate the structure of `StateMutationOptions::apply`.\n\n`AccountFetcher` and `AccountLoader` can't be cloned because they hold mutable caches alongside their Arc trait objects, which restricts how they can be reused. The `ensure_account_loaded` function in funding/mod.rs creates a temporary `ResolvedAccounts` just to call `append_accounts`, which is wasteful and forced by the `AccountAppender` trait design. There's also a precision issue with `TokenAmount::Decimal(f64)` using floating point arithmetic.\n\nThe `apply_single_sol_funding` function unnecessarily clones `existing_account` even though `get_account` already returns an owned value, and the clone is only used to modify lamports before setting it back. I'm realizing the `clone()` is actually unnecessary since `if let Some(existing_account)` gives us ownership of the `Account`, so we could just use `let mut updated = existing_account;` for a minor optimization. Now looking at the error handling design, I notice error types are using opaque strings everywhere—nearly all variants just carry a `reason: String`, which means we lose structured information like the original `solana_client::ClientError` that might contain useful context like HTTP status or retryability. There's also a hardcoded `MAX_ACCOUNTS_PER_REQUEST` constant set to 100 that might be worth examining.\n\nThe `known_programs.rs` module is doing a linear scan through a 16-element array to check for builtin programs, which could be optimized with a `HashSet` or `phf::Set` for hot paths. I'm also noticing that `SimulationMetadata` claims to be backend-agnostic but directly depends on `solana_message::InnerInstructionsList`, which is a Solana SDK type—this works fine but could be a concern if we're aiming for true backend abstraction. Finally, the `SolanRpcProvider` is creating a blocking `RpcClient` in an async context, which would block the runtime.\n\nThe `execute` method's pre/post snapshot approach is sound, but it captures ALL transaction accounts which could get memory-heavy with large transactions. I'm also seeing that `build_token_account` sets the owner to the account's own pubkey, which is valid for simulation but wouldn't match real-world behavior where the owner should be a wallet. Additionally, newly created token accounts are initialized with zero lamports and there's no rent calculation happening.\n\nFor architecture improvements, I'm thinking about extracting an `SvmBackend` trait to swap implementations, making `AccountFetcher` generic over different cache strategies like TTL or LRU instead of just the current in-memory HashMap, and potentially refining the builder pattern for `AccountLoader` since the chaining approach is already builder-like but could be more explicit.\n\nThe pipeline could be cleaner too—separating \"prepare\" and \"execute\" into distinct phases where `PreparedSimulation` holds the immutable state before execution. I'd also consider using `thiserror` for structured error fields instead of string reasons, and reorganizing the `types/` module by domain rather than the current split between inputs and resolved types, since something like `PreparedTokenFunding` straddles both categories. The `AccountAppender` trait seems like it might need rethinking as well.",
+            "timestamp": "2026-02-28T01:28:24.139Z"
+          },
+          {
+            "type": "assistant",
+            "text": "Now I have full context. Let me also run the tests to verify current state.",
+            "timestamp": "2026-02-28T01:28:24.518Z"
+          },
+          {
+            "type": "tool_use",
+            "name": "Bash",
+            "input": {
+              "command": "cargo test -p sonar-sim 2\u003e\u00261 | tail -30",
+              "description": "Run sonar-sim tests",
+              "timeout": 120000
+            },
+            "timestamp": "2026-02-28T01:28:25.455Z"
+          },
+          {
+            "type": "assistant",
+            "text": "All 78 tests pass. Here's the rigorous review:\n\n---\n\n# sonar-sim Architecture Review\n\n**Crate**: `sonar-sim` — ~3,800 LOC (excluding tests), 78 tests all passing\n**Purpose**: Solana transaction simulation engine wrapping LiteSVM\n\n## Overall Assessment\n\nThis is a well-structured crate. The layered pipeline (parse → load → prepare → execute → compute changes) is clean, the `pub(crate)` facade in `lib.rs` is good practice, and test coverage is solid. Below are the issues I found, ordered by severity.\n\n---\n\n## Critical / Important Issues\n\n### 1. O(n*m) lookup scan in `collect_transaction_accounts`\n\n`executor.rs:348-365` — For each `address_table_lookup`, the code linearly scans all `resolved.lookups`. With many lookups, this is quadratic.\n\n```rust\n// Current: O(lookups * resolved_lookups)\nfor lookup in lookups {\n    for resolved_lookup in \u0026self.resolved.lookups {\n        if resolved_lookup.account_key == lookup.account_key { ... }\n    }\n}\n```\n\n**Fix**: Build a `HashMap\u003cPubkey, \u0026ResolvedLookup\u003e` before the loop, reducing to O(n + m).\n\n### 2. `SolFunding` semantics are misleading\n\n`sol.rs:24` — `apply_single_sol_funding` calls `set_lamports(lamports)`, which **replaces** the balance entirely. The name \"funding\" and field `amount_lamports` suggest an additive operation. A user might expect funding 5 SOL on an account with 3 SOL to yield 8 SOL, not 5.\n\n**Fix**: Either rename to `override_lamports` / `set_sol_balance`, or change the semantics to be additive. At minimum, document the replace behavior prominently.\n\n### 3. `AppliedRecord` duplicates `StateMutationOptions` almost exactly\n\n`executor.rs:137-154` — `AppliedRecord` has the same four fields as `StateMutationOptions`, and the `From` impl just moves each field. This is unnecessary indirection.\n\n**Fix**: Use `StateMutationOptions` directly as the record, or make `AppliedRecord` a newtype wrapper if you need the semantic distinction.\n\n### 4. `TokenAmount::Decimal(f64)` has inherent precision issues\n\n`types/inputs.rs:31` — Using `f64` for decimal token amounts causes precision loss. For example, `1.23456789` with 9 decimals could produce `1234567889` instead of `1234567890` due to floating-point representation. The `round()` in `resolve_token_amount` mitigates but doesn't eliminate this.\n\n**Fix**: Consider using a string-based decimal representation or `u64` + explicit decimal offset at the input boundary, and only convert to `f64` for display.\n\n### 5. Newly built token accounts have `lamports: 0`\n\n`token_legacy.rs:31` and `token2022.rs:70` — Created token accounts are set with `lamports: 0`. Programs that check rent exemption during simulation may fail unexpectedly.\n\n**Fix**: Calculate the rent-exempt minimum using `litesvm`'s rent sysvar, or at least set a reasonable minimum (e.g., `2_039_280` for legacy SPL).\n\n### 6. `ResolvedAccounts` impl block lives in `executor.rs`\n\n`executor.rs:447-451` — The `lookup_details()` method on `ResolvedAccounts` is implemented in executor.rs instead of where the struct is defined (`types/resolved.rs`). This splits the type's behavior across modules.\n\n**Fix**: Move this impl into `types/resolved.rs`.\n\n---\n\n## Moderate Issues\n\n### 7. Errors lose structured context\n\nNearly all error variants carry only `reason: String`:\n```rust\nRpc { reason: String },\nSvm { reason: String },\nToken { account: Option\u003cPubkey\u003e, reason: String },\n```\n\nThis means callers can't programmatically distinguish between e.g. a timeout vs. a rate-limit error, or check retry-ability.\n\n**Fix**: For variants where structured matching is useful (especially `Rpc`), consider carrying a nested error or an error kind enum. At minimum, `Rpc` should preserve whether the error is transient/retriable.\n\n### 8. `known_programs.rs` uses linear scan on every fetch\n\n`is_litesvm_builtin_program` does `LITESVM_BUILTIN_PROGRAM_IDS.contains(pubkey)` — a linear scan of 16 elements on the hot path of every account fetch (`account_fetcher.rs:92`).\n\n**Fix**: Use a `LazyLock\u003cHashSet\u003cPubkey\u003e\u003e` or `phf::Set` for O(1) lookup. 16 elements is small, but this is called per-account.\n\n### 9. `AccountFetcher` constructor duplication\n\n`account_fetcher.rs:32-55` — `new()` and `with_provider()` initialize the same 6 fields identically. Only the `provider` source differs.\n\n**Fix**: Factor out a common init path:\n```rust\nfn with_provider(provider: Arc\u003cdyn RpcAccountProvider\u003e) -\u003e Self {\n    Self { provider, cache: HashMap::new(), missing_cache: HashSet::new(), ... }\n}\nfn new(rpc_url: String) -\u003e Result\u003cSelf\u003e {\n    // validate, then:\n    Ok(Self::with_provider(Arc::new(SolanaRpcProvider::new(rpc_url))))\n}\n```\n\n### 10. `ensure_account_loaded` creates a throwaway `ResolvedAccounts`\n\n`funding/mod.rs:222-226` — Every time a funding op needs to load an extra account, it constructs a temporary `ResolvedAccounts { accounts: HashMap::new(), lookups: Vec::new() }`, calls `append_accounts`, then drains it into `extras`. This is wasteful and awkward.\n\n**Fix**: Either extend `AccountAppender` with a simpler method that returns the fetched accounts directly, or refactor the funding flow to batch all required pubkeys upfront.\n\n### 11. `sol.rs` clone is unnecessary\n\n`sol.rs:23` — `let mut updated = existing_account.clone()` — but `svm.get_account()` returns an owned `Account`, so this is a redundant allocation. Use `let mut updated = existing_account;`.\n\n### 12. No `Display` for key public types\n\n`TokenProgramKind`, `ExecutionStatus`, `RawTransactionEncoding`, `SignatureVerification` all lack `Display` impls. Callers that want to log or format these must match manually.\n\n---\n\n## Architecture Improvement Tips\n\n### A. Extract an SVM backend trait\n\nCurrently `LiteSVM` is used directly throughout `executor.rs` and `funding/`. Introducing a trait like:\n\n```rust\npub trait SvmBackend {\n    fn set_account(\u0026mut self, pubkey: Pubkey, account: Account) -\u003e Result\u003c()\u003e;\n    fn get_account(\u0026self, pubkey: \u0026Pubkey) -\u003e Option\u003cAccount\u003e;\n    fn send_transaction(\u0026mut self, tx: VersionedTransaction) -\u003e TransactionResult;\n    fn warp_to_slot(\u0026mut self, slot: u64);\n}\n```\n\nwould allow: testing without LiteSVM, swapping to a different SVM implementation (e.g., `agave-svm`), and mocking the execution layer in higher-level tests.\n\n### B. Make the executor lifecycle more explicit\n\nCurrently `TransactionExecutor` is a mutable struct that mixes \"prepared state\" with \"execution engine.\" Consider splitting into:\n\n```\nPreparedSimulation (immutable snapshot: accounts + mutations applied)\n  └─\u003e SimulationRunner::execute(tx) → SimulationResult\n```\n\nThis makes it clear that preparation is a one-time step, and execution can potentially be retried or parallelized.\n\n### C. Consider async support\n\n`SolanaRpcProvider` uses a blocking `RpcClient`. For CLI usage this is fine, but if `sonar-sim` is ever used in a server context, the entire fetch pipeline would block the async runtime. Consider making `RpcAccountProvider` optionally async (or providing an async variant).\n\n### D. Consolidate test helpers\n\nMultiple test modules define nearly identical helpers: `system_account(lamports)`, `make_token_account(mint)`, `create_transfer_tx(...)`. At least 5 different modules redefine these.\n\n**Fix**: Create a `#[cfg(test)] mod test_utils` in `lib.rs` (or a separate `tests/common.rs`) and share them.\n\n### E. Consider a `DependencyRule` trait for extensibility\n\n`account_dependencies.rs` has two hardcoded rules: BPF upgradeable ProgramData and SPL token mints. The loop in `AccountLoader::resolve_all_dependencies` calls both explicitly. A trait like:\n\n```rust\npub(crate) trait DependencyRule {\n    fn collect_missing(\u0026self, accounts: \u0026HashMap\u003cPubkey, AccountSharedData\u003e) -\u003e Vec\u003cPubkey\u003e;\n}\n```\n\nwould make it easy to add new dependency types (e.g., Anchor IDL accounts, associated token accounts) without modifying the loader.\n\n### F. `types/` module organization\n\nThe split into `inputs.rs` / `resolved.rs` / `traits.rs` is roughly by lifecycle stage, but `PreparedTokenFunding` straddles both input and resolved. Consider organizing by domain instead:\n\n```\ntypes/\n  funding.rs      (SolFunding, TokenFunding, TokenAmount, PreparedTokenFunding)\n  accounts.rs     (ResolvedAccounts, ResolvedLookup, AccountDataPatch, AccountReplacement)\n  simulation.rs   (SimulationMetadata, ReturnData)\n  traits.rs       (AccountAppender, AccountSource, FetchPolicy, FetchObserver)\n```\n\n---\n\n## What's Good\n\n- The `pub(crate)` facade pattern in `lib.rs` is excellent — clear stable API\n- Test coverage is strong (78 tests), including edge cases (negative cache, offline mode, bundle fail-fast)\n- The observer/policy/source extension points in `AccountFetcher` are well-designed\n- The prepare/execute split for token funding (prepare is pure, apply mutates SVM) is a solid pattern\n- Error messages are descriptive with context (pubkey, path, etc.)\n- The `token_decode` module correctly handles both SPL Token and Token-2022 with a shared decode path",
+            "timestamp": "2026-02-28T01:29:32.674Z"
+          },
+          {
+            "type": "user",
+            "text": "output your tips to docs/",
+            "timestamp": "2026-02-28T07:44:06.249Z"
+          },
+          {
+            "type": "assistant",
+            "text": "The user wants me to output the architecture review tips I just gave to a docs/ directory. Let me create a file with the review content.",
+            "timestamp": "2026-02-28T07:44:11.734Z"
+          },
+          {
+            "type": "assistant",
+            "text": "Let me check if `docs/` exists and write the review there.",
+            "timestamp": "2026-02-28T07:44:12.351Z"
+          },
+          {
+            "type": "tool_use",
+            "name": "Bash",
+            "input": {
+              "command": "ls /Users/oker/Source/sonar/docs/ 2\u003e/dev/null || echo \"docs/ does not exist\"",
+              "description": "Check if docs/ directory exists"
+            },
+            "timestamp": "2026-02-28T07:44:13.436Z"
+          },
+          {
+            "type": "tool_use",
+            "name": "Write",
+            "input": {
+              "content": "# sonar-sim Architecture Review\n\n**Crate**: `sonar-sim` — ~3,800 LOC (excluding tests), 78 tests all passing\n**Purpose**: Solana transaction simulation engine wrapping LiteSVM\n\n## Overall Assessment\n\nWell-structured crate. The layered pipeline (parse -\u003e load -\u003e prepare -\u003e execute -\u003e compute changes) is clean, the `pub(crate)` facade in `lib.rs` is good practice, and test coverage is solid. Below are the issues found, ordered by severity.\n\n---\n\n## Critical / Important Issues\n\n### 1. O(n*m) lookup scan in `collect_transaction_accounts`\n\n`executor.rs:348-365` — For each `address_table_lookup`, the code linearly scans all `resolved.lookups`. With many lookups, this is quadratic.\n\n```rust\n// Current: O(lookups * resolved_lookups)\nfor lookup in lookups {\n    for resolved_lookup in \u0026self.resolved.lookups {\n        if resolved_lookup.account_key == lookup.account_key { ... }\n    }\n}\n```\n\n**Fix**: Build a `HashMap\u003cPubkey, \u0026ResolvedLookup\u003e` before the loop, reducing to O(n + m).\n\n### 2. `SolFunding` semantics are misleading\n\n`sol.rs:24` — `apply_single_sol_funding` calls `set_lamports(lamports)`, which **replaces** the balance entirely. The name \"funding\" and field `amount_lamports` suggest an additive operation. A user might expect funding 5 SOL on an account with 3 SOL to yield 8 SOL, not 5.\n\n**Fix**: Either rename to `override_lamports` / `set_sol_balance`, or change the semantics to be additive. At minimum, document the replace behavior prominently.\n\n### 3. `AppliedRecord` duplicates `StateMutationOptions` almost exactly\n\n`executor.rs:137-154` — `AppliedRecord` has the same four fields as `StateMutationOptions`, and the `From` impl just moves each field. This is unnecessary indirection.\n\n**Fix**: Use `StateMutationOptions` directly as the record, or make `AppliedRecord` a newtype wrapper if you need the semantic distinction.\n\n### 4. `TokenAmount::Decimal(f64)` has inherent precision issues\n\n`types/inputs.rs:31` — Using `f64` for decimal token amounts causes precision loss. For example, `1.23456789` with 9 decimals could produce `1234567889` instead of `1234567890` due to floating-point representation. The `round()` in `resolve_token_amount` mitigates but doesn't eliminate this.\n\n**Fix**: Consider using a string-based decimal representation or `u64` + explicit decimal offset at the input boundary, and only convert to `f64` for display.\n\n### 5. Newly built token accounts have `lamports: 0`\n\n`token_legacy.rs:31` and `token2022.rs:70` — Created token accounts are set with `lamports: 0`. Programs that check rent exemption during simulation may fail unexpectedly.\n\n**Fix**: Calculate the rent-exempt minimum using `litesvm`'s rent sysvar, or at least set a reasonable minimum (e.g., `2_039_280` for legacy SPL).\n\n### 6. `ResolvedAccounts` impl block lives in `executor.rs`\n\n`executor.rs:447-451` — The `lookup_details()` method on `ResolvedAccounts` is implemented in executor.rs instead of where the struct is defined (`types/resolved.rs`). This splits the type's behavior across modules.\n\n**Fix**: Move this impl into `types/resolved.rs`.\n\n---\n\n## Moderate Issues\n\n### 7. Errors lose structured context\n\nNearly all error variants carry only `reason: String`:\n```rust\nRpc { reason: String },\nSvm { reason: String },\nToken { account: Option\u003cPubkey\u003e, reason: String },\n```\n\nThis means callers can't programmatically distinguish between e.g. a timeout vs. a rate-limit error, or check retry-ability.\n\n**Fix**: For variants where structured matching is useful (especially `Rpc`), consider carrying a nested error or an error kind enum. At minimum, `Rpc` should preserve whether the error is transient/retriable.\n\n### 8. `known_programs.rs` uses linear scan on every fetch\n\n`is_litesvm_builtin_program` does `LITESVM_BUILTIN_PROGRAM_IDS.contains(pubkey)` — a linear scan of 16 elements on the hot path of every account fetch (`account_fetcher.rs:92`).\n\n**Fix**: Use a `LazyLock\u003cHashSet\u003cPubkey\u003e\u003e` or `phf::Set` for O(1) lookup. 16 elements is small, but this is called per-account.\n\n### 9. `AccountFetcher` constructor duplication\n\n`account_fetcher.rs:32-55` — `new()` and `with_provider()` initialize the same 6 fields identically. Only the `provider` source differs.\n\n**Fix**: Factor out a common init path:\n```rust\nfn with_provider(provider: Arc\u003cdyn RpcAccountProvider\u003e) -\u003e Self {\n    Self { provider, cache: HashMap::new(), missing_cache: HashSet::new(), ... }\n}\nfn new(rpc_url: String) -\u003e Result\u003cSelf\u003e {\n    // validate, then:\n    Ok(Self::with_provider(Arc::new(SolanaRpcProvider::new(rpc_url))))\n}\n```\n\n### 10. `ensure_account_loaded` creates a throwaway `ResolvedAccounts`\n\n`funding/mod.rs:222-226` — Every time a funding op needs to load an extra account, it constructs a temporary `ResolvedAccounts { accounts: HashMap::new(), lookups: Vec::new() }`, calls `append_accounts`, then drains it into `extras`. This is wasteful and awkward.\n\n**Fix**: Either extend `AccountAppender` with a simpler method that returns the fetched accounts directly, or refactor the funding flow to batch all required pubkeys upfront.\n\n### 11. `sol.rs` clone is unnecessary\n\n`sol.rs:23` — `let mut updated = existing_account.clone()` — but `svm.get_account()` returns an owned `Account`, so this is a redundant allocation. Use `let mut updated = existing_account;`.\n\n### 12. No `Display` for key public types\n\n`TokenProgramKind`, `ExecutionStatus`, `RawTransactionEncoding`, `SignatureVerification` all lack `Display` impls. Callers that want to log or format these must match manually.\n\n---\n\n## Architecture Improvement Tips\n\n### A. Extract an SVM backend trait\n\nCurrently `LiteSVM` is used directly throughout `executor.rs` and `funding/`. Introducing a trait like:\n\n```rust\npub trait SvmBackend {\n    fn set_account(\u0026mut self, pubkey: Pubkey, account: Account) -\u003e Result\u003c()\u003e;\n    fn get_account(\u0026self, pubkey: \u0026Pubkey) -\u003e Option\u003cAccount\u003e;\n    fn send_transaction(\u0026mut self, tx: VersionedTransaction) -\u003e TransactionResult;\n    fn warp_to_slot(\u0026mut self, slot: u64);\n}\n```\n\nWould allow: testing without LiteSVM, swapping to a different SVM implementation (e.g., `agave-svm`), and mocking the execution layer in higher-level tests.\n\n### B. Make the executor lifecycle more explicit\n\nCurrently `TransactionExecutor` is a mutable struct that mixes \"prepared state\" with \"execution engine.\" Consider splitting into:\n\n```\nPreparedSimulation (immutable snapshot: accounts + mutations applied)\n  -\u003e SimulationRunner::execute(tx) -\u003e SimulationResult\n```\n\nThis makes it clear that preparation is a one-time step, and execution can potentially be retried or parallelized.\n\n### C. Consider async support\n\n`SolanaRpcProvider` uses a blocking `RpcClient`. For CLI usage this is fine, but if `sonar-sim` is ever used in a server context, the entire fetch pipeline would block the async runtime. Consider making `RpcAccountProvider` optionally async (or providing an async variant).\n\n### D. Consolidate test helpers\n\nMultiple test modules define nearly identical helpers: `system_account(lamports)`, `make_token_account(mint)`, `create_transfer_tx(...)`. At least 5 different modules redefine these.\n\n**Fix**: Create a `#[cfg(test)] mod test_utils` in `lib.rs` (or a separate `tests/common.rs`) and share them.\n\n### E. Consider a `DependencyRule` trait for extensibility\n\n`account_dependencies.rs` has two hardcoded rules: BPF upgradeable ProgramData and SPL token mints. The loop in `AccountLoader::resolve_all_dependencies` calls both explicitly. A trait like:\n\n```rust\npub(crate) trait DependencyRule {\n    fn collect_missing(\u0026self, accounts: \u0026HashMap\u003cPubkey, AccountSharedData\u003e) -\u003e Vec\u003cPubkey\u003e;\n}\n```\n\nWould make it easy to add new dependency types (e.g., Anchor IDL accounts, associated token accounts) without modifying the loader.\n\n### F. `types/` module organization\n\nThe split into `inputs.rs` / `resolved.rs` / `traits.rs` is roughly by lifecycle stage, but `PreparedTokenFunding` straddles both input and resolved. Consider organizing by domain instead:\n\n```\ntypes/\n  funding.rs      (SolFunding, TokenFunding, TokenAmount, PreparedTokenFunding)\n  accounts.rs     (ResolvedAccounts, ResolvedLookup, AccountDataPatch, AccountReplacement)\n  simulation.rs   (SimulationMetadata, ReturnData)\n  traits.rs       (AccountAppender, AccountSource, FetchPolicy, FetchObserver)\n```\n\n---\n\n## What's Good\n\n- The `pub(crate)` facade pattern in `lib.rs` is excellent — clear stable API\n- Test coverage is strong (78 tests), including edge cases (negative cache, offline mode, bundle fail-fast)\n- The observer/policy/source extension points in `AccountFetcher` are well-designed\n- The prepare/execute split for token funding (prepare is pure, apply mutates SVM) is a solid pattern\n- Error messages are descriptive with context (pubkey, path, etc.)\n- The `token_decode` module correctly handles both SPL Token and Token-2022 with a shared decode path\n",
+              "file_path": "/Users/oker/Source/sonar/docs/sonar-sim-review.md"
+            },
+            "timestamp": "2026-02-28T07:45:08.300Z"
+          },
+          {
+            "type": "assistant",
+            "text": "Written to `docs/sonar-sim-review.md`. The review covers 6 important issues, 6 moderate issues, and 6 architecture improvement tips — all with concrete fix suggestions.",
+            "timestamp": "2026-02-28T07:45:23.332Z"
+          },
+          {
+            "type": "user",
+            "text": "\u003clocal-command-caveat\u003eCaveat: The messages below were generated by the user while running local commands. DO NOT respond to these messages or otherwise consider them in your response unless the user explicitly asks you to.\u003c/local-command-caveat\u003e",
+            "timestamp": "2026-03-02T01:29:02.851Z"
+          },
+          {
+            "type": "user",
+            "text": "\u003ccommand-name\u003e/exit\u003c/command-name\u003e\n            \u003ccommand-message\u003eexit\u003c/command-message\u003e\n            \u003ccommand-args\u003e\u003c/command-args\u003e",
+            "timestamp": "2026-03-02T01:29:02.839Z"
+          },
+          {
+            "type": "user",
+            "text": "\u003clocal-command-stdout\u003eBye!\u003c/local-command-stdout\u003e",
+            "timestamp": "2026-03-02T01:29:02.840Z"
+          },
+          {
+            "type": "assistant",
+            "text": "No response requested.",
+            "timestamp": "2026-03-02T01:29:16.301Z"
+          },
+          {
+            "type": "user",
+            "text": "\u003clocal-command-caveat\u003eCaveat: The messages below were generated by the user while running local commands. DO NOT respond to these messages or otherwise consider them in your response unless the user explicitly asks you to.\u003c/local-command-caveat\u003e",
+            "timestamp": "2026-03-02T01:30:21.841Z"
+          },
+          {
+            "type": "user",
+            "text": "\u003ccommand-name\u003e/exit\u003c/command-name\u003e\n            \u003ccommand-message\u003eexit\u003c/command-message\u003e\n            \u003ccommand-args\u003e\u003c/command-args\u003e",
+            "timestamp": "2026-03-02T01:30:21.840Z"
+          },
+          {
+            "type": "user",
+            "text": "\u003clocal-command-stdout\u003eCatch you later!\u003c/local-command-stdout\u003e",
+            "timestamp": "2026-03-02T01:30:21.840Z"
+          },
+          {
+            "type": "assistant",
+            "text": "No response requested.",
+            "timestamp": "2026-03-02T01:30:30.981Z"
+          },
+          {
+            "type": "user",
+            "text": "update AGEENTS.md Project map section",
+            "timestamp": "2026-03-02T06:35:12.401Z"
+          },
+          {
+            "type": "assistant",
+            "text": "The user wants me to update the AGENTS.md file's Project map section. Let me first find and read the AGENTS.md file.",
+            "timestamp": "2026-03-02T06:35:18.453Z"
+          },
+          {
+            "type": "tool_use",
+            "name": "Glob",
+            "input": {
+              "pattern": "**/AGENTS.md"
+            },
+            "timestamp": "2026-03-02T06:35:18.845Z"
+          },
+          {
+            "type": "tool_use",
+            "name": "Read",
+            "input": {
+              "file_path": "/Users/oker/Source/sonar/AGENTS.md"
+            },
+            "timestamp": "2026-03-02T06:35:28.491Z"
+          },
+          {
+            "type": "assistant",
+            "text": "Now let me check the current project structure to see what new files/modules exist, especially `sonar-sim` and the new files created by the user.",
+            "timestamp": "2026-03-02T06:35:33.854Z"
+          },
+          {
+            "type": "tool_use",
+            "name": "Bash",
+            "input": {
+              "command": "ls /Users/oker/Source/sonar/crates/",
+              "description": "List crates directory"
+            },
+            "timestamp": "2026-03-02T06:35:34.083Z"
+          },
+          {
+            "type": "tool_use",
+            "name": "Bash",
+            "input": {
+              "command": "find /Users/oker/Source/sonar/crates/sonar-sim/src -type f -name '*.rs' | sort \u0026\u0026 echo \"---\" \u0026\u0026 find /Users/oker/Source/sonar/crates/sonar-idl/src -type f -name '*.rs' 2\u003e/dev/null | sort",
+              "description": "List all source files in both crates"
+            },
+            "timestamp": "2026-03-02T06:35:48.643Z"
+          },
+          {
+            "type": "tool_use",
+            "name": "Bash",
+            "input": {
+              "command": "find /Users/oker/Source/sonar/src -type f -name '*.rs' | sort",
+              "description": "List all source files in main src/"
+            },
+            "timestamp": "2026-03-02T06:36:02.232Z"
+          },
+          {
+            "type": "assistant",
+            "text": "Now I have the full picture. Let me update the Project Map section to reflect the current state, including the new crates and the refactored `sonar-sim` structure.",
+            "timestamp": "2026-03-02T06:36:06.273Z"
+          },
+          {
+            "type": "tool_use",
+            "name": "Edit",
+            "input": {
+              "file_path": "/Users/oker/Source/sonar/AGENTS.md",
+              "new_string": "## Project Map\n\n### CLI Application (`src/`)\n\n- `src/main.rs`: command entry and dispatch\n- `src/cli/`: argument definitions — `simulate`, `decode`, `account`, `convert`, `pda`, `program_elf`, `send`, `idl`, `cache`, `config`\n- `src/handlers/`: subcommand execution logic (mirrors `cli/` modules + `completions`)\n- Conversion logic (`src/converters/`): `bytes.rs`, `integers.rs`, `sol.rs`, `text.rs`, `types.rs`\n- Core glue (`src/core/`): `transaction.rs`, `account_loader.rs`, `cache.rs`, `account_file.rs`, `idl_fetcher.rs`\n- Output presentation (`src/output/`): `report.rs`, `text.rs`, `json.rs`, `account_text.rs`, `terminal.rs`\n- Parsing and Decoders (`src/parsers/`): `instruction/` (`anchor_idl.rs`, `system_program.rs`, `compute_budget_program.rs`, `memo_program.rs`, `associated_token_program.rs`, `token2022_program.rs`, `template.rs`), `log_parser.rs`, `metaplex_metadata_decoder.rs`, `token_account_decoder.rs`\n- Utilities (`src/utils/`): `config.rs`, `progress.rs`\n- Tests: `tests/e2e_simulation.rs`, `tests/e2e_cli_output_streams.rs`, `tests/fixtures/`\n\n### Simulation Engine (`crates/sonar-sim/`)\n\nStandalone library crate wrapping LiteSVM. All internals are `pub(crate)` with a stable facade in `lib.rs`.\n\n- `lib.rs`: public API facade (re-exports only)\n- `transaction.rs`: raw tx parsing (base58/base64), account plan extraction, lookup location mapping\n- `account_fetcher.rs`: low-level fetch with dedup, caching (positive + negative), source resolution, policy gating, observer events, batched RPC\n- `account_loader.rs`: high-level orchestrator — plan → fetch → dependency resolution loop → lookup table expansion\n- `account_dependencies.rs`: dependency rules (BPF upgradeable ProgramData, SPL token mints)\n- `executor.rs`: `PreparedSimulation` (immutable prepared state) → `SimulationRunner` (mutable execution engine), pre/post snapshots, bundle execution\n- `svm_backend.rs`: `SvmBackend` trait abstracting over LiteSVM (set/get account, send tx, warp slot)\n- `balance_changes.rs`: SOL and token balance diff computation between pre/post account states\n- `funding/`: `sol.rs` (SOL balance override), `token_legacy.rs` (SPL Token account creation + balance), `token2022.rs` (Token-2022 with extensions), `common.rs` (shared `TokenAmountMut` trait)\n- `token_decode.rs`: shared SPL Token / Token-2022 decoding (mint decimals, token account decode, program kind identification)\n- `known_programs.rs`: LiteSVM builtin program IDs and native sysvar IDs\n- `rpc_provider.rs`: `RpcAccountProvider` trait, `SolanaRpcProvider` (production), `FakeAccountProvider` (test)\n- `types/`: `accounts.rs` (ResolvedAccounts, ResolvedLookup, AccountReplacement, AccountDataPatch), `funding.rs` (SolFunding, TokenFunding, TokenAmount, PreparedTokenFunding), `simulation.rs` (SimulationMetadata, ReturnData), `traits.rs` (AccountAppender, AccountSource, FetchPolicy, FetchObserver)\n- `error.rs`: `SonarSimError` enum with variants for RPC, account, token, lookup table, SVM, serialization, validation\n- `test_utils.rs`: shared test helpers (`#[cfg(test)]` only)\n\n### IDL Library (`crates/sonar-idl/`)\n\nAnchor IDL parsing and instruction decoding.\n\n- `lib.rs`: public API\n- `models.rs`: IDL data model types\n- `parser.rs`: IDL JSON parsing\n- `discriminator.rs`: instruction discriminator calculation\n- `registry.rs`: IDL registry for program lookups\n- `value.rs`: decoded value representation",
+              "old_string": "## Project Map\n\n- `src/main.rs`: command entry and dispatch\n- `src/cli/`: argument definitions for each subcommand\n- `src/handlers/`: subcommand execution logic\n- Conversion logic (`src/converters/`): `bytes.rs`, `integers.rs`, `sol.rs`, `text.rs`, `types.rs`\n- Core simulation flow (`src/core/`): `transaction.rs`, `account_loader.rs`, `executor.rs`, `balance_changes.rs`, `cache.rs`, `account_file.rs`, `idl_fetcher.rs`, `rpc_provider.rs`, `types.rs`, `funding/` (`sol.rs`, `token_legacy.rs`, `token2022.rs`)\n- Output presentation (`src/output/`): `report.rs`, `text.rs`, `json.rs`, `account_text.rs`, `terminal.rs`\n- Parsing and Decoders (`src/parsers/`): `instruction/` (`anchor_idl.rs`, `system_program.rs`, `compute_budget_program.rs`, `memo_program.rs`, `associated_token_program.rs`, `token2022_program.rs`, `template.rs`), `log_parser.rs`, `metaplex_metadata_decoder.rs`, `token_account_decoder.rs`\n- Utilities (`src/utils/`): `native_ids.rs`, `config.rs`, `progress.rs`\n- Tests: `tests/e2e_simulation.rs`, `tests/e2e_cli_output_streams.rs`, `tests/fixtures/`",
+              "replace_all": false
+            },
+            "timestamp": "2026-03-02T06:36:30.120Z"
+          }
+        ],
+        "total_additions": 84,
+        "total_deletions": 254,
+        "accepted_lines": 84,
+        "overriden_lines": 0
+      }
+    }
+  },
+  "agent_line_stats": {
+    "AGENTS.md": {
+      "claude::claude-opus-4-6": {
+        "file_path": "AGENTS.md",
+        "agent_type": "claude::claude-opus-4-6",
+        "additions": 25,
+        "deletions": 9,
+        "ai_accepted": 0
+      }
+    }
+  }
+}
