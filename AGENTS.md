@@ -4,15 +4,31 @@ CLI for local Solana transaction simulation (LiteSVM) plus utility subcommands.
 
 ## Project Map
 
-- `src/main.rs`: command entry and dispatch
-- `src/cli/`: argument definitions for each subcommand
-- `src/handlers/`: subcommand execution logic
-- Conversion logic (`src/converters/`): `bytes.rs`, `integers.rs`, `sol.rs`, `text.rs`, `types.rs`
-- Core simulation flow (`src/core/`): `transaction.rs`, `account_loader.rs`, `executor.rs`, `balance_changes.rs`, `cache.rs`, `account_file.rs`, `idl_fetcher.rs`, `rpc_provider.rs`, `types.rs`, `funding/` (`sol.rs`, `token_legacy.rs`, `token2022.rs`)
-- Output presentation (`src/output/`): `report.rs`, `text.rs`, `json.rs`, `account_text.rs`, `terminal.rs`
-- Parsing and Decoders (`src/parsers/`): `instruction/` (`anchor_idl.rs`, `system_program.rs`, `compute_budget_program.rs`, `memo_program.rs`, `associated_token_program.rs`, `token2022_program.rs`, `template.rs`), `log_parser.rs`, `metaplex_metadata_decoder.rs`, `token_account_decoder.rs`
-- Utilities (`src/utils/`): `native_ids.rs`, `config.rs`, `progress.rs`
-- Tests: `tests/e2e_simulation.rs`, `tests/e2e_cli_output_streams.rs`, `tests/fixtures/`
+### CLI (`src/`)
+
+- `main.rs` → `cli/` (arg definitions) → `handlers/` (execution logic)
+- `converters/`: bytes, integers, sol, text, types
+- `core/`: transaction, account_loader, cache, account_file, idl_fetcher
+- `output/`: report, text, json, account_text, terminal
+- `parsers/`: `instruction/` (anchor_idl, system_program, compute_budget, memo, ata, token2022, template), log_parser, metaplex_metadata_decoder, token_account_decoder
+- `utils/`: config, progress
+- `tests/`: e2e_simulation, e2e_cli_output_streams, fixtures/
+
+### Simulation Engine (`crates/sonar-sim/`)
+
+LiteSVM wrapper. Internals are `pub(crate)`, stable facade in `lib.rs`.
+
+- **Pipeline**: `transaction.rs` (parse) → `account_loader.rs` (orchestrate fetch) → `executor.rs` (prepare + run)
+- **Fetch layer**: `account_fetcher.rs` (dedup, cache, policy, batched RPC), `account_dependencies.rs` (auto-resolve ProgramData + mints), `rpc_provider.rs` (trait + impls)
+- **Execution**: `executor.rs` (`PreparedSimulation` → `SimulationRunner`), `svm_backend.rs` (backend trait)
+- **Funding**: `funding/` — sol, token_legacy, token2022, common
+- **Support**: `token_decode.rs` (SPL/Token-2022 decoding), `known_programs.rs` (builtin IDs), `balance_changes.rs` (pre/post diffs)
+- **Types**: `types/` — accounts, funding, simulation, traits
+- **Error**: `error.rs` (`SonarSimError`)
+
+### IDL Library (`crates/sonar-idl/`)
+
+Anchor IDL parsing and instruction decoding: models, parser, discriminator, registry, value
 
 ## Common Commands
 
