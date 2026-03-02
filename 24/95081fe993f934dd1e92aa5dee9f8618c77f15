@@ -1,0 +1,11 @@
+src/converters/integers.rs
+src/cli/convert.rs
+src/converters/types.rs
+src/converters/mod.rs
+---
+{
+  "metadata": {
+    "base_commit_sha": "2495081fe993f934dd1e92aa5dee9f8618c77f15",
+    "prompts": {}
+  }
+}
