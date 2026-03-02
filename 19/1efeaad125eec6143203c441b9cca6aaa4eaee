@@ -1,0 +1,12 @@
+crates/sonar-sim/src/types/traits.rs
+crates/sonar-sim/src/account_fetcher.rs
+crates/sonar-sim/src/types/mod.rs
+crates/sonar-sim/src/types/funding.rs
+crates/sonar-sim/src/types/accounts.rs
+---
+{
+  "metadata": {
+    "base_commit_sha": "191efeaad125eec6143203c441b9cca6aaa4eaee",
+    "prompts": {}
+  }
+}
