@@ -1,5 +1,8 @@
 //! Pure conversion logic for `sonar convert`.
 
+pub mod borsh_decode;
+pub mod borsh_encode;
+pub mod borsh_type;
 mod bytes;
 mod integers;
 pub mod sol;

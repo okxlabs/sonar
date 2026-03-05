@@ -1,6 +1,7 @@
 //! CLI argument parsing and validation.
 
 mod account;
+mod borsh;
 mod cache;
 mod config;
 mod convert;
@@ -13,6 +14,7 @@ mod simulate;
 
 // Re-export all public types from submodules
 pub use account::*;
+pub use borsh::*;
 pub use cache::*;
 pub use config::*;
 pub use convert::*;
@@ -82,6 +84,9 @@ pub enum Commands {
     /// Generate shell completion scripts
     #[command(next_line_help = true)]
     Completions(CompletionsArgs),
+    /// Serialize or deserialize data using Borsh-compatible type descriptors
+    #[command(next_line_help = true)]
+    Borsh(BorshArgs),
     /// View or modify ~/.config/sonar/config.toml
     #[command(next_line_help = true)]
     Config(ConfigArgs),
