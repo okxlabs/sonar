@@ -42,14 +42,12 @@ pub(crate) fn derive_cache_key_single(input: &str, tx: &VersionedTransaction) ->
     if transaction::is_transaction_signature(input) {
         return input.trim().to_string();
     }
-    let sig = tx.signatures.first().map(|s| s.to_string()).unwrap_or_default();
-    if sig.chars().all(|c| c == '1') {
-        let msg_bytes = tx.message.serialize();
-        let hash = Sha256::digest(&msg_bytes);
-        hex::encode(&hash[..16])
-    } else {
-        sig
-    }
+    // Raw tx input: always hash message bytes.
+    // Signatures may be dummy/placeholder values from wallets, so they are
+    // not reliable as cache keys.
+    let msg_bytes = tx.message.serialize();
+    let hash = Sha256::digest(&msg_bytes);
+    hex::encode(&hash[..16])
 }
 
 pub(crate) fn derive_cache_key_bundle(
