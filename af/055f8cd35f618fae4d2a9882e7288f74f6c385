@@ -1,0 +1,20 @@
+src/core/cache.rs
+  9e47cf8 45-47
+---
+{
+  "metadata": {
+    "base_commit_sha": "af055f8cd35f618fae4d2a9882e7288f74f6c385",
+    "prompts": {}
+  },
+  "agent_line_stats": {
+    "src/core/cache.rs": {
+      "Human": {
+        "file_path": "src/core/cache.rs",
+        "agent_type": "Human",
+        "additions": 3,
+        "deletions": 8,
+        "ai_accepted": 0
+      }
+    }
+  }
+}
