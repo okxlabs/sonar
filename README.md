@@ -153,6 +153,17 @@ sonar simulate <TX> \
 sonar simulate <TX> --rpc-url <RPC_URL> \
   --set-ix-account 2.3=<NEW_PUBKEY>:r
 
+# State Preparation: append an account to instruction 1's account list
+# Format: <IX>=<PUBKEY>[:<w|r>] with a 1-based instruction index
+# :w is the default; use :r for read-only (useful for remaining_accounts)
+sonar simulate <TX> --rpc-url <RPC_URL> \
+  --append-ix-account 1=<PUBKEY>
+
+# Append multiple accounts (appended in order)
+sonar simulate <TX> --rpc-url <RPC_URL> \
+  --append-ix-account 1=<PUBKEY1> \
+  --append-ix-account 1=<PUBKEY2>:r
+
 # State Preparation: patch instruction data before simulation
 # Format: <IX>=<OFFSET>:<HEX_DATA> with a 1-based instruction index
 # HEX_DATA may optionally start with 0x
