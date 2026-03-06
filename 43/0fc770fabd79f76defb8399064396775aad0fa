@@ -1,0 +1,39 @@
+crates/sonar-sim/src/transaction.rs
+  a7ea79a 188,388,392
+crates/sonar-sim/src/lib.rs
+  a7ea79a 35
+src/cli/simulate.rs
+  a7ea79a 318-323,359-362,372-373
+src/converters/borsh_decode.rs
+  b287cda 142-155,354,364-370
+src/converters/borsh_type.rs
+src/handlers/borsh.rs
+  2384d2f 33-34,86,101,119,141,146
+src/converters/borsh_encode.rs
+---
+{
+  "metadata": {
+    "base_commit_sha": "430fc770fabd79f76defb8399064396775aad0fa",
+    "prompts": {}
+  },
+  "agent_line_stats": {
+    "crates/sonar-sim/src/lib.rs": {
+      "Human": {
+        "file_path": "crates/sonar-sim/src/lib.rs",
+        "agent_type": "Human",
+        "additions": 2,
+        "deletions": 3,
+        "ai_accepted": 0
+      }
+    },
+    "src/converters/borsh_decode.rs": {
+      "Human": {
+        "file_path": "src/converters/borsh_decode.rs",
+        "agent_type": "Human",
+        "additions": 19,
+        "deletions": 20,
+        "ai_accepted": 0
+      }
+    }
+  }
+}
