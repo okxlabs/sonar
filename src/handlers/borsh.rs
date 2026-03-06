@@ -2,7 +2,7 @@ use std::io::{IsTerminal, Read};
 
 use anyhow::{Context, Result};
 
-use crate::cli::{BorshArgs, BorshCommands, BorshDeArgs, BorshSerArgs, SerOutputFormat};
+use crate::cli::{BorshArgs, BorshCommands, BorshDeArgs, BorshSerArgs};
 use crate::converters::borsh_decode::decode_borsh;
 use crate::converters::borsh_encode::encode_borsh;
 use crate::converters::borsh_type::parse_borsh_type;
@@ -56,19 +56,7 @@ fn handle_ser(args: BorshSerArgs) -> Result<()> {
 
     let bytes = encode_borsh(&ty, &value).context("failed to serialize to borsh")?;
 
-    let output = match args.output {
-        SerOutputFormat::Hex => format!("0x{}", hex::encode(&bytes)),
-        SerOutputFormat::Base64 => {
-            use base64::Engine;
-            base64::engine::general_purpose::STANDARD.encode(&bytes)
-        }
-        SerOutputFormat::Bytes => {
-            let elements: Vec<String> = bytes.iter().map(|b| b.to_string()).collect();
-            format!("[{}]", elements.join(","))
-        }
-    };
-
-    println!("{output}");
+    println!("0x{}", hex::encode(&bytes));
     Ok(())
 }
 

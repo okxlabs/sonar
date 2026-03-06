@@ -400,13 +400,12 @@ sonar borsh ser "result<u64,string>" '{"ok":42}'
 sonar borsh ser "{action:enum<(),u64,vec<u8>>,tags:vec<string>}" \
   '{"action":{"variant":2,"value":[1,2,3]},"tags":["alpha","beta"]}'
 
-# Output format (default: hex)
-sonar borsh ser "u64" '42' --output hex     # → 0x2a00000000000000
-sonar borsh ser "u64" '42' --output base64  # → KgAAAAAAAAA=
-sonar borsh ser "u64" '42' --output bytes   # → [42,0,0,0,0,0,0,0]
-
 # Read from stdin
 echo '{"amount":100}' | sonar borsh ser "{amount:u64}"
+
+# Convert output to other formats via pipe
+sonar borsh ser "u64" '42' | sonar convert hex base64
+sonar borsh ser "u64" '42' | sonar convert hex bytes
 ```
 
 #### Type Descriptor Reference

@@ -1,4 +1,4 @@
-use clap::{Args, Subcommand, ValueEnum};
+use clap::{Args, Subcommand};
 
 #[derive(Args, Debug)]
 pub struct BorshArgs {
@@ -45,17 +45,4 @@ pub struct BorshSerArgs {
     pub type_str: String,
     /// JSON value to serialize. Reads from stdin if omitted.
     pub input: Option<String>,
-    /// Output format for serialized bytes
-    #[arg(long, value_enum, default_value = "hex")]
-    pub output: SerOutputFormat,
-}
-
-#[derive(Debug, Clone, Copy, ValueEnum)]
-pub enum SerOutputFormat {
-    /// Hex string with 0x prefix (default)
-    Hex,
-    /// Base64 encoded
-    Base64,
-    /// Decimal byte array [1,2,3,...]
-    Bytes,
 }
