@@ -215,12 +215,12 @@ fn collect_transaction_account_keys(
     tx_keys
 }
 
-/// Finds --replace pubkeys that are not present in the given transaction account key set.
-fn find_unmatched_replacements(
-    replacements: &[cli::AccountReplacement],
+/// Finds --override pubkeys that are not present in the given transaction account key set.
+fn find_unmatched_overrides(
+    overrides: &[cli::AccountOverride],
     tx_keys: &std::collections::HashSet<Pubkey>,
 ) -> Vec<Pubkey> {
-    replacements.iter().filter(|r| !tx_keys.contains(&r.pubkey())).map(|r| r.pubkey()).collect()
+    overrides.iter().filter(|r| !tx_keys.contains(&r.pubkey())).map(|r| r.pubkey()).collect()
 }
 
 /// Finds --fund-sol pubkeys that are not present in the given transaction account key set.
@@ -251,24 +251,24 @@ fn find_unmatched_token_fundings(
     unmatched
 }
 
-/// Warns the user when --replace, --fund-sol, or --fund-token addresses are not found
+/// Warns the user when --override, --fund-sol, or --fund-token addresses are not found
 /// in the transaction's account keys, which likely indicates a typo.
 pub(crate) fn warn_unmatched_addresses(
-    replacements: &[cli::AccountReplacement],
+    overrides: &[cli::AccountOverride],
     fundings: &[cli::SolFunding],
     token_fundings: &[cli::TokenFunding],
     parsed_txs: &[&transaction::ParsedTransaction],
     resolved_accounts: &ResolvedAccounts,
 ) {
-    if replacements.is_empty() && fundings.is_empty() && token_fundings.is_empty() {
+    if overrides.is_empty() && fundings.is_empty() && token_fundings.is_empty() {
         return;
     }
 
     let tx_keys = collect_transaction_account_keys(parsed_txs, resolved_accounts);
 
-    for pubkey in find_unmatched_replacements(replacements, &tx_keys) {
+    for pubkey in find_unmatched_overrides(overrides, &tx_keys) {
         log::warn!(
-            "--replace target {} is not referenced in the transaction's account keys. Did you mean a different address?",
+            "--override target {} is not referenced in the transaction's account keys. Did you mean a different address?",
             pubkey,
         );
     }
@@ -291,7 +291,7 @@ pub(crate) fn warn_unmatched_addresses(
 #[cfg(test)]
 mod tests {
     use super::{
-        collect_program_ids, find_unmatched_replacements, find_unmatched_sol_fundings,
+        collect_program_ids, find_unmatched_overrides, find_unmatched_sol_fundings,
         find_unmatched_token_fundings,
     };
     use crate::cli;
@@ -436,45 +436,45 @@ mod tests {
     }
 
     #[test]
-    fn find_unmatched_replacements_detects_missing_program_id() {
+    fn find_unmatched_overrides_detects_missing_program_id() {
         let prog_in_tx = Pubkey::new_unique();
         let prog_not_in_tx = Pubkey::new_unique();
         let tx_keys: HashSet<Pubkey> = [prog_in_tx].into_iter().collect();
 
-        let replacements = vec![
-            cli::AccountReplacement::Program {
+        let overrides = vec![
+            cli::AccountOverride::Program {
                 program_id: prog_in_tx,
                 so_path: std::path::PathBuf::from("/tmp/a.so"),
             },
-            cli::AccountReplacement::Program {
+            cli::AccountOverride::Program {
                 program_id: prog_not_in_tx,
                 so_path: std::path::PathBuf::from("/tmp/b.so"),
             },
         ];
 
-        let unmatched = find_unmatched_replacements(&replacements, &tx_keys);
+        let unmatched = find_unmatched_overrides(&overrides, &tx_keys);
         assert_eq!(unmatched.len(), 1);
         assert_eq!(unmatched[0], prog_not_in_tx);
     }
 
     #[test]
-    fn find_unmatched_replacements_returns_empty_when_all_match() {
+    fn find_unmatched_overrides_returns_empty_when_all_match() {
         let prog_a = Pubkey::new_unique();
         let prog_b = Pubkey::new_unique();
         let tx_keys: HashSet<Pubkey> = [prog_a, prog_b].into_iter().collect();
 
-        let replacements = vec![
-            cli::AccountReplacement::Program {
+        let overrides = vec![
+            cli::AccountOverride::Program {
                 program_id: prog_a,
                 so_path: std::path::PathBuf::from("/tmp/a.so"),
             },
-            cli::AccountReplacement::Program {
+            cli::AccountOverride::Program {
                 program_id: prog_b,
                 so_path: std::path::PathBuf::from("/tmp/b.so"),
             },
         ];
 
-        let unmatched = find_unmatched_replacements(&replacements, &tx_keys);
+        let unmatched = find_unmatched_overrides(&overrides, &tx_keys);
         assert!(unmatched.is_empty());
     }
 }

@@ -10,7 +10,7 @@ use anyhow::Result;
 
 use crate::{core::transaction::ParsedTransaction, parsers::instruction::ParserRegistry};
 use sonar_sim::{
-    AccountReplacement, PreparedTokenFunding, ResolvedAccounts, SimulationResult, SolFunding,
+    AccountOverride, PreparedTokenFunding, ResolvedAccounts, SimulationResult, SolFunding,
 };
 
 use report::{BundleReport, LookupResolver, Report, TransactionSection};
@@ -44,7 +44,7 @@ pub fn render(
     parsed: &ParsedTransaction,
     resolved: &ResolvedAccounts,
     simulation: &SimulationResult,
-    replacements: &[AccountReplacement],
+    overrides: &[AccountOverride],
     fundings: &[SolFunding],
     token_fundings: &[PreparedTokenFunding],
     parser_registry: &mut ParserRegistry,
@@ -54,7 +54,7 @@ pub fn render(
         parsed,
         resolved,
         simulation,
-        replacements,
+        overrides,
         fundings,
         token_fundings,
         parser_registry,
@@ -127,7 +127,7 @@ pub fn render_bundle(
     total_tx_count: usize,
     resolved: &ResolvedAccounts,
     simulations: &[SimulationResult],
-    replacements: &[AccountReplacement],
+    overrides: &[AccountOverride],
     fundings: &[SolFunding],
     token_fundings: &[PreparedTokenFunding],
     parser_registry: &mut ParserRegistry,
@@ -137,7 +137,7 @@ pub fn render_bundle(
         parsed_txs,
         resolved,
         simulations,
-        replacements,
+        overrides,
         fundings,
         token_fundings,
         parser_registry,

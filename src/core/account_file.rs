@@ -113,7 +113,7 @@ fn is_native_owner(account: &impl ReadableAccount) -> bool {
 
 /// Dump accounts to a directory in Solana CLI compatible JSON format.
 ///
-/// Writes the original RPC-loaded account data (before --replace / --patch-account-data).
+/// Writes the original RPC-loaded account data (before --override / --patch-account-data).
 /// Each account is written to `<pubkey>.json`. Native/system programs and
 /// native-owned executable marker accounts are skipped.
 pub(crate) fn dump_accounts_to_dir(

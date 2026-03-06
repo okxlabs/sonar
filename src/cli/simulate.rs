@@ -21,17 +21,19 @@ pub struct SimulateArgs {
     pub transaction: TransactionInputArgs,
     #[command(flatten, next_help_heading = HELP_HEADING_INPUT_RPC)]
     pub rpc: RpcArgs,
-    /// Replace an on-chain program or account.
+    /// Override an on-chain program or account with a local file.
     /// Format: <PUBKEY>=<PATH> (.so/.elf for programs, .json for accounts)
     #[arg(
-        short = 'R',
-        long = "replace",
+        short = 'O',
+        short_alias = 'R',
+        long = "override",
+        alias = "replace",
         help_heading = HELP_HEADING_STATE_PREPARATION,
         value_name = "MAPPING",
         num_args = 1..,
         value_parser = clap::builder::NonEmptyStringValueParser::new()
     )]
-    pub replacements: Vec<String>,
+    pub overrides: Vec<String>,
     /// Fund a system account with SOL. Format: <PUBKEY>=<LAMPORTS> or <PUBKEY>=<AMOUNT>sol
     #[arg(
         short = 'f',
@@ -174,14 +176,14 @@ pub struct TransactionInputArgs {
 }
 
 pub use sonar_sim::{
-    AccountDataPatch, AccountReplacement, InstructionAccountAppend, InstructionAccountPatch,
+    AccountDataPatch, AccountOverride, InstructionAccountAppend, InstructionAccountPatch,
     InstructionDataPatch, SolFunding, TokenAmount, TokenFunding,
 };
 
-pub fn parse_replacement(raw: &str) -> Result<AccountReplacement, String> {
+pub fn parse_override(raw: &str) -> Result<AccountOverride, String> {
     let (pubkey_str, path_str) = raw
         .split_once('=')
-        .ok_or_else(|| "Replacement must be in <PUBKEY>=<PATH> format".to_string())?;
+        .ok_or_else(|| "Override must be in <PUBKEY>=<PATH> format".to_string())?;
     let pubkey = Pubkey::from_str(pubkey_str)
         .map_err(|err| format!("Failed to parse address `{pubkey_str}`: {err}"))?;
     let path = PathBuf::from(crate::utils::config::expand_tilde(path_str.trim()));
@@ -196,14 +198,14 @@ pub fn parse_replacement(raw: &str) -> Result<AccountReplacement, String> {
         .unwrap_or_default();
 
     match ext.as_str() {
-        "so" | "elf" => Ok(AccountReplacement::Program { program_id: pubkey, so_path: path }),
+        "so" | "elf" => Ok(AccountOverride::Program { program_id: pubkey, so_path: path }),
         "json" => {
             let account = parse_account_json(&path)?;
-            Ok(AccountReplacement::Account { pubkey, account, source_path: path })
+            Ok(AccountOverride::Account { pubkey, account, source_path: path })
         }
         _ => Err(format!(
-            "Unsupported file extension `.{ext}` for replacement file `{}`. \
-             Use .so/.elf for program replacement or .json for account replacement.",
+            "Unsupported file extension `.{ext}` for override file `{}`. \
+             Use .so/.elf for program override or .json for account override.",
             path.display()
         )),
     }
@@ -477,12 +479,12 @@ mod tests {
     }
 
     #[test]
-    fn parse_replacement_expands_tilde_path() {
+    fn parse_override_expands_tilde_path() {
         let home = std::env::var("HOME")
             .or_else(|_| std::env::var("USERPROFILE"))
             .expect("HOME or USERPROFILE should be set");
         let absolute_path = unique_test_file_path(std::path::Path::new(&home), "so");
-        std::fs::write(&absolute_path, b"fake-elf").expect("create replacement file");
+        std::fs::write(&absolute_path, b"fake-elf").expect("create override file");
 
         let file_name = absolute_path
             .file_name()
@@ -490,45 +492,45 @@ mod tests {
             .expect("temporary filename should be valid UTF-8");
         let program_id = Pubkey::new_unique();
         let input = format!("{program_id}=~/{file_name}");
-        let parsed = parse_replacement(&input).expect("parse replacement with ~ path");
+        let parsed = parse_override(&input).expect("parse override with ~ path");
 
         std::fs::remove_file(&absolute_path).ok();
 
         match parsed {
-            AccountReplacement::Program { program_id: parsed_id, so_path } => {
+            AccountOverride::Program { program_id: parsed_id, so_path } => {
                 assert_eq!(parsed_id, program_id);
                 assert_eq!(so_path, absolute_path);
             }
-            _ => panic!("expected program replacement"),
+            _ => panic!("expected program override"),
         }
     }
 
     #[test]
-    fn parse_replacement_accepts_absolute_path() {
+    fn parse_override_accepts_absolute_path() {
         let absolute_path = unique_test_file_path(&std::env::temp_dir(), "so");
-        std::fs::write(&absolute_path, b"fake-elf").expect("create replacement file");
+        std::fs::write(&absolute_path, b"fake-elf").expect("create override file");
 
         let program_id = Pubkey::new_unique();
         let input = format!("{program_id}={}", absolute_path.display());
-        let parsed = parse_replacement(&input).expect("parse replacement with absolute path");
+        let parsed = parse_override(&input).expect("parse override with absolute path");
 
         std::fs::remove_file(&absolute_path).ok();
 
         match parsed {
-            AccountReplacement::Program { program_id: parsed_id, so_path } => {
+            AccountOverride::Program { program_id: parsed_id, so_path } => {
                 assert_eq!(parsed_id, program_id);
                 assert_eq!(so_path, absolute_path);
             }
-            _ => panic!("expected program replacement"),
+            _ => panic!("expected program override"),
         }
     }
 
     #[test]
-    fn parse_replacement_reports_missing_file() {
+    fn parse_override_reports_missing_file() {
         let missing_path = unique_test_file_path(&std::env::temp_dir(), "so");
         let program_id = Pubkey::new_unique();
         let input = format!("{program_id}={}", missing_path.display());
-        let err = parse_replacement(&input).unwrap_err();
+        let err = parse_override(&input).unwrap_err();
         assert!(err.contains("does not exist"));
     }
 

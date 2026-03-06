@@ -12,7 +12,7 @@ fn simulate_real_transaction_via_cli() -> Result<(), Box<dyn std::error::Error>>
         .arg(V0_RAW_TX)
         .arg("--rpc-url")
         .arg("https://api.mainnet-beta.solana.com")
-        .arg("--replace")
+        .arg("--override")
         .arg("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA=tests/fixtures/spl_token.so");
 
     let assert = cmd.assert().success();
@@ -43,13 +43,13 @@ fn parse_real_transaction_via_cli() -> Result<(), Box<dyn std::error::Error>> {
 
 #[test]
 #[ignore]
-fn simulate_real_transaction_replace_multiple_program() -> Result<(), Box<dyn std::error::Error>> {
+fn simulate_real_transaction_override_multiple_program() -> Result<(), Box<dyn std::error::Error>> {
     let mut cmd = cargo_bin_cmd!("sonar");
     cmd.arg("simulate")
         .arg(V0_RAW_TX)
-        .arg("--replace")
+        .arg("--override")
         .arg("proVF4pMXVaYqmy4NjniPh4pqKNfMmsihgd4wdkCX3u=tests/fixtures/dex_solana_v3.so")
-        .arg("--replace")
+        .arg("--override")
         .arg("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA=tests/fixtures/spl_token.so");
 
     let assert = cmd.assert().success();

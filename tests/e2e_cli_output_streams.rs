@@ -211,7 +211,7 @@ fn simulate_omitted_tx_reads_from_stdin() {
     cmd.arg("simulate")
         .arg("--rpc-url")
         .arg("https://api.mainnet-beta.solana.com")
-        .arg("--replace")
+        .arg("--override")
         .arg("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA=tests/fixtures/spl_token.so")
         .write_stdin(V0_RAW_TX);
 
@@ -292,7 +292,7 @@ fn offline_missing_account_does_not_trigger_strict_offline_error() {
         .arg("--cache")
         .arg("--cache-dir")
         .arg(&temp)
-        .arg("--replace")
+        .arg("--override")
         .arg("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA=tests/fixtures/spl_token.so");
 
     let assert = cmd.assert().failure();

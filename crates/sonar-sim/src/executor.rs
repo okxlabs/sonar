@@ -16,7 +16,7 @@ use crate::error::{Result, SonarSimError};
 use crate::funding::{apply_sol_fundings, apply_token_fundings};
 use crate::svm_backend::SvmBackend;
 use crate::types::{
-    AccountDataPatch, AccountReplacement, PreparedTokenFunding, ResolvedAccounts, ReturnData,
+    AccountDataPatch, AccountOverride, PreparedTokenFunding, ResolvedAccounts, ReturnData,
     SimulationMetadata, SolFunding,
 };
 
@@ -62,7 +62,7 @@ pub struct ExecutionOptions {
 /// Pre-simulation mutations applied to the account set before execution.
 #[derive(Debug, Clone, Default)]
 pub struct StateMutationOptions {
-    pub replacements: Vec<AccountReplacement>,
+    pub overrides: Vec<AccountOverride>,
     pub sol_fundings: Vec<SolFunding>,
     pub token_fundings: Vec<PreparedTokenFunding>,
     pub data_patches: Vec<AccountDataPatch>,
@@ -110,8 +110,8 @@ impl SimulationOptionsBuilder {
         self
     }
 
-    pub fn replacements(mut self, replacements: Vec<AccountReplacement>) -> Self {
-        self.opts.mutations.replacements = replacements;
+    pub fn overrides(mut self, overrides: Vec<AccountOverride>) -> Self {
+        self.opts.mutations.overrides = overrides;
         self
     }
 
@@ -142,7 +142,7 @@ impl StateMutationOptions {
         svm: &mut B,
         resolved: &ResolvedAccounts,
     ) -> Result<()> {
-        apply_replacements(svm, &self.replacements, resolved)?;
+        apply_overrides(svm, &self.overrides, resolved)?;
         apply_sol_fundings(svm, &self.sol_fundings)?;
         apply_data_patches(svm, &self.data_patches)?;
         apply_token_fundings(svm, &self.token_fundings, resolved)?;
@@ -171,19 +171,19 @@ pub fn load_accounts<B: SvmBackend + ?Sized>(
     Ok(())
 }
 
-/// Apply program (.so) and account (.json) replacements into SVM.
-pub fn apply_replacements<B: SvmBackend + ?Sized>(
+/// Apply program (.so) and account (.json) overrides into SVM.
+pub fn apply_overrides<B: SvmBackend + ?Sized>(
     svm: &mut B,
-    replacements: &[AccountReplacement],
+    overrides: &[AccountOverride],
     resolved: &ResolvedAccounts,
 ) -> Result<()> {
-    for replacement in replacements {
-        match replacement {
-            AccountReplacement::Program { program_id, so_path } => {
+    for entry in overrides {
+        match entry {
+            AccountOverride::Program { program_id, so_path } => {
                 if let Some(existing) = resolved.accounts.get(program_id) {
                     if !existing.executable() {
                         warn!(
-                            "--replace target {} does not appear to be a program on-chain. Loading .so file anyway.",
+                            "--override target {} does not appear to be a program on-chain. Loading .so file anyway.",
                             program_id
                         );
                     }
@@ -192,7 +192,7 @@ pub fn apply_replacements<B: SvmBackend + ?Sized>(
                 svm.add_program_from_file(*program_id, so_path).map_err(|e| {
                     SonarSimError::Svm {
                         reason: format!(
-                            "Failed to load replacement program `{}`, path: {}: {}",
+                            "Failed to load override program `{}`, path: {}: {}",
                             program_id,
                             so_path.display(),
                             e
@@ -200,11 +200,11 @@ pub fn apply_replacements<B: SvmBackend + ?Sized>(
                     }
                 })?;
             }
-            AccountReplacement::Account { pubkey, account, source_path } => {
+            AccountOverride::Account { pubkey, account, source_path } => {
                 if let Some(existing) = resolved.accounts.get(pubkey) {
                     if existing.executable() {
                         warn!(
-                            "--replace target {} appears to be a program on-chain, but replacing as a regular account from JSON file.",
+                            "--override target {} appears to be a program on-chain, but overriding as a regular account from JSON file.",
                             pubkey
                         );
                     }
@@ -212,7 +212,7 @@ pub fn apply_replacements<B: SvmBackend + ?Sized>(
                 info!("Loading custom account {} => {}", pubkey, source_path.display());
                 svm.set_account(*pubkey, account.clone()).map_err(|e| SonarSimError::Svm {
                     reason: format!(
-                        "Failed to set replacement account `{}`, path: {}: {}",
+                        "Failed to set override account `{}`, path: {}: {}",
                         pubkey,
                         source_path.display(),
                         e
@@ -341,8 +341,8 @@ impl<B: SvmBackend> PreparedSimulation<B> {
         &self.resolved
     }
 
-    pub fn replacements(&self) -> &[AccountReplacement] {
-        &self.record.replacements
+    pub fn overrides(&self) -> &[AccountOverride] {
+        &self.record.overrides
     }
 
     pub fn sol_fundings(&self) -> &[SolFunding] {
@@ -452,8 +452,8 @@ impl<B: SvmBackend> SimulationRunner<B> {
         &self.resolved
     }
 
-    pub fn replacements(&self) -> &[AccountReplacement] {
-        &self.record.replacements
+    pub fn overrides(&self) -> &[AccountOverride] {
+        &self.record.overrides
     }
 
     pub fn sol_fundings(&self) -> &[SolFunding] {
@@ -748,7 +748,7 @@ mod tests {
     }
 
     #[test]
-    fn pipeline_apply_replacements_account() {
+    fn pipeline_apply_overrides_account() {
         let mut svm = new_svm();
         let key = Pubkey::new_unique();
 
@@ -759,7 +759,7 @@ mod tests {
             executable: false,
             rent_epoch: 0,
         });
-        let replacement_account = Account {
+        let override_account = Account {
             lamports: 999,
             data: vec![42],
             owner: solana_sdk_ids::system_program::id(),
@@ -773,12 +773,12 @@ mod tests {
 
         load_accounts(&mut svm, &resolved).unwrap();
 
-        let replacements = vec![AccountReplacement::Account {
+        let overrides = vec![AccountOverride::Account {
             pubkey: key,
-            account: replacement_account,
+            account: override_account,
             source_path: std::path::PathBuf::from("test.json"),
         }];
-        apply_replacements(&mut svm, &replacements, &resolved).expect("should apply replacement");
+        apply_overrides(&mut svm, &overrides, &resolved).expect("should apply override");
 
         let loaded = svm.get_account(&key).expect("key should exist");
         assert_eq!(loaded.lamports, 999);

@@ -60,7 +60,7 @@ pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
     let SimulateArgs {
         transaction,
         rpc,
-        replacements: replacement_args,
+        overrides: override_args,
         fundings: funding_args,
         token_fundings: token_funding_args,
         ix_account_patches: ix_account_patch_args,
@@ -85,9 +85,9 @@ pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
 
     let TransactionInputArgs { tx, json } = transaction;
 
-    let replacements = replacement_args
+    let overrides = override_args
         .into_iter()
-        .map(|raw| cli::parse_replacement(&raw).map_err(anyhow::Error::msg))
+        .map(|raw| cli::parse_override(&raw).map_err(anyhow::Error::msg))
         .collect::<Result<Vec<_>>>()?;
 
     let sol_fundings = funding_args
@@ -139,7 +139,7 @@ pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
                 timestamp,
             },
             mutations: StateMutationOptions {
-                replacements,
+                overrides,
                 sol_fundings,
                 data_patches,
                 ..Default::default()
@@ -193,7 +193,7 @@ pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
     )?;
 
     warn_unmatched_addresses(
-        &replacements,
+        &overrides,
         &sol_fundings,
         &token_funding_requests,
         &[&parsed_tx],
@@ -244,7 +244,7 @@ pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
             timestamp,
         },
         mutations: StateMutationOptions {
-            replacements,
+            overrides,
             sol_fundings,
             token_fundings: prepared_token_fundings,
             data_patches,
@@ -267,7 +267,7 @@ pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
         &parsed_tx,
         runner.resolved_accounts(),
         &simulation,
-        runner.replacements(),
+        runner.overrides(),
         runner.sol_fundings(),
         runner.token_fundings(),
         &mut parser_registry,
@@ -327,7 +327,7 @@ fn handle_bundle(
 
     let parsed_tx_refs: Vec<_> = parsed_txs.iter().collect();
     warn_unmatched_addresses(
-        &sim_opts.mutations.replacements,
+        &sim_opts.mutations.overrides,
         &sim_opts.mutations.sol_fundings,
         &token_funding_requests,
         &parsed_tx_refs,
@@ -420,7 +420,7 @@ fn handle_bundle(
         total_tx_count,
         runner.resolved_accounts(),
         &simulations,
-        runner.replacements(),
+        runner.overrides(),
         runner.sol_fundings(),
         runner.token_fundings(),
         parser_registry,

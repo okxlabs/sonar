@@ -13,7 +13,7 @@ use crate::parsers::instruction::{
     ParsedInstruction, ParserRegistry, anchor_idl::is_anchor_cpi_event,
 };
 use sonar_sim::{
-    AccountReplacement, ExecutionStatus, PreparedTokenFunding, ResolvedAccounts, ResolvedLookup,
+    AccountOverride, ExecutionStatus, PreparedTokenFunding, ResolvedAccounts, ResolvedLookup,
     SimulationMetadata, SimulationResult, SolFunding, compute_sol_changes, compute_token_changes,
     extract_mint_decimals_combined,
 };
@@ -24,7 +24,7 @@ use super::BalanceChangeOptions;
 pub(super) struct Report {
     pub(super) transaction: TransactionSection,
     pub(super) simulation: SimulationSection,
-    replacements: Vec<AccountReplacementSection>,
+    overrides: Vec<AccountOverrideSection>,
     fundings: Vec<SolFundingSection>,
     token_fundings: Vec<TokenSolFundingSection>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -58,7 +58,7 @@ pub(super) struct TokenBalanceChangeSection {
 #[derive(Serialize)]
 pub(super) struct BundleReport {
     pub(super) transactions: Vec<BundleTransactionReport>,
-    replacements: Vec<AccountReplacementSection>,
+    overrides: Vec<AccountOverrideSection>,
     fundings: Vec<SolFundingSection>,
     token_fundings: Vec<TokenSolFundingSection>,
     /// SOL balance changes for the entire bundle (first tx pre -> last tx post)
@@ -82,7 +82,7 @@ impl BundleReport {
         parsed_txs: &[ParsedTransaction],
         resolved: &ResolvedAccounts,
         simulations: &[SimulationResult],
-        replacements: &[AccountReplacement],
+        overrides: &[AccountOverride],
         fundings: &[SolFunding],
         token_fundings: &[PreparedTokenFunding],
         parser_registry: &mut ParserRegistry,
@@ -109,7 +109,7 @@ impl BundleReport {
             })
             .collect();
 
-        let replacements = replacements.iter().map(replacement_to_section).collect();
+        let overrides = overrides.iter().map(override_to_section).collect();
 
         let fundings = fundings
             .iter()
@@ -140,7 +140,7 @@ impl BundleReport {
 
         Self {
             transactions,
-            replacements,
+            overrides,
             fundings,
             token_fundings,
             sol_balance_changes,
@@ -155,7 +155,7 @@ impl Report {
         parsed: &ParsedTransaction,
         resolved: &ResolvedAccounts,
         simulation: &SimulationResult,
-        replacements: &[AccountReplacement],
+        overrides: &[AccountOverride],
         fundings: &[SolFunding],
         token_fundings: &[PreparedTokenFunding],
         parser_registry: &mut ParserRegistry,
@@ -171,7 +171,7 @@ impl Report {
             verify_signatures,
         );
         let simulation_section = SimulationSection::from_result(simulation);
-        let replacements = replacements.iter().map(replacement_to_section).collect();
+        let overrides = overrides.iter().map(override_to_section).collect();
         let (sol_balance_changes, token_balance_changes) =
             if matches!(simulation.status, ExecutionStatus::Succeeded)
                 && balance_opts.show_balance_change
@@ -202,7 +202,7 @@ impl Report {
         Self {
             transaction,
             simulation: simulation_section,
-            replacements,
+            overrides,
             fundings,
             token_fundings,
             sol_balance_changes,
@@ -807,9 +807,9 @@ struct TokenSolFundingSection {
 }
 
 #[derive(Serialize)]
-struct AccountReplacementSection {
+struct AccountOverrideSection {
     #[serde(rename = "type")]
-    replacement_type: String,
+    override_type: String,
     pubkey: String,
     path: String,
 }
@@ -818,15 +818,15 @@ fn serialize_bytes_as_hex<S: Serializer>(bytes: &[u8], serializer: S) -> Result<
     serializer.serialize_str(&format!("0x{}", hex::encode(bytes)))
 }
 
-fn replacement_to_section(entry: &AccountReplacement) -> AccountReplacementSection {
+fn override_to_section(entry: &AccountOverride) -> AccountOverrideSection {
     match entry {
-        AccountReplacement::Program { program_id, so_path } => AccountReplacementSection {
-            replacement_type: "program".to_string(),
+        AccountOverride::Program { program_id, so_path } => AccountOverrideSection {
+            override_type: "program".to_string(),
             pubkey: program_id.to_string(),
             path: so_path.display().to_string(),
         },
-        AccountReplacement::Account { pubkey, source_path, .. } => AccountReplacementSection {
-            replacement_type: "account".to_string(),
+        AccountOverride::Account { pubkey, source_path, .. } => AccountOverrideSection {
+            override_type: "account".to_string(),
             pubkey: pubkey.to_string(),
             path: source_path.display().to_string(),
         },

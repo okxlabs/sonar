@@ -5,16 +5,16 @@ use solana_account::{Account, AccountSharedData};
 use solana_pubkey::Pubkey;
 
 #[derive(Clone, Debug)]
-pub enum AccountReplacement {
+pub enum AccountOverride {
     Program { program_id: Pubkey, so_path: PathBuf },
     Account { pubkey: Pubkey, account: Account, source_path: PathBuf },
 }
 
-impl AccountReplacement {
+impl AccountOverride {
     pub fn pubkey(&self) -> Pubkey {
         match self {
-            AccountReplacement::Program { program_id, .. } => *program_id,
-            AccountReplacement::Account { pubkey, .. } => *pubkey,
+            AccountOverride::Program { program_id, .. } => *program_id,
+            AccountOverride::Account { pubkey, .. } => *pubkey,
         }
     }
 }

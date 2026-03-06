@@ -9,7 +9,7 @@ A CLI tool for local Solana transaction simulation (LiteSVM) plus common develop
 - Local simulation without deploying programs
 - Parse raw tx (`base58`/`base64`) or fetch by signature (signature input prefers local cache before RPC)
 - Simulate bundles (multiple transactions in one run)
-- Replace program/account data with local files
+- Override program/account data with local files
 - Fund SOL or token accounts before simulation
 - Patch account data; override timestamp and slot
 - Cache accounts for offline replay (`--cache` stores to `~/.sonar/cache/`; replay without RPC when cache is complete)
@@ -96,20 +96,20 @@ sonar simulate <TX> --rpc-url <RPC_URL> -b -d
 sonar simulate <TX> --rpc-url <RPC_URL> --json
 ```
 
-#### Program & Account Replacement
+#### Program & Account Override
 
-Replace on-chain programs or accounts with local files for testing:
+Override on-chain programs or accounts with local files for testing:
 
 ```bash
-# Replace a program with a local .so file
+# Override a program with a local .so file
 sonar simulate <TX> \
   --rpc-url https://api.mainnet-beta.solana.com \
-  --replace TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA=./custom_token.so
+  --override TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA=./custom_token.so
 
-# Replace an account with a local .json file
+# Override an account with a local .json file
 sonar simulate <TX> \
   --rpc-url https://api.mainnet-beta.solana.com \
-  --replace <PUBKEY>=./account.json
+  --override <PUBKEY>=./account.json
 ```
 
 #### Account Funding
@@ -616,7 +616,7 @@ Sonar routes all diagnostics through the `log` crate (backend: `env_logger`).
 | Level    | Default visibility | Examples |
 |----------|--------------------|----------|
 | `error`  | shown | Fatal errors, IDL fetch failures |
-| `warn`   | shown | Unused `--replace`/`--fund-*` addresses, offline-mode missing accounts, config-file parse errors |
+| `warn`   | shown | Unused `--override`/`--fund-*` addresses, offline-mode missing accounts, config-file parse errors |
 | `info`   | hidden | IDL sync progress, summary counts |
 | `debug`  | hidden | IDL parser loading, cache key derivation |
 | `trace`  | hidden | RPC request/response details |
