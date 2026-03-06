@@ -42,6 +42,14 @@ pub struct InstructionAccountSwap {
     pub writable: bool,
 }
 
+#[derive(Clone, Debug)]
+pub struct InstructionAccountAppend {
+    pub instruction_index: usize,
+    pub new_pubkey: Pubkey,
+    /// Whether the appended account should be writable. Default: `true`.
+    pub writable: bool,
+}
+
 #[derive(Debug, Clone)]
 pub struct ResolvedAccounts {
     pub accounts: HashMap<Pubkey, AccountSharedData>,

@@ -4,8 +4,8 @@ mod simulation;
 mod traits;
 
 pub use accounts::{
-    AccountDataPatch, AccountReplacement, InstructionAccountSwap, InstructionDataPatch,
-    ResolvedAccounts, ResolvedLookup,
+    AccountDataPatch, AccountReplacement, InstructionAccountAppend, InstructionAccountSwap,
+    InstructionDataPatch, ResolvedAccounts, ResolvedLookup,
 };
 pub use funding::{PreparedTokenFunding, SolFunding, TokenAmount, TokenFunding};
 pub use simulation::{ReturnData, SimulationMetadata};

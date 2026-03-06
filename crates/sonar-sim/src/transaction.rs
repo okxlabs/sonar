@@ -248,6 +248,93 @@ pub fn apply_ix_account_swaps(
     Ok(MessageAccountPlan::from_transaction(tx))
 }
 
+/// Append accounts to the end of specific instructions' account lists.
+///
+/// Returns the updated `MessageAccountPlan` reflecting any newly appended keys.
+/// Uses the same key-insertion logic as `apply_ix_account_swaps`:
+/// writable keys are inserted before the read-only section; read-only keys
+/// are appended at the end.
+pub fn apply_ix_account_appends(
+    tx: &mut VersionedTransaction,
+    appends: &[crate::types::InstructionAccountAppend],
+) -> Result<MessageAccountPlan> {
+    for append in appends {
+        let instructions = tx.message.instructions();
+        if append.instruction_index >= instructions.len() {
+            return Err(SonarSimError::Validation {
+                reason: format!(
+                    "Instruction index {} is out of range (transaction has {} instructions)",
+                    append.instruction_index,
+                    instructions.len()
+                ),
+            });
+        }
+
+        // Find or insert the new pubkey in the static account keys
+        let account_keys = match &tx.message {
+            VersionedMessage::Legacy(m) => &m.account_keys,
+            VersionedMessage::V0(m) => &m.account_keys,
+        };
+        let new_index =
+            if let Some(pos) = account_keys.iter().position(|k| *k == append.new_pubkey) {
+                ensure_account_writability(&mut tx.message, pos, append.writable)
+            } else {
+                let total = account_keys.len();
+                if total > u8::MAX as usize {
+                    return Err(SonarSimError::Validation {
+                        reason: "Cannot add more account keys: would exceed u8 index limit".into(),
+                    });
+                }
+                if append.writable {
+                    let readonly_unsigned =
+                        tx.message.header().num_readonly_unsigned_accounts as usize;
+                    let insert_pos = total - readonly_unsigned;
+                    match &mut tx.message {
+                        VersionedMessage::Legacy(m) => {
+                            m.account_keys.insert(insert_pos, append.new_pubkey);
+                            shift_indices(&mut m.instructions, insert_pos);
+                        }
+                        VersionedMessage::V0(m) => {
+                            m.account_keys.insert(insert_pos, append.new_pubkey);
+                            shift_indices(&mut m.instructions, insert_pos);
+                        }
+                    }
+                    insert_pos
+                } else {
+                    match &mut tx.message {
+                        VersionedMessage::Legacy(m) => {
+                            m.account_keys.push(append.new_pubkey);
+                            m.header.num_readonly_unsigned_accounts += 1;
+                            shift_indices(&mut m.instructions, total);
+                        }
+                        VersionedMessage::V0(m) => {
+                            m.account_keys.push(append.new_pubkey);
+                            m.header.num_readonly_unsigned_accounts += 1;
+                            shift_indices(&mut m.instructions, total);
+                        }
+                    }
+                    total
+                }
+            };
+
+        // Append the account index to the instruction's accounts list
+        match &mut tx.message {
+            VersionedMessage::Legacy(m) => {
+                m.instructions[append.instruction_index]
+                    .accounts
+                    .push(new_index as u8);
+            }
+            VersionedMessage::V0(m) => {
+                m.instructions[append.instruction_index]
+                    .accounts
+                    .push(new_index as u8);
+            }
+        }
+    }
+
+    Ok(MessageAccountPlan::from_transaction(tx))
+}
+
 /// Shift all instruction account indices and program_id_index values that are
 /// >= `insert_pos` by +1, to account for a key insertion in the account_keys vec.
 fn shift_indices(
@@ -788,6 +875,119 @@ mod tests {
         }];
         let err = apply_ix_data_patches(&mut tx, &patches).unwrap_err();
         assert!(err.to_string().contains("exceeds"));
+    }
+
+    #[test]
+    fn apply_ix_account_appends_writable() {
+        let (mut tx, _payer) = sample_transaction();
+        // sample tx: [payer(ws), recipient(wu), system_program(ru)]
+        // Instruction 0 accounts: [0, 1] with program_id_index=2
+        let new_key = Pubkey::new_unique();
+        let appends = vec![crate::types::InstructionAccountAppend {
+            instruction_index: 0,
+            new_pubkey: new_key,
+            writable: true,
+        }];
+        let plan = apply_ix_account_appends(&mut tx, &appends).unwrap();
+        // Writable key inserted at position 2 (before readonly system_program)
+        assert_eq!(plan.static_accounts.len(), 4);
+        assert_eq!(plan.static_accounts[2], new_key);
+        // The instruction should now have 3 accounts, with the new one appended
+        let ix = &tx.message.instructions()[0];
+        assert_eq!(ix.accounts.len(), 3);
+        assert_eq!(ix.accounts[2], 2); // new key at static index 2
+        // program_id_index should have shifted from 2 to 3
+        assert_eq!(ix.program_id_index, 3);
+    }
+
+    #[test]
+    fn apply_ix_account_appends_readonly() {
+        let (mut tx, _payer) = sample_transaction();
+        let new_key = Pubkey::new_unique();
+        let appends = vec![crate::types::InstructionAccountAppend {
+            instruction_index: 0,
+            new_pubkey: new_key,
+            writable: false,
+        }];
+        let plan = apply_ix_account_appends(&mut tx, &appends).unwrap();
+        // Read-only key appended at end (index 3)
+        assert_eq!(plan.static_accounts.len(), 4);
+        assert_eq!(plan.static_accounts[3], new_key);
+        let ix = &tx.message.instructions()[0];
+        assert_eq!(ix.accounts.len(), 3);
+        assert_eq!(ix.accounts[2], 3);
+        assert_eq!(tx.message.header().num_readonly_unsigned_accounts, 2);
+    }
+
+    #[test]
+    fn apply_ix_account_appends_reuses_existing_key() {
+        let (mut tx, payer) = sample_transaction();
+        let appends = vec![crate::types::InstructionAccountAppend {
+            instruction_index: 0,
+            new_pubkey: payer,
+            writable: true,
+        }];
+        let plan = apply_ix_account_appends(&mut tx, &appends).unwrap();
+        // No new key added
+        assert_eq!(plan.static_accounts.len(), 3);
+        let ix = &tx.message.instructions()[0];
+        assert_eq!(ix.accounts.len(), 3);
+        assert_eq!(ix.accounts[2], 0); // payer is at index 0
+    }
+
+    #[test]
+    fn apply_ix_account_appends_rejects_invalid_ix_index() {
+        let (mut tx, _) = sample_transaction();
+        let appends = vec![crate::types::InstructionAccountAppend {
+            instruction_index: 99,
+            new_pubkey: Pubkey::new_unique(),
+            writable: true,
+        }];
+        let err = apply_ix_account_appends(&mut tx, &appends).unwrap_err();
+        assert!(err.to_string().contains("out of range"));
+    }
+
+    #[test]
+    fn apply_ix_account_appends_multiple() {
+        let (mut tx, _payer) = sample_transaction();
+        let key1 = Pubkey::new_unique();
+        let key2 = Pubkey::new_unique();
+        let appends = vec![
+            crate::types::InstructionAccountAppend {
+                instruction_index: 0,
+                new_pubkey: key1,
+                writable: true,
+            },
+            crate::types::InstructionAccountAppend {
+                instruction_index: 0,
+                new_pubkey: key2,
+                writable: false,
+            },
+        ];
+        let plan = apply_ix_account_appends(&mut tx, &appends).unwrap();
+        assert_eq!(plan.static_accounts.len(), 5);
+        let ix = &tx.message.instructions()[0];
+        assert_eq!(ix.accounts.len(), 4); // original 2 + 2 appended
+    }
+
+    #[test]
+    fn apply_ix_account_appends_v0_writable_shifts_lookup_indices() {
+        let (mut tx, _payer) = sample_v0_transaction_with_lookup_accounts();
+        let new_key = Pubkey::new_unique();
+        let appends = vec![crate::types::InstructionAccountAppend {
+            instruction_index: 0,
+            new_pubkey: new_key,
+            writable: true,
+        }];
+        let plan = apply_ix_account_appends(&mut tx, &appends).unwrap();
+        // [payer, new_key, program] — new key inserted before readonly section
+        assert_eq!(plan.static_accounts.len(), 3);
+        assert_eq!(plan.static_accounts[1], new_key);
+        let ix = &tx.message.instructions()[0];
+        // Original accounts (2,3) shifted to (3,4), new key appended as account index 1
+        assert_eq!(ix.program_id_index, 2);
+        assert_eq!(ix.accounts.len(), 3);
+        assert_eq!(ix.accounts[2], 1); // appended account points to new_key
     }
 
     #[test]
