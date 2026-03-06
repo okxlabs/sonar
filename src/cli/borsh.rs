@@ -45,4 +45,7 @@ pub struct BorshSerArgs {
     pub type_str: String,
     /// JSON value to serialize. Reads from stdin if omitted.
     pub input: Option<String>,
+    /// Hex bytes to prepend to the output (e.g. a discriminator)
+    #[arg(long)]
+    pub prefix: Option<String>,
 }

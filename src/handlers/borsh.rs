@@ -56,7 +56,16 @@ fn handle_ser(args: BorshSerArgs) -> Result<()> {
 
     let bytes = encode_borsh(&ty, &value).context("failed to serialize to borsh")?;
 
-    println!("0x{}", hex::encode(&bytes));
+    let prefix_hex = match &args.prefix {
+        Some(p) => {
+            let p = p.strip_prefix("0x").or_else(|| p.strip_prefix("0X")).unwrap_or(p);
+            hex::decode(p).context("invalid --prefix hex")?;
+            p.to_owned()
+        }
+        None => String::new(),
+    };
+
+    println!("0x{}{}", prefix_hex, hex::encode(&bytes));
     Ok(())
 }
 

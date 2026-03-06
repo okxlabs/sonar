@@ -400,6 +400,10 @@ sonar borsh ser "result<u64,string>" '{"ok":42}'
 sonar borsh ser "{action:enum<(),u64,vec<u8>>,tags:vec<string>}" \
   '{"action":{"variant":2,"value":[1,2,3]},"tags":["alpha","beta"]}'
 
+# Prepend a hex prefix (e.g. an Anchor discriminator)
+sonar borsh ser --prefix 0xaf2083f50e3050c6 "{amount:u64}" '{"amount":42}'
+# → 0xaf2083f50e3050c62a00000000000000
+
 # Read from stdin
 echo '{"amount":100}' | sonar borsh ser "{amount:u64}"
 
