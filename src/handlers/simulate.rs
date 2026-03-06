@@ -71,6 +71,7 @@ pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
         cache_dir,
         refresh_cache,
         no_idl_fetch,
+        ix_account_appends: _ix_account_append_args,
     } = args;
     let rpc_url = rpc.rpc_url;
     let resolver_cache_root = Some(crate::core::cache::resolve_cache_dir(&cache_dir));

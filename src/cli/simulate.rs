@@ -66,6 +66,17 @@ pub struct SimulateArgs {
         value_parser = clap::builder::NonEmptyStringValueParser::new()
     )]
     pub ix_account_swaps: Vec<String>,
+    /// Append an account to the end of a specific instruction's account list.
+    /// Format: <IX>=<PUBKEY>[:<w|r>] (1-based instruction index)
+    /// Append :w (default) for writable, :r for read-only.
+    #[arg(
+        long = "append-ix-account",
+        help_heading = HELP_HEADING_STATE_PREPARATION,
+        value_name = "APPEND",
+        num_args = 1..,
+        value_parser = clap::builder::NonEmptyStringValueParser::new()
+    )]
+    pub ix_account_appends: Vec<String>,
     /// Patch bytes in an instruction's data field before simulation.
     /// Format: <IX>=<OFFSET>:<HEX_DATA> (1-based instruction index)
     /// HEX_DATA may optionally start with 0x.
@@ -163,8 +174,8 @@ pub struct TransactionInputArgs {
 }
 
 pub use sonar_sim::{
-    AccountDataPatch, AccountReplacement, InstructionAccountSwap, InstructionDataPatch, SolFunding,
-    TokenAmount, TokenFunding,
+    AccountDataPatch, AccountReplacement, InstructionAccountAppend, InstructionAccountSwap,
+    InstructionDataPatch, SolFunding, TokenAmount, TokenFunding,
 };
 
 pub fn parse_replacement(raw: &str) -> Result<AccountReplacement, String> {
@@ -350,6 +361,36 @@ pub fn parse_ix_account_swap(raw: &str) -> Result<InstructionAccountSwap, String
     Ok(InstructionAccountSwap {
         instruction_index: ix_1based - 1,
         account_position: pos_1based - 1,
+        new_pubkey,
+        writable,
+    })
+}
+
+pub fn parse_ix_account_append(raw: &str) -> Result<InstructionAccountAppend, String> {
+    let (ix_str, value_str) = raw.split_once('=').ok_or_else(|| {
+        "Append must be in <IX>=<PUBKEY>[:<w|r>] format (1-based instruction index)".to_string()
+    })?;
+    let ix_1based: usize = ix_str
+        .trim()
+        .parse()
+        .map_err(|err| format!("Failed to parse instruction index `{ix_str}`: {err}"))?;
+    if ix_1based == 0 {
+        return Err("Instruction index is 1-based and must be >= 1".to_string());
+    }
+
+    let value_str = value_str.trim();
+    let (pubkey_str, writable) = if let Some(pk) = value_str.strip_suffix(":w") {
+        (pk, true)
+    } else if let Some(pk) = value_str.strip_suffix(":r") {
+        (pk, false)
+    } else {
+        (value_str, true)
+    };
+
+    let new_pubkey = Pubkey::from_str(pubkey_str)
+        .map_err(|err| format!("Failed to parse pubkey `{pubkey_str}`: {err}"))?;
+    Ok(InstructionAccountAppend {
+        instruction_index: ix_1based - 1,
         new_pubkey,
         writable,
     })
@@ -1075,6 +1116,91 @@ mod tests {
             panic!("expected simulate subcommand");
         };
         assert_eq!(args.ix_data_patches.len(), 2);
+    }
+
+    #[test]
+    fn parse_ix_account_append_valid_writable() {
+        let key = Pubkey::new_unique();
+        let input = format!("1={key}");
+        let parsed = parse_ix_account_append(&input).expect("parses");
+        assert_eq!(parsed.instruction_index, 0); // 1-based → 0-based
+        assert_eq!(parsed.new_pubkey, key);
+        assert!(parsed.writable);
+    }
+
+    #[test]
+    fn parse_ix_account_append_readonly_suffix() {
+        let key = Pubkey::new_unique();
+        let input = format!("2={key}:r");
+        let parsed = parse_ix_account_append(&input).expect("parses");
+        assert_eq!(parsed.instruction_index, 1);
+        assert!(!parsed.writable);
+    }
+
+    #[test]
+    fn parse_ix_account_append_writable_suffix() {
+        let key = Pubkey::new_unique();
+        let input = format!("1={key}:w");
+        let parsed = parse_ix_account_append(&input).expect("parses");
+        assert!(parsed.writable);
+    }
+
+    #[test]
+    fn parse_ix_account_append_rejects_zero_index() {
+        let key = Pubkey::new_unique();
+        let err = parse_ix_account_append(&format!("0={key}")).unwrap_err();
+        assert!(err.contains("1-based"));
+    }
+
+    #[test]
+    fn parse_ix_account_append_rejects_missing_equals() {
+        let err = parse_ix_account_append("1").unwrap_err();
+        assert!(err.contains("format"));
+    }
+
+    #[test]
+    fn parse_ix_account_append_rejects_invalid_pubkey() {
+        let err = parse_ix_account_append("1=notakey").unwrap_err();
+        assert!(err.contains("Failed to parse pubkey"));
+    }
+
+    #[test]
+    fn simulate_accepts_append_ix_account_flag() {
+        let key = Pubkey::new_unique();
+        let cli = Cli::try_parse_from([
+            "sonar",
+            "simulate",
+            "1111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+            "--append-ix-account",
+            &format!("1={key}"),
+        ])
+        .expect("should parse --append-ix-account");
+
+        let Some(Commands::Simulate(args)) = cli.command else {
+            panic!("expected simulate subcommand");
+        };
+        assert_eq!(args.ix_account_appends.len(), 1);
+    }
+
+    #[test]
+    fn simulate_accepts_append_ix_account_multiple() {
+        let key1 = Pubkey::new_unique();
+        let key2 = Pubkey::new_unique();
+        let cli = Cli::try_parse_from([
+            "sonar",
+            "simulate",
+            "1111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+            "--append-ix-account",
+            &format!("1={key1}"),
+            "--append-ix-account",
+            &format!("2={key2}:r"),
+        ])
+        .expect("should parse --append-ix-account multiple times");
+
+        let Some(Commands::Simulate(args)) = cli.command else {
+            panic!("expected simulate subcommand");
+        };
+        assert_eq!(args.ix_account_appends.len(), 2);
     }
 
     #[test]
