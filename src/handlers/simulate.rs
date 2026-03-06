@@ -13,6 +13,32 @@ use sonar_sim::{
 
 use super::{prepare_accounts_and_idls, resolve_inputs_to_txs, warn_unmatched_addresses};
 
+/// Apply instruction-level mutations (account swaps, data patches) and rebuild
+/// the transaction summary so the renderer sees the updated state.
+fn apply_ix_mutations(
+    parsed_tx: &mut transaction::ParsedTransaction,
+    ix_account_swaps: &[sonar_sim::InstructionAccountSwap],
+    ix_data_patches: &[sonar_sim::InstructionDataPatch],
+) -> Result<()> {
+    if !ix_account_swaps.is_empty() {
+        parsed_tx.account_plan =
+            apply_ix_account_swaps(&mut parsed_tx.transaction, ix_account_swaps)
+                .context("Failed to apply instruction account swaps")?;
+    }
+    if !ix_data_patches.is_empty() {
+        apply_ix_data_patches(&mut parsed_tx.transaction, ix_data_patches)
+            .context("Failed to apply instruction data patches")?;
+    }
+    if !ix_account_swaps.is_empty() || !ix_data_patches.is_empty() {
+        parsed_tx.summary = transaction::TransactionSummary::from_transaction(
+            &parsed_tx.transaction,
+            &parsed_tx.account_plan,
+            Vec::new(),
+        );
+    }
+    Ok(())
+}
+
 fn cache_read_dir(cache_dir: Option<PathBuf>, refresh_cache: bool) -> Option<PathBuf> {
     if refresh_cache { None } else { cache_dir }
 }
@@ -135,15 +161,7 @@ pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
     let resolved_from = resolved_input.source.as_str().to_string();
     let mut parsed_tx = resolved_input.parsed_tx;
 
-    if !ix_account_swaps.is_empty() {
-        parsed_tx.account_plan =
-            apply_ix_account_swaps(&mut parsed_tx.transaction, &ix_account_swaps)
-                .context("Failed to apply instruction account swaps")?;
-    }
-    if !ix_data_patches.is_empty() {
-        apply_ix_data_patches(&mut parsed_tx.transaction, &ix_data_patches)
-            .context("Failed to apply instruction data patches")?;
-    }
+    apply_ix_mutations(&mut parsed_tx, &ix_account_swaps, &ix_data_patches)?;
 
     let cache_key = crate::core::cache::derive_cache_key_single(&raw_input, &parsed_tx.transaction);
     let (tx_cache_dir, offline) =
@@ -272,18 +290,8 @@ fn handle_bundle(
     let mut parsed_txs: Vec<_> = resolved_txs.iter().map(|tx| tx.parsed_tx.clone()).collect();
     log::info!("Successfully parsed {} transactions", parsed_txs.len());
 
-    if !ix_account_swaps.is_empty() {
-        for parsed_tx in &mut parsed_txs {
-            parsed_tx.account_plan =
-                apply_ix_account_swaps(&mut parsed_tx.transaction, &ix_account_swaps)
-                    .context("Failed to apply instruction account swaps")?;
-        }
-    }
-    if !ix_data_patches.is_empty() {
-        for parsed_tx in &mut parsed_txs {
-            apply_ix_data_patches(&mut parsed_tx.transaction, &ix_data_patches)
-                .context("Failed to apply instruction data patches")?;
-        }
+    for parsed_tx in &mut parsed_txs {
+        apply_ix_mutations(parsed_tx, &ix_account_swaps, &ix_data_patches)?;
     }
 
     let cache_key = crate::core::cache::derive_cache_key_bundle(&tx_inputs, &parsed_txs);
