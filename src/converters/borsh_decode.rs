@@ -111,11 +111,38 @@ pub fn decode_borsh(ty: &BorshType, data: &[u8], offset: &mut usize) -> Result<V
             Ok(Value::Array(items))
         }
         BorshType::Unit => Ok(Value::Null),
-        BorshType::Enum(_variants) => {
-            anyhow::bail!("enum decoding not yet implemented")
+        BorshType::Enum(variants) => {
+            let tag = read_bytes(data, offset, 1, "enum variant index")?;
+            let idx = tag[0] as usize;
+            if idx >= variants.len() {
+                bail!(
+                    "enum variant index {idx} out of range (0..{}) at byte offset {}",
+                    variants.len(),
+                    *offset - 1
+                );
+            }
+            let variant_ty = &variants[idx];
+            if matches!(variant_ty, BorshType::Unit) {
+                Ok(serde_json::json!({ "variant": idx }))
+            } else {
+                let value = decode_borsh(variant_ty, data, offset)
+                    .with_context(|| format!("in enum variant {idx}"))?;
+                Ok(serde_json::json!({ "variant": idx, "value": value }))
+            }
         }
-        BorshType::Result(_ok, _err) => {
-            anyhow::bail!("result decoding not yet implemented")
+        BorshType::Result(ok_ty, err_ty) => {
+            let tag = read_bytes(data, offset, 1, "result tag")?;
+            match tag[0] {
+                0 => {
+                    let value = decode_borsh(ok_ty, data, offset).context("in result ok")?;
+                    Ok(serde_json::json!({ "ok": value }))
+                }
+                1 => {
+                    let value = decode_borsh(err_ty, data, offset).context("in result err")?;
+                    Ok(serde_json::json!({ "err": value }))
+                }
+                other => bail!("invalid result tag {other} at byte offset {}", *offset - 1),
+            }
         }
     }
 }
@@ -261,6 +288,64 @@ mod tests {
     #[test]
     fn decode_invalid_bool() {
         let ty = super::super::borsh_type::parse_borsh_type("bool").unwrap();
+        let data = vec![0x02];
+        let mut offset = 0;
+        assert!(decode_borsh(&ty, &data, &mut offset).is_err());
+    }
+
+    #[test]
+    fn decode_unit() {
+        let ty = super::super::borsh_type::parse_borsh_type("()").unwrap();
+        let data = vec![];
+        let mut offset = 0;
+        let val = decode_borsh(&ty, &data, &mut offset).unwrap();
+        assert_eq!(val, json!(null));
+        assert_eq!(offset, 0);
+    }
+
+    #[test]
+    fn decode_enum_variant0_unit() {
+        // enum<(), u64> — variant 0 (unit payload)
+        assert_eq!(decode("enum<(),u64>", "00"), json!({"variant": 0}));
+    }
+
+    #[test]
+    fn decode_enum_variant1_u64() {
+        // enum<(), u64> — variant 1 with u64 value = 42
+        assert_eq!(
+            decode("enum<(),u64>", "012a00000000000000"),
+            json!({"variant": 1, "value": 42})
+        );
+    }
+
+    #[test]
+    fn decode_enum_invalid_variant() {
+        let ty = super::super::borsh_type::parse_borsh_type("enum<(),u64>").unwrap();
+        let data = vec![0x05]; // variant index 5, out of range
+        let mut offset = 0;
+        assert!(decode_borsh(&ty, &data, &mut offset).is_err());
+    }
+
+    #[test]
+    fn decode_result_ok() {
+        assert_eq!(
+            decode("result<u64,string>", "002a00000000000000"),
+            json!({"ok": 42})
+        );
+    }
+
+    #[test]
+    fn decode_result_err() {
+        // err variant (1) + string "fail" (len=4 + bytes)
+        assert_eq!(
+            decode("result<u64,string>", "01040000006661696c"),
+            json!({"err": "fail"})
+        );
+    }
+
+    #[test]
+    fn decode_result_invalid_tag() {
+        let ty = super::super::borsh_type::parse_borsh_type("result<u64,string>").unwrap();
         let data = vec![0x02];
         let mut offset = 0;
         assert!(decode_borsh(&ty, &data, &mut offset).is_err());
