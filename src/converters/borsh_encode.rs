@@ -147,12 +147,53 @@ fn encode_into(ty: &BorshType, value: &Value, buf: &mut Vec<u8>) -> Result<()> {
                     .with_context(|| format!("in tuple element [{i}]"))?;
             }
         }
-        BorshType::Unit => { /* nothing to encode */ }
-        BorshType::Enum(_variants) => {
-            anyhow::bail!("enum encoding not yet implemented");
+        BorshType::Unit => {
+            if !value.is_null() {
+                bail!("expected null for unit type, got {}", value_type_name(value));
+            }
+            // Unit encodes to zero bytes
         }
-        BorshType::Result(_ok, _err) => {
-            anyhow::bail!("result encoding not yet implemented");
+        BorshType::Enum(variants) => {
+            let obj = value.as_object().ok_or_else(|| {
+                anyhow::anyhow!("expected object with \"variant\" field for enum, got {}", value_type_name(value))
+            })?;
+            let idx = obj
+                .get("variant")
+                .and_then(|v| v.as_u64())
+                .ok_or_else(|| anyhow::anyhow!("enum object must have a numeric \"variant\" field"))?
+                as usize;
+            if idx >= variants.len() {
+                bail!(
+                    "enum variant index {idx} out of range (0..{})",
+                    variants.len()
+                );
+            }
+            if idx > u8::MAX as usize {
+                bail!("enum variant index {idx} exceeds u8 max (255)");
+            }
+            buf.push(idx as u8);
+            let variant_ty = &variants[idx];
+            if !matches!(variant_ty, BorshType::Unit) {
+                let payload = obj.get("value").ok_or_else(|| {
+                    anyhow::anyhow!("enum variant {idx} requires a \"value\" field")
+                })?;
+                encode_into(variant_ty, payload, buf)
+                    .with_context(|| format!("in enum variant {idx}"))?;
+            }
+        }
+        BorshType::Result(ok_ty, err_ty) => {
+            let obj = value.as_object().ok_or_else(|| {
+                anyhow::anyhow!("expected object with \"ok\" or \"err\" field for result, got {}", value_type_name(value))
+            })?;
+            if let Some(ok_val) = obj.get("ok") {
+                buf.push(0);
+                encode_into(ok_ty, ok_val, buf).context("in result ok")?;
+            } else if let Some(err_val) = obj.get("err") {
+                buf.push(1);
+                encode_into(err_ty, err_val, buf).context("in result err")?;
+            } else {
+                bail!("result object must have either \"ok\" or \"err\" field");
+            }
         }
     }
     Ok(())
@@ -369,6 +410,94 @@ mod tests {
 
         let ty = super::super::borsh_type::parse_borsh_type("(u64,bool,vec<u32>)").unwrap();
         let original = json!([42, true, [1, 2, 3]]);
+        let encoded = encode_borsh(&ty, &original).unwrap();
+        let mut offset = 0;
+        let decoded = decode_borsh(&ty, &encoded, &mut offset).unwrap();
+        assert_eq!(decoded, original);
+        assert_eq!(offset, encoded.len());
+    }
+
+    #[test]
+    fn encode_unit() {
+        assert_eq!(encode("()", json!(null)), Vec::<u8>::new());
+    }
+
+    #[test]
+    fn encode_enum_unit_variant() {
+        // enum<(), u64> — variant 0 (unit)
+        assert_eq!(encode("enum<(),u64>", json!({"variant": 0})), vec![0x00]);
+    }
+
+    #[test]
+    fn encode_enum_data_variant() {
+        // enum<(), u64> — variant 1 with value 42
+        let mut expected = vec![0x01];
+        expected.extend_from_slice(&42u64.to_le_bytes());
+        assert_eq!(
+            encode("enum<(),u64>", json!({"variant": 1, "value": 42})),
+            expected
+        );
+    }
+
+    #[test]
+    fn encode_enum_invalid_variant_index() {
+        let ty = super::super::borsh_type::parse_borsh_type("enum<(),u64>").unwrap();
+        assert!(encode_borsh(&ty, &json!({"variant": 5})).is_err());
+    }
+
+    #[test]
+    fn encode_enum_missing_variant_field() {
+        let ty = super::super::borsh_type::parse_borsh_type("enum<(),u64>").unwrap();
+        assert!(encode_borsh(&ty, &json!({"value": 42})).is_err());
+    }
+
+    #[test]
+    fn encode_result_ok() {
+        let mut expected = vec![0x00];
+        expected.extend_from_slice(&42u64.to_le_bytes());
+        assert_eq!(
+            encode("result<u64,string>", json!({"ok": 42})),
+            expected
+        );
+    }
+
+    #[test]
+    fn encode_result_err() {
+        let mut expected = vec![0x01];
+        expected.extend_from_slice(&4u32.to_le_bytes()); // string length
+        expected.extend_from_slice(b"fail");
+        assert_eq!(
+            encode("result<u64,string>", json!({"err": "fail"})),
+            expected
+        );
+    }
+
+    #[test]
+    fn encode_result_ambiguous() {
+        let ty = super::super::borsh_type::parse_borsh_type("result<u64,string>").unwrap();
+        // Neither "ok" nor "err"
+        assert!(encode_borsh(&ty, &json!({"foo": 1})).is_err());
+    }
+
+    #[test]
+    fn roundtrip_enum() {
+        use super::super::borsh_decode::decode_borsh;
+
+        let ty = super::super::borsh_type::parse_borsh_type("enum<(),u64,(u32,bool)>").unwrap();
+        let original = json!({"variant": 2, "value": [7, true]});
+        let encoded = encode_borsh(&ty, &original).unwrap();
+        let mut offset = 0;
+        let decoded = decode_borsh(&ty, &encoded, &mut offset).unwrap();
+        assert_eq!(decoded, original);
+        assert_eq!(offset, encoded.len());
+    }
+
+    #[test]
+    fn roundtrip_result() {
+        use super::super::borsh_decode::decode_borsh;
+
+        let ty = super::super::borsh_type::parse_borsh_type("result<u64,string>").unwrap();
+        let original = json!({"err": "oops"});
         let encoded = encode_borsh(&ty, &original).unwrap();
         let mut offset = 0;
         let decoded = decode_borsh(&ty, &encoded, &mut offset).unwrap();
