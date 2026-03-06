@@ -34,7 +34,7 @@ pub struct InstructionDataPatch {
 }
 
 #[derive(Clone, Debug)]
-pub struct InstructionAccountSwap {
+pub struct InstructionAccountPatch {
     pub instruction_index: usize,
     pub account_position: usize,
     pub new_pubkey: Pubkey,

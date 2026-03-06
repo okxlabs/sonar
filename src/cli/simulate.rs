@@ -54,18 +54,18 @@ pub struct SimulateArgs {
         value_parser = clap::builder::NonEmptyStringValueParser::new()
     )]
     pub token_fundings: Vec<String>,
-    /// Swap an account pubkey within a specific instruction.
+    /// Patch an account pubkey within a specific instruction.
     /// Format: <IX>.<ACCOUNT>=<NEW_PUBKEY>[:<w|r>] (1-based indices)
     /// Append :w (default) for writable, :r for read-only.
     #[arg(
         short = 'A',
-        long = "set-ix-account",
+        long = "patch-ix-account",
         help_heading = HELP_HEADING_STATE_PREPARATION,
-        value_name = "SWAP",
+        value_name = "PATCH",
         num_args = 1..,
         value_parser = clap::builder::NonEmptyStringValueParser::new()
     )]
-    pub ix_account_swaps: Vec<String>,
+    pub ix_account_patches: Vec<String>,
     /// Append an account to the end of a specific instruction's account list.
     /// Format: <IX>=<PUBKEY>[:<w|r>] (1-based instruction index)
     /// Append :w (default) for writable, :r for read-only.
@@ -174,7 +174,7 @@ pub struct TransactionInputArgs {
 }
 
 pub use sonar_sim::{
-    AccountDataPatch, AccountReplacement, InstructionAccountAppend, InstructionAccountSwap,
+    AccountDataPatch, AccountReplacement, InstructionAccountAppend, InstructionAccountPatch,
     InstructionDataPatch, SolFunding, TokenAmount, TokenFunding,
 };
 
@@ -325,12 +325,12 @@ pub fn parse_data_patch(raw: &str) -> Result<AccountDataPatch, String> {
     Ok(AccountDataPatch { pubkey, offset, data })
 }
 
-pub fn parse_ix_account_swap(raw: &str) -> Result<InstructionAccountSwap, String> {
+pub fn parse_ix_account_patch(raw: &str) -> Result<InstructionAccountPatch, String> {
     let (position_str, value_str) = raw.split_once('=').ok_or_else(|| {
-        "Swap must be in <IX>.<ACCOUNT>=<NEW_PUBKEY>[:<w|r>] format (1-based indices)".to_string()
+        "Patch must be in <IX>.<ACCOUNT>=<NEW_PUBKEY>[:<w|r>] format (1-based indices)".to_string()
     })?;
     let (ix_str, pos_str) = position_str.split_once('.').ok_or_else(|| {
-        "Swap position must be in <IX>.<ACCOUNT> format (missing `.`)".to_string()
+        "Patch position must be in <IX>.<ACCOUNT> format (missing `.`)".to_string()
     })?;
     let ix_1based: usize = ix_str
         .trim()
@@ -358,7 +358,7 @@ pub fn parse_ix_account_swap(raw: &str) -> Result<InstructionAccountSwap, String
 
     let new_pubkey = Pubkey::from_str(pubkey_str)
         .map_err(|err| format!("Failed to parse pubkey `{pubkey_str}`: {err}"))?;
-    Ok(InstructionAccountSwap {
+    Ok(InstructionAccountPatch {
         instruction_index: ix_1based - 1,
         account_position: pos_1based - 1,
         new_pubkey,
@@ -937,78 +937,78 @@ mod tests {
     }
 
     #[test]
-    fn parse_ix_account_swap_valid() {
+    fn parse_ix_account_patch_valid() {
         let key = Pubkey::new_unique();
         let input = format!("1.3={key}");
-        let parsed = parse_ix_account_swap(&input).expect("parses");
+        let parsed = parse_ix_account_patch(&input).expect("parses");
         assert_eq!(parsed.instruction_index, 0); // 1-based → 0-based
         assert_eq!(parsed.account_position, 2); // 1-based → 0-based
         assert_eq!(parsed.new_pubkey, key);
     }
 
     #[test]
-    fn parse_ix_account_swap_rejects_missing_equals() {
-        let err = parse_ix_account_swap("1.2").unwrap_err();
+    fn parse_ix_account_patch_rejects_missing_equals() {
+        let err = parse_ix_account_patch("1.2").unwrap_err();
         assert!(err.contains("format"));
     }
 
     #[test]
-    fn parse_ix_account_swap_rejects_missing_dot() {
+    fn parse_ix_account_patch_rejects_missing_dot() {
         let key = Pubkey::new_unique();
-        let err = parse_ix_account_swap(&format!("12={key}")).unwrap_err();
+        let err = parse_ix_account_patch(&format!("12={key}")).unwrap_err();
         assert!(err.contains("missing `.`"));
     }
 
     #[test]
-    fn parse_ix_account_swap_rejects_invalid_index() {
+    fn parse_ix_account_patch_rejects_invalid_index() {
         let key = Pubkey::new_unique();
-        let err = parse_ix_account_swap(&format!("abc.1={key}")).unwrap_err();
+        let err = parse_ix_account_patch(&format!("abc.1={key}")).unwrap_err();
         assert!(err.contains("instruction index"));
     }
 
     #[test]
-    fn parse_ix_account_swap_rejects_zero_ix_index() {
+    fn parse_ix_account_patch_rejects_zero_ix_index() {
         let key = Pubkey::new_unique();
-        let err = parse_ix_account_swap(&format!("0.1={key}")).unwrap_err();
+        let err = parse_ix_account_patch(&format!("0.1={key}")).unwrap_err();
         assert!(err.contains("1-based"));
     }
 
     #[test]
-    fn parse_ix_account_swap_rejects_zero_account_position() {
+    fn parse_ix_account_patch_rejects_zero_account_position() {
         let key = Pubkey::new_unique();
-        let err = parse_ix_account_swap(&format!("1.0={key}")).unwrap_err();
+        let err = parse_ix_account_patch(&format!("1.0={key}")).unwrap_err();
         assert!(err.contains("1-based"));
     }
 
     #[test]
-    fn parse_ix_account_swap_rejects_invalid_pubkey() {
-        let err = parse_ix_account_swap("1.2=notakey").unwrap_err();
+    fn parse_ix_account_patch_rejects_invalid_pubkey() {
+        let err = parse_ix_account_patch("1.2=notakey").unwrap_err();
         assert!(err.contains("Failed to parse pubkey"));
     }
 
     #[test]
-    fn parse_ix_account_swap_writable_suffix() {
+    fn parse_ix_account_patch_writable_suffix() {
         let key = Pubkey::new_unique();
         let input = format!("1.1={key}:w");
-        let parsed = parse_ix_account_swap(&input).expect("parses");
+        let parsed = parse_ix_account_patch(&input).expect("parses");
         assert!(parsed.writable);
         assert_eq!(parsed.new_pubkey, key);
     }
 
     #[test]
-    fn parse_ix_account_swap_readonly_suffix() {
+    fn parse_ix_account_patch_readonly_suffix() {
         let key = Pubkey::new_unique();
         let input = format!("1.1={key}:r");
-        let parsed = parse_ix_account_swap(&input).expect("parses");
+        let parsed = parse_ix_account_patch(&input).expect("parses");
         assert!(!parsed.writable);
         assert_eq!(parsed.new_pubkey, key);
     }
 
     #[test]
-    fn parse_ix_account_swap_default_writable() {
+    fn parse_ix_account_patch_default_writable() {
         let key = Pubkey::new_unique();
         let input = format!("1.1={key}");
-        let parsed = parse_ix_account_swap(&input).expect("parses");
+        let parsed = parse_ix_account_patch(&input).expect("parses");
         assert!(parsed.writable);
     }
 
@@ -1019,7 +1019,7 @@ mod tests {
             "sonar",
             "simulate",
             "1111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
-            "--set-ix-account",
+            "--patch-ix-account",
             &format!("1.3={key}"),
         ])
         .expect("should parse --set-ix-account");
@@ -1027,7 +1027,7 @@ mod tests {
         let Some(Commands::Simulate(args)) = cli.command else {
             panic!("expected simulate subcommand");
         };
-        assert_eq!(args.ix_account_swaps.len(), 1);
+        assert_eq!(args.ix_account_patches.len(), 1);
     }
 
     #[test]
@@ -1048,7 +1048,7 @@ mod tests {
         let Some(Commands::Simulate(args)) = cli.command else {
             panic!("expected simulate subcommand");
         };
-        assert_eq!(args.ix_account_swaps.len(), 2);
+        assert_eq!(args.ix_account_patches.len(), 2);
     }
 
     #[test]

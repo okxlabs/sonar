@@ -32,7 +32,7 @@ pub use error::{Result, SonarSimError};
 pub use token_decode::TokenProgramKind;
 pub use types::{
     AccountAppender, AccountDataPatch, AccountReplacement, AccountSource, FetchEvent,
-    FetchObserver, FetchPolicy, InstructionAccountAppend, InstructionAccountSwap,
+    FetchObserver, FetchPolicy, InstructionAccountAppend, InstructionAccountPatch,
     InstructionDataPatch, PreparedTokenFunding, ResolvedAccounts, ResolvedLookup, ReturnData,
     RpcDecision, SimulationMetadata, SolFunding, TokenAmount, TokenFunding,
 };
@@ -41,7 +41,7 @@ pub use types::{
 
 pub use transaction::{
     AddressLookupPlan, LookupLocation, MessageAccountPlan, ParsedTransaction,
-    RawTransactionEncoding, apply_ix_account_appends, apply_ix_account_swaps,
+    RawTransactionEncoding, apply_ix_account_appends, apply_ix_account_patches,
     apply_ix_data_patches, build_lookup_locations, parse_raw_transaction,
 };
 

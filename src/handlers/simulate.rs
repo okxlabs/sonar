@@ -8,24 +8,24 @@ use crate::utils::progress::Progress;
 use crate::{core::account_file, core::transaction, output};
 use sonar_sim::{
     ExecutionOptions, PreparedSimulation, SimulationOptions, StateMutationOptions,
-    apply_ix_account_appends, apply_ix_account_swaps, apply_ix_data_patches,
+    apply_ix_account_appends, apply_ix_account_patches, apply_ix_data_patches,
     prepare_token_fundings,
 };
 
 use super::{prepare_accounts_and_idls, resolve_inputs_to_txs, warn_unmatched_addresses};
 
-/// Apply instruction-level mutations (account swaps, data patches) and rebuild
+/// Apply instruction-level mutations (account patches, data patches) and rebuild
 /// the transaction summary so the renderer sees the updated state.
 fn apply_ix_mutations(
     parsed_tx: &mut transaction::ParsedTransaction,
-    ix_account_swaps: &[sonar_sim::InstructionAccountSwap],
+    ix_account_patches: &[sonar_sim::InstructionAccountPatch],
     ix_account_appends: &[sonar_sim::InstructionAccountAppend],
     ix_data_patches: &[sonar_sim::InstructionDataPatch],
 ) -> Result<()> {
-    if !ix_account_swaps.is_empty() {
+    if !ix_account_patches.is_empty() {
         parsed_tx.account_plan =
-            apply_ix_account_swaps(&mut parsed_tx.transaction, ix_account_swaps)
-                .context("Failed to apply instruction account swaps")?;
+            apply_ix_account_patches(&mut parsed_tx.transaction, ix_account_patches)
+                .context("Failed to apply instruction account patches")?;
     }
     if !ix_account_appends.is_empty() {
         parsed_tx.account_plan =
@@ -36,7 +36,7 @@ fn apply_ix_mutations(
         apply_ix_data_patches(&mut parsed_tx.transaction, ix_data_patches)
             .context("Failed to apply instruction data patches")?;
     }
-    if !ix_account_swaps.is_empty() || !ix_account_appends.is_empty() || !ix_data_patches.is_empty() {
+    if !ix_account_patches.is_empty() || !ix_account_appends.is_empty() || !ix_data_patches.is_empty() {
         parsed_tx.summary = transaction::TransactionSummary::from_transaction(
             &parsed_tx.transaction,
             &parsed_tx.account_plan,
@@ -63,7 +63,7 @@ pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
         replacements: replacement_args,
         fundings: funding_args,
         token_fundings: token_funding_args,
-        ix_account_swaps: ix_account_swap_args,
+        ix_account_patches: ix_account_patch_args,
         ix_data_patches: ix_data_patch_args,
         ix_data,
         verify_signatures,
@@ -105,9 +105,9 @@ pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
         .map(|raw| cli::parse_data_patch(&raw).map_err(anyhow::Error::msg))
         .collect::<Result<Vec<_>>>()?;
 
-    let ix_account_swaps = ix_account_swap_args
+    let ix_account_patches = ix_account_patch_args
         .into_iter()
-        .map(|raw| cli::parse_ix_account_swap(&raw).map_err(anyhow::Error::msg))
+        .map(|raw| cli::parse_ix_account_patch(&raw).map_err(anyhow::Error::msg))
         .collect::<Result<Vec<_>>>()?;
 
     let ix_account_appends = ix_account_append_args
@@ -150,7 +150,7 @@ pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
             &rpc_url,
             resolver_cache_root,
             token_funding_requests,
-            ix_account_swaps,
+            ix_account_patches,
             ix_account_appends,
             ix_data_patches,
             sim_opts,
@@ -175,7 +175,7 @@ pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
     let resolved_from = resolved_input.source.as_str().to_string();
     let mut parsed_tx = resolved_input.parsed_tx;
 
-    apply_ix_mutations(&mut parsed_tx, &ix_account_swaps, &ix_account_appends, &ix_data_patches)?;
+    apply_ix_mutations(&mut parsed_tx, &ix_account_patches, &ix_account_appends, &ix_data_patches)?;
 
     let cache_key = crate::core::cache::derive_cache_key_single(&raw_input, &parsed_tx.transaction);
     let (tx_cache_dir, offline) =
@@ -284,7 +284,7 @@ fn handle_bundle(
     rpc_url: &str,
     resolver_cache_root: Option<PathBuf>,
     token_funding_requests: Vec<cli::TokenFunding>,
-    ix_account_swaps: Vec<sonar_sim::InstructionAccountSwap>,
+    ix_account_patches: Vec<sonar_sim::InstructionAccountPatch>,
     ix_account_appends: Vec<sonar_sim::InstructionAccountAppend>,
     ix_data_patches: Vec<sonar_sim::InstructionDataPatch>,
     mut sim_opts: SimulationOptions,
@@ -306,7 +306,7 @@ fn handle_bundle(
     log::info!("Successfully parsed {} transactions", parsed_txs.len());
 
     for parsed_tx in &mut parsed_txs {
-        apply_ix_mutations(parsed_tx, &ix_account_swaps, &ix_account_appends, &ix_data_patches)?;
+        apply_ix_mutations(parsed_tx, &ix_account_patches, &ix_account_appends, &ix_data_patches)?;
     }
 
     let cache_key = crate::core::cache::derive_cache_key_bundle(&tx_inputs, &parsed_txs);

@@ -147,11 +147,11 @@ sonar simulate <TX> \
 #### Advanced Options
 
 ```bash
-# State Preparation: swap an account inside instruction 2, account 3
+# State Preparation: patch an account inside instruction 2, account 3
 # Format: <IX>.<ACCOUNT>=<NEW_PUBKEY>[:<w|r>] with 1-based indices
 # :w is the default; use :r to force read-only
 sonar simulate <TX> --rpc-url <RPC_URL> \
-  --set-ix-account 2.3=<NEW_PUBKEY>:r
+  --patch-ix-account 2.3=<NEW_PUBKEY>:r
 
 # State Preparation: append an account to instruction 1's account list
 # Format: <IX>=<PUBKEY>[:<w|r>] with a 1-based instruction index

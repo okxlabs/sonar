@@ -145,7 +145,7 @@ pub fn build_lookup_locations(plan: &[AddressLookupPlan]) -> Vec<LookupLocation>
     locations
 }
 
-/// Mutate a transaction in-place to swap account pubkeys within specific instructions.
+/// Mutate a transaction in-place to patch account pubkeys within specific instructions.
 ///
 /// Returns the updated `MessageAccountPlan` reflecting any newly appended keys.
 ///
@@ -154,28 +154,28 @@ pub fn build_lookup_locations(plan: &[AddressLookupPlan]) -> Vec<LookupLocation>
 ///   and all existing indices ≥ the insertion point are shifted by +1.
 /// - **Read-only**: appended at the end and `num_readonly_unsigned_accounts`
 ///   is incremented so the new key falls into the read-only range.
-pub fn apply_ix_account_swaps(
+pub fn apply_ix_account_patches(
     tx: &mut VersionedTransaction,
-    swaps: &[crate::types::InstructionAccountSwap],
+    patches: &[crate::types::InstructionAccountPatch],
 ) -> Result<MessageAccountPlan> {
-    for swap in swaps {
+    for patch in patches {
         let instructions = tx.message.instructions();
-        if swap.instruction_index >= instructions.len() {
+        if patch.instruction_index >= instructions.len() {
             return Err(SonarSimError::Validation {
                 reason: format!(
                     "Instruction index {} is out of range (transaction has {} instructions)",
-                    swap.instruction_index,
+                    patch.instruction_index,
                     instructions.len()
                 ),
             });
         }
-        if swap.account_position >= instructions[swap.instruction_index].accounts.len() {
+        if patch.account_position >= instructions[patch.instruction_index].accounts.len() {
             return Err(SonarSimError::Validation {
                 reason: format!(
                     "Account position {} is out of range for instruction {} (has {} accounts)",
-                    swap.account_position,
-                    swap.instruction_index,
-                    instructions[swap.instruction_index].accounts.len()
+                    patch.account_position,
+                    patch.instruction_index,
+                    instructions[patch.instruction_index].accounts.len()
                 ),
             });
         }
@@ -185,9 +185,9 @@ pub fn apply_ix_account_swaps(
             VersionedMessage::Legacy(m) => &m.account_keys,
             VersionedMessage::V0(m) => &m.account_keys,
         };
-        let new_index = if let Some(pos) = account_keys.iter().position(|k| *k == swap.new_pubkey) {
+        let new_index = if let Some(pos) = account_keys.iter().position(|k| *k == patch.new_pubkey) {
             // Key exists — ensure its writability matches what was requested.
-            ensure_account_writability(&mut tx.message, pos, swap.writable)?
+            ensure_account_writability(&mut tx.message, pos, patch.writable)?
         } else {
             let total = account_keys.len();
             if total > u8::MAX as usize {
@@ -195,7 +195,7 @@ pub fn apply_ix_account_swaps(
                     reason: "Cannot add more account keys: would exceed u8 index limit".into(),
                 });
             }
-            if swap.writable {
+            if patch.writable {
                 // Insert before the read-only non-signer section to keep the
                 // new key in the writable range.
                 let readonly_unsigned = tx.message.header().num_readonly_unsigned_accounts as usize;
@@ -203,11 +203,11 @@ pub fn apply_ix_account_swaps(
 
                 match &mut tx.message {
                     VersionedMessage::Legacy(m) => {
-                        m.account_keys.insert(insert_pos, swap.new_pubkey);
+                        m.account_keys.insert(insert_pos, patch.new_pubkey);
                         shift_indices(&mut m.instructions, insert_pos)?;
                     }
                     VersionedMessage::V0(m) => {
-                        m.account_keys.insert(insert_pos, swap.new_pubkey);
+                        m.account_keys.insert(insert_pos, patch.new_pubkey);
                         shift_indices(&mut m.instructions, insert_pos)?;
                     }
                 }
@@ -218,12 +218,12 @@ pub fn apply_ix_account_swaps(
                 // account indices, so all existing indices >= `total` must shift.
                 match &mut tx.message {
                     VersionedMessage::Legacy(m) => {
-                        m.account_keys.push(swap.new_pubkey);
+                        m.account_keys.push(patch.new_pubkey);
                         m.header.num_readonly_unsigned_accounts += 1;
                         shift_indices(&mut m.instructions, total)?;
                     }
                     VersionedMessage::V0(m) => {
-                        m.account_keys.push(swap.new_pubkey);
+                        m.account_keys.push(patch.new_pubkey);
                         m.header.num_readonly_unsigned_accounts += 1;
                         shift_indices(&mut m.instructions, total)?;
                     }
@@ -235,11 +235,11 @@ pub fn apply_ix_account_swaps(
         // Update the instruction's account index
         match &mut tx.message {
             VersionedMessage::Legacy(m) => {
-                m.instructions[swap.instruction_index].accounts[swap.account_position] =
+                m.instructions[patch.instruction_index].accounts[patch.account_position] =
                     new_index as u8;
             }
             VersionedMessage::V0(m) => {
-                m.instructions[swap.instruction_index].accounts[swap.account_position] =
+                m.instructions[patch.instruction_index].accounts[patch.account_position] =
                     new_index as u8;
             }
         }
@@ -251,7 +251,7 @@ pub fn apply_ix_account_swaps(
 /// Append accounts to the end of specific instructions' account lists.
 ///
 /// Returns the updated `MessageAccountPlan` reflecting any newly appended keys.
-/// Uses the same key-insertion logic as `apply_ix_account_swaps`:
+/// Uses the same key-insertion logic as `apply_ix_account_patches`:
 /// writable keys are inserted before the read-only section; read-only keys
 /// are appended at the end.
 ///
@@ -711,20 +711,20 @@ mod tests {
     }
 
     #[test]
-    fn apply_ix_account_swaps_writable_inserts_before_readonly() {
+    fn apply_ix_account_patches_writable_inserts_before_readonly() {
         let (mut tx, _payer) = sample_transaction();
         // sample tx: account_keys = [payer, recipient, system_program]
         // header: num_required_signatures=1, num_readonly_signed=0, num_readonly_unsigned=1
         // (system_program is readonly unsigned)
         // Layout: [payer(ws)] [recipient(wu)] [system_program(ru)]
         let new_key = Pubkey::new_unique();
-        let swaps = vec![crate::types::InstructionAccountSwap {
+        let patches = vec![crate::types::InstructionAccountPatch {
             instruction_index: 0,
             account_position: 1,
             new_pubkey: new_key,
             writable: true,
         }];
-        let plan = apply_ix_account_swaps(&mut tx, &swaps).unwrap();
+        let plan = apply_ix_account_patches(&mut tx, &patches).unwrap();
         // Writable key inserted at position 2 (before readonly system_program),
         // system_program shifted to index 3.
         assert_eq!(plan.static_accounts.len(), 4);
@@ -736,16 +736,16 @@ mod tests {
     }
 
     #[test]
-    fn apply_ix_account_swaps_readonly_appends_at_end() {
+    fn apply_ix_account_patches_readonly_appends_at_end() {
         let (mut tx, _payer) = sample_transaction();
         let new_key = Pubkey::new_unique();
-        let swaps = vec![crate::types::InstructionAccountSwap {
+        let patches = vec![crate::types::InstructionAccountPatch {
             instruction_index: 0,
             account_position: 1,
             new_pubkey: new_key,
             writable: false,
         }];
-        let plan = apply_ix_account_swaps(&mut tx, &swaps).unwrap();
+        let plan = apply_ix_account_patches(&mut tx, &patches).unwrap();
         // Read-only key appended at the end (index 3)
         assert_eq!(plan.static_accounts.len(), 4);
         assert_eq!(plan.static_accounts[3], new_key);
@@ -755,33 +755,33 @@ mod tests {
     }
 
     #[test]
-    fn apply_ix_account_swaps_reuses_existing_key() {
+    fn apply_ix_account_patches_reuses_existing_key() {
         let (mut tx, payer) = sample_transaction();
-        let swaps = vec![crate::types::InstructionAccountSwap {
+        let patches = vec![crate::types::InstructionAccountPatch {
             instruction_index: 0,
             account_position: 1,
             new_pubkey: payer,
             writable: true,
         }];
-        let plan = apply_ix_account_swaps(&mut tx, &swaps).unwrap();
+        let plan = apply_ix_account_patches(&mut tx, &patches).unwrap();
         assert_eq!(plan.static_accounts.len(), 3);
         assert_eq!(tx.message.instructions()[0].accounts[1], 0);
     }
 
     #[test]
-    fn apply_ix_account_swaps_promotes_readonly_to_writable() {
+    fn apply_ix_account_patches_promotes_readonly_to_writable() {
         let (mut tx, _payer) = sample_transaction();
         // sample tx: [payer(ws), recipient(wu), system_program(ru)]
         // system_program is at index 2, readonly unsigned.
-        // Swap instruction's account position 1 to system_program with :w.
+        // Patch instruction's account position 1 to system_program with :w.
         let system_program = tx.message.static_account_keys()[2];
-        let swaps = vec![crate::types::InstructionAccountSwap {
+        let patches = vec![crate::types::InstructionAccountPatch {
             instruction_index: 0,
             account_position: 1,
             new_pubkey: system_program,
             writable: true,
         }];
-        let plan = apply_ix_account_swaps(&mut tx, &swaps).unwrap();
+        let plan = apply_ix_account_patches(&mut tx, &patches).unwrap();
         // system_program should now be writable. Since it was the only readonly
         // non-signer, num_readonly_unsigned goes from 1 to 0.
         assert_eq!(tx.message.header().num_readonly_unsigned_accounts, 0);
@@ -790,61 +790,61 @@ mod tests {
     }
 
     #[test]
-    fn apply_ix_account_swaps_demotes_writable_to_readonly() {
+    fn apply_ix_account_patches_demotes_writable_to_readonly() {
         let (mut tx, _payer) = sample_transaction();
         // sample tx: [payer(ws), recipient(wu), system_program(ru)]
         // recipient is at index 1, writable unsigned.
         let recipient = tx.message.static_account_keys()[1];
-        let swaps = vec![crate::types::InstructionAccountSwap {
+        let patches = vec![crate::types::InstructionAccountPatch {
             instruction_index: 0,
             account_position: 0,
             new_pubkey: recipient,
             writable: false,
         }];
-        let plan = apply_ix_account_swaps(&mut tx, &swaps).unwrap();
+        let plan = apply_ix_account_patches(&mut tx, &patches).unwrap();
         // recipient moved to readonly. num_readonly_unsigned goes from 1 to 2.
         assert_eq!(tx.message.header().num_readonly_unsigned_accounts, 2);
         assert_eq!(plan.static_accounts.len(), 3);
     }
 
     #[test]
-    fn apply_ix_account_swaps_rejects_invalid_ix_index() {
+    fn apply_ix_account_patches_rejects_invalid_ix_index() {
         let (mut tx, _) = sample_transaction();
-        let swaps = vec![crate::types::InstructionAccountSwap {
+        let patches = vec![crate::types::InstructionAccountPatch {
             instruction_index: 99,
             account_position: 0,
             new_pubkey: Pubkey::new_unique(),
             writable: true,
         }];
-        let err = apply_ix_account_swaps(&mut tx, &swaps).unwrap_err();
+        let err = apply_ix_account_patches(&mut tx, &patches).unwrap_err();
         assert!(err.to_string().contains("out of range"));
     }
 
     #[test]
-    fn apply_ix_account_swaps_rejects_invalid_account_position() {
+    fn apply_ix_account_patches_rejects_invalid_account_position() {
         let (mut tx, _) = sample_transaction();
-        let swaps = vec![crate::types::InstructionAccountSwap {
+        let patches = vec![crate::types::InstructionAccountPatch {
             instruction_index: 0,
             account_position: 99,
             new_pubkey: Pubkey::new_unique(),
             writable: true,
         }];
-        let err = apply_ix_account_swaps(&mut tx, &swaps).unwrap_err();
+        let err = apply_ix_account_patches(&mut tx, &patches).unwrap_err();
         assert!(err.to_string().contains("out of range"));
     }
 
     #[test]
-    fn apply_ix_account_swaps_v0_writable_insert_shifts_lookup_indices() {
+    fn apply_ix_account_patches_v0_writable_insert_shifts_lookup_indices() {
         let (mut tx, _payer) = sample_v0_transaction_with_lookup_accounts();
         let new_key = Pubkey::new_unique();
-        let swaps = vec![crate::types::InstructionAccountSwap {
+        let patches = vec![crate::types::InstructionAccountPatch {
             instruction_index: 0,
             account_position: 0,
             new_pubkey: new_key,
             writable: true,
         }];
 
-        let plan = apply_ix_account_swaps(&mut tx, &swaps).unwrap();
+        let plan = apply_ix_account_patches(&mut tx, &patches).unwrap();
 
         // New key inserted into static keys before readonly unsigned section:
         // [payer, new_key, program]
@@ -859,17 +859,17 @@ mod tests {
     }
 
     #[test]
-    fn apply_ix_account_swaps_v0_readonly_append_shifts_lookup_indices() {
+    fn apply_ix_account_patches_v0_readonly_append_shifts_lookup_indices() {
         let (mut tx, _payer) = sample_v0_transaction_with_lookup_accounts();
         let new_key = Pubkey::new_unique();
-        let swaps = vec![crate::types::InstructionAccountSwap {
+        let patches = vec![crate::types::InstructionAccountPatch {
             instruction_index: 0,
             account_position: 1,
             new_pubkey: new_key,
             writable: false,
         }];
 
-        let plan = apply_ix_account_swaps(&mut tx, &swaps).unwrap();
+        let plan = apply_ix_account_patches(&mut tx, &patches).unwrap();
 
         // New readonly unsigned static key is appended at index 2.
         assert_eq!(plan.static_accounts.len(), 3);
@@ -1051,16 +1051,16 @@ mod tests {
     }
 
     #[test]
-    fn apply_ix_account_swaps_rejects_signer_writability_change() {
+    fn apply_ix_account_patches_rejects_signer_writability_change() {
         let (mut tx, payer) = sample_transaction();
-        // payer is a writable signer; swapping to :r should error
-        let swaps = vec![crate::types::InstructionAccountSwap {
+        // payer is a writable signer; patching to :r should error
+        let patches = vec![crate::types::InstructionAccountPatch {
             instruction_index: 0,
             account_position: 0,
             new_pubkey: payer,
             writable: false,
         }];
-        let err = apply_ix_account_swaps(&mut tx, &swaps).unwrap_err();
+        let err = apply_ix_account_patches(&mut tx, &patches).unwrap_err();
         assert!(err.to_string().contains("signer"));
     }
 
