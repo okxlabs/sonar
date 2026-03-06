@@ -147,6 +147,18 @@ sonar simulate <TX> \
 #### Advanced Options
 
 ```bash
+# State Preparation: swap an account inside instruction 2, account 3
+# Format: <IX>.<ACCOUNT>=<NEW_PUBKEY>[:<w|r>] with 1-based indices
+# :w is the default; use :r to force read-only
+sonar simulate <TX> --rpc-url <RPC_URL> \
+  --set-ix-account 2.3=<NEW_PUBKEY>:r
+
+# State Preparation: patch instruction data before simulation
+# Format: <IX>=<OFFSET>:<HEX_DATA> with a 1-based instruction index
+# HEX_DATA may optionally start with 0x
+sonar simulate <TX> --rpc-url <RPC_URL> \
+  --patch-ix-data 1=8:0x01020304
+
 # State Preparation: patch account data before simulation
 sonar simulate <TX> --rpc-url <RPC_URL> \
   --patch-account-data <PUBKEY>=<OFFSET>:<HEX_DATA>
