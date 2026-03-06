@@ -130,6 +130,15 @@ pub fn decode_borsh(ty: &BorshType, data: &[u8], offset: &mut usize) -> Result<V
                 Ok(serde_json::json!({ "variant": idx, "value": value }))
             }
         }
+        BorshType::Struct(fields) => {
+            let mut map = serde_json::Map::with_capacity(fields.len());
+            for (name, ty) in fields {
+                let val = decode_borsh(ty, data, offset)
+                    .with_context(|| format!("in struct field \"{name}\""))?;
+                map.insert(name.clone(), val);
+            }
+            Ok(Value::Object(map))
+        }
         BorshType::Result(ok_ty, err_ty) => {
             let tag = read_bytes(data, offset, 1, "result tag")?;
             match tag[0] {
@@ -340,6 +349,15 @@ mod tests {
         assert_eq!(
             decode("result<u64,string>", "01040000006661696c"),
             json!({"err": "fail"})
+        );
+    }
+
+    #[test]
+    fn decode_struct() {
+        // {amount:u64,active:bool} = 42u64 LE + true
+        assert_eq!(
+            decode("{amount:u64,active:bool}", "2a0000000000000001"),
+            json!({"amount": 42, "active": true})
         );
     }
 

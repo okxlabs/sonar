@@ -181,6 +181,18 @@ fn encode_into(ty: &BorshType, value: &Value, buf: &mut Vec<u8>) -> Result<()> {
                     .with_context(|| format!("in enum variant {idx}"))?;
             }
         }
+        BorshType::Struct(fields) => {
+            let obj = value.as_object().ok_or_else(|| {
+                anyhow::anyhow!("expected object for struct, got {}", value_type_name(value))
+            })?;
+            for (name, ty) in fields {
+                let field_val = obj.get(name.as_str()).ok_or_else(|| {
+                    anyhow::anyhow!("missing struct field \"{name}\"")
+                })?;
+                encode_into(ty, field_val, buf)
+                    .with_context(|| format!("in struct field \"{name}\""))?;
+            }
+        }
         BorshType::Result(ok_ty, err_ty) => {
             let obj = value.as_object().ok_or_else(|| {
                 anyhow::anyhow!("expected object with \"ok\" or \"err\" field for result, got {}", value_type_name(value))
@@ -485,6 +497,35 @@ mod tests {
 
         let ty = super::super::borsh_type::parse_borsh_type("enum<(),u64,(u32,bool)>").unwrap();
         let original = json!({"variant": 2, "value": [7, true]});
+        let encoded = encode_borsh(&ty, &original).unwrap();
+        let mut offset = 0;
+        let decoded = decode_borsh(&ty, &encoded, &mut offset).unwrap();
+        assert_eq!(decoded, original);
+        assert_eq!(offset, encoded.len());
+    }
+
+    #[test]
+    fn encode_struct() {
+        let mut expected = 42u64.to_le_bytes().to_vec();
+        expected.push(1); // true
+        assert_eq!(
+            encode("{amount:u64,active:bool}", json!({"amount": 42, "active": true})),
+            expected
+        );
+    }
+
+    #[test]
+    fn encode_struct_missing_field() {
+        let ty = super::super::borsh_type::parse_borsh_type("{amount:u64,active:bool}").unwrap();
+        assert!(encode_borsh(&ty, &json!({"amount": 42})).is_err());
+    }
+
+    #[test]
+    fn roundtrip_struct() {
+        use super::super::borsh_decode::decode_borsh;
+
+        let ty = super::super::borsh_type::parse_borsh_type("{name:string,balance:u64,active:bool}").unwrap();
+        let original = json!({"name": "alice", "balance": 1000, "active": true});
         let encoded = encode_borsh(&ty, &original).unwrap();
         let mut offset = 0;
         let decoded = decode_borsh(&ty, &encoded, &mut offset).unwrap();

@@ -1,7 +1,8 @@
 /// Borsh type descriptor AST and parser.
 ///
 /// Supports: u8/u16/u32/u64/u128, i8/i16/i32/i64/i128, bool, string, pubkey,
-/// vec<T>, option<T>, [T;N], (T1,T2,...), (), enum<T0,T1,...>, result<T,E>.
+/// vec<T>, option<T>, [T;N], (T1,T2,...), (), enum<T0,T1,...>, result<T,E>,
+/// {name:T, ...}.
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BorshType {
@@ -25,6 +26,7 @@ pub enum BorshType {
     Unit,
     Enum(Vec<BorshType>),
     Result(Box<BorshType>, Box<BorshType>),
+    Struct(Vec<(String, BorshType)>),
 }
 
 impl std::fmt::Display for BorshType {
@@ -68,6 +70,16 @@ impl std::fmt::Display for BorshType {
                 write!(f, ">")
             }
             BorshType::Result(ok, err) => write!(f, "result<{ok},{err}>"),
+            BorshType::Struct(fields) => {
+                write!(f, "{{")?;
+                for (i, (name, ty)) in fields.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ",")?;
+                    }
+                    write!(f, "{name}:{ty}")?;
+                }
+                write!(f, "}}")
+            }
         }
     }
 }
@@ -112,6 +124,11 @@ fn parse_type(input: &str, pos: &mut usize) -> Result<BorshType, String> {
     // Fixed-size array: [T;N]
     if ch == b'[' {
         return parse_array(input, pos);
+    }
+
+    // Struct: {name:T, ...}
+    if ch == b'{' {
+        return parse_struct(input, pos);
     }
 
     // Keyword-based types
@@ -178,6 +195,56 @@ fn parse_array(input: &str, pos: &mut usize) -> Result<BorshType, String> {
     }
     *pos += 1; // skip ']'
     Ok(BorshType::Array(Box::new(inner), size))
+}
+
+fn parse_struct(input: &str, pos: &mut usize) -> Result<BorshType, String> {
+    *pos += 1; // skip '{'
+    let mut fields = Vec::new();
+    loop {
+        skip_whitespace(input, pos);
+        if *pos >= input.len() {
+            return Err("unclosed struct: expected '}'".to_string());
+        }
+        if input.as_bytes()[*pos] == b'}' {
+            *pos += 1;
+            break;
+        }
+        if !fields.is_empty() {
+            if input.as_bytes()[*pos] != b',' {
+                return Err(format!(
+                    "expected ',' or '}}' in struct at position {pos}, got '{}'",
+                    input.as_bytes()[*pos] as char
+                ));
+            }
+            *pos += 1; // skip ','
+        }
+        skip_whitespace(input, pos);
+        // Parse field name
+        let name_start = *pos;
+        while *pos < input.len() {
+            let ch = input.as_bytes()[*pos];
+            if ch.is_ascii_alphanumeric() || ch == b'_' {
+                *pos += 1;
+            } else {
+                break;
+            }
+        }
+        if name_start == *pos {
+            return Err(format!("expected field name at position {pos}"));
+        }
+        let name = input[name_start..*pos].to_string();
+        skip_whitespace(input, pos);
+        if *pos >= input.len() || input.as_bytes()[*pos] != b':' {
+            return Err(format!("expected ':' after field name '{name}' at position {pos}"));
+        }
+        *pos += 1; // skip ':'
+        let ty = parse_type(input, pos)?;
+        fields.push((name, ty));
+    }
+    if fields.is_empty() {
+        return Err("struct must have at least one field".to_string());
+    }
+    Ok(BorshType::Struct(fields))
 }
 
 fn parse_keyword_type(input: &str, pos: &mut usize) -> Result<BorshType, String> {
@@ -459,6 +526,52 @@ mod tests {
     #[test]
     fn display_enum_roundtrip() {
         let ty = parse_borsh_type("enum<(),u64>").unwrap();
+        let s = ty.to_string();
+        let ty2 = parse_borsh_type(&s).unwrap();
+        assert_eq!(ty, ty2);
+    }
+
+    #[test]
+    fn parse_struct() {
+        assert_eq!(
+            parse_borsh_type("{amount:u64,active:bool}").unwrap(),
+            BorshType::Struct(vec![
+                ("amount".to_string(), BorshType::U64),
+                ("active".to_string(), BorshType::Bool),
+            ])
+        );
+    }
+
+    #[test]
+    fn parse_struct_whitespace() {
+        assert_eq!(
+            parse_borsh_type("{ amount : u64 , active : bool }").unwrap(),
+            BorshType::Struct(vec![
+                ("amount".to_string(), BorshType::U64),
+                ("active".to_string(), BorshType::Bool),
+            ])
+        );
+    }
+
+    #[test]
+    fn parse_struct_nested() {
+        assert_eq!(
+            parse_borsh_type("{data:vec<u8>,owner:pubkey}").unwrap(),
+            BorshType::Struct(vec![
+                ("data".to_string(), BorshType::Vec(Box::new(BorshType::U8))),
+                ("owner".to_string(), BorshType::Pubkey),
+            ])
+        );
+    }
+
+    #[test]
+    fn parse_empty_struct_rejected() {
+        assert!(parse_borsh_type("{}").is_err());
+    }
+
+    #[test]
+    fn display_struct_roundtrip() {
+        let ty = parse_borsh_type("{amount:u64,active:bool}").unwrap();
         let s = ty.to_string();
         let ty2 = parse_borsh_type(&s).unwrap();
         assert_eq!(ty, ty2);
