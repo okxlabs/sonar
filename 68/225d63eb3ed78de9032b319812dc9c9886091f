@@ -1,0 +1,32 @@
+src/handlers/borsh.rs
+  b287cda 59
+README.md
+  b287cda 405-408
+src/cli/borsh.rs
+---
+{
+  "metadata": {
+    "base_commit_sha": "68225d63eb3ed78de9032b319812dc9c9886091f",
+    "prompts": {}
+  },
+  "agent_line_stats": {
+    "README.md": {
+      "Human": {
+        "file_path": "README.md",
+        "agent_type": "Human",
+        "additions": 0,
+        "deletions": 3,
+        "ai_accepted": 0
+      }
+    },
+    "src/handlers/borsh.rs": {
+      "Human": {
+        "file_path": "src/handlers/borsh.rs",
+        "agent_type": "Human",
+        "additions": 1,
+        "deletions": 14,
+        "ai_accepted": 0
+      }
+    }
+  }
+}
