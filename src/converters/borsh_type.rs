@@ -2,7 +2,7 @@
 ///
 /// Supports: u8/u16/u32/u64/u128, i8/i16/i32/i64/i128, bool, string, pubkey,
 /// vec<T>, option<T>, [T;N], (T1,T2,...), (), enum<T0,T1,...>, result<T,E>,
-/// {name:T, ...}.
+/// {name:T, ...}, hashset<T>, hashmap<K,V>.
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BorshType {
@@ -27,6 +27,8 @@ pub enum BorshType {
     Enum(Vec<BorshType>),
     Result(Box<BorshType>, Box<BorshType>),
     Struct(Vec<(String, BorshType)>),
+    HashSet(Box<BorshType>),
+    HashMap(Box<BorshType>, Box<BorshType>),
 }
 
 impl std::fmt::Display for BorshType {
@@ -70,6 +72,8 @@ impl std::fmt::Display for BorshType {
                 write!(f, ">")
             }
             BorshType::Result(ok, err) => write!(f, "result<{ok},{err}>"),
+            BorshType::HashSet(inner) => write!(f, "hashset<{inner}>"),
+            BorshType::HashMap(k, v) => write!(f, "hashmap<{k},{v}>"),
             BorshType::Struct(fields) => {
                 write!(f, "{{")?;
                 for (i, (name, ty)) in fields.iter().enumerate() {
@@ -182,9 +186,7 @@ fn parse_array(input: &str, pos: &mut usize) -> Result<BorshType, String> {
     if start == *pos {
         return Err(format!("expected array size number at position {pos}"));
     }
-    let size: usize = input[start..*pos]
-        .parse()
-        .map_err(|e| format!("invalid array size: {e}"))?;
+    let size: usize = input[start..*pos].parse().map_err(|e| format!("invalid array size: {e}"))?;
     if size == 0 {
         return Err("array size must be > 0".to_string());
     }
@@ -245,6 +247,40 @@ fn parse_struct(input: &str, pos: &mut usize) -> Result<BorshType, String> {
         return Err("struct must have at least one field".to_string());
     }
     Ok(BorshType::Struct(fields))
+}
+
+/// Whether a type has a total ordering compatible with Rust's `Ord` and can be
+/// used as a hash collection key/element in canonical Borsh encoding.
+fn supports_hash_collection_ord(ty: &BorshType) -> bool {
+    match ty {
+        BorshType::U8
+        | BorshType::U16
+        | BorshType::U32
+        | BorshType::U64
+        | BorshType::U128
+        | BorshType::I8
+        | BorshType::I16
+        | BorshType::I32
+        | BorshType::I64
+        | BorshType::I128
+        | BorshType::Bool
+        | BorshType::String
+        | BorshType::Pubkey
+        | BorshType::Unit => true,
+        BorshType::Vec(inner) | BorshType::Option(inner) | BorshType::Array(inner, _) => {
+            supports_hash_collection_ord(inner)
+        }
+        BorshType::Tuple(types) | BorshType::Enum(types) => {
+            types.iter().all(supports_hash_collection_ord)
+        }
+        BorshType::Result(ok, err) => {
+            supports_hash_collection_ord(ok) && supports_hash_collection_ord(err)
+        }
+        BorshType::Struct(fields) => {
+            fields.iter().all(|(_, field_ty)| supports_hash_collection_ord(field_ty))
+        }
+        BorshType::HashSet(_) | BorshType::HashMap(_, _) => false,
+    }
 }
 
 fn parse_keyword_type(input: &str, pos: &mut usize) -> Result<BorshType, String> {
@@ -327,6 +363,38 @@ fn parse_keyword_type(input: &str, pos: &mut usize) -> Result<BorshType, String>
             }
             Ok(BorshType::Enum(variants))
         }
+        "hashset" | "set" => {
+            skip_whitespace(input, pos);
+            expect_char(input, pos, '<', "hashset")?;
+            let inner = parse_type(input, pos)?;
+            skip_whitespace(input, pos);
+            expect_char(input, pos, '>', "hashset")?;
+            if !supports_hash_collection_ord(&inner) {
+                return Err(format!(
+                    "hashset element type must support total ordering, got `{inner}`"
+                ));
+            }
+            Ok(BorshType::HashSet(Box::new(inner)))
+        }
+        "hashmap" | "map" => {
+            skip_whitespace(input, pos);
+            expect_char(input, pos, '<', "hashmap")?;
+            let key_type = parse_type(input, pos)?;
+            skip_whitespace(input, pos);
+            if *pos >= input.len() || input.as_bytes()[*pos] != b',' {
+                return Err(format!("expected ',' in hashmap type at position {pos}"));
+            }
+            *pos += 1; // skip ','
+            let val_type = parse_type(input, pos)?;
+            skip_whitespace(input, pos);
+            expect_char(input, pos, '>', "hashmap")?;
+            if !supports_hash_collection_ord(&key_type) {
+                return Err(format!(
+                    "hashmap key type must support total ordering, got `{key_type}`"
+                ));
+            }
+            Ok(BorshType::HashMap(Box::new(key_type), Box::new(val_type)))
+        }
         "result" => {
             skip_whitespace(input, pos);
             expect_char(input, pos, '<', "result")?;
@@ -352,9 +420,7 @@ fn expect_char(input: &str, pos: &mut usize, expected: char, context: &str) -> R
         } else {
             "end of input".to_string()
         };
-        return Err(format!(
-            "expected '{expected}' for {context} at position {pos}, got {got}"
-        ));
+        return Err(format!("expected '{expected}' for {context} at position {pos}, got {got}"));
     }
     *pos += 1;
     Ok(())
@@ -390,10 +456,7 @@ mod tests {
 
     #[test]
     fn parse_vec() {
-        assert_eq!(
-            parse_borsh_type("vec<u32>").unwrap(),
-            BorshType::Vec(Box::new(BorshType::U32))
-        );
+        assert_eq!(parse_borsh_type("vec<u32>").unwrap(), BorshType::Vec(Box::new(BorshType::U32)));
     }
 
     #[test]
@@ -504,10 +567,7 @@ mod tests {
 
     #[test]
     fn parse_enum_single_variant() {
-        assert_eq!(
-            parse_borsh_type("enum<u64>").unwrap(),
-            BorshType::Enum(vec![BorshType::U64])
-        );
+        assert_eq!(parse_borsh_type("enum<u64>").unwrap(), BorshType::Enum(vec![BorshType::U64]));
     }
 
     #[test]
@@ -567,6 +627,72 @@ mod tests {
     #[test]
     fn parse_empty_struct_rejected() {
         assert!(parse_borsh_type("{}").is_err());
+    }
+
+    #[test]
+    fn parse_hashset() {
+        assert_eq!(
+            parse_borsh_type("hashset<u32>").unwrap(),
+            BorshType::HashSet(Box::new(BorshType::U32))
+        );
+    }
+
+    #[test]
+    fn parse_hashset_rejects_non_ord_element() {
+        let err = parse_borsh_type("hashset<hashset<u8>>").unwrap_err();
+        assert!(err.contains("must support total ordering"));
+    }
+
+    #[test]
+    fn parse_set_alias() {
+        assert_eq!(
+            parse_borsh_type("set<u32>").unwrap(),
+            BorshType::HashSet(Box::new(BorshType::U32))
+        );
+    }
+
+    #[test]
+    fn parse_hashmap() {
+        assert_eq!(
+            parse_borsh_type("hashmap<string,u64>").unwrap(),
+            BorshType::HashMap(Box::new(BorshType::String), Box::new(BorshType::U64))
+        );
+    }
+
+    #[test]
+    fn parse_hashmap_rejects_non_ord_key() {
+        let err = parse_borsh_type("hashmap<hashmap<u8,u8>,u64>").unwrap_err();
+        assert!(err.contains("must support total ordering"));
+    }
+
+    #[test]
+    fn parse_hashmap_rejects_struct_key_with_non_ord_field() {
+        let err = parse_borsh_type("hashmap<{k:hashset<u8>},u64>").unwrap_err();
+        assert!(err.contains("must support total ordering"));
+    }
+
+    #[test]
+    fn parse_map_alias() {
+        assert_eq!(
+            parse_borsh_type("map<string,u64>").unwrap(),
+            BorshType::HashMap(Box::new(BorshType::String), Box::new(BorshType::U64))
+        );
+    }
+
+    #[test]
+    fn display_hashset_roundtrip() {
+        let ty = parse_borsh_type("hashset<u32>").unwrap();
+        let s = ty.to_string();
+        let ty2 = parse_borsh_type(&s).unwrap();
+        assert_eq!(ty, ty2);
+    }
+
+    #[test]
+    fn display_hashmap_roundtrip() {
+        let ty = parse_borsh_type("hashmap<string,u64>").unwrap();
+        let s = ty.to_string();
+        let ty2 = parse_borsh_type(&s).unwrap();
+        assert_eq!(ty, ty2);
     }
 
     #[test]

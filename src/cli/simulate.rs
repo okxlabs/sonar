@@ -315,12 +315,12 @@ pub fn parse_data_patch(raw: &str) -> Result<AccountDataPatch, String> {
 }
 
 pub fn parse_ix_account_swap(raw: &str) -> Result<InstructionAccountSwap, String> {
-    let (position_str, value_str) = raw
-        .split_once('=')
-        .ok_or_else(|| "Swap must be in <IX>.<ACCOUNT>=<NEW_PUBKEY>[:<w|r>] format (1-based indices)".to_string())?;
-    let (ix_str, pos_str) = position_str
-        .split_once('.')
-        .ok_or_else(|| "Swap position must be in <IX>.<ACCOUNT> format (missing `.`)".to_string())?;
+    let (position_str, value_str) = raw.split_once('=').ok_or_else(|| {
+        "Swap must be in <IX>.<ACCOUNT>=<NEW_PUBKEY>[:<w|r>] format (1-based indices)".to_string()
+    })?;
+    let (ix_str, pos_str) = position_str.split_once('.').ok_or_else(|| {
+        "Swap position must be in <IX>.<ACCOUNT> format (missing `.`)".to_string()
+    })?;
     let ix_1based: usize = ix_str
         .trim()
         .parse()
@@ -356,9 +356,10 @@ pub fn parse_ix_account_swap(raw: &str) -> Result<InstructionAccountSwap, String
 }
 
 pub fn parse_ix_data_patch(raw: &str) -> Result<InstructionDataPatch, String> {
-    let (ix_str, rest) = raw
-        .split_once('=')
-        .ok_or_else(|| "Instruction data patch must be in <IX>=<OFFSET>:<HEX_DATA> format (1-based index)".to_string())?;
+    let (ix_str, rest) = raw.split_once('=').ok_or_else(|| {
+        "Instruction data patch must be in <IX>=<OFFSET>:<HEX_DATA> format (1-based index)"
+            .to_string()
+    })?;
     let ix_1based: usize = ix_str
         .trim()
         .parse()
@@ -368,7 +369,8 @@ pub fn parse_ix_data_patch(raw: &str) -> Result<InstructionDataPatch, String> {
     }
 
     let (offset_str, hex_str) = rest.split_once(':').ok_or_else(|| {
-        "Instruction data patch value must be in <OFFSET>:<HEX_DATA> format (missing `:`)".to_string()
+        "Instruction data patch value must be in <OFFSET>:<HEX_DATA> format (missing `:`)"
+            .to_string()
     })?;
     let offset: usize = offset_str
         .trim()

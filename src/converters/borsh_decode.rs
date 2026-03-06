@@ -1,6 +1,5 @@
 /// Borsh binary data → JSON deserializer.
-
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use serde_json::Value;
 use solana_pubkey::Pubkey;
 
@@ -130,6 +129,30 @@ pub fn decode_borsh(ty: &BorshType, data: &[u8], offset: &mut usize) -> Result<V
                 Ok(serde_json::json!({ "variant": idx, "value": value }))
             }
         }
+        BorshType::HashSet(inner) => {
+            let len_bytes = read_bytes(data, offset, 4, "hashset length")?;
+            let len = u32::from_le_bytes(len_bytes.try_into().unwrap()) as usize;
+            let mut items = Vec::with_capacity(len);
+            for i in 0..len {
+                let val = decode_borsh(inner, data, offset)
+                    .with_context(|| format!("in hashset element [{i}]"))?;
+                items.push(val);
+            }
+            Ok(Value::Array(items))
+        }
+        BorshType::HashMap(key_ty, val_ty) => {
+            let len_bytes = read_bytes(data, offset, 4, "hashmap length")?;
+            let len = u32::from_le_bytes(len_bytes.try_into().unwrap()) as usize;
+            let mut items = Vec::with_capacity(len);
+            for i in 0..len {
+                let k = decode_borsh(key_ty, data, offset)
+                    .with_context(|| format!("in hashmap key [{i}]"))?;
+                let v = decode_borsh(val_ty, data, offset)
+                    .with_context(|| format!("in hashmap value [{i}]"))?;
+                items.push(Value::Array(vec![k, v]));
+            }
+            Ok(Value::Array(items))
+        }
         BorshType::Struct(fields) => {
             let mut map = serde_json::Map::with_capacity(fields.len());
             for (name, ty) in fields {
@@ -225,10 +248,7 @@ mod tests {
 
     #[test]
     fn decode_i128() {
-        assert_eq!(
-            decode("i128", "ffffffffffffffffffffffffffffffff"),
-            json!("-1")
-        );
+        assert_eq!(decode("i128", "ffffffffffffffffffffffffffffffff"), json!("-1"));
     }
 
     #[test]
@@ -257,10 +277,7 @@ mod tests {
     #[test]
     fn decode_vec_u32() {
         // vec of 2 u32s: [1, 2]
-        assert_eq!(
-            decode("vec<u32>", "020000000100000002000000"),
-            json!([1, 2])
-        );
+        assert_eq!(decode("vec<u32>", "020000000100000002000000"), json!([1, 2]));
     }
 
     #[test]
@@ -280,10 +297,7 @@ mod tests {
 
     #[test]
     fn decode_tuple() {
-        assert_eq!(
-            decode("(u64,bool)", "010000000000000001"),
-            json!([1, true])
-        );
+        assert_eq!(decode("(u64,bool)", "010000000000000001"), json!([1, true]));
     }
 
     #[test]
@@ -337,18 +351,28 @@ mod tests {
 
     #[test]
     fn decode_result_ok() {
-        assert_eq!(
-            decode("result<u64,string>", "002a00000000000000"),
-            json!({"ok": 42})
-        );
+        assert_eq!(decode("result<u64,string>", "002a00000000000000"), json!({"ok": 42}));
     }
 
     #[test]
     fn decode_result_err() {
         // err variant (1) + string "fail" (len=4 + bytes)
+        assert_eq!(decode("result<u64,string>", "01040000006661696c"), json!({"err": "fail"}));
+    }
+
+    #[test]
+    fn decode_hashset() {
+        // hashset<u32> with 2 elements: [1, 2]
+        assert_eq!(decode("hashset<u32>", "020000000100000002000000"), json!([1, 2]));
+    }
+
+    #[test]
+    fn decode_hashmap() {
+        // hashmap<u32,bool> with 2 entries: [[1,true],[2,false]]
+        // len(2) + (1u32,true) + (2u32,false)
         assert_eq!(
-            decode("result<u64,string>", "01040000006661696c"),
-            json!({"err": "fail"})
+            decode("hashmap<u32,bool>", "0200000001000000010200000000"),
+            json!([[1, true], [2, false]])
         );
     }
 

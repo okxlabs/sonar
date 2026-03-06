@@ -185,8 +185,7 @@ pub fn apply_ix_account_swaps(
             VersionedMessage::Legacy(m) => &m.account_keys,
             VersionedMessage::V0(m) => &m.account_keys,
         };
-        let new_index = if let Some(pos) = account_keys.iter().position(|k| *k == swap.new_pubkey)
-        {
+        let new_index = if let Some(pos) = account_keys.iter().position(|k| *k == swap.new_pubkey) {
             // Key exists — ensure its writability matches what was requested.
             ensure_account_writability(&mut tx.message, pos, swap.writable)
         } else {
@@ -386,13 +385,11 @@ pub fn apply_ix_data_patches(
 
         match &mut tx.message {
             VersionedMessage::Legacy(m) => {
-                m.instructions[patch.instruction_index].data
-                    [patch.offset..end]
+                m.instructions[patch.instruction_index].data[patch.offset..end]
                     .copy_from_slice(&patch.data);
             }
             VersionedMessage::V0(m) => {
-                m.instructions[patch.instruction_index].data
-                    [patch.offset..end]
+                m.instructions[patch.instruction_index].data[patch.offset..end]
                     .copy_from_slice(&patch.data);
             }
         }

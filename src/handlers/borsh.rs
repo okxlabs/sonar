@@ -30,8 +30,8 @@ fn handle_de(args: BorshDeArgs) -> Result<()> {
     }
 
     let mut offset = args.skip_bytes;
-    let value = decode_borsh(&ty, &data, &mut offset)
-        .context("failed to deserialize borsh data")?;
+    let value =
+        decode_borsh(&ty, &data, &mut offset).context("failed to deserialize borsh data")?;
 
     if offset < data.len() {
         log::warn!(
@@ -83,9 +83,7 @@ fn read_input(input: Option<&str>, kind: &str) -> Result<String> {
 
     if !std::io::stdin().is_terminal() {
         let mut buf = String::new();
-        std::io::stdin()
-            .read_to_string(&mut buf)
-            .context("failed to read from stdin")?;
+        std::io::stdin().read_to_string(&mut buf).context("failed to read from stdin")?;
         let trimmed = buf.trim();
         if trimmed.is_empty() {
             anyhow::bail!("no {kind} data received from stdin");
@@ -100,11 +98,7 @@ fn parse_input_bytes(input: &str) -> Result<Vec<u8>> {
     // Try hex with 0x prefix
     if input.starts_with("0x") || input.starts_with("0X") {
         let hex_str: String = input[2..].chars().filter(|c| !c.is_whitespace()).collect();
-        let hex_str = if hex_str.len() % 2 != 0 {
-            format!("0{hex_str}")
-        } else {
-            hex_str
-        };
+        let hex_str = if hex_str.len() % 2 != 0 { format!("0{hex_str}") } else { hex_str };
         return hex::decode(&hex_str).context("invalid hex input");
     }
 
@@ -122,8 +116,7 @@ fn parse_input_bytes(input: &str) -> Result<Vec<u8>> {
                     u8::from_str_radix(&s[2..], 16)
                         .with_context(|| format!("invalid hex byte: {s}"))
                 } else {
-                    s.parse::<u8>()
-                        .with_context(|| format!("invalid byte value: {s}"))
+                    s.parse::<u8>().with_context(|| format!("invalid byte value: {s}"))
                 }
             })
             .collect();
@@ -145,18 +138,12 @@ mod tests {
 
     #[test]
     fn parse_hex_input() {
-        assert_eq!(
-            parse_input_bytes("0x0100000000000000").unwrap(),
-            1u64.to_le_bytes()
-        );
+        assert_eq!(parse_input_bytes("0x0100000000000000").unwrap(), 1u64.to_le_bytes());
     }
 
     #[test]
     fn parse_byte_array_input() {
-        assert_eq!(
-            parse_input_bytes("[1,0,0,0,0,0,0,0]").unwrap(),
-            1u64.to_le_bytes()
-        );
+        assert_eq!(parse_input_bytes("[1,0,0,0,0,0,0,0]").unwrap(), 1u64.to_le_bytes());
     }
 
     #[test]
