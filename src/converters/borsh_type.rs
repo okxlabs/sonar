@@ -1,7 +1,7 @@
 /// Borsh type descriptor AST and parser.
 ///
 /// Supports: u8/u16/u32/u64/u128, i8/i16/i32/i64/i128, bool, string, pubkey,
-/// vec<T>, option<T>, [T;N], (T1,T2,...).
+/// vec<T>, option<T>, [T;N], (T1,T2,...), (), enum<T0,T1,...>, result<T,E>.
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BorshType {
@@ -22,6 +22,9 @@ pub enum BorshType {
     Option(Box<BorshType>),
     Array(Box<BorshType>, usize),
     Tuple(Vec<BorshType>),
+    Unit,
+    Enum(Vec<BorshType>),
+    Result(Box<BorshType>, Box<BorshType>),
 }
 
 impl std::fmt::Display for BorshType {
@@ -53,6 +56,18 @@ impl std::fmt::Display for BorshType {
                 }
                 write!(f, ")")
             }
+            BorshType::Unit => write!(f, "()"),
+            BorshType::Enum(variants) => {
+                write!(f, "enum<")?;
+                for (i, v) in variants.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ",")?;
+                    }
+                    write!(f, "{v}")?;
+                }
+                write!(f, ">")
+            }
+            BorshType::Result(ok, err) => write!(f, "result<{ok},{err}>"),
         }
     }
 }
@@ -127,7 +142,7 @@ fn parse_tuple(input: &str, pos: &mut usize) -> Result<BorshType, String> {
         types.push(parse_type(input, pos)?);
     }
     if types.is_empty() {
-        return Err("empty tuple is not supported".to_string());
+        return Ok(BorshType::Unit);
     }
     Ok(BorshType::Tuple(types))
 }
@@ -218,6 +233,46 @@ fn parse_keyword_type(input: &str, pos: &mut usize) -> Result<BorshType, String>
             skip_whitespace(input, pos);
             expect_char(input, pos, '>', "option")?;
             Ok(BorshType::Option(Box::new(inner)))
+        }
+        "enum" => {
+            skip_whitespace(input, pos);
+            expect_char(input, pos, '<', "enum")?;
+            let mut variants = Vec::new();
+            loop {
+                skip_whitespace(input, pos);
+                if *pos < input.len() && input.as_bytes()[*pos] == b'>' {
+                    *pos += 1;
+                    break;
+                }
+                if !variants.is_empty() {
+                    if *pos >= input.len() || input.as_bytes()[*pos] != b',' {
+                        return Err(format!(
+                            "expected ',' or '>' in enum at position {pos}, got '{}'",
+                            if *pos < input.len() { input.as_bytes()[*pos] as char } else { '?' }
+                        ));
+                    }
+                    *pos += 1; // skip ','
+                }
+                variants.push(parse_type(input, pos)?);
+            }
+            if variants.is_empty() {
+                return Err("enum must have at least one variant".to_string());
+            }
+            Ok(BorshType::Enum(variants))
+        }
+        "result" => {
+            skip_whitespace(input, pos);
+            expect_char(input, pos, '<', "result")?;
+            let ok_type = parse_type(input, pos)?;
+            skip_whitespace(input, pos);
+            if *pos >= input.len() || input.as_bytes()[*pos] != b',' {
+                return Err(format!("expected ',' in result type at position {pos}"));
+            }
+            *pos += 1; // skip ','
+            let err_type = parse_type(input, pos)?;
+            skip_whitespace(input, pos);
+            expect_char(input, pos, '>', "result")?;
+            Ok(BorshType::Result(Box::new(ok_type), Box::new(err_type)))
         }
         _ => Err(format!("unknown type '{keyword}' at position {start}")),
     }
@@ -358,6 +413,60 @@ mod tests {
     #[test]
     fn display_roundtrip() {
         let ty = parse_borsh_type("(u64,bool,vec<u32>)").unwrap();
+        let s = ty.to_string();
+        let ty2 = parse_borsh_type(&s).unwrap();
+        assert_eq!(ty, ty2);
+    }
+
+    #[test]
+    fn parse_unit() {
+        assert_eq!(parse_borsh_type("()").unwrap(), BorshType::Unit);
+    }
+
+    #[test]
+    fn parse_enum() {
+        assert_eq!(
+            parse_borsh_type("enum<(),u64,(u32,bool)>").unwrap(),
+            BorshType::Enum(vec![
+                BorshType::Unit,
+                BorshType::U64,
+                BorshType::Tuple(vec![BorshType::U32, BorshType::Bool]),
+            ])
+        );
+    }
+
+    #[test]
+    fn parse_enum_single_variant() {
+        assert_eq!(
+            parse_borsh_type("enum<u64>").unwrap(),
+            BorshType::Enum(vec![BorshType::U64])
+        );
+    }
+
+    #[test]
+    fn parse_result() {
+        assert_eq!(
+            parse_borsh_type("result<u64, string>").unwrap(),
+            BorshType::Result(Box::new(BorshType::U64), Box::new(BorshType::String))
+        );
+    }
+
+    #[test]
+    fn display_unit() {
+        assert_eq!(BorshType::Unit.to_string(), "()");
+    }
+
+    #[test]
+    fn display_enum_roundtrip() {
+        let ty = parse_borsh_type("enum<(),u64>").unwrap();
+        let s = ty.to_string();
+        let ty2 = parse_borsh_type(&s).unwrap();
+        assert_eq!(ty, ty2);
+    }
+
+    #[test]
+    fn display_result_roundtrip() {
+        let ty = parse_borsh_type("result<u64,string>").unwrap();
         let s = ty.to_string();
         let ty2 = parse_borsh_type(&s).unwrap();
         assert_eq!(ty, ty2);

@@ -110,6 +110,13 @@ pub fn decode_borsh(ty: &BorshType, data: &[u8], offset: &mut usize) -> Result<V
             }
             Ok(Value::Array(items))
         }
+        BorshType::Unit => Ok(Value::Null),
+        BorshType::Enum(_variants) => {
+            anyhow::bail!("enum decoding not yet implemented")
+        }
+        BorshType::Result(_ok, _err) => {
+            anyhow::bail!("result decoding not yet implemented")
+        }
     }
 }
 

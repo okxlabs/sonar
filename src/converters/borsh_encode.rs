@@ -147,6 +147,13 @@ fn encode_into(ty: &BorshType, value: &Value, buf: &mut Vec<u8>) -> Result<()> {
                     .with_context(|| format!("in tuple element [{i}]"))?;
             }
         }
+        BorshType::Unit => { /* nothing to encode */ }
+        BorshType::Enum(_variants) => {
+            anyhow::bail!("enum encoding not yet implemented");
+        }
+        BorshType::Result(_ok, _err) => {
+            anyhow::bail!("result encoding not yet implemented");
+        }
     }
     Ok(())
 }
