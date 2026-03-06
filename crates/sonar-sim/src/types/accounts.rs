@@ -26,6 +26,22 @@ pub struct AccountDataPatch {
     pub data: Vec<u8>,
 }
 
+#[derive(Clone, Debug)]
+pub struct InstructionDataPatch {
+    pub instruction_index: usize,
+    pub offset: usize,
+    pub data: Vec<u8>,
+}
+
+#[derive(Clone, Debug)]
+pub struct InstructionAccountSwap {
+    pub instruction_index: usize,
+    pub account_position: usize,
+    pub new_pubkey: Pubkey,
+    /// Whether the new account should be writable. Default: `true`.
+    pub writable: bool,
+}
+
 #[derive(Debug, Clone)]
 pub struct ResolvedAccounts {
     pub accounts: HashMap<Pubkey, AccountSharedData>,

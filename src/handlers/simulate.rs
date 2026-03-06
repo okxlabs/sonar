@@ -8,7 +8,7 @@ use crate::utils::progress::Progress;
 use crate::{core::account_file, core::transaction, output};
 use sonar_sim::{
     ExecutionOptions, PreparedSimulation, SimulationOptions, StateMutationOptions,
-    prepare_token_fundings,
+    apply_ix_account_swaps, apply_ix_data_patches, prepare_token_fundings,
 };
 
 use super::{prepare_accounts_and_idls, resolve_inputs_to_txs, warn_unmatched_addresses};
@@ -30,6 +30,8 @@ pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
         replacements: replacement_args,
         fundings: funding_args,
         token_fundings: token_funding_args,
+        ix_account_swaps: ix_account_swap_args,
+        ix_data_patches: ix_data_patch_args,
         ix_data,
         verify_signatures,
         idl_dir: _,
@@ -69,6 +71,16 @@ pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
         .map(|raw| cli::parse_data_patch(&raw).map_err(anyhow::Error::msg))
         .collect::<Result<Vec<_>>>()?;
 
+    let ix_account_swaps = ix_account_swap_args
+        .into_iter()
+        .map(|raw| cli::parse_ix_account_swap(&raw).map_err(anyhow::Error::msg))
+        .collect::<Result<Vec<_>>>()?;
+
+    let ix_data_patches = ix_data_patch_args
+        .into_iter()
+        .map(|raw| cli::parse_ix_data_patch(&raw).map_err(anyhow::Error::msg))
+        .collect::<Result<Vec<_>>>()?;
+
     // Build rendering options once; shared across all code paths.
     let render_opts = output::RenderOptions {
         json,
@@ -99,6 +111,8 @@ pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
             &rpc_url,
             resolver_cache_root,
             token_funding_requests,
+            ix_account_swaps,
+            ix_data_patches,
             sim_opts,
             &render_opts,
             &mut parser_registry,
@@ -120,6 +134,16 @@ pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
     let cached_raw_tx = resolved_input.raw_tx_base64.clone();
     let resolved_from = resolved_input.source.as_str().to_string();
     let mut parsed_tx = resolved_input.parsed_tx;
+
+    if !ix_account_swaps.is_empty() {
+        parsed_tx.account_plan =
+            apply_ix_account_swaps(&mut parsed_tx.transaction, &ix_account_swaps)
+                .context("Failed to apply instruction account swaps")?;
+    }
+    if !ix_data_patches.is_empty() {
+        apply_ix_data_patches(&mut parsed_tx.transaction, &ix_data_patches)
+            .context("Failed to apply instruction data patches")?;
+    }
 
     let cache_key = crate::core::cache::derive_cache_key_single(&raw_input, &parsed_tx.transaction);
     let (tx_cache_dir, offline) =
@@ -228,6 +252,8 @@ fn handle_bundle(
     rpc_url: &str,
     resolver_cache_root: Option<PathBuf>,
     token_funding_requests: Vec<cli::TokenFunding>,
+    ix_account_swaps: Vec<sonar_sim::InstructionAccountSwap>,
+    ix_data_patches: Vec<sonar_sim::InstructionDataPatch>,
     mut sim_opts: SimulationOptions,
     render_opts: &output::RenderOptions,
     parser_registry: &mut ParserRegistry,
@@ -243,8 +269,22 @@ fn handle_bundle(
         resolve_inputs_to_txs(tx_inputs, rpc_url, resolver_cache_root, progress, true)?;
     let resolved_txs = parsed_inputs.resolved_txs;
     let tx_inputs: Vec<_> = resolved_txs.iter().map(|tx| tx.original_input.clone()).collect();
-    let parsed_txs: Vec<_> = resolved_txs.iter().map(|tx| tx.parsed_tx.clone()).collect();
+    let mut parsed_txs: Vec<_> = resolved_txs.iter().map(|tx| tx.parsed_tx.clone()).collect();
     log::info!("Successfully parsed {} transactions", parsed_txs.len());
+
+    if !ix_account_swaps.is_empty() {
+        for parsed_tx in &mut parsed_txs {
+            parsed_tx.account_plan =
+                apply_ix_account_swaps(&mut parsed_tx.transaction, &ix_account_swaps)
+                    .context("Failed to apply instruction account swaps")?;
+        }
+    }
+    if !ix_data_patches.is_empty() {
+        for parsed_tx in &mut parsed_txs {
+            apply_ix_data_patches(&mut parsed_tx.transaction, &ix_data_patches)
+                .context("Failed to apply instruction data patches")?;
+        }
+    }
 
     let cache_key = crate::core::cache::derive_cache_key_bundle(&tx_inputs, &parsed_txs);
     let (bundle_cache_dir, offline) =
