@@ -187,7 +187,7 @@ pub fn apply_ix_account_swaps(
         };
         let new_index = if let Some(pos) = account_keys.iter().position(|k| *k == swap.new_pubkey) {
             // Key exists — ensure its writability matches what was requested.
-            ensure_account_writability(&mut tx.message, pos, swap.writable)
+            ensure_account_writability(&mut tx.message, pos, swap.writable)?
         } else {
             let total = account_keys.len();
             if total > u8::MAX as usize {
@@ -204,11 +204,11 @@ pub fn apply_ix_account_swaps(
                 match &mut tx.message {
                     VersionedMessage::Legacy(m) => {
                         m.account_keys.insert(insert_pos, swap.new_pubkey);
-                        shift_indices(&mut m.instructions, insert_pos);
+                        shift_indices(&mut m.instructions, insert_pos)?;
                     }
                     VersionedMessage::V0(m) => {
                         m.account_keys.insert(insert_pos, swap.new_pubkey);
-                        shift_indices(&mut m.instructions, insert_pos);
+                        shift_indices(&mut m.instructions, insert_pos)?;
                     }
                 }
                 insert_pos
@@ -220,12 +220,12 @@ pub fn apply_ix_account_swaps(
                     VersionedMessage::Legacy(m) => {
                         m.account_keys.push(swap.new_pubkey);
                         m.header.num_readonly_unsigned_accounts += 1;
-                        shift_indices(&mut m.instructions, total);
+                        shift_indices(&mut m.instructions, total)?;
                     }
                     VersionedMessage::V0(m) => {
                         m.account_keys.push(swap.new_pubkey);
                         m.header.num_readonly_unsigned_accounts += 1;
-                        shift_indices(&mut m.instructions, total);
+                        shift_indices(&mut m.instructions, total)?;
                     }
                 }
                 total
@@ -254,6 +254,12 @@ pub fn apply_ix_account_swaps(
 /// Uses the same key-insertion logic as `apply_ix_account_swaps`:
 /// writable keys are inserted before the read-only section; read-only keys
 /// are appended at the end.
+///
+/// **Limitation (v0 messages with ALTs):** Duplicate detection only covers
+/// static account keys. If the appended pubkey is already loaded through an
+/// address lookup table, it will be added as a static key too, and the
+/// Solana runtime will reject the message with `AccountLoadedTwice`.
+/// ALT-resolved addresses are not available at mutation time.
 pub fn apply_ix_account_appends(
     tx: &mut VersionedTransaction,
     appends: &[crate::types::InstructionAccountAppend],
@@ -277,7 +283,7 @@ pub fn apply_ix_account_appends(
         };
         let new_index =
             if let Some(pos) = account_keys.iter().position(|k| *k == append.new_pubkey) {
-                ensure_account_writability(&mut tx.message, pos, append.writable)
+                ensure_account_writability(&mut tx.message, pos, append.writable)?
             } else {
                 let total = account_keys.len();
                 if total > u8::MAX as usize {
@@ -292,11 +298,11 @@ pub fn apply_ix_account_appends(
                     match &mut tx.message {
                         VersionedMessage::Legacy(m) => {
                             m.account_keys.insert(insert_pos, append.new_pubkey);
-                            shift_indices(&mut m.instructions, insert_pos);
+                            shift_indices(&mut m.instructions, insert_pos)?;
                         }
                         VersionedMessage::V0(m) => {
                             m.account_keys.insert(insert_pos, append.new_pubkey);
-                            shift_indices(&mut m.instructions, insert_pos);
+                            shift_indices(&mut m.instructions, insert_pos)?;
                         }
                     }
                     insert_pos
@@ -305,12 +311,12 @@ pub fn apply_ix_account_appends(
                         VersionedMessage::Legacy(m) => {
                             m.account_keys.push(append.new_pubkey);
                             m.header.num_readonly_unsigned_accounts += 1;
-                            shift_indices(&mut m.instructions, total);
+                            shift_indices(&mut m.instructions, total)?;
                         }
                         VersionedMessage::V0(m) => {
                             m.account_keys.push(append.new_pubkey);
                             m.header.num_readonly_unsigned_accounts += 1;
-                            shift_indices(&mut m.instructions, total);
+                            shift_indices(&mut m.instructions, total)?;
                         }
                     }
                     total
@@ -337,11 +343,35 @@ pub fn apply_ix_account_appends(
 
 /// Shift all instruction account indices and program_id_index values that are
 /// >= `insert_pos` by +1, to account for a key insertion in the account_keys vec.
+///
+/// Returns an error if any index that needs shifting is already at `u8::MAX`,
+/// since incrementing it would overflow (possible on dense v0 messages that
+/// use the full compiled-index space via lookup accounts).
 fn shift_indices(
     instructions: &mut [solana_message::compiled_instruction::CompiledInstruction],
     insert_pos: usize,
-) {
+) -> Result<()> {
     let threshold = insert_pos as u8;
+    // Pre-check: ensure no index at u8::MAX would need to shift.
+    for ix in instructions.iter() {
+        if ix.program_id_index >= threshold && ix.program_id_index == u8::MAX {
+            return Err(SonarSimError::Validation {
+                reason: "Cannot insert account key: shifting indices would overflow u8 \
+                         (program_id_index is already at 255)"
+                    .into(),
+            });
+        }
+        for acc in &ix.accounts {
+            if *acc >= threshold && *acc == u8::MAX {
+                return Err(SonarSimError::Validation {
+                    reason: "Cannot insert account key: shifting indices would overflow u8 \
+                             (an instruction account index is already at 255)"
+                        .into(),
+                });
+            }
+        }
+    }
+
     for ix in instructions.iter_mut() {
         if ix.program_id_index >= threshold {
             ix.program_id_index += 1;
@@ -352,6 +382,7 @@ fn shift_indices(
             }
         }
     }
+    Ok(())
 }
 
 /// Ensure an existing account key at `pos` has the requested writability.
@@ -360,14 +391,30 @@ fn shift_indices(
 /// Otherwise swaps it with the account at the writability boundary and adjusts
 /// the message header, returning the key's new position.
 ///
-/// Signer accounts (pos < num_required_signatures) are left unchanged because
+/// Signer accounts (pos < num_required_signatures) cannot be relocated because
 /// their writability is governed by `num_readonly_signed_accounts` and moving
-/// them would invalidate signature verification.
-fn ensure_account_writability(message: &mut VersionedMessage, pos: usize, writable: bool) -> usize {
+/// them would invalidate signature verification. Returns an error if the
+/// requested writability differs from the signer's current writability.
+fn ensure_account_writability(
+    message: &mut VersionedMessage,
+    pos: usize,
+    writable: bool,
+) -> Result<usize> {
     let num_sigs = message.header().num_required_signatures as usize;
     if pos < num_sigs {
-        // Don't relocate signer accounts.
-        return pos;
+        // Signer accounts: check if the requested writability matches.
+        let num_readonly_signed = message.header().num_readonly_signed_accounts as usize;
+        let is_currently_writable = pos < (num_sigs - num_readonly_signed);
+        if is_currently_writable != writable {
+            let key = message.static_account_keys()[pos];
+            return Err(SonarSimError::Validation {
+                reason: format!(
+                    "Cannot change writability of signer account {key}: \
+                     signer writability is fixed by the message header"
+                ),
+            });
+        }
+        return Ok(pos);
     }
 
     let total = message.static_account_keys().len();
@@ -376,7 +423,7 @@ fn ensure_account_writability(message: &mut VersionedMessage, pos: usize, writab
     let is_currently_writable = pos < readonly_start;
 
     if is_currently_writable == writable {
-        return pos;
+        return Ok(pos);
     }
 
     if writable {
@@ -387,7 +434,7 @@ fn ensure_account_writability(message: &mut VersionedMessage, pos: usize, writab
             VersionedMessage::Legacy(m) => m.header.num_readonly_unsigned_accounts -= 1,
             VersionedMessage::V0(m) => m.header.num_readonly_unsigned_accounts -= 1,
         }
-        readonly_start
+        Ok(readonly_start)
     } else {
         // Move from writable to read-only: swap with the last writable non-signer
         // (at `readonly_start - 1`) and grow the read-only section by 1.
@@ -397,7 +444,7 @@ fn ensure_account_writability(message: &mut VersionedMessage, pos: usize, writab
             VersionedMessage::Legacy(m) => m.header.num_readonly_unsigned_accounts += 1,
             VersionedMessage::V0(m) => m.header.num_readonly_unsigned_accounts += 1,
         }
-        last_writable
+        Ok(last_writable)
     }
 }
 
@@ -988,6 +1035,81 @@ mod tests {
         assert_eq!(ix.program_id_index, 2);
         assert_eq!(ix.accounts.len(), 3);
         assert_eq!(ix.accounts[2], 1); // appended account points to new_key
+    }
+
+    #[test]
+    fn apply_ix_account_appends_rejects_signer_writability_change() {
+        let (mut tx, payer) = sample_transaction();
+        // payer is a writable signer; requesting :r should error
+        let appends = vec![crate::types::InstructionAccountAppend {
+            instruction_index: 0,
+            new_pubkey: payer,
+            writable: false,
+        }];
+        let err = apply_ix_account_appends(&mut tx, &appends).unwrap_err();
+        assert!(err.to_string().contains("signer"));
+    }
+
+    #[test]
+    fn apply_ix_account_swaps_rejects_signer_writability_change() {
+        let (mut tx, payer) = sample_transaction();
+        // payer is a writable signer; swapping to :r should error
+        let swaps = vec![crate::types::InstructionAccountSwap {
+            instruction_index: 0,
+            account_position: 0,
+            new_pubkey: payer,
+            writable: false,
+        }];
+        let err = apply_ix_account_swaps(&mut tx, &swaps).unwrap_err();
+        assert!(err.to_string().contains("signer"));
+    }
+
+    #[test]
+    fn apply_ix_account_appends_allows_signer_same_writability() {
+        let (mut tx, payer) = sample_transaction();
+        // payer is already writable; requesting :w (same) should succeed
+        let appends = vec![crate::types::InstructionAccountAppend {
+            instruction_index: 0,
+            new_pubkey: payer,
+            writable: true,
+        }];
+        let plan = apply_ix_account_appends(&mut tx, &appends).unwrap();
+        assert_eq!(plan.static_accounts.len(), 3);
+    }
+
+    #[test]
+    fn shift_indices_rejects_u8_overflow() {
+        // Create a v0 message with an instruction referencing index 255
+        let payer = Pubkey::new_unique();
+        let program = Pubkey::new_unique();
+        let message = MessageV0 {
+            header: MessageHeader {
+                num_required_signatures: 1,
+                num_readonly_signed_accounts: 0,
+                num_readonly_unsigned_accounts: 1,
+            },
+            account_keys: vec![payer, program],
+            recent_blockhash: Hash::new_unique(),
+            instructions: vec![CompiledInstruction {
+                program_id_index: 1,
+                accounts: vec![u8::MAX], // index 255
+                data: vec![],
+            }],
+            address_table_lookups: vec![],
+        };
+        let mut tx = VersionedTransaction {
+            signatures: vec![Signature::default()],
+            message: VersionedMessage::V0(message),
+        };
+        // Appending a writable key inserts before readonly section (at pos 1),
+        // which would shift the 255 index to 256 — must error.
+        let appends = vec![crate::types::InstructionAccountAppend {
+            instruction_index: 0,
+            new_pubkey: Pubkey::new_unique(),
+            writable: true,
+        }];
+        let err = apply_ix_account_appends(&mut tx, &appends).unwrap_err();
+        assert!(err.to_string().contains("overflow"));
     }
 
     #[test]
