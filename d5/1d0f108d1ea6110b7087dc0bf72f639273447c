@@ -1,0 +1,66 @@
+src/cli/simulate.rs
+  a7ea79a 57-80,166-167,317-400,896-1077
+crates/sonar-sim/src/types/mod.rs
+  a7ea79a 7-8
+crates/sonar-sim/src/types/accounts.rs
+  a7ea79a 29-44
+crates/sonar-sim/src/transaction.rs
+  a7ea79a 148-217,220-223,225-228,230-402,582-704,755-795
+crates/sonar-sim/src/lib.rs
+  a7ea79a 35,44
+src/handlers/simulate.rs
+  a7ea79a 11,33-34,74-83,114-115,138-147,255-256,272,275-288
+---
+{
+  "metadata": {
+    "base_commit_sha": "d51d0f108d1ea6110b7087dc0bf72f639273447c",
+    "prompts": {}
+  },
+  "agent_line_stats": {
+    "crates/sonar-sim/src/lib.rs": {
+      "Human": {
+        "file_path": "crates/sonar-sim/src/lib.rs",
+        "agent_type": "Human",
+        "additions": 3,
+        "deletions": 3,
+        "ai_accepted": 0
+      }
+    },
+    "crates/sonar-sim/src/transaction.rs": {
+      "Human": {
+        "file_path": "crates/sonar-sim/src/transaction.rs",
+        "agent_type": "Human",
+        "additions": 94,
+        "deletions": 1,
+        "ai_accepted": 0
+      }
+    },
+    "crates/sonar-sim/src/types/mod.rs": {
+      "Human": {
+        "file_path": "crates/sonar-sim/src/types/mod.rs",
+        "agent_type": "Human",
+        "additions": 2,
+        "deletions": 1,
+        "ai_accepted": 0
+      }
+    },
+    "src/cli/simulate.rs": {
+      "Human": {
+        "file_path": "src/cli/simulate.rs",
+        "agent_type": "Human",
+        "additions": 2,
+        "deletions": 1,
+        "ai_accepted": 0
+      }
+    },
+    "src/handlers/simulate.rs": {
+      "Human": {
+        "file_path": "src/handlers/simulate.rs",
+        "agent_type": "Human",
+        "additions": 0,
+        "deletions": 1,
+        "ai_accepted": 0
+      }
+    }
+  }
+}
