@@ -27,6 +27,9 @@ pub struct BorshDeArgs {
     pub type_str: String,
     /// Input bytes (hex with 0x prefix, base64, or byte array). Reads from stdin if omitted.
     pub input: Option<String>,
+    /// Number of bytes to skip before deserializing
+    #[arg(long, default_value = "0")]
+    pub skip_bytes: usize,
 }
 
 #[derive(Args, Debug)]

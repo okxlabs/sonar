@@ -21,7 +21,15 @@ fn handle_de(args: BorshDeArgs) -> Result<()> {
     let raw = read_input(args.input.as_deref(), "bytes")?;
     let data = parse_input_bytes(&raw)?;
 
-    let mut offset = 0;
+    if args.skip_bytes > data.len() {
+        anyhow::bail!(
+            "skip-bytes ({}) exceeds input length ({} bytes)",
+            args.skip_bytes,
+            data.len()
+        );
+    }
+
+    let mut offset = args.skip_bytes;
     let value = decode_borsh(&ty, &data, &mut offset)
         .context("failed to deserialize borsh data")?;
 
