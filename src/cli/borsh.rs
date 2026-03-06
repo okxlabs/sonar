@@ -20,7 +20,7 @@ EXAMPLES:
   sonar borsh de \"u64\" 0x0100000000000000
   sonar borsh de \"(u64,bool)\" 0x010000000000000001
   sonar borsh de \"vec<u32>\" 0x020000000100000002000000
-  echo '0x0100000000000000' | sonar borsh der \"u64\"
+  echo '0x0100000000000000' | sonar borsh de \"u64\"
 ")]
 pub struct BorshDeArgs {
     /// Borsh type descriptor (e.g. \"u64\", \"(u64,bool,vec<u32>)\", \"[u8;32]\")
