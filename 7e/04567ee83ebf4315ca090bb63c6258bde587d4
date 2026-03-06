@@ -1,0 +1,31 @@
+src/handlers/borsh.rs
+  2384d2f 1-164
+src/converters/borsh_encode.rs
+  2384d2f 1-371
+src/converters/borsh_type.rs
+  2384d2f 1-365
+src/converters/mod.rs
+  # agent: Mixed
+  Human 1-2,6-614
+src/handlers/mod.rs
+  # agent: Mixed
+  Human 1,3-480
+src/main.rs
+  # agent: Mixed
+  Human 1-95,97-133
+src/cli/mod.rs
+  # agent: Mixed
+  Human 1-3,5-16,18-86,90-105
+src/cli/borsh.rs
+  2384d2f 1-58
+src/converters/borsh_decode.rs
+  2384d2f 1-261
+docs/borsh-subcommand.md
+  2384d2f 1-97
+---
+{
+  "metadata": {
+    "base_commit_sha": "7e04567ee83ebf4315ca090bb63c6258bde587d4",
+    "prompts": {}
+  }
+}
