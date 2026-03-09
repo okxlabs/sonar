@@ -75,8 +75,11 @@ pub(crate) fn resolve_cache_state(
     if !cache {
         return (None, false);
     }
-    let root = resolve_cache_dir(cache_dir);
-    let dir = root.join(cache_key);
+    let dir = if cache_dir.is_some() {
+        resolve_cache_dir(cache_dir)
+    } else {
+        resolve_cache_dir(cache_dir).join(cache_key)
+    };
     let cache_complete = dir.join("_meta.json").exists();
     let offline = cache_complete && !refresh_cache;
     (Some(dir), offline)

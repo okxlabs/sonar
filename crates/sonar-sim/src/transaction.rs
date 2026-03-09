@@ -185,7 +185,8 @@ pub fn apply_ix_account_patches(
             VersionedMessage::Legacy(m) => &m.account_keys,
             VersionedMessage::V0(m) => &m.account_keys,
         };
-        let new_index = if let Some(pos) = account_keys.iter().position(|k| *k == patch.new_pubkey) {
+        let new_index = if let Some(pos) = account_keys.iter().position(|k| *k == patch.new_pubkey)
+        {
             // Key exists — ensure its writability matches what was requested.
             ensure_account_writability(&mut tx.message, pos, patch.writable)?
         } else {
@@ -281,59 +282,54 @@ pub fn apply_ix_account_appends(
             VersionedMessage::Legacy(m) => &m.account_keys,
             VersionedMessage::V0(m) => &m.account_keys,
         };
-        let new_index =
-            if let Some(pos) = account_keys.iter().position(|k| *k == append.new_pubkey) {
-                ensure_account_writability(&mut tx.message, pos, append.writable)?
+        let new_index = if let Some(pos) = account_keys.iter().position(|k| *k == append.new_pubkey)
+        {
+            ensure_account_writability(&mut tx.message, pos, append.writable)?
+        } else {
+            let total = account_keys.len();
+            if total > u8::MAX as usize {
+                return Err(SonarSimError::Validation {
+                    reason: "Cannot add more account keys: would exceed u8 index limit".into(),
+                });
+            }
+            if append.writable {
+                let readonly_unsigned = tx.message.header().num_readonly_unsigned_accounts as usize;
+                let insert_pos = total - readonly_unsigned;
+                match &mut tx.message {
+                    VersionedMessage::Legacy(m) => {
+                        m.account_keys.insert(insert_pos, append.new_pubkey);
+                        shift_indices(&mut m.instructions, insert_pos)?;
+                    }
+                    VersionedMessage::V0(m) => {
+                        m.account_keys.insert(insert_pos, append.new_pubkey);
+                        shift_indices(&mut m.instructions, insert_pos)?;
+                    }
+                }
+                insert_pos
             } else {
-                let total = account_keys.len();
-                if total > u8::MAX as usize {
-                    return Err(SonarSimError::Validation {
-                        reason: "Cannot add more account keys: would exceed u8 index limit".into(),
-                    });
-                }
-                if append.writable {
-                    let readonly_unsigned =
-                        tx.message.header().num_readonly_unsigned_accounts as usize;
-                    let insert_pos = total - readonly_unsigned;
-                    match &mut tx.message {
-                        VersionedMessage::Legacy(m) => {
-                            m.account_keys.insert(insert_pos, append.new_pubkey);
-                            shift_indices(&mut m.instructions, insert_pos)?;
-                        }
-                        VersionedMessage::V0(m) => {
-                            m.account_keys.insert(insert_pos, append.new_pubkey);
-                            shift_indices(&mut m.instructions, insert_pos)?;
-                        }
+                match &mut tx.message {
+                    VersionedMessage::Legacy(m) => {
+                        m.account_keys.push(append.new_pubkey);
+                        m.header.num_readonly_unsigned_accounts += 1;
+                        shift_indices(&mut m.instructions, total)?;
                     }
-                    insert_pos
-                } else {
-                    match &mut tx.message {
-                        VersionedMessage::Legacy(m) => {
-                            m.account_keys.push(append.new_pubkey);
-                            m.header.num_readonly_unsigned_accounts += 1;
-                            shift_indices(&mut m.instructions, total)?;
-                        }
-                        VersionedMessage::V0(m) => {
-                            m.account_keys.push(append.new_pubkey);
-                            m.header.num_readonly_unsigned_accounts += 1;
-                            shift_indices(&mut m.instructions, total)?;
-                        }
+                    VersionedMessage::V0(m) => {
+                        m.account_keys.push(append.new_pubkey);
+                        m.header.num_readonly_unsigned_accounts += 1;
+                        shift_indices(&mut m.instructions, total)?;
                     }
-                    total
                 }
-            };
+                total
+            }
+        };
 
         // Append the account index to the instruction's accounts list
         match &mut tx.message {
             VersionedMessage::Legacy(m) => {
-                m.instructions[append.instruction_index]
-                    .accounts
-                    .push(new_index as u8);
+                m.instructions[append.instruction_index].accounts.push(new_index as u8);
             }
             VersionedMessage::V0(m) => {
-                m.instructions[append.instruction_index]
-                    .accounts
-                    .push(new_index as u8);
+                m.instructions[append.instruction_index].accounts.push(new_index as u8);
             }
         }
     }

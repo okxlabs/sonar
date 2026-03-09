@@ -391,11 +391,7 @@ pub fn parse_ix_account_append(raw: &str) -> Result<InstructionAccountAppend, St
 
     let new_pubkey = Pubkey::from_str(pubkey_str)
         .map_err(|err| format!("Failed to parse pubkey `{pubkey_str}`: {err}"))?;
-    Ok(InstructionAccountAppend {
-        instruction_index: ix_1based - 1,
-        new_pubkey,
-        writable,
-    })
+    Ok(InstructionAccountAppend { instruction_index: ix_1based - 1, new_pubkey, writable })
 }
 
 pub fn parse_ix_data_patch(raw: &str) -> Result<InstructionDataPatch, String> {

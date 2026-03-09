@@ -36,7 +36,10 @@ fn apply_ix_mutations(
         apply_ix_data_patches(&mut parsed_tx.transaction, ix_data_patches)
             .context("Failed to apply instruction data patches")?;
     }
-    if !ix_account_patches.is_empty() || !ix_account_appends.is_empty() || !ix_data_patches.is_empty() {
+    if !ix_account_patches.is_empty()
+        || !ix_account_appends.is_empty()
+        || !ix_data_patches.is_empty()
+    {
         parsed_tx.summary = transaction::TransactionSummary::from_transaction(
             &parsed_tx.transaction,
             &parsed_tx.account_plan,
