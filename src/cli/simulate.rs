@@ -107,11 +107,13 @@ pub struct SimulateArgs {
     /// Cache is stored per-transaction under ~/.sonar/cache/<KEY>/
     #[arg(short = 'c', long, help_heading = HELP_HEADING_STATE_PREPARATION, env = "SONAR_CACHE")]
     pub cache: bool,
-    /// Override the cache root directory (default: ~/.sonar/cache)
-    #[arg(short = 'D', long, help_heading = HELP_HEADING_STATE_PREPARATION, value_name = "DIR", requires = "cache")]
+    /// Override the cache root directory (default: ~/.sonar/cache).
+    /// Implies --cache.
+    #[arg(short = 'D', long, help_heading = HELP_HEADING_STATE_PREPARATION, value_name = "DIR")]
     pub cache_dir: Option<PathBuf>,
-    /// Force re-fetch all accounts from RPC, overwriting existing cache
-    #[arg(short = 'r', long, help_heading = HELP_HEADING_STATE_PREPARATION, requires = "cache")]
+    /// Force re-fetch all accounts from RPC, overwriting existing cache.
+    /// Implies --cache.
+    #[arg(short = 'r', long, help_heading = HELP_HEADING_STATE_PREPARATION)]
     pub refresh_cache: bool,
     /// Override the Clock sysvar's unix_timestamp for simulation.
     /// Supports Unix timestamp (e.g. 1700000000) or RFC3339 (e.g. 2024-01-01T00:00:00Z).

@@ -83,6 +83,8 @@ pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
         no_idl_fetch,
         ix_account_appends: ix_account_append_args,
     } = args;
+    // --cache-dir or --refresh-cache imply --cache
+    let cache = cache || cache_dir.is_some() || refresh_cache;
     let rpc_url = rpc.rpc_url;
     let resolver_cache_location = Some(if cache_dir.is_some() {
         crate::core::cache::CacheLocation::Explicit(crate::core::cache::resolve_cache_dir(
