@@ -172,11 +172,11 @@ fn render_bundle_summary_header(bundle: &BundleReport, total_count: usize) {
         .map(|i| i + 1);
 
     let status_str = if succeeded == total_count {
-        "🟢 ALL SUCCEEDED".to_string()
+        "✓ ALL SUCCEEDED".to_string()
     } else if let Some(idx) = failed_at {
-        format!("🔴 FAILED (TX {})", idx)
+        format!("✗ FAILED (TX {})", idx)
     } else {
-        "⚠️  PARTIAL".to_string()
+        "~  PARTIAL".to_string()
     };
 
     // Total CU consumed across all transactions
@@ -199,8 +199,8 @@ fn render_bundle_summary_header(bundle: &BundleReport, total_count: usize) {
     for (i, tx_report) in bundle.transactions.iter().enumerate() {
         let idx = i + 1;
         let status_icon = match &tx_report.simulation.status {
-            SimulationStatusReport::Succeeded => "🟢",
-            SimulationStatusReport::Failed { .. } => "🔴",
+            SimulationStatusReport::Succeeded => "✓",
+            SimulationStatusReport::Failed { .. } => "✗",
         };
         let cu_used = tx_report.simulation.compute_units_consumed;
         let cu_limit = extract_compute_unit_limit(&tx_report.transaction).unwrap_or(200_000);
@@ -231,7 +231,7 @@ fn render_bundle_summary_header(bundle: &BundleReport, total_count: usize) {
     // Render skipped transactions
     for i in bundle.transactions.len()..total_count {
         println!(
-            "{}TX {:>tx_w$}/{:<tx_w$}  ⏭️  SKIPPED",
+            "{}TX {:>tx_w$}/{:<tx_w$}  »  SKIPPED",
             INDENT_L1,
             i + 1,
             total_count,
@@ -259,8 +259,8 @@ fn render_bundle_transaction_ix_detail(
 fn render_summary_header(simulation: &SimulationSection, transaction: &TransactionSection) {
     // For failed transactions, don't print the error reason
     let status_str = match &simulation.status {
-        SimulationStatusReport::Succeeded => "🟢 SUCCESS".to_string(),
-        SimulationStatusReport::Failed { .. } => "🔴 FAILED".to_string(),
+        SimulationStatusReport::Succeeded => "✓ SUCCESS".to_string(),
+        SimulationStatusReport::Failed { .. } => "✗ FAILED".to_string(),
     };
 
     // Try to extract compute unit limit from SetComputeUnitLimit instruction
