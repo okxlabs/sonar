@@ -529,10 +529,10 @@ sonar decode <TX_OR_SIGNATURE> --rpc-url <RPC_URL> --refresh-cache
 sonar decode <TX_OR_SIGNATURE> --rpc-url <RPC_URL> --cache-dir /path/to/cache
 
 # Force refresh cache
-sonar simulate <TX> --rpc-url <RPC_URL> --cache --refresh-cache
+sonar simulate <TX> --rpc-url <RPC_URL> --refresh-cache
 
-# Custom cache directory
-sonar simulate <TX> --rpc-url <RPC_URL> --cache --cache-dir /path/to/cache
+# Custom cache directory (implies --cache)
+sonar simulate <TX> --rpc-url <RPC_URL> --cache-dir /path/to/cache
 
 # Manage cache
 sonar cache list
