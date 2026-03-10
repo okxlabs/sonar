@@ -108,7 +108,7 @@ pub struct SimulateArgs {
     #[arg(short = 'c', long, help_heading = HELP_HEADING_STATE_PREPARATION, env = "SONAR_CACHE")]
     pub cache: bool,
     /// Override the cache root directory (default: ~/.sonar/cache)
-    #[arg(short = 'D', long, help_heading = HELP_HEADING_STATE_PREPARATION, value_name = "DIR", env = "SONAR_CACHE_DIR", requires = "cache")]
+    #[arg(short = 'D', long, help_heading = HELP_HEADING_STATE_PREPARATION, value_name = "DIR", requires = "cache")]
     pub cache_dir: Option<PathBuf>,
     /// Force re-fetch all accounts from RPC, overwriting existing cache
     #[arg(short = 'r', long, help_heading = HELP_HEADING_STATE_PREPARATION, requires = "cache")]

@@ -7,6 +7,17 @@ use solana_transaction::versioned::VersionedTransaction;
 
 use crate::core::transaction;
 
+/// Describes how the cache root was determined.
+///
+/// - `Auto`: default cache root (`~/.sonar/cache`); per-transaction subdirectories
+///   are created under `<root>/<cache_key>/`.
+/// - `Explicit`: user-provided `--cache-dir <DIR>`; the directory is used as-is.
+#[derive(Debug, Clone)]
+pub(crate) enum CacheLocation {
+    Auto(PathBuf),
+    Explicit(PathBuf),
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct CacheTransaction {
     pub input: String,

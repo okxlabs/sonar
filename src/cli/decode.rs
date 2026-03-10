@@ -27,7 +27,7 @@ pub struct DecodeArgs {
     #[arg(long = "no-cache", default_value_t = false)]
     pub no_cache: bool,
     /// Override the cache root directory (default: ~/.sonar/cache)
-    #[arg(long = "cache-dir", value_name = "DIR", env = "SONAR_CACHE_DIR")]
+    #[arg(long = "cache-dir", value_name = "DIR")]
     pub cache_dir: Option<PathBuf>,
     /// Ignore existing cache entries and re-fetch from RPC (including signature->raw-tx).
     #[arg(long = "refresh-cache", default_value_t = false)]

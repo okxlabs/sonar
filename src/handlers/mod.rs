@@ -108,11 +108,11 @@ pub(crate) struct PreparedPipelineContext {
 pub(crate) fn resolve_inputs_to_txs(
     tx_inputs: Vec<String>,
     rpc_url: &str,
-    cache_root: Option<PathBuf>,
+    cache_location: Option<crate::core::cache::CacheLocation>,
     progress: &Progress,
     bundle_mode: bool,
 ) -> Result<ResolvedInputTransactions> {
-    let resolver = transaction::TxInputResolver::new(rpc_url, cache_root);
+    let resolver = transaction::TxInputResolver::new(rpc_url, cache_location);
     if bundle_mode {
         let resolved_txs = resolver.resolve_many(&tx_inputs, Some(progress))?;
         return Ok(ResolvedInputTransactions { resolved_txs });

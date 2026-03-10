@@ -51,8 +51,19 @@ pub(crate) fn handle(args: DecodeArgs) -> Result<()> {
         refresh_cache,
     } = args;
     let rpc_url = rpc.rpc_url;
-    let resolver_cache_root =
-        if refresh_cache { None } else { Some(crate::core::cache::resolve_cache_dir(&cache_dir)) };
+    let resolver_cache_location = if refresh_cache {
+        None
+    } else {
+        Some(if cache_dir.is_some() {
+            crate::core::cache::CacheLocation::Explicit(crate::core::cache::resolve_cache_dir(
+                &cache_dir,
+            ))
+        } else {
+            crate::core::cache::CacheLocation::Auto(crate::core::cache::resolve_cache_dir(
+                &cache_dir,
+            ))
+        })
+    };
     let TransactionInputArgs { tx, json } = transaction;
 
     // Check if this is a bundle (multiple positional TX arguments)
@@ -60,7 +71,7 @@ pub(crate) fn handle(args: DecodeArgs) -> Result<()> {
         return handle_bundle(
             tx,
             &rpc_url,
-            resolver_cache_root,
+            resolver_cache_location,
             !no_cache,
             cache_dir,
             refresh_cache,
@@ -72,7 +83,8 @@ pub(crate) fn handle(args: DecodeArgs) -> Result<()> {
         );
     }
 
-    let parsed_inputs = resolve_inputs_to_txs(tx, &rpc_url, resolver_cache_root, &progress, false)?;
+    let parsed_inputs =
+        resolve_inputs_to_txs(tx, &rpc_url, resolver_cache_location, &progress, false)?;
     let resolved_tx = parsed_inputs
         .resolved_txs
         .into_iter()
@@ -117,7 +129,7 @@ pub(crate) fn handle(args: DecodeArgs) -> Result<()> {
 fn handle_bundle(
     tx_inputs: Vec<String>,
     rpc_url: &str,
-    resolver_cache_root: Option<PathBuf>,
+    resolver_cache_location: Option<crate::core::cache::CacheLocation>,
     cache: bool,
     cache_dir: Option<PathBuf>,
     refresh_cache: bool,
@@ -130,7 +142,7 @@ fn handle_bundle(
     log::info!("Bundle decode mode: {} transactions", tx_inputs.len());
 
     let parsed_inputs =
-        resolve_inputs_to_txs(tx_inputs, rpc_url, resolver_cache_root, progress, true)?;
+        resolve_inputs_to_txs(tx_inputs, rpc_url, resolver_cache_location, progress, true)?;
     let resolved_txs = parsed_inputs.resolved_txs;
     let raw_inputs: Vec<_> =
         resolved_txs.iter().map(|entry| entry.original_input.clone()).collect();

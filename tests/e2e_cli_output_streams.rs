@@ -268,9 +268,6 @@ fn offline_missing_account_does_not_trigger_strict_offline_error() {
     let _ = fs::remove_dir_all(&temp);
     fs::create_dir_all(&temp).expect("create temp dir");
 
-    let cache_key = "9afd5d16ef71a846c79292a284ab625a";
-    let cache_dir = temp.join(cache_key);
-    fs::create_dir_all(&cache_dir).expect("create cache key dir");
     let meta = serde_json::json!({
         "created_at": "2026-02-22T10:00:00Z",
         "sonar_version": "0.2.0",
@@ -283,7 +280,7 @@ fn offline_missing_account_does_not_trigger_strict_offline_error() {
         "rpc_url": "https://api.mainnet-beta.solana.com",
         "account_count": 0
     });
-    let mut f = fs::File::create(cache_dir.join("_meta.json")).expect("create _meta.json");
+    let mut f = fs::File::create(temp.join("_meta.json")).expect("create _meta.json");
     f.write_all(meta.to_string().as_bytes()).expect("write _meta.json");
 
     let mut cmd = cargo_bin_cmd!("sonar");
