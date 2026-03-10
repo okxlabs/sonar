@@ -185,9 +185,9 @@ pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
     let resolved_from = resolved_input.source.as_str().to_string();
     let mut parsed_tx = resolved_input.parsed_tx;
 
-    apply_ix_mutations(&mut parsed_tx, &ix_account_patches, &ix_account_appends, &ix_data_patches)?;
-
     let cache_key = crate::core::cache::derive_cache_key_single(&raw_input, &parsed_tx.transaction);
+
+    apply_ix_mutations(&mut parsed_tx, &ix_account_patches, &ix_account_appends, &ix_data_patches)?;
     let (tx_cache_dir, offline) =
         crate::core::cache::resolve_cache_state(cache, &cache_dir, refresh_cache, &cache_key);
     let cache_read_dir_for_load = cache_read_dir(tx_cache_dir.clone(), refresh_cache);
@@ -315,11 +315,11 @@ fn handle_bundle(
     let mut parsed_txs: Vec<_> = resolved_txs.iter().map(|tx| tx.parsed_tx.clone()).collect();
     log::info!("Successfully parsed {} transactions", parsed_txs.len());
 
+    let cache_key = crate::core::cache::derive_cache_key_bundle(&tx_inputs, &parsed_txs);
+
     for parsed_tx in &mut parsed_txs {
         apply_ix_mutations(parsed_tx, &ix_account_patches, &ix_account_appends, &ix_data_patches)?;
     }
-
-    let cache_key = crate::core::cache::derive_cache_key_bundle(&tx_inputs, &parsed_txs);
     let (bundle_cache_dir, offline) =
         crate::core::cache::resolve_cache_state(cache, &cache_dir, refresh_cache, &cache_key);
     let cache_read_dir_for_load = cache_read_dir(bundle_cache_dir.clone(), refresh_cache);
