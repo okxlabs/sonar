@@ -544,6 +544,39 @@ mod tests {
         assert_eq!(created.lamports, expected);
     }
 
+    #[test]
+    fn apply_token_funding_creates_account_with_correct_owner() {
+        let mut loader = NoopAppender;
+        let mint = Pubkey::new_unique();
+        let token = Pubkey::new_unique();
+        let owner = Pubkey::new_unique();
+
+        let (_, mint_account) = spl_token_account_and_mint(&mint, &owner);
+        let mint_shared = AccountSharedData::from(mint_account.clone());
+
+        let mut resolved = ResolvedAccounts { accounts: HashMap::new(), lookups: vec![] };
+        resolved.accounts.insert(mint, mint_shared);
+
+        let funding = TokenFunding {
+            account: token,
+            mint: Some(mint),
+            owner: Some(owner),
+            amount: TokenAmount::Raw(1_000_000),
+        };
+        let prepared =
+            prepare_token_fundings(&mut loader, &resolved, &[funding]).expect("prepares funding");
+
+        let mut svm = LiteSVM::new().with_blockhash_check(false).with_sigverify(false);
+        svm.set_account(mint, mint_account).unwrap();
+
+        apply_token_fundings(&mut svm, &prepared, &resolved).expect("applies funding to svm");
+
+        let created = svm.get_account(&token).expect("token account should be created");
+        let parsed = SplAccount::unpack(&created.data[..SplAccount::LEN]).unwrap();
+        assert_eq!(Pubkey::new_from_array(parsed.owner.to_bytes()), owner);
+        assert_eq!(parsed.amount, 1_000_000);
+    }
+
     fn spl_token_account_and_mint(mint: &Pubkey, owner: &Pubkey) -> (Account, Account) {
         let token_state = SplAccount {
             mint: ProgramPubkey::new_from_array(mint.to_bytes()),
