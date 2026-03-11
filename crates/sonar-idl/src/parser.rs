@@ -1213,4 +1213,109 @@ mod tests {
             panic!("expected Object for unknown type, got {:?}", val);
         }
     }
+
+    // ── Direct container type tests ──
+
+    #[test]
+    fn parse_vec_type_u32_elements() {
+        let mut data = 3u32.to_le_bytes().to_vec();
+        data.extend_from_slice(&10u32.to_le_bytes());
+        data.extend_from_slice(&20u32.to_le_bytes());
+        data.extend_from_slice(&30u32.to_le_bytes());
+        let mut offset = 0;
+        let registry = IdlRegistry::new();
+        let idl = hello_anchor_idl();
+        let element_type = IdlType::Simple("u32".into());
+        let val = parse_vec_type(&data, &mut offset, &element_type, &registry, &idl).unwrap();
+        assert_eq!(
+            val,
+            OrderedJsonValue::Array(vec![
+                OrderedJsonValue::Number(10u64.into()),
+                OrderedJsonValue::Number(20u64.into()),
+                OrderedJsonValue::Number(30u64.into()),
+            ])
+        );
+        assert_eq!(offset, 16);
+    }
+
+    #[test]
+    fn parse_vec_type_empty() {
+        let data = 0u32.to_le_bytes();
+        let mut offset = 0;
+        let registry = IdlRegistry::new();
+        let idl = hello_anchor_idl();
+        let element_type = IdlType::Simple("u8".into());
+        let val = parse_vec_type(&data, &mut offset, &element_type, &registry, &idl).unwrap();
+        assert_eq!(val, OrderedJsonValue::Array(vec![]));
+        assert_eq!(offset, 4);
+    }
+
+    #[test]
+    fn parse_vec_type_truncated_length() {
+        let data = [0u8; 2];
+        let mut offset = 0;
+        let registry = IdlRegistry::new();
+        let idl = hello_anchor_idl();
+        let element_type = IdlType::Simple("u8".into());
+        let err = parse_vec_type(&data, &mut offset, &element_type, &registry, &idl).unwrap_err();
+        assert!(err.to_string().contains("Insufficient data"));
+    }
+
+    #[test]
+    fn parse_option_type_some() {
+        let mut data = vec![1u8];
+        data.extend_from_slice(&500u16.to_le_bytes());
+        let mut offset = 0;
+        let registry = IdlRegistry::new();
+        let idl = hello_anchor_idl();
+        let inner = IdlType::Simple("u16".into());
+        let val = parse_option_type(&data, &mut offset, &inner, &registry, &idl).unwrap();
+        assert_eq!(val, OrderedJsonValue::Number(500u64.into()));
+        assert_eq!(offset, 3);
+    }
+
+    #[test]
+    fn parse_option_type_none() {
+        let data = vec![0u8];
+        let mut offset = 0;
+        let registry = IdlRegistry::new();
+        let idl = hello_anchor_idl();
+        let inner = IdlType::Simple("u16".into());
+        let val = parse_option_type(&data, &mut offset, &inner, &registry, &idl).unwrap();
+        assert_eq!(val, OrderedJsonValue::Null);
+        assert_eq!(offset, 1);
+    }
+
+    #[test]
+    fn parse_option_type_truncated_discriminant() {
+        let data: [u8; 0] = [];
+        let mut offset = 0;
+        let registry = IdlRegistry::new();
+        let idl = hello_anchor_idl();
+        let inner = IdlType::Simple("u8".into());
+        let err = parse_option_type(&data, &mut offset, &inner, &registry, &idl).unwrap_err();
+        assert!(err.to_string().contains("Insufficient data"));
+    }
+
+    #[test]
+    fn parse_array_type_fixed_3_u8() {
+        let data = vec![10, 20, 30];
+        let mut offset = 0;
+        let registry = IdlRegistry::new();
+        let idl = hello_anchor_idl();
+        let array_def = [
+            serde_json::json!("u8"),
+            serde_json::json!(3),
+        ];
+        let val = parse_array_type(&data, &mut offset, &array_def, &registry, &idl).unwrap();
+        assert_eq!(
+            val,
+            OrderedJsonValue::Array(vec![
+                OrderedJsonValue::Number(10u64.into()),
+                OrderedJsonValue::Number(20u64.into()),
+                OrderedJsonValue::Number(30u64.into()),
+            ])
+        );
+        assert_eq!(offset, 3);
+    }
 }
