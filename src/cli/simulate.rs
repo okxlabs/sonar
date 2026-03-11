@@ -45,9 +45,11 @@ pub struct SimulateArgs {
     )]
     pub fundings: Vec<String>,
     /// Fund a token account.
-    /// Format: <ACCOUNT>=<AMOUNT> or <ACCOUNT>:<MINT>=<AMOUNT> (mint auto-detected if account exists on-chain).
+    /// Format: <ACCOUNT>=<AMOUNT>, <ACCOUNT>:<MINT>=<AMOUNT>,
+    /// or <ACCOUNT>:<MINT>:<OWNER>=<AMOUNT> (mint/owner auto-detected if account exists on-chain).
+    /// Owner is required when creating a new account that doesn't exist on-chain.
     /// Integer amounts are treated as raw token units; decimal amounts (e.g. 1.5) are
-    /// converted using the mint's decimals (e.g. 1.5 with 6 decimals → 1500000).
+    /// converted using the mint's decimals (e.g. 1.5 with 6 decimals -> 1500000).
     #[arg(
         long = "fund-token",
         help_heading = HELP_HEADING_STATE_PREPARATION,
@@ -246,22 +248,33 @@ pub fn parse_funding(raw: &str) -> Result<SolFunding, String> {
 
 pub fn parse_token_funding(raw: &str) -> Result<TokenFunding, String> {
     let (target, amount_str) = raw.split_once('=').ok_or_else(|| {
-        "Token funding must be in <ACCOUNT>=<AMOUNT> or <ACCOUNT>:<MINT>=<AMOUNT> format"
+        "Token funding must be in <ACCOUNT>=<AMOUNT>, <ACCOUNT>:<MINT>=<AMOUNT>, \
+         or <ACCOUNT>:<MINT>:<OWNER>=<AMOUNT> format"
             .to_string()
     })?;
 
-    let (token_str, mint) = if let Some((token_part, mint_str)) = target.split_once(':') {
-        if mint_str.contains(':') {
+    let parts: Vec<&str> = target.split(':').collect();
+    let (token_str, mint, owner) = match parts.len() {
+        1 => (parts[0], None, None),
+        2 => {
+            let mint = Pubkey::from_str(parts[1])
+                .map_err(|err| format!("Failed to parse mint account `{}`: {err}", parts[1]))?;
+            (parts[0], Some(mint), None)
+        }
+        3 => {
+            let mint = Pubkey::from_str(parts[1])
+                .map_err(|err| format!("Failed to parse mint account `{}`: {err}", parts[1]))?;
+            let owner = Pubkey::from_str(parts[2])
+                .map_err(|err| format!("Failed to parse owner `{}`: {err}", parts[2]))?;
+            (parts[0], Some(mint), Some(owner))
+        }
+        _ => {
             return Err(
-                "Token funding must be in <ACCOUNT>=<AMOUNT> or <ACCOUNT>:<MINT>=<AMOUNT> format"
+                "Token funding must be in <ACCOUNT>=<AMOUNT>, <ACCOUNT>:<MINT>=<AMOUNT>, \
+                 or <ACCOUNT>:<MINT>:<OWNER>=<AMOUNT> format"
                     .to_string(),
             );
         }
-        let mint = Pubkey::from_str(mint_str)
-            .map_err(|err| format!("Failed to parse mint account `{mint_str}`: {err}"))?;
-        (token_part, Some(mint))
-    } else {
-        (target, None)
     };
 
     let account = Pubkey::from_str(token_str)
@@ -285,7 +298,7 @@ pub fn parse_token_funding(raw: &str) -> Result<TokenFunding, String> {
         TokenAmount::Raw(raw)
     };
 
-    Ok(TokenFunding { account, mint, owner: None, amount })
+    Ok(TokenFunding { account, mint, owner, amount })
 }
 
 pub fn parse_data_patch(raw: &str) -> Result<AccountDataPatch, String> {
@@ -560,11 +573,49 @@ mod tests {
     }
 
     #[test]
+    fn parse_token_funding_accepts_owner() {
+        let token = Pubkey::new_unique();
+        let mint = Pubkey::new_unique();
+        let owner = Pubkey::new_unique();
+        let input = format!("{token}:{mint}:{owner}=12345");
+        let parsed = parse_token_funding(&input).expect("parses");
+        assert_eq!(parsed.account, token);
+        assert_eq!(parsed.mint, Some(mint));
+        assert_eq!(parsed.owner, Some(owner));
+        assert!(matches!(parsed.amount, TokenAmount::Raw(12_345)));
+    }
+
+    #[test]
+    fn parse_token_funding_with_mint_no_owner() {
+        let token = Pubkey::new_unique();
+        let mint = Pubkey::new_unique();
+        let input = format!("{token}:{mint}=100");
+        let parsed = parse_token_funding(&input).expect("parses");
+        assert_eq!(parsed.owner, None);
+    }
+
+    #[test]
+    fn parse_token_funding_without_mint_has_no_owner() {
+        let token = Pubkey::new_unique();
+        let input = format!("{token}=100");
+        let parsed = parse_token_funding(&input).expect("parses");
+        assert_eq!(parsed.mint, None);
+        assert_eq!(parsed.owner, None);
+    }
+
+    #[test]
+    fn parse_token_funding_rejects_four_colons() {
+        let keys: Vec<_> = (0..4).map(|_| Pubkey::new_unique()).collect();
+        let err = parse_token_funding(&format!("{}:{}:{}:{}=100", keys[0], keys[1], keys[2], keys[3])).unwrap_err();
+        assert!(err.contains("<ACCOUNT>"));
+    }
+
+    #[test]
     fn parse_token_funding_rejects_extra_colons() {
         let key = Pubkey::new_unique();
         let mint = Pubkey::new_unique();
         let err = parse_token_funding(&format!("{key}:{mint}:extra=100")).unwrap_err();
-        assert!(err.contains("<ACCOUNT>"));
+        assert!(err.contains("Failed to parse owner"));
     }
 
     #[test]
