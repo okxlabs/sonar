@@ -520,6 +520,7 @@ fn account_priority(account: &AccountSharedData) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_utils::MockSvm;
     use solana_hash::Hash;
     use solana_keypair::Keypair;
     use solana_message::Message;
@@ -868,5 +869,86 @@ mod tests {
         let clock: Clock = bincode::deserialize(&clock_account.data).expect("valid Clock");
         assert_eq!(clock.slot, 500);
         assert_eq!(clock.unix_timestamp, 1_600_000_000);
+    }
+
+    // ── MockSvm-based error-path & round-trip tests ──
+
+    #[test]
+    fn load_accounts_propagates_set_account_error() {
+        let key = Pubkey::new_unique();
+        let mut accounts = HashMap::new();
+        accounts.insert(
+            key,
+            AccountSharedData::from(Account {
+                lamports: 100,
+                data: vec![],
+                owner: solana_sdk_ids::system_program::id(),
+                executable: false,
+                rent_epoch: 0,
+            }),
+        );
+        let resolved = ResolvedAccounts { accounts, lookups: vec![] };
+
+        let mut svm = MockSvm::new();
+        svm.fail_set_account = Some("disk full".into());
+
+        let err = load_accounts(&mut svm, &resolved).unwrap_err();
+        assert!(err.to_string().contains("disk full"));
+    }
+
+    #[test]
+    fn apply_data_patches_on_mock_writes_exact_bytes() {
+        let key = Pubkey::new_unique();
+        let account = Account {
+            lamports: 100,
+            data: vec![0, 0, 0, 0, 0],
+            owner: solana_sdk_ids::system_program::id(),
+            executable: false,
+            rent_epoch: 0,
+        };
+        let mut svm = MockSvm::new().with_account(key, account);
+
+        let patches = vec![AccountDataPatch {
+            pubkey: key,
+            offset: 1,
+            data: vec![0xAA, 0xBB],
+        }];
+        apply_data_patches(&mut svm, &patches).expect("should apply");
+
+        let loaded = svm.get_account(&key).unwrap();
+        assert_eq!(loaded.data, vec![0, 0xAA, 0xBB, 0, 0]);
+    }
+
+    #[test]
+    fn apply_timestamp_on_mock_round_trips_clock() {
+        let clock = Clock {
+            slot: 0,
+            epoch_start_timestamp: 0,
+            epoch: 0,
+            leader_schedule_epoch: 0,
+            unix_timestamp: 1_000_000,
+        };
+        let clock_data = bincode::serialize(&clock).unwrap();
+        let clock_account = Account {
+            lamports: 1,
+            data: clock_data,
+            owner: solana_sdk_ids::sysvar::id(),
+            executable: false,
+            rent_epoch: 0,
+        };
+        let mut svm = MockSvm::new().with_account(Clock::id(), clock_account);
+
+        apply_timestamp(&mut svm, 1_700_000_000).unwrap();
+
+        let updated = svm.get_account(&Clock::id()).unwrap();
+        let updated_clock: Clock = bincode::deserialize(&updated.data).unwrap();
+        assert_eq!(updated_clock.unix_timestamp, 1_700_000_000);
+    }
+
+    #[test]
+    fn warp_to_slot_on_mock_updates_slot() {
+        let mut svm = MockSvm::new();
+        apply_slot(&mut svm, 42);
+        assert_eq!(svm.slot, 42);
     }
 }
