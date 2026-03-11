@@ -589,4 +589,92 @@ mod tests {
 
         assert!(!resolved.accounts.contains_key(&missing_mint));
     }
+
+    // ── Pure function tests: collect_initial_accounts ──
+
+    #[test]
+    fn collect_initial_accounts_single_plan_no_lookups() {
+        let key1 = Pubkey::new_unique();
+        let key2 = Pubkey::new_unique();
+        let plan = MessageAccountPlan {
+            static_accounts: vec![key1, key2],
+            address_lookups: vec![],
+        };
+        let keys = collect_initial_accounts(&[plan]);
+        assert!(keys.contains(&key1));
+        assert!(keys.contains(&key2));
+        assert!(keys.contains(&Clock::id()));
+        assert!(keys.contains(&SlotHashes::id()));
+        assert_eq!(keys.len(), 4);
+    }
+
+    #[test]
+    fn collect_initial_accounts_deduplicates_across_plans() {
+        let shared = Pubkey::new_unique();
+        let unique1 = Pubkey::new_unique();
+        let unique2 = Pubkey::new_unique();
+        let plan1 = MessageAccountPlan {
+            static_accounts: vec![shared, unique1],
+            address_lookups: vec![],
+        };
+        let plan2 = MessageAccountPlan {
+            static_accounts: vec![shared, unique2],
+            address_lookups: vec![],
+        };
+        let keys = collect_initial_accounts(&[plan1, plan2]);
+        let shared_count = keys.iter().filter(|k| **k == shared).count();
+        assert_eq!(shared_count, 1);
+        assert_eq!(keys.len(), 5); // shared + unique1 + unique2 + Clock + SlotHashes
+    }
+
+    #[test]
+    fn collect_initial_accounts_includes_lookup_table_keys() {
+        let static_key = Pubkey::new_unique();
+        let lookup_table_key = Pubkey::new_unique();
+        let plan = MessageAccountPlan {
+            static_accounts: vec![static_key],
+            address_lookups: vec![AddressLookupPlan {
+                account_key: lookup_table_key,
+                writable_indexes: vec![0],
+                readonly_indexes: vec![1],
+            }],
+        };
+        let keys = collect_initial_accounts(&[plan]);
+        assert!(keys.contains(&static_key));
+        assert!(keys.contains(&lookup_table_key));
+    }
+
+    #[test]
+    fn collect_initial_accounts_empty_plans() {
+        let keys = collect_initial_accounts(&[]);
+        assert_eq!(keys.len(), 2);
+        assert!(keys.contains(&Clock::id()));
+        assert!(keys.contains(&SlotHashes::id()));
+    }
+
+    // ── Pure function tests: resolve_lookup_indexes ──
+
+    #[test]
+    fn resolve_lookup_indexes_valid() {
+        let addr0 = Pubkey::new_unique();
+        let addr1 = Pubkey::new_unique();
+        let addr2 = Pubkey::new_unique();
+        let addresses = vec![addr0, addr1, addr2];
+        let result = resolve_lookup_indexes(&addresses, &[2, 0]).unwrap();
+        assert_eq!(result, vec![addr2, addr0]);
+    }
+
+    #[test]
+    fn resolve_lookup_indexes_out_of_bounds() {
+        let addresses = vec![Pubkey::new_unique()];
+        let err = resolve_lookup_indexes(&addresses, &[5]).unwrap_err();
+        assert!(err.to_string().contains("out of"));
+    }
+
+    #[test]
+    fn resolve_lookup_indexes_empty() {
+        let addresses = vec![Pubkey::new_unique()];
+        let result = resolve_lookup_indexes(&addresses, &[]).unwrap();
+        assert!(result.is_empty());
+    }
 }
