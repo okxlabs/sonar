@@ -1318,4 +1318,141 @@ mod tests {
         );
         assert_eq!(offset, 3);
     }
+
+    // ── Enum variant tests ──
+
+    #[test]
+    fn parse_enum_with_struct_variant() {
+        let idl: Idl = serde_json::from_str(
+            r#"{
+                "address": "11111111111111111111111111111111",
+                "metadata": { "name": "t", "version": "0.1.0", "spec": "0.1.0" },
+                "instructions": [{
+                    "name": "cmd",
+                    "discriminator": [9,9,9,9,9,9,9,9],
+                    "accounts": [],
+                    "args": [{ "name": "op", "type": { "defined": "Op" } }]
+                }],
+                "types": [{
+                    "name": "Op",
+                    "type": {
+                        "kind": "enum",
+                        "variants": [
+                            { "name": "Noop" },
+                            {
+                                "name": "Transfer",
+                                "fields": [
+                                    { "name": "amount", "type": "u64" },
+                                    { "name": "fee", "type": "u16" }
+                                ]
+                            }
+                        ]
+                    }
+                }]
+            }"#,
+        )
+        .unwrap();
+
+        let registry = IdlRegistry::new();
+        let mut data = vec![9, 9, 9, 9, 9, 9, 9, 9];
+        data.push(1); // variant index 1 = Transfer
+        data.extend_from_slice(&5000u64.to_le_bytes());
+        data.extend_from_slice(&100u16.to_le_bytes());
+
+        let parsed = parse_instruction(&idl, &data, &registry).unwrap().unwrap();
+        let val = &parsed.fields[0].value;
+        assert_eq!(
+            *val,
+            OrderedJsonValue::Object(vec![(
+                "Transfer".into(),
+                OrderedJsonValue::Object(vec![
+                    ("amount".into(), OrderedJsonValue::Number(5000u64.into())),
+                    ("fee".into(), OrderedJsonValue::Number(100u64.into())),
+                ]),
+            )])
+        );
+    }
+
+    #[test]
+    fn parse_enum_with_tuple_variant() {
+        let idl: Idl = serde_json::from_str(
+            r#"{
+                "address": "11111111111111111111111111111111",
+                "metadata": { "name": "t", "version": "0.1.0", "spec": "0.1.0" },
+                "instructions": [{
+                    "name": "cmd",
+                    "discriminator": [8,8,8,8,8,8,8,8],
+                    "accounts": [],
+                    "args": [{ "name": "op", "type": { "defined": "Op" } }]
+                }],
+                "types": [{
+                    "name": "Op",
+                    "type": {
+                        "kind": "enum",
+                        "variants": [
+                            { "name": "Noop" },
+                            { "name": "SetPair", "fields": ["u32", "u32"] }
+                        ]
+                    }
+                }]
+            }"#,
+        )
+        .unwrap();
+
+        let registry = IdlRegistry::new();
+        let mut data = vec![8, 8, 8, 8, 8, 8, 8, 8];
+        data.push(1); // variant index 1 = SetPair
+        data.extend_from_slice(&111u32.to_le_bytes());
+        data.extend_from_slice(&222u32.to_le_bytes());
+
+        let parsed = parse_instruction(&idl, &data, &registry).unwrap().unwrap();
+        let val = &parsed.fields[0].value;
+        assert_eq!(
+            *val,
+            OrderedJsonValue::Object(vec![(
+                "SetPair".into(),
+                OrderedJsonValue::Array(vec![
+                    OrderedJsonValue::Number(111u64.into()),
+                    OrderedJsonValue::Number(222u64.into()),
+                ]),
+            )])
+        );
+    }
+
+    #[test]
+    fn parse_enum_out_of_range_variant_index_falls_through() {
+        let idl: Idl = serde_json::from_str(
+            r#"{
+                "address": "11111111111111111111111111111111",
+                "metadata": { "name": "t", "version": "0.1.0", "spec": "0.1.0" },
+                "instructions": [{
+                    "name": "cmd",
+                    "discriminator": [7,7,7,7,7,7,7,7],
+                    "accounts": [],
+                    "args": [{ "name": "val", "type": { "defined": "Small" } }]
+                }],
+                "types": [{
+                    "name": "Small",
+                    "type": {
+                        "kind": "enum",
+                        "variants": [{ "name": "Only" }]
+                    }
+                }]
+            }"#,
+        )
+        .unwrap();
+
+        let registry = IdlRegistry::new();
+        let mut data = vec![7, 7, 7, 7, 7, 7, 7, 7];
+        data.push(99); // out-of-range variant
+
+        let parsed = parse_instruction(&idl, &data, &registry).unwrap().unwrap();
+        // Should fall through to raw_unparsed_value
+        if let OrderedJsonValue::Object(entries) = &parsed.fields[0].value {
+            let keys: Vec<&str> = entries.iter().map(|(k, _)| k.as_str()).collect();
+            assert!(keys.contains(&"raw_hex"));
+        } else {
+            panic!("expected raw fallback for out-of-range variant");
+        }
+    }
 }
