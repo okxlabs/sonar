@@ -245,42 +245,7 @@ impl AccountLoader {
                 ),
             })?;
 
-        let lookup_table =
-            AddressLookupTable::deserialize(table_account.data()).map_err(|err| {
-                SonarSimError::LookupTable {
-                    table: Some(plan.account_key),
-                    reason: format!(
-                        "Failed to parse address lookup table `{}`: {err}",
-                        plan.account_key
-                    ),
-                }
-            })?;
-        let all_addresses = lookup_table.addresses.to_vec();
-
-        let writable_addresses = resolve_lookup_indexes(&all_addresses, &plan.writable_indexes)
-            .map_err(|e| SonarSimError::LookupTable {
-                table: Some(plan.account_key),
-                reason: format!(
-                    "Failed to parse writable indexes for address lookup table `{}`: {e}",
-                    plan.account_key
-                ),
-            })?;
-        let readonly_addresses = resolve_lookup_indexes(&all_addresses, &plan.readonly_indexes)
-            .map_err(|e| SonarSimError::LookupTable {
-                table: Some(plan.account_key),
-                reason: format!(
-                    "Failed to parse readonly indexes for address lookup table `{}`: {e}",
-                    plan.account_key
-                ),
-            })?;
-
-        Ok(ResolvedLookup {
-            account_key: plan.account_key,
-            writable_indexes: plan.writable_indexes.clone(),
-            readonly_indexes: plan.readonly_indexes.clone(),
-            writable_addresses,
-            readonly_addresses,
-        })
+        expand_lookup_table(table_account, plan)
     }
 }
 
@@ -318,6 +283,52 @@ fn collect_initial_accounts(plans: &[MessageAccountPlan]) -> Vec<Pubkey> {
     }
 
     keys
+}
+
+/// Expand a fetched address lookup table account into resolved addresses.
+///
+/// Pure function: takes the already-fetched ALT account data and the lookup plan,
+/// deserializes the table, and resolves writable/readonly addresses by index.
+fn expand_lookup_table(
+    table_account: &AccountSharedData,
+    plan: &AddressLookupPlan,
+) -> Result<ResolvedLookup> {
+    let lookup_table =
+        AddressLookupTable::deserialize(table_account.data()).map_err(|err| {
+            SonarSimError::LookupTable {
+                table: Some(plan.account_key),
+                reason: format!(
+                    "Failed to parse address lookup table `{}`: {err}",
+                    plan.account_key
+                ),
+            }
+        })?;
+    let all_addresses = lookup_table.addresses.to_vec();
+
+    let writable_addresses = resolve_lookup_indexes(&all_addresses, &plan.writable_indexes)
+        .map_err(|e| SonarSimError::LookupTable {
+            table: Some(plan.account_key),
+            reason: format!(
+                "Failed to parse writable indexes for address lookup table `{}`: {e}",
+                plan.account_key
+            ),
+        })?;
+    let readonly_addresses = resolve_lookup_indexes(&all_addresses, &plan.readonly_indexes)
+        .map_err(|e| SonarSimError::LookupTable {
+            table: Some(plan.account_key),
+            reason: format!(
+                "Failed to parse readonly indexes for address lookup table `{}`: {e}",
+                plan.account_key
+            ),
+        })?;
+
+    Ok(ResolvedLookup {
+        account_key: plan.account_key,
+        writable_indexes: plan.writable_indexes.clone(),
+        readonly_indexes: plan.readonly_indexes.clone(),
+        writable_addresses,
+        readonly_addresses,
+    })
 }
 
 fn resolve_lookup_indexes(addresses: &[Pubkey], indexes: &[u8]) -> Result<Vec<Pubkey>> {
@@ -588,5 +599,222 @@ mod tests {
             .expect("offline mode should not hang on repeated missing dependencies");
 
         assert!(!resolved.accounts.contains_key(&missing_mint));
+    }
+
+    // ── Pure function tests: collect_initial_accounts ──
+
+    #[test]
+    fn collect_initial_accounts_single_plan_no_lookups() {
+        let key1 = Pubkey::new_unique();
+        let key2 = Pubkey::new_unique();
+        let plan = MessageAccountPlan {
+            static_accounts: vec![key1, key2],
+            address_lookups: vec![],
+        };
+        let keys = collect_initial_accounts(&[plan]);
+        assert!(keys.contains(&key1));
+        assert!(keys.contains(&key2));
+        assert!(keys.contains(&Clock::id()));
+        assert!(keys.contains(&SlotHashes::id()));
+        assert_eq!(keys.len(), 4);
+    }
+
+    #[test]
+    fn collect_initial_accounts_deduplicates_across_plans() {
+        let shared = Pubkey::new_unique();
+        let unique1 = Pubkey::new_unique();
+        let unique2 = Pubkey::new_unique();
+        let plan1 = MessageAccountPlan {
+            static_accounts: vec![shared, unique1],
+            address_lookups: vec![],
+        };
+        let plan2 = MessageAccountPlan {
+            static_accounts: vec![shared, unique2],
+            address_lookups: vec![],
+        };
+        let keys = collect_initial_accounts(&[plan1, plan2]);
+        let shared_count = keys.iter().filter(|k| **k == shared).count();
+        assert_eq!(shared_count, 1);
+        assert_eq!(keys.len(), 5); // shared + unique1 + unique2 + Clock + SlotHashes
+    }
+
+    #[test]
+    fn collect_initial_accounts_includes_lookup_table_keys() {
+        let static_key = Pubkey::new_unique();
+        let lookup_table_key = Pubkey::new_unique();
+        let plan = MessageAccountPlan {
+            static_accounts: vec![static_key],
+            address_lookups: vec![AddressLookupPlan {
+                account_key: lookup_table_key,
+                writable_indexes: vec![0],
+                readonly_indexes: vec![1],
+            }],
+        };
+        let keys = collect_initial_accounts(&[plan]);
+        assert!(keys.contains(&static_key));
+        assert!(keys.contains(&lookup_table_key));
+    }
+
+    #[test]
+    fn collect_initial_accounts_empty_plans() {
+        let keys = collect_initial_accounts(&[]);
+        assert_eq!(keys.len(), 2);
+        assert!(keys.contains(&Clock::id()));
+        assert!(keys.contains(&SlotHashes::id()));
+    }
+
+    // ── Pure function tests: resolve_lookup_indexes ──
+
+    #[test]
+    fn resolve_lookup_indexes_valid() {
+        let addr0 = Pubkey::new_unique();
+        let addr1 = Pubkey::new_unique();
+        let addr2 = Pubkey::new_unique();
+        let addresses = vec![addr0, addr1, addr2];
+        let result = resolve_lookup_indexes(&addresses, &[2, 0]).unwrap();
+        assert_eq!(result, vec![addr2, addr0]);
+    }
+
+    #[test]
+    fn resolve_lookup_indexes_out_of_bounds() {
+        let addresses = vec![Pubkey::new_unique()];
+        let err = resolve_lookup_indexes(&addresses, &[5]).unwrap_err();
+        assert!(err.to_string().contains("out of"));
+    }
+
+    #[test]
+    fn resolve_lookup_indexes_empty() {
+        let addresses = vec![Pubkey::new_unique()];
+        let result = resolve_lookup_indexes(&addresses, &[]).unwrap();
+        assert!(result.is_empty());
+    }
+
+    // ── Pure function tests: expand_lookup_table ──
+
+    /// Helper: build an `AccountSharedData` containing a valid serialized ALT
+    /// with the given addresses.
+    fn make_alt_account(addresses: &[Pubkey]) -> AccountSharedData {
+        use solana_address_lookup_table_interface::state::{AddressLookupTable, LookupTableMeta};
+        use std::borrow::Cow;
+
+        let table = AddressLookupTable {
+            meta: LookupTableMeta::default(), // active table, no authority
+            addresses: Cow::Borrowed(addresses),
+        };
+        let data = table.serialize_for_tests().expect("serialize ALT for test");
+        let mut account = AccountSharedData::default();
+        account.set_data_from_slice(&data);
+        account
+    }
+
+    #[test]
+    fn expand_lookup_table_valid() {
+        let addr0 = Pubkey::new_unique();
+        let addr1 = Pubkey::new_unique();
+        let addr2 = Pubkey::new_unique();
+        let table_key = Pubkey::new_unique();
+
+        let account = make_alt_account(&[addr0, addr1, addr2]);
+        let plan = AddressLookupPlan {
+            account_key: table_key,
+            writable_indexes: vec![0, 2],
+            readonly_indexes: vec![1],
+        };
+
+        let resolved = expand_lookup_table(&account, &plan).unwrap();
+        assert_eq!(resolved.account_key, table_key);
+        assert_eq!(resolved.writable_addresses, vec![addr0, addr2]);
+        assert_eq!(resolved.readonly_addresses, vec![addr1]);
+        assert_eq!(resolved.writable_indexes, vec![0, 2]);
+        assert_eq!(resolved.readonly_indexes, vec![1]);
+    }
+
+    #[test]
+    fn expand_lookup_table_malformed_data() {
+        let plan = AddressLookupPlan {
+            account_key: Pubkey::new_unique(),
+            writable_indexes: vec![0],
+            readonly_indexes: vec![],
+        };
+
+        let mut account = AccountSharedData::default();
+        account.set_data_from_slice(&[0xDE, 0xAD, 0xBE, 0xEF]);
+
+        let err = expand_lookup_table(&account, &plan).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("Failed to parse address lookup table"), "unexpected error: {msg}");
+    }
+
+    #[test]
+    fn bpf_dependency_resolution_discovers_programdata_transitively() {
+        use solana_account::Account;
+        use solana_loader_v3_interface::state::UpgradeableLoaderState;
+        use solana_sdk_ids::bpf_loader_upgradeable;
+
+        fn make_bpf_program(programdata_address: &Pubkey) -> AccountSharedData {
+            let state =
+                UpgradeableLoaderState::Program { programdata_address: *programdata_address };
+            let data = bincode::serialize(&state).unwrap();
+            AccountSharedData::from(Account {
+                lamports: 1,
+                data,
+                owner: bpf_loader_upgradeable::id(),
+                executable: true,
+                rent_epoch: 0,
+            })
+        }
+
+        let program_key = Pubkey::new_unique();
+        let programdata_key = Pubkey::new_unique();
+
+        // The programdata account itself (minimal, just needs to exist)
+        let programdata_account = AccountSharedData::from(Account {
+            lamports: 1,
+            data: vec![0; 64],
+            owner: bpf_loader_upgradeable::id(),
+            executable: false,
+            rent_epoch: 0,
+        });
+
+        let provider = FakeAccountProvider::new(HashMap::from([
+            (program_key, make_bpf_program(&programdata_key)),
+            (programdata_key, programdata_account),
+        ]));
+
+        let mut loader = AccountLoader::with_provider(Arc::new(provider));
+        let mut resolved = ResolvedAccounts { accounts: HashMap::new(), lookups: vec![] };
+
+        // Fetch only the program key; dependency resolution should discover programdata.
+        loader.append_accounts(&mut resolved, &[program_key]).unwrap();
+
+        assert!(
+            resolved.accounts.contains_key(&program_key),
+            "resolved accounts should contain the BPF program"
+        );
+        assert!(
+            resolved.accounts.contains_key(&programdata_key),
+            "resolved accounts should contain the programdata dependency discovered transitively"
+        );
+    }
+
+    #[test]
+    fn expand_lookup_table_index_out_of_range() {
+        let addr0 = Pubkey::new_unique();
+        let addr1 = Pubkey::new_unique();
+        let table_key = Pubkey::new_unique();
+
+        let account = make_alt_account(&[addr0, addr1]);
+        let plan = AddressLookupPlan {
+            account_key: table_key,
+            writable_indexes: vec![5], // out of range
+            readonly_indexes: vec![],
+        };
+
+        let err = expand_lookup_table(&account, &plan).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("Failed to parse writable indexes"),
+            "unexpected error: {msg}"
+        );
     }
 }

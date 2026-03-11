@@ -270,7 +270,7 @@ fn parse_simple_type(data: &[u8], offset: &mut usize, type_name: &str) -> Result
         }
         "i8" => {
             check_data_len(data, start, 1)?;
-            (OrderedJsonValue::Number(JsonNumber::from(data[start] as i64)), 1)
+            (OrderedJsonValue::Number(JsonNumber::from(data[start] as i8 as i64)), 1)
         }
         "u16" => {
             check_data_len(data, start, 2)?;
@@ -1017,5 +1017,442 @@ mod tests {
         let data = vec![1, 0, 0, 0];
         let found = find_instruction_by_discriminator(&idl, &data).unwrap();
         assert_eq!(found.name, "specific");
+    }
+
+    // ── Direct parse_simple_type tests ──
+
+    #[test]
+    fn parse_simple_u8() {
+        let data = [42u8];
+        let mut offset = 0;
+        let val = parse_simple_type(&data, &mut offset, "u8").unwrap();
+        assert_eq!(val, OrderedJsonValue::Number(42u64.into()));
+        assert_eq!(offset, 1);
+    }
+
+    #[test]
+    fn parse_simple_i8() {
+        let data = [(-5i8) as u8];
+        let mut offset = 0;
+        let val = parse_simple_type(&data, &mut offset, "i8").unwrap();
+        assert_eq!(val, OrderedJsonValue::Number((-5i64).into()));
+        assert_eq!(offset, 1);
+    }
+
+    #[test]
+    fn parse_simple_u16() {
+        let data = 1000u16.to_le_bytes();
+        let mut offset = 0;
+        let val = parse_simple_type(&data, &mut offset, "u16").unwrap();
+        assert_eq!(val, OrderedJsonValue::Number(1000u64.into()));
+        assert_eq!(offset, 2);
+    }
+
+    #[test]
+    fn parse_simple_i16() {
+        let data = (-300i16).to_le_bytes();
+        let mut offset = 0;
+        let val = parse_simple_type(&data, &mut offset, "i16").unwrap();
+        assert_eq!(val, OrderedJsonValue::Number((-300i64).into()));
+        assert_eq!(offset, 2);
+    }
+
+    #[test]
+    fn parse_simple_u32() {
+        let data = 70000u32.to_le_bytes();
+        let mut offset = 0;
+        let val = parse_simple_type(&data, &mut offset, "u32").unwrap();
+        assert_eq!(val, OrderedJsonValue::Number(70000u64.into()));
+        assert_eq!(offset, 4);
+    }
+
+    #[test]
+    fn parse_simple_i32() {
+        let data = (-70000i32).to_le_bytes();
+        let mut offset = 0;
+        let val = parse_simple_type(&data, &mut offset, "i32").unwrap();
+        assert_eq!(val, OrderedJsonValue::Number((-70000i64).into()));
+        assert_eq!(offset, 4);
+    }
+
+    #[test]
+    fn parse_simple_u64() {
+        let data = u64::MAX.to_le_bytes();
+        let mut offset = 0;
+        let val = parse_simple_type(&data, &mut offset, "u64").unwrap();
+        assert_eq!(val, OrderedJsonValue::Number(u64::MAX.into()));
+        assert_eq!(offset, 8);
+    }
+
+    #[test]
+    fn parse_simple_i64() {
+        let data = i64::MIN.to_le_bytes();
+        let mut offset = 0;
+        let val = parse_simple_type(&data, &mut offset, "i64").unwrap();
+        assert_eq!(val, OrderedJsonValue::Number(i64::MIN.into()));
+        assert_eq!(offset, 8);
+    }
+
+    #[test]
+    fn parse_simple_u128() {
+        let val_in: u128 = 340_282_366_920_938_463;
+        let data = val_in.to_le_bytes();
+        let mut offset = 0;
+        let val = parse_simple_type(&data, &mut offset, "u128").unwrap();
+        assert_eq!(val, OrderedJsonValue::String(val_in.to_string()));
+        assert_eq!(offset, 16);
+    }
+
+    #[test]
+    fn parse_simple_i128() {
+        let val_in: i128 = -170_141_183_460_469;
+        let data = val_in.to_le_bytes();
+        let mut offset = 0;
+        let val = parse_simple_type(&data, &mut offset, "i128").unwrap();
+        assert_eq!(val, OrderedJsonValue::String(val_in.to_string()));
+        assert_eq!(offset, 16);
+    }
+
+    #[test]
+    fn parse_simple_bool_true() {
+        let data = [1u8];
+        let mut offset = 0;
+        let val = parse_simple_type(&data, &mut offset, "bool").unwrap();
+        assert_eq!(val, OrderedJsonValue::Bool(true));
+        assert_eq!(offset, 1);
+    }
+
+    #[test]
+    fn parse_simple_bool_false() {
+        let data = [0u8];
+        let mut offset = 0;
+        let val = parse_simple_type(&data, &mut offset, "bool").unwrap();
+        assert_eq!(val, OrderedJsonValue::Bool(false));
+        assert_eq!(offset, 1);
+    }
+
+    #[test]
+    fn parse_simple_pubkey() {
+        let pk = Pubkey::from_str("11111111111111111111111111111111").unwrap();
+        let data = pk.to_bytes();
+        let mut offset = 0;
+        let val = parse_simple_type(&data, &mut offset, "pubkey").unwrap();
+        assert_eq!(val, OrderedJsonValue::String(pk.to_string()));
+        assert_eq!(offset, 32);
+    }
+
+    #[test]
+    fn parse_simple_string() {
+        let s = b"hello";
+        let mut data = (s.len() as u32).to_le_bytes().to_vec();
+        data.extend_from_slice(s);
+        let mut offset = 0;
+        let val = parse_simple_type(&data, &mut offset, "string").unwrap();
+        assert_eq!(val, OrderedJsonValue::String("hello".into()));
+        assert_eq!(offset, 9);
+    }
+
+    #[test]
+    fn parse_simple_bytes() {
+        let payload = vec![0xAA, 0xBB, 0xCC];
+        let mut data = (payload.len() as u32).to_le_bytes().to_vec();
+        data.extend_from_slice(&payload);
+        let mut offset = 0;
+        let val = parse_simple_type(&data, &mut offset, "bytes").unwrap();
+        assert_eq!(
+            val,
+            OrderedJsonValue::Array(vec![
+                OrderedJsonValue::Number(0xAAu64.into()),
+                OrderedJsonValue::Number(0xBBu64.into()),
+                OrderedJsonValue::Number(0xCCu64.into()),
+            ])
+        );
+        assert_eq!(offset, 7);
+    }
+
+    // ── Error paths ──
+
+    #[test]
+    fn parse_simple_type_truncated_u32() {
+        let data = [0u8; 2]; // need 4 for u32
+        let mut offset = 0;
+        let err = parse_simple_type(&data, &mut offset, "u32").unwrap_err();
+        assert!(err.to_string().contains("Insufficient data"));
+    }
+
+    #[test]
+    fn parse_simple_type_truncated_string_length() {
+        let data = [0u8; 2]; // need 4 for length prefix
+        let mut offset = 0;
+        let err = parse_simple_type(&data, &mut offset, "string").unwrap_err();
+        assert!(err.to_string().contains("Insufficient data"));
+    }
+
+    #[test]
+    fn parse_simple_type_truncated_string_body() {
+        // length says 10 bytes but only 2 available
+        let mut data = 10u32.to_le_bytes().to_vec();
+        data.extend_from_slice(&[0, 0]);
+        let mut offset = 0;
+        let err = parse_simple_type(&data, &mut offset, "string").unwrap_err();
+        assert!(err.to_string().contains("Insufficient data"));
+    }
+
+    #[test]
+    fn parse_simple_type_unknown_falls_back_to_raw() {
+        let data = [1, 2, 3, 4];
+        let mut offset = 0;
+        let val = parse_simple_type(&data, &mut offset, "unknown_type").unwrap();
+        // Should return a raw_unparsed_value object
+        if let OrderedJsonValue::Object(entries) = &val {
+            let keys: Vec<&str> = entries.iter().map(|(k, _)| k.as_str()).collect();
+            assert!(keys.contains(&"context"));
+            assert!(keys.contains(&"type_hint"));
+            assert!(keys.contains(&"raw_hex"));
+        } else {
+            panic!("expected Object for unknown type, got {:?}", val);
+        }
+    }
+
+    // ── Direct container type tests ──
+
+    #[test]
+    fn parse_vec_type_u32_elements() {
+        let mut data = 3u32.to_le_bytes().to_vec();
+        data.extend_from_slice(&10u32.to_le_bytes());
+        data.extend_from_slice(&20u32.to_le_bytes());
+        data.extend_from_slice(&30u32.to_le_bytes());
+        let mut offset = 0;
+        let registry = IdlRegistry::new();
+        let idl = hello_anchor_idl();
+        let element_type = IdlType::Simple("u32".into());
+        let val = parse_vec_type(&data, &mut offset, &element_type, &registry, &idl).unwrap();
+        assert_eq!(
+            val,
+            OrderedJsonValue::Array(vec![
+                OrderedJsonValue::Number(10u64.into()),
+                OrderedJsonValue::Number(20u64.into()),
+                OrderedJsonValue::Number(30u64.into()),
+            ])
+        );
+        assert_eq!(offset, 16);
+    }
+
+    #[test]
+    fn parse_vec_type_empty() {
+        let data = 0u32.to_le_bytes();
+        let mut offset = 0;
+        let registry = IdlRegistry::new();
+        let idl = hello_anchor_idl();
+        let element_type = IdlType::Simple("u8".into());
+        let val = parse_vec_type(&data, &mut offset, &element_type, &registry, &idl).unwrap();
+        assert_eq!(val, OrderedJsonValue::Array(vec![]));
+        assert_eq!(offset, 4);
+    }
+
+    #[test]
+    fn parse_vec_type_truncated_length() {
+        let data = [0u8; 2];
+        let mut offset = 0;
+        let registry = IdlRegistry::new();
+        let idl = hello_anchor_idl();
+        let element_type = IdlType::Simple("u8".into());
+        let err = parse_vec_type(&data, &mut offset, &element_type, &registry, &idl).unwrap_err();
+        assert!(err.to_string().contains("Insufficient data"));
+    }
+
+    #[test]
+    fn parse_option_type_some() {
+        let mut data = vec![1u8];
+        data.extend_from_slice(&500u16.to_le_bytes());
+        let mut offset = 0;
+        let registry = IdlRegistry::new();
+        let idl = hello_anchor_idl();
+        let inner = IdlType::Simple("u16".into());
+        let val = parse_option_type(&data, &mut offset, &inner, &registry, &idl).unwrap();
+        assert_eq!(val, OrderedJsonValue::Number(500u64.into()));
+        assert_eq!(offset, 3);
+    }
+
+    #[test]
+    fn parse_option_type_none() {
+        let data = vec![0u8];
+        let mut offset = 0;
+        let registry = IdlRegistry::new();
+        let idl = hello_anchor_idl();
+        let inner = IdlType::Simple("u16".into());
+        let val = parse_option_type(&data, &mut offset, &inner, &registry, &idl).unwrap();
+        assert_eq!(val, OrderedJsonValue::Null);
+        assert_eq!(offset, 1);
+    }
+
+    #[test]
+    fn parse_option_type_truncated_discriminant() {
+        let data: [u8; 0] = [];
+        let mut offset = 0;
+        let registry = IdlRegistry::new();
+        let idl = hello_anchor_idl();
+        let inner = IdlType::Simple("u8".into());
+        let err = parse_option_type(&data, &mut offset, &inner, &registry, &idl).unwrap_err();
+        assert!(err.to_string().contains("Insufficient data"));
+    }
+
+    #[test]
+    fn parse_array_type_fixed_3_u8() {
+        let data = vec![10, 20, 30];
+        let mut offset = 0;
+        let registry = IdlRegistry::new();
+        let idl = hello_anchor_idl();
+        let array_def = [
+            serde_json::json!("u8"),
+            serde_json::json!(3),
+        ];
+        let val = parse_array_type(&data, &mut offset, &array_def, &registry, &idl).unwrap();
+        assert_eq!(
+            val,
+            OrderedJsonValue::Array(vec![
+                OrderedJsonValue::Number(10u64.into()),
+                OrderedJsonValue::Number(20u64.into()),
+                OrderedJsonValue::Number(30u64.into()),
+            ])
+        );
+        assert_eq!(offset, 3);
+    }
+
+    // ── Enum variant tests ──
+
+    #[test]
+    fn parse_enum_with_struct_variant() {
+        let idl: Idl = serde_json::from_str(
+            r#"{
+                "address": "11111111111111111111111111111111",
+                "metadata": { "name": "t", "version": "0.1.0", "spec": "0.1.0" },
+                "instructions": [{
+                    "name": "cmd",
+                    "discriminator": [9,9,9,9,9,9,9,9],
+                    "accounts": [],
+                    "args": [{ "name": "op", "type": { "defined": "Op" } }]
+                }],
+                "types": [{
+                    "name": "Op",
+                    "type": {
+                        "kind": "enum",
+                        "variants": [
+                            { "name": "Noop" },
+                            {
+                                "name": "Transfer",
+                                "fields": [
+                                    { "name": "amount", "type": "u64" },
+                                    { "name": "fee", "type": "u16" }
+                                ]
+                            }
+                        ]
+                    }
+                }]
+            }"#,
+        )
+        .unwrap();
+
+        let registry = IdlRegistry::new();
+        let mut data = vec![9, 9, 9, 9, 9, 9, 9, 9];
+        data.push(1); // variant index 1 = Transfer
+        data.extend_from_slice(&5000u64.to_le_bytes());
+        data.extend_from_slice(&100u16.to_le_bytes());
+
+        let parsed = parse_instruction(&idl, &data, &registry).unwrap().unwrap();
+        let val = &parsed.fields[0].value;
+        assert_eq!(
+            *val,
+            OrderedJsonValue::Object(vec![(
+                "Transfer".into(),
+                OrderedJsonValue::Object(vec![
+                    ("amount".into(), OrderedJsonValue::Number(5000u64.into())),
+                    ("fee".into(), OrderedJsonValue::Number(100u64.into())),
+                ]),
+            )])
+        );
+    }
+
+    #[test]
+    fn parse_enum_with_tuple_variant() {
+        let idl: Idl = serde_json::from_str(
+            r#"{
+                "address": "11111111111111111111111111111111",
+                "metadata": { "name": "t", "version": "0.1.0", "spec": "0.1.0" },
+                "instructions": [{
+                    "name": "cmd",
+                    "discriminator": [8,8,8,8,8,8,8,8],
+                    "accounts": [],
+                    "args": [{ "name": "op", "type": { "defined": "Op" } }]
+                }],
+                "types": [{
+                    "name": "Op",
+                    "type": {
+                        "kind": "enum",
+                        "variants": [
+                            { "name": "Noop" },
+                            { "name": "SetPair", "fields": ["u32", "u32"] }
+                        ]
+                    }
+                }]
+            }"#,
+        )
+        .unwrap();
+
+        let registry = IdlRegistry::new();
+        let mut data = vec![8, 8, 8, 8, 8, 8, 8, 8];
+        data.push(1); // variant index 1 = SetPair
+        data.extend_from_slice(&111u32.to_le_bytes());
+        data.extend_from_slice(&222u32.to_le_bytes());
+
+        let parsed = parse_instruction(&idl, &data, &registry).unwrap().unwrap();
+        let val = &parsed.fields[0].value;
+        assert_eq!(
+            *val,
+            OrderedJsonValue::Object(vec![(
+                "SetPair".into(),
+                OrderedJsonValue::Array(vec![
+                    OrderedJsonValue::Number(111u64.into()),
+                    OrderedJsonValue::Number(222u64.into()),
+                ]),
+            )])
+        );
+    }
+
+    #[test]
+    fn parse_enum_out_of_range_variant_index_falls_through() {
+        let idl: Idl = serde_json::from_str(
+            r#"{
+                "address": "11111111111111111111111111111111",
+                "metadata": { "name": "t", "version": "0.1.0", "spec": "0.1.0" },
+                "instructions": [{
+                    "name": "cmd",
+                    "discriminator": [7,7,7,7,7,7,7,7],
+                    "accounts": [],
+                    "args": [{ "name": "val", "type": { "defined": "Small" } }]
+                }],
+                "types": [{
+                    "name": "Small",
+                    "type": {
+                        "kind": "enum",
+                        "variants": [{ "name": "Only" }]
+                    }
+                }]
+            }"#,
+        )
+        .unwrap();
+
+        let registry = IdlRegistry::new();
+        let mut data = vec![7, 7, 7, 7, 7, 7, 7, 7];
+        data.push(99); // out-of-range variant
+
+        let parsed = parse_instruction(&idl, &data, &registry).unwrap().unwrap();
+        // Should fall through to raw_unparsed_value
+        if let OrderedJsonValue::Object(entries) = &parsed.fields[0].value {
+            let keys: Vec<&str> = entries.iter().map(|(k, _)| k.as_str()).collect();
+            assert!(keys.contains(&"raw_hex"));
+        } else {
+            panic!("expected raw fallback for out-of-range variant");
+        }
     }
 }
