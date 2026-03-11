@@ -81,6 +81,7 @@ pub(super) fn update_token_balance_in_account(
     account: &mut Account,
     account_pubkey: &Pubkey,
     mint: &Pubkey,
+    owner: &Pubkey,
     amount_raw: u64,
     decimals: u8,
 ) -> Result<PreparedTokenFunding> {
@@ -88,6 +89,7 @@ pub(super) fn update_token_balance_in_account(
         account,
         account_pubkey,
         mint,
+        owner,
         amount_raw,
         decimals,
         TokenProgramKind::Token2022,
@@ -209,13 +211,14 @@ mod tests {
     fn update_sets_amount() {
         let mint = Pubkey::new_unique();
         let token = Pubkey::new_unique();
+        let owner = Pubkey::new_unique();
         let mint_account = mint_account_base_only();
         let mut account = Account::from(
             build_token_account_with_extensions(&token, &mint, &mint_account, &Rent::default())
                 .unwrap(),
         );
         let result =
-            update_token_balance_in_account(&mut account, &token, &mint, 5_000_000, 6).unwrap();
+            update_token_balance_in_account(&mut account, &token, &mint, &owner, 5_000_000, 6).unwrap();
         assert_eq!(result.amount_raw, 5_000_000);
         assert!((result.ui_amount - 5.0).abs() < f64::EPSILON);
 

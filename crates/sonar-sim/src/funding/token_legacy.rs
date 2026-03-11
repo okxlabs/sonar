@@ -42,6 +42,7 @@ pub(super) fn update_token_balance_in_account(
     account: &mut Account,
     account_pubkey: &Pubkey,
     mint: &Pubkey,
+    owner: &Pubkey,
     amount_raw: u64,
     decimals: u8,
 ) -> Result<PreparedTokenFunding> {
@@ -49,6 +50,7 @@ pub(super) fn update_token_balance_in_account(
         account,
         account_pubkey,
         mint,
+        owner,
         amount_raw,
         decimals,
         TokenProgramKind::Legacy,
@@ -85,10 +87,11 @@ mod tests {
     fn update_sets_amount() {
         let mint = Pubkey::new_unique();
         let token = Pubkey::new_unique();
+        let owner = Pubkey::new_unique();
         let mut account =
             Account::from(build_token_account(&token, &mint, &Rent::default()).unwrap());
         let result =
-            update_token_balance_in_account(&mut account, &token, &mint, 42_000_000, 6).unwrap();
+            update_token_balance_in_account(&mut account, &token, &mint, &owner, 42_000_000, 6).unwrap();
         assert_eq!(result.amount_raw, 42_000_000);
         assert_eq!(result.decimals, 6);
         assert!((result.ui_amount - 42.0).abs() < f64::EPSILON);
@@ -101,6 +104,7 @@ mod tests {
     fn update_rejects_wrong_program() {
         let mint = Pubkey::new_unique();
         let token = Pubkey::new_unique();
+        let owner = Pubkey::new_unique();
         let mut account = Account {
             lamports: 0,
             data: vec![0u8; 165],
@@ -108,7 +112,7 @@ mod tests {
             executable: false,
             rent_epoch: 0,
         };
-        let err = update_token_balance_in_account(&mut account, &token, &mint, 100, 6).unwrap_err();
+        let err = update_token_balance_in_account(&mut account, &token, &mint, &owner, 100, 6).unwrap_err();
         assert!(err.to_string().contains("not owned by"));
     }
 }

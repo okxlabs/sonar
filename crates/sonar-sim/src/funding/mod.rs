@@ -131,6 +131,7 @@ fn prepare_single_token_funding(
     Ok(PreparedTokenFunding {
         account: request.account,
         mint,
+        owner: request.account, // placeholder — real logic in Task 4
         decimals,
         amount_raw,
         ui_amount: raw_to_ui_amount(amount_raw, decimals),
@@ -183,6 +184,7 @@ fn apply_single_token_funding<B: SvmBackend + ?Sized>(
             &mut account,
             &funding.account,
             &funding.mint,
+            &funding.owner,
             funding.amount_raw,
             funding.decimals,
         )?,
@@ -190,6 +192,7 @@ fn apply_single_token_funding<B: SvmBackend + ?Sized>(
             &mut account,
             &funding.account,
             &funding.mint,
+            &funding.owner,
             funding.amount_raw,
             funding.decimals,
         )?,

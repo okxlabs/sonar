@@ -28,6 +28,7 @@ pub(super) fn update_token_amount_account<T: TokenAmountMut>(
     account: &mut Account,
     account_pubkey: &Pubkey,
     mint: &Pubkey,
+    owner: &Pubkey,
     amount_raw: u64,
     decimals: u8,
     program_kind: TokenProgramKind,
@@ -58,6 +59,7 @@ pub(super) fn update_token_amount_account<T: TokenAmountMut>(
     Ok(PreparedTokenFunding {
         account: *account_pubkey,
         mint: *mint,
+        owner: *owner,
         decimals,
         amount_raw,
         ui_amount: raw_to_ui_amount(amount_raw, decimals),
