@@ -746,6 +746,58 @@ mod tests {
     }
 
     #[test]
+    fn bpf_dependency_resolution_discovers_programdata_transitively() {
+        use solana_account::Account;
+        use solana_loader_v3_interface::state::UpgradeableLoaderState;
+        use solana_sdk_ids::bpf_loader_upgradeable;
+
+        fn make_bpf_program(programdata_address: &Pubkey) -> AccountSharedData {
+            let state =
+                UpgradeableLoaderState::Program { programdata_address: *programdata_address };
+            let data = bincode::serialize(&state).unwrap();
+            AccountSharedData::from(Account {
+                lamports: 1,
+                data,
+                owner: bpf_loader_upgradeable::id(),
+                executable: true,
+                rent_epoch: 0,
+            })
+        }
+
+        let program_key = Pubkey::new_unique();
+        let programdata_key = Pubkey::new_unique();
+
+        // The programdata account itself (minimal, just needs to exist)
+        let programdata_account = AccountSharedData::from(Account {
+            lamports: 1,
+            data: vec![0; 64],
+            owner: bpf_loader_upgradeable::id(),
+            executable: false,
+            rent_epoch: 0,
+        });
+
+        let provider = FakeAccountProvider::new(HashMap::from([
+            (program_key, make_bpf_program(&programdata_key)),
+            (programdata_key, programdata_account),
+        ]));
+
+        let mut loader = AccountLoader::with_provider(Arc::new(provider));
+        let mut resolved = ResolvedAccounts { accounts: HashMap::new(), lookups: vec![] };
+
+        // Fetch only the program key; dependency resolution should discover programdata.
+        loader.append_accounts(&mut resolved, &[program_key]).unwrap();
+
+        assert!(
+            resolved.accounts.contains_key(&program_key),
+            "resolved accounts should contain the BPF program"
+        );
+        assert!(
+            resolved.accounts.contains_key(&programdata_key),
+            "resolved accounts should contain the programdata dependency discovered transitively"
+        );
+    }
+
+    #[test]
     fn expand_lookup_table_index_out_of_range() {
         let addr0 = Pubkey::new_unique();
         let addr1 = Pubkey::new_unique();
