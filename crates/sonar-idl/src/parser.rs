@@ -270,7 +270,7 @@ fn parse_simple_type(data: &[u8], offset: &mut usize, type_name: &str) -> Result
         }
         "i8" => {
             check_data_len(data, start, 1)?;
-            (OrderedJsonValue::Number(JsonNumber::from(data[start] as i64)), 1)
+            (OrderedJsonValue::Number(JsonNumber::from(data[start] as i8 as i64)), 1)
         }
         "u16" => {
             check_data_len(data, start, 2)?;
@@ -1017,5 +1017,200 @@ mod tests {
         let data = vec![1, 0, 0, 0];
         let found = find_instruction_by_discriminator(&idl, &data).unwrap();
         assert_eq!(found.name, "specific");
+    }
+
+    // ── Direct parse_simple_type tests ──
+
+    #[test]
+    fn parse_simple_u8() {
+        let data = [42u8];
+        let mut offset = 0;
+        let val = parse_simple_type(&data, &mut offset, "u8").unwrap();
+        assert_eq!(val, OrderedJsonValue::Number(42u64.into()));
+        assert_eq!(offset, 1);
+    }
+
+    #[test]
+    fn parse_simple_i8() {
+        let data = [(-5i8) as u8];
+        let mut offset = 0;
+        let val = parse_simple_type(&data, &mut offset, "i8").unwrap();
+        assert_eq!(val, OrderedJsonValue::Number((-5i64).into()));
+        assert_eq!(offset, 1);
+    }
+
+    #[test]
+    fn parse_simple_u16() {
+        let data = 1000u16.to_le_bytes();
+        let mut offset = 0;
+        let val = parse_simple_type(&data, &mut offset, "u16").unwrap();
+        assert_eq!(val, OrderedJsonValue::Number(1000u64.into()));
+        assert_eq!(offset, 2);
+    }
+
+    #[test]
+    fn parse_simple_i16() {
+        let data = (-300i16).to_le_bytes();
+        let mut offset = 0;
+        let val = parse_simple_type(&data, &mut offset, "i16").unwrap();
+        assert_eq!(val, OrderedJsonValue::Number((-300i64).into()));
+        assert_eq!(offset, 2);
+    }
+
+    #[test]
+    fn parse_simple_u32() {
+        let data = 70000u32.to_le_bytes();
+        let mut offset = 0;
+        let val = parse_simple_type(&data, &mut offset, "u32").unwrap();
+        assert_eq!(val, OrderedJsonValue::Number(70000u64.into()));
+        assert_eq!(offset, 4);
+    }
+
+    #[test]
+    fn parse_simple_i32() {
+        let data = (-70000i32).to_le_bytes();
+        let mut offset = 0;
+        let val = parse_simple_type(&data, &mut offset, "i32").unwrap();
+        assert_eq!(val, OrderedJsonValue::Number((-70000i64).into()));
+        assert_eq!(offset, 4);
+    }
+
+    #[test]
+    fn parse_simple_u64() {
+        let data = u64::MAX.to_le_bytes();
+        let mut offset = 0;
+        let val = parse_simple_type(&data, &mut offset, "u64").unwrap();
+        assert_eq!(val, OrderedJsonValue::Number(u64::MAX.into()));
+        assert_eq!(offset, 8);
+    }
+
+    #[test]
+    fn parse_simple_i64() {
+        let data = i64::MIN.to_le_bytes();
+        let mut offset = 0;
+        let val = parse_simple_type(&data, &mut offset, "i64").unwrap();
+        assert_eq!(val, OrderedJsonValue::Number(i64::MIN.into()));
+        assert_eq!(offset, 8);
+    }
+
+    #[test]
+    fn parse_simple_u128() {
+        let val_in: u128 = 340_282_366_920_938_463;
+        let data = val_in.to_le_bytes();
+        let mut offset = 0;
+        let val = parse_simple_type(&data, &mut offset, "u128").unwrap();
+        assert_eq!(val, OrderedJsonValue::String(val_in.to_string()));
+        assert_eq!(offset, 16);
+    }
+
+    #[test]
+    fn parse_simple_i128() {
+        let val_in: i128 = -170_141_183_460_469;
+        let data = val_in.to_le_bytes();
+        let mut offset = 0;
+        let val = parse_simple_type(&data, &mut offset, "i128").unwrap();
+        assert_eq!(val, OrderedJsonValue::String(val_in.to_string()));
+        assert_eq!(offset, 16);
+    }
+
+    #[test]
+    fn parse_simple_bool_true() {
+        let data = [1u8];
+        let mut offset = 0;
+        let val = parse_simple_type(&data, &mut offset, "bool").unwrap();
+        assert_eq!(val, OrderedJsonValue::Bool(true));
+        assert_eq!(offset, 1);
+    }
+
+    #[test]
+    fn parse_simple_bool_false() {
+        let data = [0u8];
+        let mut offset = 0;
+        let val = parse_simple_type(&data, &mut offset, "bool").unwrap();
+        assert_eq!(val, OrderedJsonValue::Bool(false));
+        assert_eq!(offset, 1);
+    }
+
+    #[test]
+    fn parse_simple_pubkey() {
+        let pk = Pubkey::from_str("11111111111111111111111111111111").unwrap();
+        let data = pk.to_bytes();
+        let mut offset = 0;
+        let val = parse_simple_type(&data, &mut offset, "pubkey").unwrap();
+        assert_eq!(val, OrderedJsonValue::String(pk.to_string()));
+        assert_eq!(offset, 32);
+    }
+
+    #[test]
+    fn parse_simple_string() {
+        let s = b"hello";
+        let mut data = (s.len() as u32).to_le_bytes().to_vec();
+        data.extend_from_slice(s);
+        let mut offset = 0;
+        let val = parse_simple_type(&data, &mut offset, "string").unwrap();
+        assert_eq!(val, OrderedJsonValue::String("hello".into()));
+        assert_eq!(offset, 9);
+    }
+
+    #[test]
+    fn parse_simple_bytes() {
+        let payload = vec![0xAA, 0xBB, 0xCC];
+        let mut data = (payload.len() as u32).to_le_bytes().to_vec();
+        data.extend_from_slice(&payload);
+        let mut offset = 0;
+        let val = parse_simple_type(&data, &mut offset, "bytes").unwrap();
+        assert_eq!(
+            val,
+            OrderedJsonValue::Array(vec![
+                OrderedJsonValue::Number(0xAAu64.into()),
+                OrderedJsonValue::Number(0xBBu64.into()),
+                OrderedJsonValue::Number(0xCCu64.into()),
+            ])
+        );
+        assert_eq!(offset, 7);
+    }
+
+    // ── Error paths ──
+
+    #[test]
+    fn parse_simple_type_truncated_u32() {
+        let data = [0u8; 2]; // need 4 for u32
+        let mut offset = 0;
+        let err = parse_simple_type(&data, &mut offset, "u32").unwrap_err();
+        assert!(err.to_string().contains("Insufficient data"));
+    }
+
+    #[test]
+    fn parse_simple_type_truncated_string_length() {
+        let data = [0u8; 2]; // need 4 for length prefix
+        let mut offset = 0;
+        let err = parse_simple_type(&data, &mut offset, "string").unwrap_err();
+        assert!(err.to_string().contains("Insufficient data"));
+    }
+
+    #[test]
+    fn parse_simple_type_truncated_string_body() {
+        // length says 10 bytes but only 2 available
+        let mut data = 10u32.to_le_bytes().to_vec();
+        data.extend_from_slice(&[0, 0]);
+        let mut offset = 0;
+        let err = parse_simple_type(&data, &mut offset, "string").unwrap_err();
+        assert!(err.to_string().contains("Insufficient data"));
+    }
+
+    #[test]
+    fn parse_simple_type_unknown_falls_back_to_raw() {
+        let data = [1, 2, 3, 4];
+        let mut offset = 0;
+        let val = parse_simple_type(&data, &mut offset, "unknown_type").unwrap();
+        // Should return a raw_unparsed_value object
+        if let OrderedJsonValue::Object(entries) = &val {
+            let keys: Vec<&str> = entries.iter().map(|(k, _)| k.as_str()).collect();
+            assert!(keys.contains(&"context"));
+            assert!(keys.contains(&"type_hint"));
+            assert!(keys.contains(&"raw_hex"));
+        } else {
+            panic!("expected Object for unknown type, got {:?}", val);
+        }
     }
 }
