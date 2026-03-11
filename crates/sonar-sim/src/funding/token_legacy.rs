@@ -12,12 +12,13 @@ use crate::types::PreparedTokenFunding;
 pub(super) fn build_token_account(
     account_pubkey: &Pubkey,
     mint: &Pubkey,
+    owner: &Pubkey,
     rent: &Rent,
 ) -> Result<AccountSharedData> {
     let mut data = vec![0u8; SplAccount::LEN];
     let state = SplAccount {
         mint: ProgramPubkey::new_from_array(mint.to_bytes()),
-        owner: ProgramPubkey::new_from_array(account_pubkey.to_bytes()),
+        owner: ProgramPubkey::new_from_array(owner.to_bytes()),
         amount: 0,
         delegate: COption::None,
         state: AccountState::Initialized,
@@ -73,8 +74,9 @@ mod tests {
     fn create_initializes_valid_account() {
         let mint = Pubkey::new_unique();
         let token = Pubkey::new_unique();
+        let owner = Pubkey::new_unique();
         let rent = Rent::default();
-        let account = build_token_account(&token, &mint, &rent).unwrap();
+        let account = build_token_account(&token, &mint, &owner, &rent).unwrap();
         assert_eq!(*account.owner(), legacy_program_id());
         assert_eq!(account.lamports(), rent.minimum_balance(SplAccount::LEN));
 
@@ -89,7 +91,7 @@ mod tests {
         let token = Pubkey::new_unique();
         let owner = Pubkey::new_unique();
         let mut account =
-            Account::from(build_token_account(&token, &mint, &Rent::default()).unwrap());
+            Account::from(build_token_account(&token, &mint, &owner, &Rent::default()).unwrap());
         let result =
             update_token_balance_in_account(&mut account, &token, &mint, &owner, 42_000_000, 6).unwrap();
         assert_eq!(result.amount_raw, 42_000_000);
@@ -114,5 +116,16 @@ mod tests {
         };
         let err = update_token_balance_in_account(&mut account, &token, &mint, &owner, 100, 6).unwrap_err();
         assert!(err.to_string().contains("not owned by"));
+    }
+
+    #[test]
+    fn create_sets_owner_field() {
+        let mint = Pubkey::new_unique();
+        let token = Pubkey::new_unique();
+        let owner = Pubkey::new_unique();
+        let rent = Rent::default();
+        let account = build_token_account(&token, &mint, &owner, &rent).unwrap();
+        let parsed = SplAccount::unpack(&account.data()[..SplAccount::LEN]).unwrap();
+        assert_eq!(Pubkey::new_from_array(parsed.owner.to_bytes()), owner);
     }
 }

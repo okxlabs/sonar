@@ -186,11 +186,17 @@ fn apply_single_token_funding<B: SvmBackend + ?Sized>(
             .ok_or(SonarSimError::AccountNotFound { pubkey: funding.mint })?;
         let created = match kind {
             TokenProgramKind::Legacy => {
-                token_legacy::build_token_account(&funding.account, &funding.mint, &rent)?
+                token_legacy::build_token_account(
+                    &funding.account,
+                    &funding.mint,
+                    &funding.owner,
+                    &rent,
+                )?
             }
             TokenProgramKind::Token2022 => token2022::build_token_account_with_extensions(
                 &funding.account,
                 &funding.mint,
+                &funding.owner,
                 mint_account,
                 &rent,
             )?,
