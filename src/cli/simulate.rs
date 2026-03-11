@@ -285,7 +285,7 @@ pub fn parse_token_funding(raw: &str) -> Result<TokenFunding, String> {
         TokenAmount::Raw(raw)
     };
 
-    Ok(TokenFunding { account, mint, amount })
+    Ok(TokenFunding { account, mint, owner: None, amount })
 }
 
 pub fn parse_data_patch(raw: &str) -> Result<AccountDataPatch, String> {

@@ -306,8 +306,12 @@ mod tests {
         resolved.accounts.insert(token, AccountSharedData::from(token_account));
         resolved.accounts.insert(mint, AccountSharedData::from(mint_account.clone()));
 
-        let funding =
-            TokenFunding { account: token, mint: Some(mint), amount: TokenAmount::Raw(1_500_000) };
+        let funding = TokenFunding {
+            account: token,
+            mint: Some(mint),
+            owner: None,
+            amount: TokenAmount::Raw(1_500_000),
+        };
         let before_data = resolved.accounts.get(&token).unwrap().data().to_vec();
 
         let prepared =
@@ -374,8 +378,12 @@ mod tests {
         let mut resolved = ResolvedAccounts { accounts: HashMap::new(), lookups: vec![] };
         resolved.accounts.insert(mint, mint_shared.clone());
 
-        let funding =
-            TokenFunding { account: token, mint: Some(mint), amount: TokenAmount::Raw(1_500_000) };
+        let funding = TokenFunding {
+            account: token,
+            mint: Some(mint),
+            owner: None,
+            amount: TokenAmount::Raw(1_500_000),
+        };
         let prepared =
             prepare_token_fundings(&mut loader, &resolved, &[funding]).expect("prepares funding");
 

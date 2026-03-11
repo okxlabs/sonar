@@ -21,6 +21,7 @@ pub enum TokenAmount {
 pub struct TokenFunding {
     pub account: Pubkey,
     pub mint: Option<Pubkey>,
+    pub owner: Option<Pubkey>,
     pub amount: TokenAmount,
 }
 
