@@ -79,7 +79,7 @@ fn parse_u32_instruction(
     field_name: &str,
     data: &[u8],
 ) -> Result<Option<ParsedInstruction>> {
-    if data.len() != 4 {
+    if data.len() < 4 {
         return Ok(None);
     }
 
@@ -97,7 +97,7 @@ fn parse_u64_instruction(
     field_name: &str,
     data: &[u8],
 ) -> Result<Option<ParsedInstruction>> {
-    if data.len() != 8 {
+    if data.len() < 8 {
         return Ok(None);
     }
 
