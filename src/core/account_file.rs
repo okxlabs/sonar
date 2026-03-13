@@ -81,6 +81,14 @@ pub fn parse_account_json(path: &Path) -> Result<Account, String> {
     })
 }
 
+pub(crate) fn is_missing_account_placeholder(account: &Account) -> bool {
+    account.lamports == 0
+        && account.data.is_empty()
+        && account.owner == system_program::id()
+        && !account.executable
+        && account.rent_epoch == 0
+}
+
 // ---------------------------------------------------------------------------
 // Account dump (Solana CLI compatible JSON format)
 // ---------------------------------------------------------------------------
@@ -262,6 +270,7 @@ mod tests {
         assert!(parsed.data.is_empty());
         assert_eq!(parsed.owner, solana_sdk_ids::system_program::id());
         assert!(!parsed.executable);
+        assert!(is_missing_account_placeholder(&parsed));
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }
