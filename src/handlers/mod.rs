@@ -404,11 +404,13 @@ mod tests {
             cli::TokenFunding {
                 account: account_in_tx,
                 mint: Some(mint_in_tx),
+                owner: None,
                 amount: cli::TokenAmount::Raw(100),
             },
             cli::TokenFunding {
                 account: account_not_in_tx,
                 mint: Some(mint_not_in_tx),
+                owner: None,
                 amount: cli::TokenAmount::Raw(200),
             },
         ];
@@ -428,6 +430,7 @@ mod tests {
         let token_fundings = vec![cli::TokenFunding {
             account,
             mint: Some(mint),
+            owner: None,
             amount: cli::TokenAmount::Raw(100),
         }];
 

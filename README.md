@@ -138,6 +138,12 @@ sonar simulate <TX> \
   --rpc-url https://api.mainnet-beta.solana.com \
   --fund-token <ACCOUNT>:<MINT>=1000000
 
+# Fund a new token account with explicit mint and owner
+# Owner is required when the token account does not already exist on-chain
+sonar simulate <TX> \
+  --rpc-url https://api.mainnet-beta.solana.com \
+  --fund-token <ACCOUNT>:<MINT>:<OWNER>=1000000
+
 # Fund using decimal amount (uses mint decimals, e.g. 1.5 USDC = 1500000 raw units)
 sonar simulate <TX> \
   --rpc-url https://api.mainnet-beta.solana.com \

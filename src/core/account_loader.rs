@@ -29,6 +29,14 @@ impl sonar_sim::AccountSource for LocalDirSource {
             if path.exists() {
                 let account = crate::core::account_file::parse_account_json(&path)
                     .map_err(|e| sonar_sim::SonarSimError::Internal { reason: e.to_string() })?;
+                if crate::core::account_file::is_missing_account_placeholder(&account) {
+                    debug!(
+                        "Ignoring placeholder account {} from local file: {}",
+                        key,
+                        path.display()
+                    );
+                    continue;
+                }
                 debug!("Loaded account {} from local file: {}", key, path.display());
                 found.insert(*key, AccountSharedData::from(account));
             }
@@ -149,8 +157,8 @@ mod tests {
     use solana_sysvar_id::SysvarId;
     use solana_transaction::Transaction;
     use solana_transaction::versioned::VersionedTransaction;
-    use sonar_sim::AccountAppender;
     use sonar_sim::ResolvedAccounts;
+    use sonar_sim::{AccountAppender, AccountSource};
     use sonar_sim::{FakeAccountProvider, RpcAccountProvider};
 
     fn system_account(lamports: u64) -> Account {
@@ -324,7 +332,7 @@ mod tests {
         let payer = Keypair::new();
         let recipient = Pubkey::new_unique();
 
-        for (pubkey, lamports) in [(payer.pubkey(), 10_000_000_000u64), (recipient, 0)] {
+        for (pubkey, lamports) in [(payer.pubkey(), 10_000_000_000u64), (recipient, 1)] {
             let json = serde_json::json!({
                 "lamports": lamports,
                 "data": ["", "base64"],
@@ -350,6 +358,42 @@ mod tests {
 
         assert!(resolved.accounts.contains_key(&payer.pubkey()));
         assert!(resolved.accounts.contains_key(&recipient));
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn local_dir_placeholder_accounts_are_treated_as_missing() {
+        let temp_dir = std::env::temp_dir()
+            .join(format!("sonar_test_local_dir_placeholder_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        let missing = Pubkey::new_unique();
+        let placeholder = serde_json::json!({
+            "pubkey": missing.to_string(),
+            "account": {
+                "lamports": 0,
+                "data": ["", "base64"],
+                "owner": solana_sdk_ids::system_program::id().to_string(),
+                "executable": false,
+                "rentEpoch": 0,
+                "space": 0
+            }
+        });
+        std::fs::write(
+            temp_dir.join(format!("{missing}.json")),
+            serde_json::to_string_pretty(&placeholder).unwrap(),
+        )
+        .unwrap();
+
+        let source = LocalDirSource::new(temp_dir.clone());
+        let resolved = source.resolve(&[missing]).expect("placeholder load should succeed");
+
+        assert!(
+            resolved.is_empty(),
+            "placeholder cache files should be treated as missing accounts"
+        );
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }

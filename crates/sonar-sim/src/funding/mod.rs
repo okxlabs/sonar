@@ -67,36 +67,55 @@ fn prepare_single_token_funding(
         }
     })?;
 
-    let mint = if let Some(account) = lookup_account(resolved, extras, &request.account) {
-        let detected_mint =
-            detect_mint_from_token_account(account).map_err(|e| SonarSimError::Token {
-                account: Some(request.account),
-                reason: format!(
-                    "Failed to detect mint from existing token account {}: {e}",
-                    request.account
-                ),
-            })?;
+    let (mint, owner) = if let Some(account) = lookup_account(resolved, extras, &request.account) {
+        let decoded = decode_existing_token_account(account, &request.account)?;
+
         if let Some(requested_mint) = request.mint {
-            if detected_mint != requested_mint {
+            if decoded.mint != requested_mint {
                 return Err(SonarSimError::Token {
                     account: Some(request.account),
                     reason: format!(
                         "Token account {} is associated with mint {}, but CLI requested mint {}",
-                        request.account, detected_mint, requested_mint
+                        request.account, decoded.mint, requested_mint
                     ),
                 });
             }
         }
-        detected_mint
+
+        if let Some(requested_owner) = request.owner {
+            if decoded.owner != requested_owner {
+                return Err(SonarSimError::Token {
+                    account: Some(request.account),
+                    reason: format!(
+                        "Token account {} has owner {}, but CLI specified owner {}",
+                        request.account, decoded.owner, requested_owner
+                    ),
+                });
+            }
+        }
+
+        (decoded.mint, decoded.owner)
     } else {
-        request.mint.ok_or_else(|| SonarSimError::Token {
+        let mint = request.mint.ok_or_else(|| SonarSimError::Token {
             account: Some(request.account),
             reason: format!(
                 "Token account {} does not exist on-chain; \
-                 you must specify the mint using <ACCOUNT>:<MINT>=<AMOUNT> format",
+                 you must specify mint and owner using \
+                 <ACCOUNT>:<MINT>:<OWNER>=<AMOUNT> format",
                 request.account
             ),
-        })?
+        })?;
+        let owner = request.owner.ok_or_else(|| SonarSimError::Token {
+            account: Some(request.account),
+            reason: format!(
+                "Token account {} does not exist on-chain; \
+                 you must specify the owner using \
+                 <ACCOUNT>:<MINT>:<OWNER>=<AMOUNT> format",
+                request.account
+            ),
+        })?;
+
+        (mint, owner)
     };
 
     ensure_account_loaded(loader, resolved, extras, &mint).map_err(|e| SonarSimError::Token {
@@ -131,6 +150,7 @@ fn prepare_single_token_funding(
     Ok(PreparedTokenFunding {
         account: request.account,
         mint,
+        owner,
         decimals,
         amount_raw,
         ui_amount: raw_to_ui_amount(amount_raw, decimals),
@@ -166,11 +186,17 @@ fn apply_single_token_funding<B: SvmBackend + ?Sized>(
             .ok_or(SonarSimError::AccountNotFound { pubkey: funding.mint })?;
         let created = match kind {
             TokenProgramKind::Legacy => {
-                token_legacy::build_token_account(&funding.account, &funding.mint, &rent)?
+                token_legacy::build_token_account(
+                    &funding.account,
+                    &funding.mint,
+                    &funding.owner,
+                    &rent,
+                )?
             }
             TokenProgramKind::Token2022 => token2022::build_token_account_with_extensions(
                 &funding.account,
                 &funding.mint,
+                &funding.owner,
                 mint_account,
                 &rent,
             )?,
@@ -183,6 +209,7 @@ fn apply_single_token_funding<B: SvmBackend + ?Sized>(
             &mut account,
             &funding.account,
             &funding.mint,
+            &funding.owner,
             funding.amount_raw,
             funding.decimals,
         )?,
@@ -190,6 +217,7 @@ fn apply_single_token_funding<B: SvmBackend + ?Sized>(
             &mut account,
             &funding.account,
             &funding.mint,
+            &funding.owner,
             funding.amount_raw,
             funding.decimals,
         )?,
@@ -211,11 +239,13 @@ fn read_rent_from_svm<B: SvmBackend + ?Sized>(svm: &B) -> Result<Rent> {
     })
 }
 
-fn detect_mint_from_token_account(account: &AccountSharedData) -> Result<Pubkey> {
+fn decode_existing_token_account(
+    account: &AccountSharedData,
+    account_pubkey: &Pubkey,
+) -> Result<token_decode::DecodedTokenAccount> {
     token_decode::try_decode_token_account(account.data(), account.owner())
-        .map(|decoded| decoded.mint)
         .ok_or_else(|| SonarSimError::Token {
-            account: None,
+            account: Some(*account_pubkey),
             reason: format!(
                 "Token account is not owned by any known SPL Token program or cannot be decoded (owner: {})",
                 account.owner()
@@ -306,8 +336,12 @@ mod tests {
         resolved.accounts.insert(token, AccountSharedData::from(token_account));
         resolved.accounts.insert(mint, AccountSharedData::from(mint_account.clone()));
 
-        let funding =
-            TokenFunding { account: token, mint: Some(mint), amount: TokenAmount::Raw(1_500_000) };
+        let funding = TokenFunding {
+            account: token,
+            mint: Some(mint),
+            owner: None,
+            amount: TokenAmount::Raw(1_500_000),
+        };
         let before_data = resolved.accounts.get(&token).unwrap().data().to_vec();
 
         let prepared =
@@ -331,6 +365,121 @@ mod tests {
         let updated_in_svm = svm.get_account(&token).unwrap();
         let parsed = SplAccount::unpack(&updated_in_svm.data[..SplAccount::LEN]).unwrap();
         assert_eq!(parsed.amount, summary.amount_raw);
+    }
+
+    #[test]
+    fn prepare_validates_owner_matches_onchain() {
+        let mut loader = NoopAppender;
+        let mint = Pubkey::new_unique();
+        let token = Pubkey::new_unique();
+        let owner = Pubkey::new_unique();
+        let wrong_owner = Pubkey::new_unique();
+
+        let (token_account, mint_account) = spl_token_account_and_mint(&mint, &owner);
+
+        let mut resolved = ResolvedAccounts { accounts: HashMap::new(), lookups: vec![] };
+        resolved.accounts.insert(token, AccountSharedData::from(token_account));
+        resolved.accounts.insert(mint, AccountSharedData::from(mint_account));
+
+        let funding = TokenFunding {
+            account: token,
+            mint: Some(mint),
+            owner: Some(wrong_owner),
+            amount: TokenAmount::Raw(100),
+        };
+        let err = prepare_token_fundings(&mut loader, &resolved, &[funding]).unwrap_err();
+        assert!(err.to_string().contains("has owner"));
+    }
+
+    #[test]
+    fn prepare_accepts_matching_owner() {
+        let mut loader = NoopAppender;
+        let mint = Pubkey::new_unique();
+        let token = Pubkey::new_unique();
+        let owner = Pubkey::new_unique();
+
+        let (token_account, mint_account) = spl_token_account_and_mint(&mint, &owner);
+
+        let mut resolved = ResolvedAccounts { accounts: HashMap::new(), lookups: vec![] };
+        resolved.accounts.insert(token, AccountSharedData::from(token_account));
+        resolved.accounts.insert(mint, AccountSharedData::from(mint_account));
+
+        let funding = TokenFunding {
+            account: token,
+            mint: Some(mint),
+            owner: Some(owner),
+            amount: TokenAmount::Raw(100),
+        };
+        let prepared = prepare_token_fundings(&mut loader, &resolved, &[funding]).expect("prepares");
+        assert_eq!(prepared[0].owner, owner);
+    }
+
+    #[test]
+    fn prepare_reads_owner_from_onchain_account() {
+        let mut loader = NoopAppender;
+        let mint = Pubkey::new_unique();
+        let token = Pubkey::new_unique();
+        let owner = Pubkey::new_unique();
+
+        let (token_account, mint_account) = spl_token_account_and_mint(&mint, &owner);
+
+        let mut resolved = ResolvedAccounts { accounts: HashMap::new(), lookups: vec![] };
+        resolved.accounts.insert(token, AccountSharedData::from(token_account));
+        resolved.accounts.insert(mint, AccountSharedData::from(mint_account));
+
+        let funding = TokenFunding {
+            account: token,
+            mint: None,
+            owner: None,
+            amount: TokenAmount::Raw(100),
+        };
+        let prepared = prepare_token_fundings(&mut loader, &resolved, &[funding]).expect("prepares");
+        assert_eq!(prepared[0].owner, owner);
+    }
+
+    #[test]
+    fn prepare_errors_when_account_missing_and_no_owner() {
+        let mut loader = NoopAppender;
+        let mint = Pubkey::new_unique();
+        let token = Pubkey::new_unique();
+        let owner = Pubkey::new_unique();
+
+        let (_, mint_account) = spl_token_account_and_mint(&mint, &owner);
+
+        let mut resolved = ResolvedAccounts { accounts: HashMap::new(), lookups: vec![] };
+        resolved.accounts.insert(mint, AccountSharedData::from(mint_account));
+
+        let funding = TokenFunding {
+            account: token,
+            mint: Some(mint),
+            owner: None,
+            amount: TokenAmount::Raw(100),
+        };
+        let err = prepare_token_fundings(&mut loader, &resolved, &[funding]).unwrap_err();
+        assert!(err.to_string().contains("you must specify the owner"));
+    }
+
+    #[test]
+    fn prepare_creates_with_explicit_owner() {
+        let mut loader = NoopAppender;
+        let mint = Pubkey::new_unique();
+        let token = Pubkey::new_unique();
+        let owner = Pubkey::new_unique();
+
+        let (_, mint_account) = spl_token_account_and_mint(&mint, &owner);
+
+        let mut resolved = ResolvedAccounts { accounts: HashMap::new(), lookups: vec![] };
+        resolved.accounts.insert(mint, AccountSharedData::from(mint_account));
+
+        let funding = TokenFunding {
+            account: token,
+            mint: Some(mint),
+            owner: Some(owner),
+            amount: TokenAmount::Raw(100),
+        };
+        let prepared = prepare_token_fundings(&mut loader, &resolved, &[funding]).expect("prepares");
+        assert_eq!(prepared[0].owner, owner);
+        assert_eq!(prepared[0].mint, mint);
     }
 
     #[test]
@@ -374,8 +523,12 @@ mod tests {
         let mut resolved = ResolvedAccounts { accounts: HashMap::new(), lookups: vec![] };
         resolved.accounts.insert(mint, mint_shared.clone());
 
-        let funding =
-            TokenFunding { account: token, mint: Some(mint), amount: TokenAmount::Raw(1_500_000) };
+        let funding = TokenFunding {
+            account: token,
+            mint: Some(mint),
+            owner: Some(owner),
+            amount: TokenAmount::Raw(1_500_000),
+        };
         let prepared =
             prepare_token_fundings(&mut loader, &resolved, &[funding]).expect("prepares funding");
 
@@ -389,6 +542,39 @@ mod tests {
 
         let created = svm.get_account(&token).expect("token account should be created");
         assert_eq!(created.lamports, expected);
+    }
+
+    #[test]
+    fn apply_token_funding_creates_account_with_correct_owner() {
+        let mut loader = NoopAppender;
+        let mint = Pubkey::new_unique();
+        let token = Pubkey::new_unique();
+        let owner = Pubkey::new_unique();
+
+        let (_, mint_account) = spl_token_account_and_mint(&mint, &owner);
+        let mint_shared = AccountSharedData::from(mint_account.clone());
+
+        let mut resolved = ResolvedAccounts { accounts: HashMap::new(), lookups: vec![] };
+        resolved.accounts.insert(mint, mint_shared);
+
+        let funding = TokenFunding {
+            account: token,
+            mint: Some(mint),
+            owner: Some(owner),
+            amount: TokenAmount::Raw(1_000_000),
+        };
+        let prepared =
+            prepare_token_fundings(&mut loader, &resolved, &[funding]).expect("prepares funding");
+
+        let mut svm = LiteSVM::new().with_blockhash_check(false).with_sigverify(false);
+        svm.set_account(mint, mint_account).unwrap();
+
+        apply_token_fundings(&mut svm, &prepared, &resolved).expect("applies funding to svm");
+
+        let created = svm.get_account(&token).expect("token account should be created");
+        let parsed = SplAccount::unpack(&created.data[..SplAccount::LEN]).unwrap();
+        assert_eq!(Pubkey::new_from_array(parsed.owner.to_bytes()), owner);
+        assert_eq!(parsed.amount, 1_000_000);
     }
 
     fn spl_token_account_and_mint(mint: &Pubkey, owner: &Pubkey) -> (Account, Account) {

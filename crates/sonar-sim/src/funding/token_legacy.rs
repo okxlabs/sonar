@@ -12,12 +12,13 @@ use crate::types::PreparedTokenFunding;
 pub(super) fn build_token_account(
     account_pubkey: &Pubkey,
     mint: &Pubkey,
+    owner: &Pubkey,
     rent: &Rent,
 ) -> Result<AccountSharedData> {
     let mut data = vec![0u8; SplAccount::LEN];
     let state = SplAccount {
         mint: ProgramPubkey::new_from_array(mint.to_bytes()),
-        owner: ProgramPubkey::new_from_array(account_pubkey.to_bytes()),
+        owner: ProgramPubkey::new_from_array(owner.to_bytes()),
         amount: 0,
         delegate: COption::None,
         state: AccountState::Initialized,
@@ -42,6 +43,7 @@ pub(super) fn update_token_balance_in_account(
     account: &mut Account,
     account_pubkey: &Pubkey,
     mint: &Pubkey,
+    owner: &Pubkey,
     amount_raw: u64,
     decimals: u8,
 ) -> Result<PreparedTokenFunding> {
@@ -49,6 +51,7 @@ pub(super) fn update_token_balance_in_account(
         account,
         account_pubkey,
         mint,
+        owner,
         amount_raw,
         decimals,
         TokenProgramKind::Legacy,
@@ -71,8 +74,9 @@ mod tests {
     fn create_initializes_valid_account() {
         let mint = Pubkey::new_unique();
         let token = Pubkey::new_unique();
+        let owner = Pubkey::new_unique();
         let rent = Rent::default();
-        let account = build_token_account(&token, &mint, &rent).unwrap();
+        let account = build_token_account(&token, &mint, &owner, &rent).unwrap();
         assert_eq!(*account.owner(), legacy_program_id());
         assert_eq!(account.lamports(), rent.minimum_balance(SplAccount::LEN));
 
@@ -85,10 +89,11 @@ mod tests {
     fn update_sets_amount() {
         let mint = Pubkey::new_unique();
         let token = Pubkey::new_unique();
+        let owner = Pubkey::new_unique();
         let mut account =
-            Account::from(build_token_account(&token, &mint, &Rent::default()).unwrap());
+            Account::from(build_token_account(&token, &mint, &owner, &Rent::default()).unwrap());
         let result =
-            update_token_balance_in_account(&mut account, &token, &mint, 42_000_000, 6).unwrap();
+            update_token_balance_in_account(&mut account, &token, &mint, &owner, 42_000_000, 6).unwrap();
         assert_eq!(result.amount_raw, 42_000_000);
         assert_eq!(result.decimals, 6);
         assert!((result.ui_amount - 42.0).abs() < f64::EPSILON);
@@ -101,6 +106,7 @@ mod tests {
     fn update_rejects_wrong_program() {
         let mint = Pubkey::new_unique();
         let token = Pubkey::new_unique();
+        let owner = Pubkey::new_unique();
         let mut account = Account {
             lamports: 0,
             data: vec![0u8; 165],
@@ -108,7 +114,18 @@ mod tests {
             executable: false,
             rent_epoch: 0,
         };
-        let err = update_token_balance_in_account(&mut account, &token, &mint, 100, 6).unwrap_err();
+        let err = update_token_balance_in_account(&mut account, &token, &mint, &owner, 100, 6).unwrap_err();
         assert!(err.to_string().contains("not owned by"));
+    }
+
+    #[test]
+    fn create_sets_owner_field() {
+        let mint = Pubkey::new_unique();
+        let token = Pubkey::new_unique();
+        let owner = Pubkey::new_unique();
+        let rent = Rent::default();
+        let account = build_token_account(&token, &mint, &owner, &rent).unwrap();
+        let parsed = SplAccount::unpack(&account.data()[..SplAccount::LEN]).unwrap();
+        assert_eq!(Pubkey::new_from_array(parsed.owner.to_bytes()), owner);
     }
 }

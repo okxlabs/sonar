@@ -13,6 +13,7 @@ use crate::types::PreparedTokenFunding;
 pub(super) fn build_token_account_with_extensions(
     account_pubkey: &Pubkey,
     mint: &Pubkey,
+    owner: &Pubkey,
     mint_account: &AccountSharedData,
     rent: &Rent,
 ) -> Result<AccountSharedData> {
@@ -47,7 +48,7 @@ pub(super) fn build_token_account_with_extensions(
 
     state.base = Token2022Account {
         mint: ProgramPubkey::new_from_array(mint.to_bytes()),
-        owner: ProgramPubkey::new_from_array(account_pubkey.to_bytes()),
+        owner: ProgramPubkey::new_from_array(owner.to_bytes()),
         amount: 0,
         delegate: COption::None,
         state: AccountState::Initialized,
@@ -81,6 +82,7 @@ pub(super) fn update_token_balance_in_account(
     account: &mut Account,
     account_pubkey: &Pubkey,
     mint: &Pubkey,
+    owner: &Pubkey,
     amount_raw: u64,
     decimals: u8,
 ) -> Result<PreparedTokenFunding> {
@@ -88,6 +90,7 @@ pub(super) fn update_token_balance_in_account(
         account,
         account_pubkey,
         mint,
+        owner,
         amount_raw,
         decimals,
         TokenProgramKind::Token2022,
@@ -163,10 +166,12 @@ mod tests {
     fn create_base_only_account() {
         let mint = Pubkey::new_unique();
         let token = Pubkey::new_unique();
+        let owner = Pubkey::new_unique();
         let mint_account = mint_account_base_only();
         let rent = Rent::default();
         let account =
-            build_token_account_with_extensions(&token, &mint, &mint_account, &rent).unwrap();
+            build_token_account_with_extensions(&token, &mint, &owner, &mint_account, &rent)
+                .unwrap();
         assert_eq!(*account.owner(), token2022_program_id());
         assert_eq!(account.lamports(), rent.minimum_balance(Token2022Account::LEN));
         assert_eq!(
@@ -184,10 +189,12 @@ mod tests {
     fn create_account_with_transfer_fee_extension() {
         let mint = Pubkey::new_unique();
         let token = Pubkey::new_unique();
+        let owner = Pubkey::new_unique();
         let mint_account = mint_account_with_transfer_fee_config();
         let rent = Rent::default();
         let account =
-            build_token_account_with_extensions(&token, &mint, &mint_account, &rent).unwrap();
+            build_token_account_with_extensions(&token, &mint, &owner, &mint_account, &rent)
+                .unwrap();
         assert_eq!(*account.owner(), token2022_program_id());
         assert!(
             account.data().len() > Token2022Account::LEN,
@@ -209,17 +216,38 @@ mod tests {
     fn update_sets_amount() {
         let mint = Pubkey::new_unique();
         let token = Pubkey::new_unique();
+        let owner = Pubkey::new_unique();
         let mint_account = mint_account_base_only();
         let mut account = Account::from(
-            build_token_account_with_extensions(&token, &mint, &mint_account, &Rent::default())
-                .unwrap(),
+            build_token_account_with_extensions(
+                &token,
+                &mint,
+                &owner,
+                &mint_account,
+                &Rent::default(),
+            )
+            .unwrap(),
         );
         let result =
-            update_token_balance_in_account(&mut account, &token, &mint, 5_000_000, 6).unwrap();
+            update_token_balance_in_account(&mut account, &token, &mint, &owner, 5_000_000, 6).unwrap();
         assert_eq!(result.amount_raw, 5_000_000);
         assert!((result.ui_amount - 5.0).abs() < f64::EPSILON);
 
         let state = StateWithExtensions::<Token2022Account>::unpack(&account.data).expect("unpack");
         assert_eq!(state.base.amount, 5_000_000);
+    }
+
+    #[test]
+    fn create_sets_owner_field() {
+        let mint = Pubkey::new_unique();
+        let token = Pubkey::new_unique();
+        let owner = Pubkey::new_unique();
+        let mint_account = mint_account_base_only();
+        let rent = Rent::default();
+        let account =
+            build_token_account_with_extensions(&token, &mint, &owner, &mint_account, &rent)
+                .unwrap();
+        let state = StateWithExtensions::<Token2022Account>::unpack(account.data()).expect("unpack");
+        assert_eq!(Pubkey::new_from_array(state.base.owner.to_bytes()), owner);
     }
 }
