@@ -1,10 +1,14 @@
 [workspace]
 members = [".", "crates/sonar-sim", "crates/sonar-idl"]
 
+[workspace.package]
+rust-version = "1.86.0"
+
 [package]
 name = "sonar"
 version = "0.3.0"
 edition = "2021"
+rust-version.workspace = true
 
 [dependencies]
 sonar-idl = { path = "crates/sonar-idl" }
