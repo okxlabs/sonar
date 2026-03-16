@@ -16,7 +16,6 @@ use solana_message::inner_instruction::InnerInstructionsList;
 use solana_signature::Signature;
 use solana_transaction::versioned::{TransactionVersion, VersionedTransaction};
 use solana_transaction_status_client_types::UiTransactionEncoding;
-use std::io::{IsTerminal, Read};
 use std::str::FromStr;
 
 use crate::utils::progress::Progress;
@@ -125,27 +124,7 @@ pub struct AddressLookupSummary {
 // ---------------------------------------------------------------------------
 
 pub fn read_raw_transaction(inline: Option<String>) -> Result<String> {
-    if let Some(tx) = inline {
-        let trimmed = tx.trim();
-        if trimmed.is_empty() {
-            Err(anyhow!("Raw transaction string cannot be empty"))
-        } else {
-            Ok(trimmed.to_owned())
-        }
-    } else if !std::io::stdin().is_terminal() {
-        let mut buf = String::new();
-        std::io::stdin()
-            .read_to_string(&mut buf)
-            .context("Failed to read transaction from stdin")?;
-        let trimmed = buf.trim();
-        if trimmed.is_empty() {
-            Err(anyhow!("No transaction data received from stdin"))
-        } else {
-            Ok(trimmed.to_owned())
-        }
-    } else {
-        Err(anyhow!("No transaction provided. Pass TX as a positional argument or pipe via stdin"))
-    }
+    crate::utils::read_cli_input(inline.as_deref(), "transaction").map_err(|e| anyhow!(e))
 }
 
 pub fn is_transaction_signature(s: &str) -> bool {

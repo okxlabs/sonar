@@ -12,7 +12,19 @@ use sonar_sim::{
     prepare_token_fundings,
 };
 
-use super::{prepare_accounts_and_idls, resolve_inputs_to_txs, warn_unmatched_addresses};
+use super::{
+    cache_read_dir, prepare_accounts_and_idls, resolve_inputs_to_txs, warn_unmatched_addresses,
+};
+
+/// Parse a vector of raw CLI strings using the given parser function.
+fn parse_cli_args<T>(
+    args: Vec<String>,
+    parser: fn(&str) -> Result<T, String>,
+) -> Result<Vec<T>> {
+    args.iter()
+        .map(|raw| parser(raw).map_err(anyhow::Error::msg))
+        .collect()
+}
 
 /// Apply instruction-level mutations (account patches, data patches) and rebuild
 /// the transaction summary so the renderer sees the updated state.
@@ -49,10 +61,6 @@ fn apply_ix_mutations(
     Ok(())
 }
 
-fn cache_read_dir(cache_dir: Option<PathBuf>, refresh_cache: bool) -> Option<PathBuf> {
-    if refresh_cache { None } else { cache_dir }
-}
-
 pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
     // Initialize instruction parser registry (uses configured/default IDL directory).
     let idl_dir = args.idl_dir.clone();
@@ -86,50 +94,17 @@ pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
     // --cache-dir or --refresh-cache imply --cache
     let cache = cache || cache_dir.is_some() || refresh_cache;
     let rpc_url = rpc.rpc_url;
-    let resolver_cache_location = Some(if cache_dir.is_some() {
-        crate::core::cache::CacheLocation::Explicit(crate::core::cache::resolve_cache_dir(
-            &cache_dir,
-        ))
-    } else {
-        crate::core::cache::CacheLocation::Auto(crate::core::cache::resolve_cache_dir(&cache_dir))
-    });
+    let resolver_cache_location = Some(super::build_cache_location(&cache_dir));
 
     let TransactionInputArgs { tx, json } = transaction;
 
-    let overrides = override_args
-        .into_iter()
-        .map(|raw| cli::parse_override(&raw).map_err(anyhow::Error::msg))
-        .collect::<Result<Vec<_>>>()?;
-
-    let sol_fundings = funding_args
-        .into_iter()
-        .map(|raw| cli::parse_funding(&raw).map_err(anyhow::Error::msg))
-        .collect::<Result<Vec<_>>>()?;
-
-    let token_funding_requests = token_funding_args
-        .into_iter()
-        .map(|raw| cli::parse_token_funding(&raw).map_err(anyhow::Error::msg))
-        .collect::<Result<Vec<_>>>()?;
-
-    let data_patches = data_patch_args
-        .into_iter()
-        .map(|raw| cli::parse_data_patch(&raw).map_err(anyhow::Error::msg))
-        .collect::<Result<Vec<_>>>()?;
-
-    let ix_account_patches = ix_account_patch_args
-        .into_iter()
-        .map(|raw| cli::parse_ix_account_patch(&raw).map_err(anyhow::Error::msg))
-        .collect::<Result<Vec<_>>>()?;
-
-    let ix_account_appends = ix_account_append_args
-        .into_iter()
-        .map(|raw| cli::parse_ix_account_append(&raw).map_err(anyhow::Error::msg))
-        .collect::<Result<Vec<_>>>()?;
-
-    let ix_data_patches = ix_data_patch_args
-        .into_iter()
-        .map(|raw| cli::parse_ix_data_patch(&raw).map_err(anyhow::Error::msg))
-        .collect::<Result<Vec<_>>>()?;
+    let overrides = parse_cli_args(override_args, cli::parse_override)?;
+    let sol_fundings = parse_cli_args(funding_args, cli::parse_funding)?;
+    let token_funding_requests = parse_cli_args(token_funding_args, cli::parse_token_funding)?;
+    let data_patches = parse_cli_args(data_patch_args, cli::parse_data_patch)?;
+    let ix_account_patches = parse_cli_args(ix_account_patch_args, cli::parse_ix_account_patch)?;
+    let ix_account_appends = parse_cli_args(ix_account_append_args, cli::parse_ix_account_append)?;
+    let ix_data_patches = parse_cli_args(ix_data_patch_args, cli::parse_ix_data_patch)?;
 
     // Build rendering options once; shared across all code paths.
     let render_opts = output::RenderOptions {

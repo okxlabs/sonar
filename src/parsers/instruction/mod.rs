@@ -126,37 +126,21 @@ impl ParserRegistry {
             idl_directory: idl_directory.or_else(default_idl_cache_dir),
         };
 
-        // Register default parsers
-        let system_parser = SystemProgramParser::new();
-        registry.parsers.insert(*system_parser.program_id(), Box::new(system_parser));
-
-        // Register Token2022 parser
-        let token2022_parser = Token2022ProgramParser::new();
-        registry.parsers.insert(*token2022_parser.program_id(), Box::new(token2022_parser));
-
-        // Register SPL Token parser by reusing the Token2022 parser implementation
-        let spl_token_parser = Token2022ProgramParser::with_program_id(Pubkey::from_str_const(
+        registry.register(SystemProgramParser::new());
+        registry.register(Token2022ProgramParser::new());
+        registry.register(Token2022ProgramParser::with_program_id(Pubkey::from_str_const(
             "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
-        ));
-        registry.parsers.insert(*spl_token_parser.program_id(), Box::new(spl_token_parser));
-
-        // Register Compute Budget parser
-        let compute_budget_parser = ComputeBudgetProgramParser::new();
-        registry
-            .parsers
-            .insert(*compute_budget_parser.program_id(), Box::new(compute_budget_parser));
-
-        // Register Associated Token parser
-        let associated_token_parser = AssociatedTokenProgramParser::new();
-        registry
-            .parsers
-            .insert(*associated_token_parser.program_id(), Box::new(associated_token_parser));
-
-        // Register Memo parser
-        let memo_parser = MemoProgramParser::new();
-        registry.parsers.insert(*memo_parser.program_id(), Box::new(memo_parser));
+        )));
+        registry.register(ComputeBudgetProgramParser::new());
+        registry.register(AssociatedTokenProgramParser::new());
+        registry.register(MemoProgramParser::new());
 
         registry
+    }
+
+    /// Register a parser, keyed by its program ID.
+    fn register(&mut self, parser: impl InstructionParser + 'static) {
+        self.parsers.insert(*parser.program_id(), Box::new(parser));
     }
 
     /// Returns the configured IDL directory used for lazy loading.

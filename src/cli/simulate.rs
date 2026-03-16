@@ -184,6 +184,22 @@ pub use sonar_sim::{
     InstructionDataPatch, SolFunding, TokenAmount, TokenFunding,
 };
 
+/// Parse a pubkey string with an optional `:w` (writable) or `:r` (read-only)
+/// suffix.  Defaults to writable when no suffix is present.
+fn parse_pubkey_with_writable_flag(value_str: &str) -> Result<(Pubkey, bool), String> {
+    let value_str = value_str.trim();
+    let (pubkey_str, writable) = if let Some(pk) = value_str.strip_suffix(":w") {
+        (pk, true)
+    } else if let Some(pk) = value_str.strip_suffix(":r") {
+        (pk, false)
+    } else {
+        (value_str, true)
+    };
+    let pubkey = Pubkey::from_str(pubkey_str)
+        .map_err(|err| format!("Failed to parse pubkey `{pubkey_str}`: {err}"))?;
+    Ok((pubkey, writable))
+}
+
 pub fn parse_override(raw: &str) -> Result<AccountOverride, String> {
     let (pubkey_str, path_str) = raw
         .split_once('=')
@@ -317,27 +333,7 @@ pub fn parse_data_patch(raw: &str) -> Result<AccountDataPatch, String> {
         .parse()
         .map_err(|err| format!("Failed to parse offset `{offset_str}`: {err}"))?;
 
-    let hex_str = hex_str.trim();
-    let hex_str =
-        hex_str.strip_prefix("0x").or_else(|| hex_str.strip_prefix("0X")).unwrap_or(hex_str);
-
-    if hex_str.is_empty() {
-        return Err("HEX_DATA must not be empty".to_string());
-    }
-    if hex_str.len() % 2 != 0 {
-        return Err(format!(
-            "HEX_DATA has odd length {}; expected an even number of hex characters",
-            hex_str.len()
-        ));
-    }
-
-    let data = (0..hex_str.len())
-        .step_by(2)
-        .map(|i| {
-            u8::from_str_radix(&hex_str[i..i + 2], 16)
-                .map_err(|err| format!("Invalid hex at position {i}: {err}"))
-        })
-        .collect::<Result<Vec<u8>, _>>()?;
+    let data = crate::utils::parse_hex_data(hex_str)?;
 
     Ok(AccountDataPatch { pubkey, offset, data })
 }
@@ -364,17 +360,7 @@ pub fn parse_ix_account_patch(raw: &str) -> Result<InstructionAccountPatch, Stri
         return Err("Account position is 1-based and must be >= 1".to_string());
     }
 
-    let value_str = value_str.trim();
-    let (pubkey_str, writable) = if let Some(pk) = value_str.strip_suffix(":w") {
-        (pk, true)
-    } else if let Some(pk) = value_str.strip_suffix(":r") {
-        (pk, false)
-    } else {
-        (value_str, true)
-    };
-
-    let new_pubkey = Pubkey::from_str(pubkey_str)
-        .map_err(|err| format!("Failed to parse pubkey `{pubkey_str}`: {err}"))?;
+    let (new_pubkey, writable) = parse_pubkey_with_writable_flag(value_str)?;
     Ok(InstructionAccountPatch {
         instruction_index: ix_1based - 1,
         account_position: pos_1based - 1,
@@ -395,17 +381,7 @@ pub fn parse_ix_account_append(raw: &str) -> Result<InstructionAccountAppend, St
         return Err("Instruction index is 1-based and must be >= 1".to_string());
     }
 
-    let value_str = value_str.trim();
-    let (pubkey_str, writable) = if let Some(pk) = value_str.strip_suffix(":w") {
-        (pk, true)
-    } else if let Some(pk) = value_str.strip_suffix(":r") {
-        (pk, false)
-    } else {
-        (value_str, true)
-    };
-
-    let new_pubkey = Pubkey::from_str(pubkey_str)
-        .map_err(|err| format!("Failed to parse pubkey `{pubkey_str}`: {err}"))?;
+    let (new_pubkey, writable) = parse_pubkey_with_writable_flag(value_str)?;
     Ok(InstructionAccountAppend { instruction_index: ix_1based - 1, new_pubkey, writable })
 }
 
@@ -431,25 +407,7 @@ pub fn parse_ix_data_patch(raw: &str) -> Result<InstructionDataPatch, String> {
         .parse()
         .map_err(|err| format!("Failed to parse offset `{offset_str}`: {err}"))?;
 
-    let hex_str = hex_str.trim();
-    let hex_str =
-        hex_str.strip_prefix("0x").or_else(|| hex_str.strip_prefix("0X")).unwrap_or(hex_str);
-    if hex_str.is_empty() {
-        return Err("HEX_DATA must not be empty".to_string());
-    }
-    if hex_str.len() % 2 != 0 {
-        return Err(format!(
-            "HEX_DATA has odd length {}; expected an even number of hex characters",
-            hex_str.len()
-        ));
-    }
-    let data = (0..hex_str.len())
-        .step_by(2)
-        .map(|i| {
-            u8::from_str_radix(&hex_str[i..i + 2], 16)
-                .map_err(|err| format!("Invalid hex at position {i}: {err}"))
-        })
-        .collect::<Result<Vec<u8>, _>>()?;
+    let data = crate::utils::parse_hex_data(hex_str)?;
 
     Ok(InstructionDataPatch { instruction_index: ix_1based - 1, offset, data })
 }

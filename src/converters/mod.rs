@@ -11,10 +11,7 @@ pub mod types;
 
 pub use types::{ConvertRequest, InputFormat, OutputFormat};
 
-use std::{
-    io::{IsTerminal, Read},
-    str::FromStr,
-};
+use std::str::FromStr;
 
 use base64::Engine;
 use num_bigint::{BigUint, Sign};
@@ -232,35 +229,11 @@ fn normalize_separator(raw: &str) -> Result<&str, String> {
     Ok(raw)
 }
 
-fn read_convert_input(input: Option<&str>) -> Result<String, String> {
-    if let Some(input) = input {
-        let trimmed = input.trim();
-        if trimmed.is_empty() {
-            return Err("Input cannot be empty".to_string());
-        }
-        return Ok(trimmed.to_owned());
-    }
-
-    if !std::io::stdin().is_terminal() {
-        let mut buf = String::new();
-        std::io::stdin()
-            .read_to_string(&mut buf)
-            .map_err(|e| format!("Failed to read input from stdin: {}", e))?;
-        let trimmed = buf.trim();
-        if trimmed.is_empty() {
-            return Err("No input data received from stdin".to_string());
-        }
-        return Ok(trimmed.to_owned());
-    }
-
-    Err("No input provided. Pass INPUT as a positional argument or pipe via stdin".to_string())
-}
-
 /// Perform the complete conversion from input to output.
 pub fn convert(req: &ConvertRequest) -> Result<String, String> {
     let separator = normalize_separator(&req.sep)?;
     let big_endian = !req.le;
-    let input = read_convert_input(req.input.as_deref())?;
+    let input = crate::utils::read_cli_input(req.input.as_deref(), "input")?;
     let value = parse_input_with_format(&input, req.from)?;
     format_target(&value, req.to, big_endian, separator, !req.no_prefix, req.escape)
 }
