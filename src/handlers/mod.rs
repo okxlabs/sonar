@@ -13,6 +13,7 @@ pub(crate) mod simulate;
 
 use std::path::PathBuf;
 
+use crate::core::cache::CacheLocation;
 use crate::parsers::instruction::ParserRegistry;
 use crate::utils::progress::Progress;
 use crate::{cli, core::account_loader, core::idl_fetcher, core::transaction};
@@ -90,6 +91,22 @@ pub(crate) fn auto_fetch_missing_idls(
     }
 
     Ok(fetched)
+}
+
+/// Returns `None` when `refresh_cache` is true (forcing re-fetch), otherwise
+/// passes through the directory for reading cached accounts.
+pub(crate) fn cache_read_dir(cache_dir: Option<PathBuf>, refresh_cache: bool) -> Option<PathBuf> {
+    if refresh_cache { None } else { cache_dir }
+}
+
+/// Build a `CacheLocation` from CLI args.
+pub(crate) fn build_cache_location(cache_dir: &Option<PathBuf>) -> CacheLocation {
+    let resolved = crate::core::cache::resolve_cache_dir(cache_dir);
+    if cache_dir.is_some() {
+        CacheLocation::Explicit(resolved)
+    } else {
+        CacheLocation::Auto(resolved)
+    }
 }
 
 pub(crate) struct ResolvedInputTransactions {

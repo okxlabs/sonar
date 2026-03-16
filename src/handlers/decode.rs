@@ -7,33 +7,7 @@ use crate::output;
 use crate::parsers::instruction::ParserRegistry;
 use crate::utils::progress::Progress;
 
-use super::{prepare_accounts_and_idls, resolve_inputs_to_txs};
-
-fn cache_read_dir(cache_dir: Option<PathBuf>, refresh_cache: bool) -> Option<PathBuf> {
-    if refresh_cache { None } else { cache_dir }
-}
-
-fn resolve_decode_cache_state_single(
-    cache: bool,
-    cache_dir: &Option<PathBuf>,
-    refresh_cache: bool,
-    input: &str,
-    parsed_tx: &crate::core::transaction::ParsedTransaction,
-) -> (Option<PathBuf>, bool) {
-    let cache_key = crate::core::cache::derive_cache_key_single(input, &parsed_tx.transaction);
-    crate::core::cache::resolve_cache_state(cache, cache_dir, refresh_cache, &cache_key)
-}
-
-fn resolve_decode_cache_state_bundle(
-    cache: bool,
-    cache_dir: &Option<PathBuf>,
-    refresh_cache: bool,
-    inputs: &[String],
-    parsed_txs: &[crate::core::transaction::ParsedTransaction],
-) -> (Option<PathBuf>, bool) {
-    let cache_key = crate::core::cache::derive_cache_key_bundle(inputs, parsed_txs);
-    crate::core::cache::resolve_cache_state(cache, cache_dir, refresh_cache, &cache_key)
-}
+use super::{cache_read_dir, prepare_accounts_and_idls, resolve_inputs_to_txs};
 
 pub(crate) fn handle(args: DecodeArgs) -> Result<()> {
     let idl_dir = args.idl_dir.clone();
@@ -54,15 +28,7 @@ pub(crate) fn handle(args: DecodeArgs) -> Result<()> {
     let resolver_cache_location = if refresh_cache {
         None
     } else {
-        Some(if cache_dir.is_some() {
-            crate::core::cache::CacheLocation::Explicit(crate::core::cache::resolve_cache_dir(
-                &cache_dir,
-            ))
-        } else {
-            crate::core::cache::CacheLocation::Auto(crate::core::cache::resolve_cache_dir(
-                &cache_dir,
-            ))
-        })
+        Some(super::build_cache_location(&cache_dir))
     };
     let TransactionInputArgs { tx, json } = transaction;
 
@@ -92,13 +58,10 @@ pub(crate) fn handle(args: DecodeArgs) -> Result<()> {
         .expect("single input resolve should produce one transaction");
     let original_input = resolved_tx.original_input;
     let parsed_tx = resolved_tx.parsed_tx;
-    let (decode_cache_dir, offline) = resolve_decode_cache_state_single(
-        !no_cache,
-        &cache_dir,
-        refresh_cache,
-        &original_input,
-        &parsed_tx,
-    );
+    let cache_key =
+        crate::core::cache::derive_cache_key_single(&original_input, &parsed_tx.transaction);
+    let (decode_cache_dir, offline) =
+        crate::core::cache::resolve_cache_state(!no_cache, &cache_dir, refresh_cache, &cache_key);
     let cache_read_dir_for_load = cache_read_dir(decode_cache_dir, refresh_cache);
 
     let prepared = prepare_accounts_and_idls(
@@ -147,13 +110,9 @@ fn handle_bundle(
     let raw_inputs: Vec<_> =
         resolved_txs.iter().map(|entry| entry.original_input.clone()).collect();
     let parsed_txs: Vec<_> = resolved_txs.into_iter().map(|entry| entry.parsed_tx).collect();
-    let (decode_cache_dir, offline) = resolve_decode_cache_state_bundle(
-        cache,
-        &cache_dir,
-        refresh_cache,
-        &raw_inputs,
-        &parsed_txs,
-    );
+    let cache_key = crate::core::cache::derive_cache_key_bundle(&raw_inputs, &parsed_txs);
+    let (decode_cache_dir, offline) =
+        crate::core::cache::resolve_cache_state(cache, &cache_dir, refresh_cache, &cache_key);
     let cache_read_dir_for_load = cache_read_dir(decode_cache_dir, refresh_cache);
     log::info!("Successfully parsed {} transactions", parsed_txs.len());
 

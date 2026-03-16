@@ -1,5 +1,3 @@
-use std::io::{IsTerminal, Read};
-
 use anyhow::{Context, Result};
 
 use crate::cli::{BorshArgs, BorshCommands, BorshDeArgs, BorshSerArgs};
@@ -18,7 +16,8 @@ fn handle_de(args: BorshDeArgs) -> Result<()> {
     let ty = parse_borsh_type(&args.type_str)
         .map_err(|e| anyhow::anyhow!("invalid type descriptor: {e}"))?;
 
-    let raw = read_input(args.input.as_deref(), "bytes")?;
+    let raw = crate::utils::read_cli_input(args.input.as_deref(), "bytes")
+        .map_err(|e| anyhow::anyhow!(e))?;
     let data = parse_input_bytes(&raw)?;
 
     if args.skip_bytes > data.len() {
@@ -50,7 +49,8 @@ fn handle_ser(args: BorshSerArgs) -> Result<()> {
     let ty = parse_borsh_type(&args.type_str)
         .map_err(|e| anyhow::anyhow!("invalid type descriptor: {e}"))?;
 
-    let raw = read_input(args.input.as_deref(), "JSON")?;
+    let raw = crate::utils::read_cli_input(args.input.as_deref(), "JSON")
+        .map_err(|e| anyhow::anyhow!(e))?;
     let value: serde_json::Value =
         serde_json::from_str(&raw).context("failed to parse JSON input")?;
 
@@ -58,7 +58,7 @@ fn handle_ser(args: BorshSerArgs) -> Result<()> {
 
     let prefix_hex = match &args.prefix {
         Some(p) => {
-            let p = p.strip_prefix("0x").or_else(|| p.strip_prefix("0X")).unwrap_or(p);
+            let p = crate::utils::strip_hex_prefix(p);
             hex::decode(p).context("invalid --prefix hex")?;
             p.to_owned()
         }
@@ -67,28 +67,6 @@ fn handle_ser(args: BorshSerArgs) -> Result<()> {
 
     println!("0x{}{}", prefix_hex, hex::encode(&bytes));
     Ok(())
-}
-
-fn read_input(input: Option<&str>, kind: &str) -> Result<String> {
-    if let Some(input) = input {
-        let trimmed = input.trim();
-        if trimmed.is_empty() {
-            anyhow::bail!("input cannot be empty");
-        }
-        return Ok(trimmed.to_owned());
-    }
-
-    if !std::io::stdin().is_terminal() {
-        let mut buf = String::new();
-        std::io::stdin().read_to_string(&mut buf).context("failed to read from stdin")?;
-        let trimmed = buf.trim();
-        if trimmed.is_empty() {
-            anyhow::bail!("no {kind} data received from stdin");
-        }
-        return Ok(trimmed.to_owned());
-    }
-
-    anyhow::bail!("no input provided. Pass {kind} as a positional argument or pipe via stdin")
 }
 
 fn parse_input_bytes(input: &str) -> Result<Vec<u8>> {

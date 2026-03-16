@@ -394,20 +394,19 @@ fn try_load_idl_from_dir(idl_dir: &Option<PathBuf>, owner: &Pubkey) -> Option<St
     let path = idl_dir.as_ref()?;
     let idl_file = path.join(format!("{}.json", owner));
 
-    if idl_file.exists() {
-        match fs::read_to_string(&idl_file) {
-            Ok(content) => {
-                log::debug!("Loaded IDL from {}", idl_file.display());
-                Some(content)
-            }
-            Err(e) => {
-                log::warn!("Failed to read IDL file {}: {}", idl_file.display(), e);
-                None
-            }
+    match fs::read_to_string(&idl_file) {
+        Ok(content) => {
+            log::debug!("Loaded IDL from {}", idl_file.display());
+            Some(content)
         }
-    } else {
-        log::debug!("IDL file not found: {}", idl_file.display());
-        None
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            log::debug!("IDL file not found: {}", idl_file.display());
+            None
+        }
+        Err(e) => {
+            log::warn!("Failed to read IDL file {}: {}", idl_file.display(), e);
+            None
+        }
     }
 }
 
