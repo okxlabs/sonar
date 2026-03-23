@@ -7,6 +7,7 @@
 //! external consumers should only depend on the re-exports listed here.
 
 pub mod error;
+pub mod rpc_json;
 
 pub(crate) mod account_dependencies;
 pub(crate) mod account_fetcher;

@@ -8,8 +8,7 @@ use anyhow::{Context, Result, anyhow};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use serde::Serialize;
-use solana_client::rpc_client::RpcClient;
-use solana_client::rpc_config::RpcTransactionConfig;
+use crate::core::rpc_client::{GetTransactionConfig, RpcClient};
 use solana_commitment_config::CommitmentConfig;
 use solana_message::VersionedMessage;
 use solana_message::inner_instruction::InnerInstructionsList;
@@ -146,9 +145,9 @@ pub fn fetch_transaction_from_rpc(
         signature.parse().with_context(|| format!("Invalid signature format: {}", signature))?;
 
     let client = RpcClient::new(rpc_url);
-    let config = RpcTransactionConfig {
-        encoding: Some(UiTransactionEncoding::Base64),
-        commitment: Some(CommitmentConfig::confirmed()),
+    let config = GetTransactionConfig {
+        encoding: UiTransactionEncoding::Base64,
+        commitment: CommitmentConfig::confirmed(),
         max_supported_transaction_version: Some(0),
     };
 

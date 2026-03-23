@@ -1,9 +1,13 @@
 use std::sync::Arc;
+use std::time::Duration;
 
 use solana_account::AccountSharedData;
 use solana_pubkey::Pubkey;
 
 use crate::error::{Result, SonarSimError};
+use crate::rpc_json::{JsonRpcResponse, RpcAccountInfo, RpcResultValue};
+
+const RPC_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Minimal abstraction over Solana RPC account-fetching operations.
 ///
@@ -13,24 +17,67 @@ pub trait RpcAccountProvider: Send + Sync {
     fn get_multiple_accounts(&self, pubkeys: &[Pubkey]) -> Result<Vec<Option<AccountSharedData>>>;
 }
 
-/// Production implementation backed by `solana_client::RpcClient`.
+/// Production implementation backed by a lightweight `ureq` HTTP client.
 pub struct SolanaRpcProvider {
-    client: Arc<solana_client::rpc_client::RpcClient>,
+    agent: Arc<ureq::Agent>,
+    rpc_url: String,
 }
 
 impl SolanaRpcProvider {
     pub fn new(rpc_url: String) -> Self {
-        Self { client: Arc::new(solana_client::rpc_client::RpcClient::new(rpc_url)) }
+        let agent = ureq::Agent::config_builder()
+            .timeout_global(Some(RPC_TIMEOUT))
+            .build()
+            .new_agent();
+        Self { agent: Arc::new(agent), rpc_url }
     }
 }
 
 impl RpcAccountProvider for SolanaRpcProvider {
     fn get_multiple_accounts(&self, pubkeys: &[Pubkey]) -> Result<Vec<Option<AccountSharedData>>> {
-        let accounts = self
-            .client
-            .get_multiple_accounts(pubkeys)
+        let body = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "getMultipleAccounts",
+            "params": [
+                pubkeys.iter().map(|p| p.to_string()).collect::<Vec<_>>(),
+                {"encoding": "base64"}
+            ]
+        });
+
+        let mut response = self
+            .agent
+            .post(&self.rpc_url)
+            .send_json(&body)
             .map_err(|e| SonarSimError::Rpc { reason: e.to_string() })?;
-        Ok(accounts.into_iter().map(|opt| opt.map(AccountSharedData::from)).collect())
+
+        let rpc: JsonRpcResponse<RpcResultValue<Vec<Option<RpcAccountInfo>>>> = response
+            .body_mut()
+            .read_json()
+            .map_err(|e| SonarSimError::Rpc { reason: format!("parse response: {e}") })?;
+
+        if let Some(err) = rpc.error {
+            return Err(SonarSimError::Rpc {
+                reason: format!("RPC error {}: {}", err.code, err.message),
+            });
+        }
+
+        let result = rpc
+            .result
+            .ok_or_else(|| SonarSimError::Rpc { reason: "empty result".into() })?;
+
+        result
+            .value
+            .into_iter()
+            .map(|opt| {
+                opt.map(|info| {
+                    info.into_account()
+                        .map(AccountSharedData::from)
+                        .map_err(|e| SonarSimError::Rpc { reason: e })
+                })
+                .transpose()
+            })
+            .collect()
     }
 }
 

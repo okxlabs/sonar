@@ -7,7 +7,7 @@ use anyhow::{Context, Result, anyhow};
 use base64::{Engine as _, engine::general_purpose};
 use serde_json::Value;
 use solana_address_lookup_table_interface::state::AddressLookupTable;
-use solana_client::rpc_client::RpcClient;
+use crate::core::rpc_client::RpcClient;
 use solana_commitment_config::CommitmentConfig;
 use solana_loader_v3_interface::state::UpgradeableLoaderState;
 use solana_pubkey::Pubkey;
@@ -162,7 +162,7 @@ fn parse_account_data_field(acct: &Value) -> Result<Vec<u8>> {
 
 fn decode_account_output(
     args: &AccountArgs,
-    client: &solana_client::rpc_client::RpcClient,
+    client: &RpcClient,
     account_pubkey: &Pubkey,
     account: &solana_account::Account,
 ) -> Result<(Value, String, Option<Value>)> {
@@ -493,7 +493,7 @@ fn should_enrich_with_metaplex_metadata(
 }
 
 fn fetch_metadata_for_mint(
-    client: &solana_client::rpc_client::RpcClient,
+    client: &RpcClient,
     mint_pubkey: &Pubkey,
 ) -> Result<(solana_account::Account, Value)> {
     let metadata_pda = metaplex_metadata_decoder::derive_metadata_pda(mint_pubkey);
