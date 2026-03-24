@@ -24,6 +24,8 @@ use super::BalanceChangeOptions;
 pub(super) struct Report {
     pub(super) transaction: TransactionSection,
     pub(super) simulation: SimulationSection,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    account_closures: Vec<AccountClosureSection>,
     overrides: Vec<AccountOverrideSection>,
     fundings: Vec<SolFundingSection>,
     token_fundings: Vec<TokenSolFundingSection>,
@@ -58,6 +60,8 @@ pub(super) struct TokenBalanceChangeSection {
 #[derive(Serialize)]
 pub(super) struct BundleReport {
     pub(super) transactions: Vec<BundleTransactionReport>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    account_closures: Vec<AccountClosureSection>,
     overrides: Vec<AccountOverrideSection>,
     fundings: Vec<SolFundingSection>,
     token_fundings: Vec<TokenSolFundingSection>,
@@ -82,6 +86,7 @@ impl BundleReport {
         parsed_txs: &[ParsedTransaction],
         resolved: &ResolvedAccounts,
         simulations: &[SimulationResult],
+        account_closures: &[Pubkey],
         overrides: &[AccountOverride],
         fundings: &[SolFunding],
         token_fundings: &[PreparedTokenFunding],
@@ -109,6 +114,7 @@ impl BundleReport {
             })
             .collect();
 
+        let account_closures = closures_to_sections(account_closures);
         let overrides = overrides.iter().map(override_to_section).collect();
 
         let fundings = fundings
@@ -140,6 +146,7 @@ impl BundleReport {
 
         Self {
             transactions,
+            account_closures,
             overrides,
             fundings,
             token_fundings,
@@ -155,6 +162,7 @@ impl Report {
         parsed: &ParsedTransaction,
         resolved: &ResolvedAccounts,
         simulation: &SimulationResult,
+        account_closures: &[Pubkey],
         overrides: &[AccountOverride],
         fundings: &[SolFunding],
         token_fundings: &[PreparedTokenFunding],
@@ -171,6 +179,7 @@ impl Report {
             verify_signatures,
         );
         let simulation_section = SimulationSection::from_result(simulation);
+        let account_closures = closures_to_sections(account_closures);
         let overrides = overrides.iter().map(override_to_section).collect();
         let (sol_balance_changes, token_balance_changes) =
             if matches!(simulation.status, ExecutionStatus::Succeeded)
@@ -202,6 +211,7 @@ impl Report {
         Self {
             transaction,
             simulation: simulation_section,
+            account_closures,
             overrides,
             fundings,
             token_fundings,
@@ -807,6 +817,11 @@ struct TokenSolFundingSection {
 }
 
 #[derive(Serialize)]
+struct AccountClosureSection {
+    pubkey: String,
+}
+
+#[derive(Serialize)]
 struct AccountOverrideSection {
     #[serde(rename = "type")]
     override_type: String,
@@ -816,6 +831,10 @@ struct AccountOverrideSection {
 
 fn serialize_bytes_as_hex<S: Serializer>(bytes: &[u8], serializer: S) -> Result<S::Ok, S::Error> {
     serializer.serialize_str(&format!("0x{}", hex::encode(bytes)))
+}
+
+fn closures_to_sections(closures: &[Pubkey]) -> Vec<AccountClosureSection> {
+    closures.iter().map(|pk| AccountClosureSection { pubkey: pk.to_string() }).collect()
 }
 
 fn override_to_section(entry: &AccountOverride) -> AccountOverrideSection {

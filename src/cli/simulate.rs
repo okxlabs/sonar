@@ -105,6 +105,16 @@ pub struct SimulateArgs {
         value_parser = clap::builder::NonEmptyStringValueParser::new()
     )]
     pub data_patches: Vec<String>,
+    /// Close an account so it does not exist during simulation.
+    /// Takes one or more account pubkeys.
+    #[arg(
+        long = "close-account",
+        help_heading = HELP_HEADING_STATE_PREPARATION,
+        value_name = "PUBKEY",
+        num_args = 1..,
+        value_parser = clap::builder::NonEmptyStringValueParser::new()
+    )]
+    pub account_closures: Vec<String>,
     /// Enable account caching: load from cache on repeat runs, save to cache on first run.
     /// Cache is stored per-transaction under ~/.sonar/cache/<KEY>/
     #[arg(short = 'c', long, help_heading = HELP_HEADING_STATE_PREPARATION, env = "SONAR_CACHE")]
@@ -410,6 +420,12 @@ pub fn parse_ix_data_patch(raw: &str) -> Result<InstructionDataPatch, String> {
     let data = crate::utils::parse_hex_data(hex_str)?;
 
     Ok(InstructionDataPatch { instruction_index: ix_1based - 1, offset, data })
+}
+
+pub fn parse_close_account(raw: &str) -> Result<Pubkey, String> {
+    let trimmed = raw.trim();
+    Pubkey::from_str(trimmed)
+        .map_err(|err| format!("Failed to parse --close-account pubkey `{trimmed}`: {err}"))
 }
 
 pub fn parse_timestamp(raw: &str) -> Result<i64, String> {

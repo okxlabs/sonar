@@ -8,6 +8,8 @@ pub(crate) use account_text::render_account_text;
 
 use anyhow::Result;
 
+use solana_pubkey::Pubkey;
+
 use crate::{core::transaction::ParsedTransaction, parsers::instruction::ParserRegistry};
 use sonar_sim::{
     AccountOverride, PreparedTokenFunding, ResolvedAccounts, SimulationResult, SolFunding,
@@ -44,6 +46,7 @@ pub fn render(
     parsed: &ParsedTransaction,
     resolved: &ResolvedAccounts,
     simulation: &SimulationResult,
+    account_closures: &[Pubkey],
     overrides: &[AccountOverride],
     fundings: &[SolFunding],
     token_fundings: &[PreparedTokenFunding],
@@ -54,6 +57,7 @@ pub fn render(
         parsed,
         resolved,
         simulation,
+        account_closures,
         overrides,
         fundings,
         token_fundings,
@@ -127,6 +131,7 @@ pub fn render_bundle(
     total_tx_count: usize,
     resolved: &ResolvedAccounts,
     simulations: &[SimulationResult],
+    account_closures: &[Pubkey],
     overrides: &[AccountOverride],
     fundings: &[SolFunding],
     token_fundings: &[PreparedTokenFunding],
@@ -137,6 +142,7 @@ pub fn render_bundle(
         parsed_txs,
         resolved,
         simulations,
+        account_closures,
         overrides,
         fundings,
         token_fundings,

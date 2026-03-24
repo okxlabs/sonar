@@ -85,6 +85,7 @@ pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
         timestamp,
         slot,
         data_patches: data_patch_args,
+        account_closures: account_closure_args,
         cache,
         cache_dir,
         refresh_cache,
@@ -102,6 +103,7 @@ pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
     let sol_fundings = parse_cli_args(funding_args, cli::parse_funding)?;
     let token_funding_requests = parse_cli_args(token_funding_args, cli::parse_token_funding)?;
     let data_patches = parse_cli_args(data_patch_args, cli::parse_data_patch)?;
+    let account_closures = parse_cli_args(account_closure_args, cli::parse_close_account)?;
     let ix_account_patches = parse_cli_args(ix_account_patch_args, cli::parse_ix_account_patch)?;
     let ix_account_appends = parse_cli_args(ix_account_append_args, cli::parse_ix_account_append)?;
     let ix_data_patches = parse_cli_args(ix_data_patch_args, cli::parse_ix_data_patch)?;
@@ -125,6 +127,7 @@ pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
                 timestamp,
             },
             mutations: StateMutationOptions {
+                account_closures,
                 overrides,
                 sol_fundings,
                 data_patches,
@@ -183,6 +186,7 @@ pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
         &overrides,
         &sol_fundings,
         &token_funding_requests,
+        &account_closures,
         &[&parsed_tx],
         &prepared.resolved_accounts,
     );
@@ -231,6 +235,7 @@ pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
             timestamp,
         },
         mutations: StateMutationOptions {
+            account_closures,
             overrides,
             sol_fundings,
             token_fundings: prepared_token_fundings,
@@ -254,6 +259,7 @@ pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
         &parsed_tx,
         runner.resolved_accounts(),
         &simulation,
+        runner.account_closures(),
         runner.overrides(),
         runner.sol_fundings(),
         runner.token_fundings(),
@@ -317,6 +323,7 @@ fn handle_bundle(
         &sim_opts.mutations.overrides,
         &sim_opts.mutations.sol_fundings,
         &token_funding_requests,
+        &sim_opts.mutations.account_closures,
         &parsed_tx_refs,
         &prepared.resolved_accounts,
     );
@@ -407,6 +414,7 @@ fn handle_bundle(
         total_tx_count,
         runner.resolved_accounts(),
         &simulations,
+        runner.account_closures(),
         runner.overrides(),
         runner.sol_fundings(),
         runner.token_fundings(),

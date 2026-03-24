@@ -62,6 +62,7 @@ pub struct ExecutionOptions {
 /// Pre-simulation mutations applied to the account set before execution.
 #[derive(Debug, Clone, Default)]
 pub struct StateMutationOptions {
+    pub account_closures: Vec<Pubkey>,
     pub overrides: Vec<AccountOverride>,
     pub sol_fundings: Vec<SolFunding>,
     pub token_fundings: Vec<PreparedTokenFunding>,
@@ -110,6 +111,11 @@ impl SimulationOptionsBuilder {
         self
     }
 
+    pub fn account_closures(mut self, account_closures: Vec<Pubkey>) -> Self {
+        self.opts.mutations.account_closures = account_closures;
+        self
+    }
+
     pub fn overrides(mut self, overrides: Vec<AccountOverride>) -> Self {
         self.opts.mutations.overrides = overrides;
         self
@@ -142,6 +148,7 @@ impl StateMutationOptions {
         svm: &mut B,
         resolved: &ResolvedAccounts,
     ) -> Result<()> {
+        apply_account_closures(svm, &self.account_closures)?;
         apply_overrides(svm, &self.overrides, resolved)?;
         apply_sol_fundings(svm, &self.sol_fundings)?;
         apply_data_patches(svm, &self.data_patches)?;
@@ -166,6 +173,28 @@ pub fn load_accounts<B: SvmBackend + ?Sized>(
     for (pubkey, account) in ordered {
         svm.set_account(*pubkey, Account::from(account.clone())).map_err(|e| {
             SonarSimError::Svm { reason: format!("Failed to set account {}: {}", pubkey, e) }
+        })?;
+    }
+    Ok(())
+}
+
+/// Close accounts by setting them to zero lamports.
+///
+/// On LiteSVM, zero-lamport accounts are removed from its internal
+/// `AccountsDb`, so `get_account` returns `None` afterwards.
+/// Other `SvmBackend` implementations may retain the zero-lamport account.
+pub fn apply_account_closures<B: SvmBackend + ?Sized>(
+    svm: &mut B,
+    closures: &[Pubkey],
+) -> Result<()> {
+    for pubkey in closures {
+        if svm.get_account(pubkey).is_none() {
+            warn!("Account closure target {} does not exist in SVM; skipping.", pubkey);
+            continue;
+        }
+        info!("Closing account {} (setting to zero lamports)", pubkey);
+        svm.set_account(*pubkey, Account::default()).map_err(|e| SonarSimError::Svm {
+            reason: format!("Failed to close account `{}`: {}", pubkey, e),
         })?;
     }
     Ok(())
@@ -341,6 +370,10 @@ impl<B: SvmBackend> PreparedSimulation<B> {
         &self.resolved
     }
 
+    pub fn account_closures(&self) -> &[Pubkey] {
+        &self.record.account_closures
+    }
+
     pub fn overrides(&self) -> &[AccountOverride] {
         &self.record.overrides
     }
@@ -450,6 +483,10 @@ impl<B: SvmBackend> SimulationRunner<B> {
 
     pub fn resolved_accounts(&self) -> &ResolvedAccounts {
         &self.resolved
+    }
+
+    pub fn account_closures(&self) -> &[Pubkey] {
+        &self.record.account_closures
     }
 
     pub fn overrides(&self) -> &[AccountOverride] {
@@ -950,5 +987,103 @@ mod tests {
         let mut svm = MockSvm::new();
         apply_slot(&mut svm, 42);
         assert_eq!(svm.slot, 42);
+    }
+
+    // ── Account closure tests ──
+
+    #[test]
+    fn pipeline_close_account_removes_from_litesvm() {
+        let mut svm = new_svm();
+        let key = Pubkey::new_unique();
+
+        let account = Account {
+            lamports: 1_000_000,
+            data: vec![1, 2, 3],
+            owner: solana_sdk_ids::system_program::id(),
+            executable: false,
+            rent_epoch: 0,
+        };
+        svm.set_account(key, account).unwrap();
+        assert!(svm.get_account(&key).is_some());
+
+        apply_account_closures(&mut svm, &[key]).expect("closure should succeed");
+        assert!(svm.get_account(&key).is_none(), "account should no longer exist");
+    }
+
+    #[test]
+    fn pipeline_close_nonexistent_account_is_noop() {
+        let mut svm = new_svm();
+        let key = Pubkey::new_unique();
+
+        // Should not error, just warn
+        apply_account_closures(&mut svm, &[key]).expect("closure of missing account should succeed");
+        assert!(svm.get_account(&key).is_none());
+    }
+
+    #[test]
+    fn pipeline_close_multiple_accounts() {
+        let mut svm = new_svm();
+        let k1 = Pubkey::new_unique();
+        let k2 = Pubkey::new_unique();
+
+        for key in [k1, k2] {
+            svm.set_account(
+                key,
+                Account {
+                    lamports: 100,
+                    data: vec![],
+                    owner: solana_sdk_ids::system_program::id(),
+                    executable: false,
+                    rent_epoch: 0,
+                },
+            )
+            .unwrap();
+        }
+
+        apply_account_closures(&mut svm, &[k1, k2]).expect("closures should succeed");
+        assert!(svm.get_account(&k1).is_none());
+        assert!(svm.get_account(&k2).is_none());
+    }
+
+    #[test]
+    fn pipeline_close_then_fund_creates_fresh_account() {
+        let mut svm = new_svm();
+        let key = Pubkey::new_unique();
+
+        let account = Account {
+            lamports: 1_000_000,
+            data: vec![1, 2, 3, 4],
+            owner: Pubkey::new_unique(),
+            executable: false,
+            rent_epoch: 0,
+        };
+        svm.set_account(key, account).unwrap();
+
+        // Close first, then fund — mimics the mutation pipeline order
+        apply_account_closures(&mut svm, &[key]).unwrap();
+        assert!(svm.get_account(&key).is_none());
+
+        apply_sol_fundings(&mut svm, &[SolFunding { pubkey: key, amount_lamports: 500 }]).unwrap();
+        let created = svm.get_account(&key).expect("account should exist after funding");
+        assert_eq!(created.lamports, 500);
+        assert!(created.data.is_empty(), "newly funded account should have empty data");
+    }
+
+    #[test]
+    fn close_account_on_mock_removes_account() {
+        let key = Pubkey::new_unique();
+        let account = Account {
+            lamports: 100,
+            data: vec![42],
+            owner: solana_sdk_ids::system_program::id(),
+            executable: false,
+            rent_epoch: 0,
+        };
+        let mut svm = MockSvm::new().with_account(key, account);
+
+        apply_account_closures(&mut svm, &[key]).expect("should close");
+        // MockSvm stores the zero-lamport account (doesn't auto-remove like LiteSVM)
+        let closed = svm.get_account(&key).unwrap();
+        assert_eq!(closed.lamports, 0);
     }
 }

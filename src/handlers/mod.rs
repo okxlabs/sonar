@@ -248,6 +248,14 @@ fn find_unmatched_sol_fundings(
     fundings.iter().filter(|f| !tx_keys.contains(&f.pubkey)).map(|f| f.pubkey).collect()
 }
 
+/// Finds --close-account pubkeys that are not present in the given transaction account key set.
+fn find_unmatched_closures(
+    closures: &[Pubkey],
+    tx_keys: &std::collections::HashSet<Pubkey>,
+) -> Vec<Pubkey> {
+    closures.iter().filter(|pk| !tx_keys.contains(pk)).copied().collect()
+}
+
 /// Finds --fund-token pubkeys (account and mint) that are not present in the given
 /// transaction account key set.
 fn find_unmatched_token_fundings(
@@ -268,16 +276,21 @@ fn find_unmatched_token_fundings(
     unmatched
 }
 
-/// Warns the user when --override, --fund-sol, or --fund-token addresses are not found
-/// in the transaction's account keys, which likely indicates a typo.
+/// Warns the user when --override, --fund-sol, --fund-token, or --close-account addresses
+/// are not found in the transaction's account keys, which likely indicates a typo.
 pub(crate) fn warn_unmatched_addresses(
     overrides: &[cli::AccountOverride],
     fundings: &[cli::SolFunding],
     token_fundings: &[cli::TokenFunding],
+    account_closures: &[Pubkey],
     parsed_txs: &[&transaction::ParsedTransaction],
     resolved_accounts: &ResolvedAccounts,
 ) {
-    if overrides.is_empty() && fundings.is_empty() && token_fundings.is_empty() {
+    if overrides.is_empty()
+        && fundings.is_empty()
+        && token_fundings.is_empty()
+        && account_closures.is_empty()
+    {
         return;
     }
 
@@ -303,13 +316,20 @@ pub(crate) fn warn_unmatched_addresses(
             pubkey,
         );
     }
+
+    for pubkey in find_unmatched_closures(account_closures, &tx_keys) {
+        log::warn!(
+            "--close-account target {} is not referenced in the transaction's account keys. Did you mean a different address?",
+            pubkey,
+        );
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        collect_program_ids, find_unmatched_overrides, find_unmatched_sol_fundings,
-        find_unmatched_token_fundings,
+        collect_program_ids, find_unmatched_closures, find_unmatched_overrides,
+        find_unmatched_sol_fundings, find_unmatched_token_fundings,
     };
     use crate::cli;
     use solana_account::{Account, AccountSharedData};
@@ -495,6 +515,29 @@ mod tests {
         ];
 
         let unmatched = find_unmatched_overrides(&overrides, &tx_keys);
+        assert!(unmatched.is_empty());
+    }
+
+    #[test]
+    fn find_unmatched_closures_detects_missing_address() {
+        let key_in_tx = Pubkey::new_unique();
+        let key_not_in_tx = Pubkey::new_unique();
+        let tx_keys: HashSet<Pubkey> = [key_in_tx].into_iter().collect();
+
+        let closures = vec![key_in_tx, key_not_in_tx];
+        let unmatched = find_unmatched_closures(&closures, &tx_keys);
+        assert_eq!(unmatched.len(), 1);
+        assert_eq!(unmatched[0], key_not_in_tx);
+    }
+
+    #[test]
+    fn find_unmatched_closures_returns_empty_when_all_match() {
+        let key_a = Pubkey::new_unique();
+        let key_b = Pubkey::new_unique();
+        let tx_keys: HashSet<Pubkey> = [key_a, key_b].into_iter().collect();
+
+        let closures = vec![key_a, key_b];
+        let unmatched = find_unmatched_closures(&closures, &tx_keys);
         assert!(unmatched.is_empty());
     }
 }
