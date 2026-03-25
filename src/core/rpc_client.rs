@@ -1,4 +1,5 @@
 use std::str::FromStr;
+use std::thread;
 use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow};
@@ -34,6 +35,7 @@ pub struct RpcResponse<T> {
 #[derive(Default)]
 pub struct SendTransactionConfig {
     pub skip_preflight: bool,
+    pub preflight_commitment: Option<CommitmentConfig>,
 }
 
 pub struct GetTransactionConfig {
@@ -47,6 +49,8 @@ pub struct GetTransactionConfig {
 // ---------------------------------------------------------------------------
 
 const RPC_TIMEOUT: Duration = Duration::from_secs(30);
+const MAX_RETRIES: u32 = 5;
+const DEFAULT_RETRY_DELAY: Duration = Duration::from_secs(2);
 
 impl RpcClient {
     pub fn new(rpc_url: impl Into<String>) -> Self {
@@ -69,21 +73,40 @@ impl RpcClient {
             "params": params,
         });
 
-        let mut response = self
-            .agent
-            .post(&self.rpc_url)
-            .send_json(&body)
-            .map_err(|e| anyhow!("RPC request failed: {e}"))?;
+        let mut last_err = None;
+        for attempt in 0..=MAX_RETRIES {
+            match self.agent.post(&self.rpc_url).send_json(&body) {
+                Ok(mut response) => {
+                    let rpc: JsonRpcResponse<T> = response
+                        .body_mut()
+                        .read_json()
+                        .map_err(|e| anyhow!("Failed to parse RPC response: {e}"))?;
 
-        let rpc: JsonRpcResponse<T> = response
-            .body_mut()
-            .read_json()
-            .map_err(|e| anyhow!("Failed to parse RPC response: {e}"))?;
-
-        if let Some(err) = rpc.error {
-            return Err(anyhow!("RPC error {}: {}", err.code, err.message));
+                    if let Some(err) = rpc.error {
+                        return if let Some(data) = &err.data {
+                            Err(anyhow!("RPC error {}: {} (data: {})", err.code, err.message, data))
+                        } else {
+                            Err(anyhow!("RPC error {}: {}", err.code, err.message))
+                        };
+                    }
+                    return rpc.result.ok_or_else(|| anyhow!("RPC returned empty result"));
+                }
+                Err(ureq::Error::StatusCode(status_code)) if (status_code == 429 || status_code == 503) && attempt < MAX_RETRIES => {
+                    let delay = DEFAULT_RETRY_DELAY * (attempt + 1);
+                    log::warn!(
+                        "RPC returned {}; retrying in {:?} (attempt {}/{})",
+                        status_code,
+                        delay,
+                        attempt + 1,
+                        MAX_RETRIES,
+                    );
+                    thread::sleep(delay);
+                    last_err = Some(anyhow!("RPC returned HTTP {status_code}"));
+                }
+                Err(e) => return Err(anyhow!("RPC request failed: {e}")),
+            }
         }
-        rpc.result.ok_or_else(|| anyhow!("RPC returned empty result"))
+        Err(last_err.unwrap_or_else(|| anyhow!("RPC request failed after retries")))
     }
 
     pub fn get_account(&self, pubkey: &Pubkey) -> Result<Account> {
@@ -124,12 +147,18 @@ impl RpcClient {
     ) -> Result<Signature> {
         let tx_bytes =
             bincode::serialize(transaction).context("Failed to serialize transaction")?;
+        let mut opts = serde_json::json!({
+            "encoding": "base64",
+            "skipPreflight": config.skip_preflight,
+        });
+        if let Some(commitment) = config.preflight_commitment {
+            opts["preflightCommitment"] = serde_json::Value::String(
+                commitment_str(commitment).to_string(),
+            );
+        }
         let sig_str: String = self.call(
             "sendTransaction",
-            serde_json::json!([
-                BASE64.encode(&tx_bytes),
-                {"encoding": "base64", "skipPreflight": config.skip_preflight}
-            ]),
+            serde_json::json!([BASE64.encode(&tx_bytes), opts]),
         )?;
         Signature::from_str(&sig_str).map_err(|e| anyhow!("Invalid signature: {e}"))
     }

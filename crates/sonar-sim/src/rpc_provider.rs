@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::thread;
 use std::time::Duration;
 
 use solana_account::AccountSharedData;
@@ -8,6 +9,8 @@ use crate::error::{Result, SonarSimError};
 use crate::rpc_json::{JsonRpcResponse, RpcAccountInfo, RpcResultValue};
 
 const RPC_TIMEOUT: Duration = Duration::from_secs(30);
+const MAX_RETRIES: u32 = 5;
+const DEFAULT_RETRY_DELAY: Duration = Duration::from_secs(2);
 
 /// Minimal abstraction over Solana RPC account-fetching operations.
 ///
@@ -45,39 +48,66 @@ impl RpcAccountProvider for SolanaRpcProvider {
             ]
         });
 
-        let mut response = self
-            .agent
-            .post(&self.rpc_url)
-            .send_json(&body)
-            .map_err(|e| SonarSimError::Rpc { reason: e.to_string() })?;
+        let mut last_err = None;
+        for attempt in 0..=MAX_RETRIES {
+            let mut response = match self.agent.post(&self.rpc_url).send_json(&body) {
+                Ok(resp) => resp,
+                Err(ureq::Error::StatusCode(status_code))
+                    if (status_code == 429 || status_code == 503)
+                        && attempt < MAX_RETRIES =>
+                {
+                    let delay = DEFAULT_RETRY_DELAY * (attempt + 1);
+                    log::warn!(
+                        "RPC returned {}; retrying in {:?} (attempt {}/{})",
+                        status_code,
+                        delay,
+                        attempt + 1,
+                        MAX_RETRIES,
+                    );
+                    thread::sleep(delay);
+                    last_err =
+                        Some(SonarSimError::Rpc { reason: format!("HTTP {status_code}") });
+                    continue;
+                }
+                Err(e) => return Err(SonarSimError::Rpc { reason: e.to_string() }),
+            };
 
-        let rpc: JsonRpcResponse<RpcResultValue<Vec<Option<RpcAccountInfo>>>> = response
-            .body_mut()
-            .read_json()
-            .map_err(|e| SonarSimError::Rpc { reason: format!("parse response: {e}") })?;
+            let rpc: JsonRpcResponse<RpcResultValue<Vec<Option<RpcAccountInfo>>>> = response
+                .body_mut()
+                .read_json()
+                .map_err(|e| SonarSimError::Rpc { reason: format!("parse response: {e}") })?;
 
-        if let Some(err) = rpc.error {
-            return Err(SonarSimError::Rpc {
-                reason: format!("RPC error {}: {}", err.code, err.message),
-            });
+            if let Some(err) = rpc.error {
+                return Err(SonarSimError::Rpc {
+                    reason: if let Some(data) = &err.data {
+                        format!("RPC error {}: {} (data: {})", err.code, err.message, data)
+                    } else {
+                        format!("RPC error {}: {}", err.code, err.message)
+                    },
+                });
+            }
+
+            let result = rpc
+                .result
+                .ok_or_else(|| SonarSimError::Rpc { reason: "empty result".into() })?;
+
+            return result
+                .value
+                .into_iter()
+                .map(|opt| {
+                    opt.map(|info| {
+                        info.into_account()
+                            .map(AccountSharedData::from)
+                            .map_err(|e| SonarSimError::Rpc { reason: e })
+                    })
+                    .transpose()
+                })
+                .collect();
         }
 
-        let result = rpc
-            .result
-            .ok_or_else(|| SonarSimError::Rpc { reason: "empty result".into() })?;
-
-        result
-            .value
-            .into_iter()
-            .map(|opt| {
-                opt.map(|info| {
-                    info.into_account()
-                        .map(AccountSharedData::from)
-                        .map_err(|e| SonarSimError::Rpc { reason: e })
-                })
-                .transpose()
-            })
-            .collect()
+        Err(last_err.unwrap_or_else(|| SonarSimError::Rpc {
+            reason: "RPC request failed after retries".into(),
+        }))
     }
 }
 

@@ -12,7 +12,10 @@ pub(crate) fn handle(args: SendArgs) -> Result<()> {
     let parsed = transaction::parse_raw_transaction(&args.tx)?;
     let client = RpcClient::new(&args.rpc.rpc_url);
 
-    let config = SendTransactionConfig { skip_preflight: args.skip_preflight };
+    let config = SendTransactionConfig {
+        skip_preflight: args.skip_preflight,
+        ..Default::default()
+    };
 
     let signature = client
         .send_transaction_with_config(&parsed.transaction, config)

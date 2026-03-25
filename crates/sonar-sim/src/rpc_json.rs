@@ -18,6 +18,7 @@ pub struct JsonRpcResponse<T> {
 pub struct JsonRpcError {
     pub code: i64,
     pub message: String,
+    pub data: Option<serde_json::Value>,
 }
 
 #[derive(Deserialize)]
