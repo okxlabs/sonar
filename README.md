@@ -180,6 +180,10 @@ sonar simulate <TX> --rpc-url <RPC_URL> \
 sonar simulate <TX> --rpc-url <RPC_URL> \
   --patch-account-data <PUBKEY>=<OFFSET>:<HEX_DATA>
 
+# State Preparation: close an account so it does not exist during simulation
+sonar simulate <TX> --rpc-url <RPC_URL> \
+  --close-account <PUBKEY>
+
 # Cache: store accounts for offline replay
 sonar simulate <TX> --rpc-url <RPC_URL> --cache
 # Replay from cache (no network; uses ~/.sonar/cache/ when cache is complete)

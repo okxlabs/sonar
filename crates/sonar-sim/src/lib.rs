@@ -61,7 +61,7 @@ pub use svm_backend::SvmBackend;
 pub use executor::{
     ExecutionOptions, ExecutionStatus, PreparedSimulation, SignatureVerification,
     SimulationOptions, SimulationOptionsBuilder, SimulationResult, SimulationRunner,
-    StateMutationOptions,
+    StateMutationOptions, apply_account_closures,
 };
 pub use known_programs::{is_litesvm_builtin_program, is_native_or_sysvar};
 
