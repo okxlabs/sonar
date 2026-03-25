@@ -2,7 +2,7 @@ use std::str::FromStr;
 
 use anyhow::{Context, Result, anyhow};
 use sha2::{Digest, Sha256};
-use solana_client::rpc_client::RpcClient;
+use crate::core::rpc_client::RpcClient;
 use solana_loader_v3_interface::state::UpgradeableLoaderState;
 use solana_pubkey::Pubkey;
 use solana_sdk_ids::bpf_loader_upgradeable;

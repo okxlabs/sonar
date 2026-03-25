@@ -1,8 +1,7 @@
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, anyhow};
-use solana_client::rpc_client::RpcClient;
-use solana_client::rpc_config::RpcSendTransactionConfig;
+use crate::core::rpc_client::{RpcClient, SendTransactionConfig};
 use solana_signature::Signature;
 use solana_transaction_status_client_types::{TransactionConfirmationStatus, TransactionStatus};
 
@@ -13,8 +12,10 @@ pub(crate) fn handle(args: SendArgs) -> Result<()> {
     let parsed = transaction::parse_raw_transaction(&args.tx)?;
     let client = RpcClient::new(&args.rpc.rpc_url);
 
-    let config =
-        RpcSendTransactionConfig { skip_preflight: args.skip_preflight, ..Default::default() };
+    let config = SendTransactionConfig {
+        skip_preflight: args.skip_preflight,
+        ..Default::default()
+    };
 
     let signature = client
         .send_transaction_with_config(&parsed.transaction, config)
