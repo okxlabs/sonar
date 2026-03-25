@@ -83,11 +83,7 @@ impl RpcClient {
                         .map_err(|e| anyhow!("Failed to parse RPC response: {e}"))?;
 
                     if let Some(err) = rpc.error {
-                        return if let Some(data) = &err.data {
-                            Err(anyhow!("RPC error {}: {} (data: {})", err.code, err.message, data))
-                        } else {
-                            Err(anyhow!("RPC error {}: {}", err.code, err.message))
-                        };
+                        return Err(anyhow!("{err}"));
                     }
                     return rpc.result.ok_or_else(|| anyhow!("RPC returned empty result"));
                 }
@@ -153,7 +149,7 @@ impl RpcClient {
         });
         if let Some(commitment) = config.preflight_commitment {
             opts["preflightCommitment"] = serde_json::Value::String(
-                commitment_str(commitment).to_string(),
+                commitment_str(commitment).into(),
             );
         }
         let sig_str: String = self.call(

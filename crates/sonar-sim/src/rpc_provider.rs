@@ -78,13 +78,7 @@ impl RpcAccountProvider for SolanaRpcProvider {
                 .map_err(|e| SonarSimError::Rpc { reason: format!("parse response: {e}") })?;
 
             if let Some(err) = rpc.error {
-                return Err(SonarSimError::Rpc {
-                    reason: if let Some(data) = &err.data {
-                        format!("RPC error {}: {} (data: {})", err.code, err.message, data)
-                    } else {
-                        format!("RPC error {}: {}", err.code, err.message)
-                    },
-                });
+                return Err(SonarSimError::Rpc { reason: err.to_string() });
             }
 
             let result = rpc

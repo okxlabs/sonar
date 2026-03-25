@@ -4,6 +4,8 @@ use std::str::FromStr;
 
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
+use std::fmt;
+
 use serde::Deserialize;
 use solana_account::Account;
 use solana_pubkey::Pubkey;
@@ -19,6 +21,16 @@ pub struct JsonRpcError {
     pub code: i64,
     pub message: String,
     pub data: Option<serde_json::Value>,
+}
+
+impl fmt::Display for JsonRpcError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "RPC error {}: {}", self.code, self.message)?;
+        if let Some(data) = &self.data {
+            write!(f, " (data: {data})")?;
+        }
+        Ok(())
+    }
 }
 
 #[derive(Deserialize)]
