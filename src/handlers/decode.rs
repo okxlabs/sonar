@@ -7,7 +7,7 @@ use crate::output;
 use crate::parsers::instruction::ParserRegistry;
 use crate::utils::progress::Progress;
 
-use super::{cache_read_dir, prepare_accounts_and_idls, resolve_inputs_to_txs};
+use super::common::{cache_read_dir, prepare_accounts_and_idls, resolve_inputs_to_txs};
 
 pub(crate) fn handle(args: DecodeArgs) -> Result<()> {
     let idl_dir = args.idl_dir.clone();
@@ -28,7 +28,7 @@ pub(crate) fn handle(args: DecodeArgs) -> Result<()> {
     let resolver_cache_location = if refresh_cache {
         None
     } else {
-        Some(super::build_cache_location(&cache_dir))
+        Some(super::common::build_cache_location(&cache_dir))
     };
     let TransactionInputArgs { tx, json } = transaction;
 

@@ -90,7 +90,12 @@ fn run() -> Result<()> {
             handlers::decode::handle(args)?
         }
         Commands::Idl(args) => handlers::idl::handle(args)?,
-        Commands::Account(args) => handlers::account::handle(args)?,
+        Commands::Account(args) => {
+            if args.account.is_none() && std::io::stdin().is_terminal() {
+                print_subcommand_help("account")?;
+            }
+            handlers::account::handle(args)?
+        }
         Commands::Cache(args) => handlers::cache::handle(args)?,
         Commands::Convert(args) => handlers::convert::handle(args)?,
         Commands::Borsh(args) => handlers::borsh::handle(args)?,
