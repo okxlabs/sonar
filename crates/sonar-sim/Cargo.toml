@@ -13,7 +13,7 @@ log = "0.4"
 serde = { version = "1.0", features = ["derive"] }
 
 # Simulation engine
-litesvm = "0.8.1"
+litesvm = "0.10.0"
 
 # Solana SDK
 solana-account = "3.0"
