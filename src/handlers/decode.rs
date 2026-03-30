@@ -25,11 +25,8 @@ pub(crate) fn handle(args: DecodeArgs) -> Result<()> {
         refresh_cache,
     } = args;
     let rpc_url = rpc.rpc_url;
-    let resolver_cache_location = if refresh_cache {
-        None
-    } else {
-        Some(super::build_cache_location(&cache_dir))
-    };
+    let resolver_cache_location =
+        if refresh_cache { None } else { Some(super::build_cache_location(&cache_dir)) };
     let TransactionInputArgs { tx, json } = transaction;
 
     // Check if this is a bundle (multiple positional TX arguments)

@@ -81,7 +81,7 @@ fn run() -> Result<()> {
             if args.transaction.tx.is_empty() && std::io::stdin().is_terminal() {
                 print_subcommand_help("simulate")?;
             }
-            handlers::simulate::handle(args)?
+            handlers::simulate::handle(*args)?
         }
         Commands::Decode(args) => {
             if args.transaction.tx.is_empty() && std::io::stdin().is_terminal() {

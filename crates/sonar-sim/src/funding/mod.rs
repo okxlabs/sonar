@@ -185,14 +185,12 @@ fn apply_single_token_funding<B: SvmBackend + ?Sized>(
             .get(&funding.mint)
             .ok_or(SonarSimError::AccountNotFound { pubkey: funding.mint })?;
         let created = match kind {
-            TokenProgramKind::Legacy => {
-                token_legacy::build_token_account(
-                    &funding.account,
-                    &funding.mint,
-                    &funding.owner,
-                    &rent,
-                )?
-            }
+            TokenProgramKind::Legacy => token_legacy::build_token_account(
+                &funding.account,
+                &funding.mint,
+                &funding.owner,
+                &rent,
+            )?,
             TokenProgramKind::Token2022 => token2022::build_token_account_with_extensions(
                 &funding.account,
                 &funding.mint,
@@ -410,7 +408,8 @@ mod tests {
             owner: Some(owner),
             amount: TokenAmount::Raw(100),
         };
-        let prepared = prepare_token_fundings(&mut loader, &resolved, &[funding]).expect("prepares");
+        let prepared =
+            prepare_token_fundings(&mut loader, &resolved, &[funding]).expect("prepares");
         assert_eq!(prepared[0].owner, owner);
     }
 
@@ -427,13 +426,10 @@ mod tests {
         resolved.accounts.insert(token, AccountSharedData::from(token_account));
         resolved.accounts.insert(mint, AccountSharedData::from(mint_account));
 
-        let funding = TokenFunding {
-            account: token,
-            mint: None,
-            owner: None,
-            amount: TokenAmount::Raw(100),
-        };
-        let prepared = prepare_token_fundings(&mut loader, &resolved, &[funding]).expect("prepares");
+        let funding =
+            TokenFunding { account: token, mint: None, owner: None, amount: TokenAmount::Raw(100) };
+        let prepared =
+            prepare_token_fundings(&mut loader, &resolved, &[funding]).expect("prepares");
         assert_eq!(prepared[0].owner, owner);
     }
 
@@ -477,7 +473,8 @@ mod tests {
             owner: Some(owner),
             amount: TokenAmount::Raw(100),
         };
-        let prepared = prepare_token_fundings(&mut loader, &resolved, &[funding]).expect("prepares");
+        let prepared =
+            prepare_token_fundings(&mut loader, &resolved, &[funding]).expect("prepares");
         assert_eq!(prepared[0].owner, owner);
         assert_eq!(prepared[0].mint, mint);
     }

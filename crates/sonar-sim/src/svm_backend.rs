@@ -6,6 +6,7 @@ use solana_account::Account;
 use solana_pubkey::Pubkey;
 use solana_transaction::versioned::VersionedTransaction;
 
+#[allow(clippy::result_large_err)] // TransactionResult uses upstream litesvm types
 /// Minimal simulation backend abstraction.
 ///
 /// This decouples executor/funding logic from a concrete SVM implementation.

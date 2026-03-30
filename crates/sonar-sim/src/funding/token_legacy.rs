@@ -93,7 +93,8 @@ mod tests {
         let mut account =
             Account::from(build_token_account(&token, &mint, &owner, &Rent::default()).unwrap());
         let result =
-            update_token_balance_in_account(&mut account, &token, &mint, &owner, 42_000_000, 6).unwrap();
+            update_token_balance_in_account(&mut account, &token, &mint, &owner, 42_000_000, 6)
+                .unwrap();
         assert_eq!(result.amount_raw, 42_000_000);
         assert_eq!(result.decimals, 6);
         assert!((result.ui_amount - 42.0).abs() < f64::EPSILON);
@@ -114,7 +115,8 @@ mod tests {
             executable: false,
             rent_epoch: 0,
         };
-        let err = update_token_balance_in_account(&mut account, &token, &mint, &owner, 100, 6).unwrap_err();
+        let err = update_token_balance_in_account(&mut account, &token, &mint, &owner, 100, 6)
+            .unwrap_err();
         assert!(err.to_string().contains("not owned by"));
     }
 

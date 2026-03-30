@@ -17,13 +17,8 @@ use super::{
 };
 
 /// Parse a vector of raw CLI strings using the given parser function.
-fn parse_cli_args<T>(
-    args: Vec<String>,
-    parser: fn(&str) -> Result<T, String>,
-) -> Result<Vec<T>> {
-    args.iter()
-        .map(|raw| parser(raw).map_err(anyhow::Error::msg))
-        .collect()
+fn parse_cli_args<T>(args: Vec<String>, parser: fn(&str) -> Result<T, String>) -> Result<Vec<T>> {
+    args.iter().map(|raw| parser(raw).map_err(anyhow::Error::msg)).collect()
 }
 
 /// Apply instruction-level mutations (account patches, data patches) and rebuild

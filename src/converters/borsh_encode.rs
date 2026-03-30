@@ -463,14 +463,11 @@ fn cmp_values(ty: &BorshType, a: &Value, b: &Value) -> std::cmp::Ordering {
             match (a.as_object(), b.as_object()) {
                 (Some(a_obj), Some(b_obj)) => {
                     for (name, ty) in fields {
-                        match (a_obj.get(name), b_obj.get(name)) {
-                            (Some(av), Some(bv)) => {
-                                let ord = cmp_values(ty, av, bv);
-                                if ord != Ordering::Equal {
-                                    return ord;
-                                }
+                        if let (Some(av), Some(bv)) = (a_obj.get(name), b_obj.get(name)) {
+                            let ord = cmp_values(ty, av, bv);
+                            if ord != Ordering::Equal {
+                                return ord;
                             }
-                            _ => {}
                         }
                     }
                     Ordering::Equal

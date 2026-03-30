@@ -1115,7 +1115,7 @@ fn parse_reallocate_instruction(
     data: &[u8],
     instruction: &InstructionSummary,
 ) -> Result<Option<ParsedInstruction>> {
-    if !data.len().is_multiple_of(2) {
+    if data.len() % 2 != 0 {
         return Ok(None);
     }
 
