@@ -56,7 +56,7 @@ pub struct Cli {
 pub enum Commands {
     /// Simulate a Solana transaction locally using LiteSVM
     #[command(alias = "sim", next_line_help = true)]
-    Simulate(SimulateArgs),
+    Simulate(Box<SimulateArgs>),
     /// Decode and display a raw transaction without simulation
     #[command(alias = "dec", next_line_help = true)]
     Decode(DecodeArgs),

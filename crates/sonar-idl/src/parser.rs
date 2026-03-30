@@ -1303,10 +1303,7 @@ mod tests {
         let mut offset = 0;
         let registry = IdlRegistry::new();
         let idl = hello_anchor_idl();
-        let array_def = [
-            serde_json::json!("u8"),
-            serde_json::json!(3),
-        ];
+        let array_def = [serde_json::json!("u8"), serde_json::json!(3)];
         let val = parse_array_type(&data, &mut offset, &array_def, &registry, &idl).unwrap();
         assert_eq!(
             val,

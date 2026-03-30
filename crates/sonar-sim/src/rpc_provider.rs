@@ -28,10 +28,8 @@ pub struct SolanaRpcProvider {
 
 impl SolanaRpcProvider {
     pub fn new(rpc_url: String) -> Self {
-        let agent = ureq::Agent::config_builder()
-            .timeout_global(Some(RPC_TIMEOUT))
-            .build()
-            .new_agent();
+        let agent =
+            ureq::Agent::config_builder().timeout_global(Some(RPC_TIMEOUT)).build().new_agent();
         Self { agent: Arc::new(agent), rpc_url }
     }
 }
@@ -53,8 +51,7 @@ impl RpcAccountProvider for SolanaRpcProvider {
             let mut response = match self.agent.post(&self.rpc_url).send_json(&body) {
                 Ok(resp) => resp,
                 Err(ureq::Error::StatusCode(status_code))
-                    if (status_code == 429 || status_code == 503)
-                        && attempt < MAX_RETRIES =>
+                    if (status_code == 429 || status_code == 503) && attempt < MAX_RETRIES =>
                 {
                     let delay = DEFAULT_RETRY_DELAY * (attempt + 1);
                     log::warn!(
@@ -65,8 +62,7 @@ impl RpcAccountProvider for SolanaRpcProvider {
                         MAX_RETRIES,
                     );
                     thread::sleep(delay);
-                    last_err =
-                        Some(SonarSimError::Rpc { reason: format!("HTTP {status_code}") });
+                    last_err = Some(SonarSimError::Rpc { reason: format!("HTTP {status_code}") });
                     continue;
                 }
                 Err(e) => return Err(SonarSimError::Rpc { reason: e.to_string() }),
@@ -81,9 +77,8 @@ impl RpcAccountProvider for SolanaRpcProvider {
                 return Err(SonarSimError::Rpc { reason: err.to_string() });
             }
 
-            let result = rpc
-                .result
-                .ok_or_else(|| SonarSimError::Rpc { reason: "empty result".into() })?;
+            let result =
+                rpc.result.ok_or_else(|| SonarSimError::Rpc { reason: "empty result".into() })?;
 
             return result
                 .value
