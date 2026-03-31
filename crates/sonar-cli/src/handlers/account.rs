@@ -187,7 +187,7 @@ fn decode_account_output(
     if let Some(result) = decode_address_lookup_table(account) {
         return Ok(result);
     }
-    if let Some(result) = decode_spl_token(client, account_pubkey, account) {
+    if let Some(result) = decode_spl_token(client, account_pubkey, account, args.history_slot) {
         return Ok(result);
     }
 
@@ -401,12 +401,13 @@ fn decode_spl_token(
     client: &RpcClient,
     account_pubkey: &Pubkey,
     account: &solana_account::Account,
+    history_slot: Option<u64>,
 ) -> Option<(Value, String, Option<Value>)> {
     let token_json = token_account_decoder::decode_spl_token_account(account)?;
     let account_type = detect_token_type(account, &token_json);
 
     let metadata_output = if should_enrich_with_metaplex_metadata(account, &token_json) {
-        match fetch_metadata_for_mint(client, account_pubkey) {
+        match fetch_metadata_for_mint(client, account_pubkey, history_slot) {
             Ok((meta_account, decoded)) => Some(wrap_account_data_output(&meta_account, decoded)),
             Err(error) => {
                 log::warn!(
@@ -543,17 +544,26 @@ fn should_enrich_with_metaplex_metadata(
 fn fetch_metadata_for_mint(
     client: &RpcClient,
     mint_pubkey: &Pubkey,
+    history_slot: Option<u64>,
 ) -> Result<(solana_account::Account, Value)> {
     let metadata_pda = metaplex_metadata_decoder::derive_metadata_pda(mint_pubkey);
-    let response = client
-        .get_account_with_commitment(&metadata_pda, CommitmentConfig::processed())
-        .with_context(|| {
+    let metadata_account = if history_slot.is_some() {
+        client.get_account_maybe_historical(&metadata_pda, history_slot).with_context(|| {
             format!("Failed to fetch metadata PDA {} for mint {}", metadata_pda, mint_pubkey)
-        })?;
-
-    let metadata_account = response.value.with_context(|| {
-        format!("Metadata PDA account not found for mint {} (PDA: {})", mint_pubkey, metadata_pda)
-    })?;
+        })?
+    } else {
+        let response = client
+            .get_account_with_commitment(&metadata_pda, CommitmentConfig::processed())
+            .with_context(|| {
+                format!("Failed to fetch metadata PDA {} for mint {}", metadata_pda, mint_pubkey)
+            })?;
+        response.value.with_context(|| {
+            format!(
+                "Metadata PDA account not found for mint {} (PDA: {})",
+                mint_pubkey, metadata_pda
+            )
+        })?
+    };
 
     if metadata_account.owner != metaplex_metadata_decoder::metadata_program_id() {
         anyhow::bail!(

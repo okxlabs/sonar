@@ -49,25 +49,35 @@ pub(crate) fn resolve_cache_dir(cache_dir: &Option<PathBuf>) -> PathBuf {
     PathBuf::from(home).join(".sonar").join("cache")
 }
 
-pub(crate) fn derive_cache_key_single(input: &str, tx: &VersionedTransaction) -> String {
-    if transaction::is_transaction_signature(input) {
-        return input.trim().to_string();
+pub(crate) fn derive_cache_key_single(
+    input: &str,
+    tx: &VersionedTransaction,
+    history_slot: Option<u64>,
+) -> String {
+    let base = if transaction::is_transaction_signature(input) {
+        input.trim().to_string()
+    } else {
+        // Raw tx input: always hash message bytes.
+        // Signatures may be dummy/placeholder values from wallets, so they are
+        // not reliable as cache keys.
+        let msg_bytes = tx.message.serialize();
+        let hash = Sha256::digest(&msg_bytes);
+        hex::encode(&hash[..16])
+    };
+    match history_slot {
+        Some(slot) => format!("{base}@{slot}"),
+        None => base,
     }
-    // Raw tx input: always hash message bytes.
-    // Signatures may be dummy/placeholder values from wallets, so they are
-    // not reliable as cache keys.
-    let msg_bytes = tx.message.serialize();
-    let hash = Sha256::digest(&msg_bytes);
-    hex::encode(&hash[..16])
 }
 
 pub(crate) fn derive_cache_key_bundle(
     inputs: &[String],
     txs: &[transaction::ParsedTransaction],
+    history_slot: Option<u64>,
 ) -> String {
     let mut hasher = Sha256::new();
     for (input, tx) in inputs.iter().zip(txs.iter()) {
-        let single_key = derive_cache_key_single(input, &tx.transaction);
+        let single_key = derive_cache_key_single(input, &tx.transaction, history_slot);
         hasher.update(single_key.as_bytes());
         hasher.update(b":");
     }
@@ -200,7 +210,7 @@ mod tests {
     fn derive_cache_key_for_e2e_offline_tx() {
         let raw = "GPdrKqMbYtzsysuEJhYG4bpUB9xQFpdQ8ps9s8XorbfD5SA5FrFfMAL2oznLNP9Ah4wXPe6Y9BVkAXM7Gw47whMxuK5TCKvpKtkyDEiuYfaRZCmv1mk5u16HvPzQqXGHzmf3iFUraHA2yEghbqaJsUW27PmXWvs2xPhK1WtFBvF4PNxtFBNa7sGwHZPmT88zk5pwpVnseAu48HhDvY6Nj7qjTzRAAFczubznScT4aT1m5CNyYjVwYjR5iqc7PrpTzyAxevb1Zk1ndXgHfwnQAhZfKfV712i5z352Jbf96WdQFGva3f22NGSVWtSFjp6agEBDTvWVUa3Db4WvArURczERDymqEEhX5EfMSZTUYenfgRXL2kgjWoXkuFaDyumgapdyqzQFixL4aJZCEDp6yfq7V5g2WYqwqNXHBsKbfpTfqKsqCV1niunXSZfGTTRgXjFWXuQNbtLrbd9TTJmUhsTMJuPzhohT89yX292vmUDGvHv3YqkJGynKcEGT6cPrB6ayWiBGybsJ2fUiax7QFPKT1hscSm5HDJPV3HmrC3DyHQAWq6hrPzGMeUcEBfSEtkvPFtNe9kpw4N9x2bJwuiGRgHbVmzDnRGMdXpu9KWigYb3uebLTFLUDeDq1CfD377AzdxBkBJQkdQ3peTjAz1kW3pEQQLiE57p16Wf8oUgxCveHpGr73RCoveDsjeF7puENGkM2aFkmKLBRvW3yJHL9mCP6ZkuScMy9VCWkh554yEs72DEZU25Upj7RAAhc7zG7iWyP6m2gZg6gGZ5hqjrCasQXUjJkaPT4LgBeLS9W5scn7QA51QMZi95DgAvD9mQeSFixnFofpqNDTNWVnisoQQ2eAEPVwKC1sfKjBdMgrMJKG1JjzDM7DWRzR7xPYSyjPfHXHx5aZJ8LdyYjYXjS6dViihtH3sNebZzqLdDzERDEe6bAFAkB5tGcRdqF1kcdPN3HNeRgeA7xvJg5r3kaDkAQQ9yjZV2stexZ1eDa4KiRwBY3MsgujEntBT992CrU4uAtHKkSXUbusXHMjbx9Dn57HD9GEdzAnDq53Gmmz7xU2qKZ3hKhLZg3ZtYVTeAysqUSfZTRPp87VjdyrG2Msk32ufPdQbAZ2x9FYbUCPpRvLMPsNhDe5D4fMt9X63bQTsk9VQNx39j5Mo6NkYvcKmKiz3pb5J19bHnnSKixEKa89typqcbNFunudMMmAAT3egyok3WRCqwC83EwNBWwrdm5zs1mRefEDu77arj7E";
         let parsed = crate::core::transaction::parse_raw_transaction(raw).unwrap();
-        let key = derive_cache_key_single(raw, &parsed.transaction);
+        let key = derive_cache_key_single(raw, &parsed.transaction, None);
         assert_eq!(key, "9afd5d16ef71a846c79292a284ab625a");
     }
 
@@ -209,7 +219,7 @@ mod tests {
         let sig = "5VERv8NMvzbJMEkV8xnrLkEaWRtSz9CosKDYjCJjBRnbJLgp8uirBgmQpjKhoR4tjF3ZpRzrFmBV6UjKdiSZkQN";
         let raw = "GPdrKqMbYtzsysuEJhYG4bpUB9xQFpdQ8ps9s8XorbfD5SA5FrFfMAL2oznLNP9Ah4wXPe6Y9BVkAXM7Gw47whMxuK5TCKvpKtkyDEiuYfaRZCmv1mk5u16HvPzQqXGHzmf3iFUraHA2yEghbqaJsUW27PmXWvs2xPhK1WtFBvF4PNxtFBNa7sGwHZPmT88zk5pwpVnseAu48HhDvY6Nj7qjTzRAAFczubznScT4aT1m5CNyYjVwYjR5iqc7PrpTzyAxevb1Zk1ndXgHfwnQAhZfKfV712i5z352Jbf96WdQFGva3f22NGSVWtSFjp6agEBDTvWVUa3Db4WvArURczERDymqEEhX5EfMSZTUYenfgRXL2kgjWoXkuFaDyumgapdyqzQFixL4aJZCEDp6yfq7V5g2WYqwqNXHBsKbfpTfqKsqCV1niunXSZfGTTRgXjFWXuQNbtLrbd9TTJmUhsTMJuPzhohT89yX292vmUDGvHv3YqkJGynKcEGT6cPrB6ayWiBGybsJ2fUiax7QFPKT1hscSm5HDJPV3HmrC3DyHQAWq6hrPzGMeUcEBfSEtkvPFtNe9kpw4N9x2bJwuiGRgHbVmzDnRGMdXpu9KWigYb3uebLTFLUDeDq1CfD377AzdxBkBJQkdQ3peTjAz1kW3pEQQLiE57p16Wf8oUgxCveHpGr73RCoveDsjeF7puENGkM2aFkmKLBRvW3yJHL9mCP6ZkuScMy9VCWkh554yEs72DEZU25Upj7RAAhc7zG7iWyP6m2gZg6gGZ5hqjrCasQXUjJkaPT4LgBeLS9W5scn7QA51QMZi95DgAvD9mQeSFixnFofpqNDTNWVnisoQQ2eAEPVwKC1sfKjBdMgrMJKG1JjzDM7DWRzR7xPYSyjPfHXHx5aZJ8LdyYjYXjS6dViihtH3sNebZzqLdDzERDEe6bAFAkB5tGcRdqF1kcdPN3HNeRgeA7xvJg5r3kaDkAQQ9yjZV2stexZ1eDa4KiRwBY3MsgujEntBT992CrU4uAtHKkSXUbusXHMjbx9Dn57HD9GEdzAnDq53Gmmz7xU2qKZ3hKhLZg3ZtYVTeAysqUSfZTRPp87VjdyrG2Msk32ufPdQbAZ2x9FYbUCPpRvLMPsNhDe5D4fMt9X63bQTsk9VQNx39j5Mo6NkYvcKmKiz3pb5J19bHnnSKixEKa89typqcbNFunudMMmAAT3egyok3WRCqwC83EwNBWwrdm5zs1mRefEDu77arj7E";
         let parsed = crate::core::transaction::parse_raw_transaction(raw).unwrap();
-        let key = derive_cache_key_single(sig, &parsed.transaction);
+        let key = derive_cache_key_single(sig, &parsed.transaction, None);
         assert_eq!(key, sig, "Valid signature input should be returned as-is");
     }
 
