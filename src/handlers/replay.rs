@@ -187,6 +187,7 @@ fn load_accounts_and_idls(
         false,
         Some(progress.clone()),
         rpc_batch_size,
+        None,
     ) {
         Ok(loader) => {
             super::common::run_idl_pipeline(

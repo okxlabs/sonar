@@ -7,6 +7,26 @@ use crate::error::{Result, SonarSimError};
 use crate::rpc_json::{RpcAccountInfo, RpcResultValue};
 use crate::rpc_transport::RpcTransport;
 
+const HISTORICAL_RPC_METHOD: &str = "getMultipleAccountsDataBySlot";
+
+/// Parse a batch account RPC result into a vector of optional `AccountSharedData`.
+fn parse_account_result(
+    result: RpcResultValue<Vec<Option<RpcAccountInfo>>>,
+) -> Result<Vec<Option<AccountSharedData>>> {
+    result
+        .value
+        .into_iter()
+        .map(|opt| {
+            opt.map(|info| {
+                info.into_account()
+                    .map(AccountSharedData::from)
+                    .map_err(|e| SonarSimError::Rpc { reason: e })
+            })
+            .transpose()
+        })
+        .collect()
+}
+
 /// Minimal abstraction over Solana RPC account-fetching operations.
 ///
 /// Production code uses [`SolanaRpcProvider`]; tests inject a
@@ -33,18 +53,32 @@ impl RpcAccountProvider for SolanaRpcProvider {
             .transport
             .call("getMultipleAccounts", serde_json::json!([keys, {"encoding": "base64"}]))?;
 
-        result
-            .value
-            .into_iter()
-            .map(|opt| {
-                opt.map(|info| {
-                    info.into_account()
-                        .map(AccountSharedData::from)
-                        .map_err(|e| SonarSimError::Rpc { reason: e })
-                })
-                .transpose()
-            })
-            .collect()
+        parse_account_result(result)
+    }
+}
+
+/// Production implementation that fetches historical account state at a
+/// specific slot via the non-standard `getMultipleAccountsDataBySlot` RPC method.
+pub struct HistoricalRpcProvider {
+    transport: Arc<RpcTransport>,
+    slot: u64,
+}
+
+impl HistoricalRpcProvider {
+    pub fn new(rpc_url: String, slot: u64) -> Self {
+        Self { transport: Arc::new(RpcTransport::new(rpc_url)), slot }
+    }
+}
+
+impl RpcAccountProvider for HistoricalRpcProvider {
+    fn get_multiple_accounts(&self, pubkeys: &[Pubkey]) -> Result<Vec<Option<AccountSharedData>>> {
+        let keys: Vec<String> = pubkeys.iter().map(|p| p.to_string()).collect();
+        let result: RpcResultValue<Vec<Option<RpcAccountInfo>>> = self.transport.call(
+            HISTORICAL_RPC_METHOD,
+            serde_json::json!([keys, self.slot, {"encoding": "base64"}]),
+        )?;
+
+        parse_account_result(result)
     }
 }
 

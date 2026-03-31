@@ -21,6 +21,7 @@ pub(crate) fn handle(args: DecodeArgs, json: bool) -> Result<()> {
         no_cache,
         cache_dir,
         refresh_cache,
+        history_slot,
     } = args;
     let rpc_batch_size = rpc.rpc_batch_size;
     let rpc_url = rpc.rpc_url;
@@ -47,6 +48,7 @@ pub(crate) fn handle(args: DecodeArgs, json: bool) -> Result<()> {
         &parsed_txs,
         &mut parser_registry,
         &progress,
+        history_slot,
     )?;
 
     progress.finish();
