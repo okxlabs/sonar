@@ -3,37 +3,69 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 use anyhow::{Context, Result};
+use serde::Serialize;
 use solana_pubkey::Pubkey;
 
 use crate::cli::{IdlAddressArgs, IdlArgs, IdlFetchArgs, IdlSubcommands, IdlSyncArgs};
 use crate::core::idl_fetcher;
 use crate::utils::progress::Progress;
 
-pub(crate) fn handle(args: IdlArgs) -> Result<()> {
+#[derive(Serialize)]
+#[serde(rename_all = "snake_case")]
+enum IdlFetchStatus {
+    Ok,
+    NotFound,
+    Error,
+}
+
+#[derive(Serialize)]
+struct IdlFetchResult {
+    program: String,
+    path: Option<String>,
+    status: IdlFetchStatus,
+}
+
+#[derive(Serialize)]
+struct IdlAddressOutput {
+    program: String,
+    idl_address: String,
+}
+
+pub(crate) fn handle(args: IdlArgs, json: bool) -> Result<()> {
     match args.command {
-        IdlSubcommands::Fetch(args) => handle_fetch(args),
-        IdlSubcommands::Sync(args) => handle_sync(args),
-        IdlSubcommands::Address(args) => handle_address(args),
+        IdlSubcommands::Fetch(args) => handle_fetch(args, json),
+        IdlSubcommands::Sync(args) => handle_sync(args, json),
+        IdlSubcommands::Address(args) => handle_address(args, json),
     }
 }
 
-fn handle_fetch(args: IdlFetchArgs) -> Result<()> {
+fn handle_fetch(args: IdlFetchArgs, json: bool) -> Result<()> {
     let program_ids = parse_program_ids(&args.programs)?;
     let output_dir = resolve_output_dir(args.output_dir, None);
-    fetch_and_write_idls(program_ids, args.rpc.rpc_url, output_dir, args.allow_partial)
+    fetch_and_write_idls(program_ids, args.rpc.rpc_url, output_dir, args.allow_partial, json)
 }
 
-fn handle_sync(args: IdlSyncArgs) -> Result<()> {
+fn handle_sync(args: IdlSyncArgs, json: bool) -> Result<()> {
     let (program_ids, default_output_dir) = collect_program_ids_from_sync_path(&args.path)?;
     let output_dir = resolve_output_dir(args.output_dir, default_output_dir.as_deref());
-    fetch_and_write_idls(program_ids, args.rpc.rpc_url, output_dir, args.allow_partial)
+    fetch_and_write_idls(program_ids, args.rpc.rpc_url, output_dir, args.allow_partial, json)
 }
 
-fn handle_address(args: IdlAddressArgs) -> Result<()> {
+fn handle_address(args: IdlAddressArgs, json: bool) -> Result<()> {
     let program_id = Pubkey::from_str(args.program.trim())
         .with_context(|| format!("Invalid program ID: {}", args.program.trim()))?;
     let idl_address = idl_fetcher::get_idl_address(&program_id)?;
-    println!("{idl_address}");
+
+    if json {
+        let output = IdlAddressOutput {
+            program: program_id.to_string(),
+            idl_address: idl_address.to_string(),
+        };
+        crate::output::print_json(&output)?;
+    } else {
+        println!("{idl_address}");
+    }
+
     Ok(())
 }
 
@@ -55,6 +87,7 @@ fn fetch_and_write_idls(
     rpc_url: String,
     output_dir: PathBuf,
     allow_partial: bool,
+    json: bool,
 ) -> Result<()> {
     fs::create_dir_all(&output_dir)
         .with_context(|| format!("Failed to create output directory: {}", output_dir.display()))?;
@@ -67,6 +100,7 @@ fn fetch_and_write_idls(
     let mut fetched = 0usize;
     let mut not_found = Vec::new();
     let mut errors = Vec::new();
+    let mut json_results: Vec<IdlFetchResult> = Vec::new();
 
     for (program_id, result) in &results {
         match result {
@@ -80,19 +114,47 @@ fn fetch_and_write_idls(
                 let path = output_dir.join(format!("{}.json", program_id));
                 fs::write(&path, &formatted)
                     .with_context(|| format!("Failed to write IDL file: {}", path.display()))?;
-                println!("{}", path.display());
+                if json {
+                    json_results.push(IdlFetchResult {
+                        program: program_id.to_string(),
+                        path: Some(path.display().to_string()),
+                        status: IdlFetchStatus::Ok,
+                    });
+                } else {
+                    println!("{}", path.display());
+                }
                 fetched += 1;
             }
-            Ok(None) => not_found.push(program_id),
-            Err(e) => errors.push((program_id, e)),
+            Ok(None) => {
+                if json {
+                    json_results.push(IdlFetchResult {
+                        program: program_id.to_string(),
+                        path: None,
+                        status: IdlFetchStatus::NotFound,
+                    });
+                }
+                not_found.push(program_id);
+            }
+            Err(e) => {
+                if json {
+                    json_results.push(IdlFetchResult {
+                        program: program_id.to_string(),
+                        path: None,
+                        status: IdlFetchStatus::Error,
+                    });
+                }
+                log::error!("IDL fetch error for {}: {:#}", program_id, e);
+                errors.push(program_id);
+            }
         }
+    }
+
+    if json {
+        crate::output::print_json(&json_results)?;
     }
 
     for id in &not_found {
         log::warn!("no IDL found: {}", id);
-    }
-    for (id, e) in &errors {
-        log::error!("IDL fetch error for {}: {:#}", id, e);
     }
 
     let has_failures = !not_found.is_empty() || !errors.is_empty();

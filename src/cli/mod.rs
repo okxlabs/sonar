@@ -48,6 +48,10 @@ pub struct RpcArgs {
     next_line_help = true
 )]
 pub struct Cli {
+    /// Output as JSON instead of human-readable text
+    #[arg(short = 'j', long, global = true)]
+    pub json: bool,
+
     #[command(subcommand)]
     pub command: Option<Commands>,
 }

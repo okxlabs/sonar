@@ -184,9 +184,6 @@ pub struct TransactionInputArgs {
     /// Pass multiple values for bundle mode.
     #[arg(value_name = "TX", required = false)]
     pub tx: Vec<String>,
-    /// Output as JSON instead of human-readable text
-    #[arg(short = 'j', long, default_value_t = false)]
-    pub json: bool,
 }
 
 pub use sonar_sim::{

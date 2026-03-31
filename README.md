@@ -61,13 +61,19 @@ cargo build --release
 | `cache` | You want to list, clean, or inspect cached account data |
 | `completions` | You want to generate shell completion scripts |
 
+### Global Options
+
+| Flag | Description |
+|------|-------------|
+| `--json` / `-j` | Output machine-readable JSON instead of human-readable text. Available on all data-producing subcommands. Silently ignored by `completions` and `program-elf`. |
+
 ### Output Stream Convention
 
-- **stdout**: Machine-consumable primary results (stable fields, success output, confirmation messages).
-  - `send`: signature, cluster-aware explorer URL (inferred from `--rpc-url`), and `--wait` confirmation (when used).
+- **stdout**: Machine-consumable primary results (stable fields, success output).
+  - `send`: signature only. Explorer URL and `--wait` confirmation go to stderr.
   - `program-elf -o <file>`: success message (bytes written, path).
-  - Other commands: main structured output.
-- **stderr**: Warnings, diagnostics, and errors only.
+  - Other commands: main structured output (JSON when `--json` is active).
+- **stderr**: Warnings, diagnostics, explorer URLs, and errors.
 
 ### Simulate
 

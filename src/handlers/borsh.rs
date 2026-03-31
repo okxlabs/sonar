@@ -5,10 +5,10 @@ use crate::converters::borsh_decode::decode_borsh;
 use crate::converters::borsh_encode::encode_borsh;
 use crate::converters::borsh_type::parse_borsh_type;
 
-pub(crate) fn handle(args: BorshArgs) -> Result<()> {
+pub(crate) fn handle(args: BorshArgs, json: bool) -> Result<()> {
     match args.command {
         BorshCommands::De(args) => handle_de(args),
-        BorshCommands::Ser(args) => handle_ser(args),
+        BorshCommands::Ser(args) => handle_ser(args, json),
     }
 }
 
@@ -45,7 +45,12 @@ fn handle_de(args: BorshDeArgs) -> Result<()> {
     Ok(())
 }
 
-fn handle_ser(args: BorshSerArgs) -> Result<()> {
+#[derive(serde::Serialize)]
+struct BorshSerOutput {
+    hex: String,
+}
+
+fn handle_ser(args: BorshSerArgs, json: bool) -> Result<()> {
     let ty = parse_borsh_type(&args.type_str)
         .map_err(|e| anyhow::anyhow!("invalid type descriptor: {e}"))?;
 
@@ -65,7 +70,13 @@ fn handle_ser(args: BorshSerArgs) -> Result<()> {
         None => String::new(),
     };
 
-    println!("0x{}{}", prefix_hex, hex::encode(&bytes));
+    let hex_str = format!("0x{}{}", prefix_hex, hex::encode(&bytes));
+
+    if json {
+        crate::output::print_json(&BorshSerOutput { hex: hex_str })?;
+    } else {
+        println!("{hex_str}");
+    }
     Ok(())
 }
 

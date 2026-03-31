@@ -68,6 +68,7 @@ fn run() -> Result<()> {
         colored::control::set_override(false);
     }
 
+    let json = cli.json;
     let command = match cli.command {
         Some(cmd) => cmd,
         None => {
@@ -81,23 +82,23 @@ fn run() -> Result<()> {
             if args.transaction.tx.is_empty() && std::io::stdin().is_terminal() {
                 print_subcommand_help("simulate")?;
             }
-            handlers::simulate::handle(*args)?
+            handlers::simulate::handle(*args, json)?
         }
         Commands::Decode(args) => {
             if args.transaction.tx.is_empty() && std::io::stdin().is_terminal() {
                 print_subcommand_help("decode")?;
             }
-            handlers::decode::handle(args)?
+            handlers::decode::handle(args, json)?
         }
-        Commands::Idl(args) => handlers::idl::handle(args)?,
-        Commands::Account(args) => handlers::account::handle(args)?,
-        Commands::Cache(args) => handlers::cache::handle(args)?,
-        Commands::Convert(args) => handlers::convert::handle(args)?,
-        Commands::Borsh(args) => handlers::borsh::handle(args)?,
-        Commands::Pda(args) => handlers::pda::handle(args)?,
+        Commands::Idl(args) => handlers::idl::handle(args, json)?,
+        Commands::Account(args) => handlers::account::handle(args, json)?,
+        Commands::Cache(args) => handlers::cache::handle(args, json)?,
+        Commands::Convert(args) => handlers::convert::handle(args, json)?,
+        Commands::Borsh(args) => handlers::borsh::handle(args, json)?,
+        Commands::Pda(args) => handlers::pda::handle(args, json)?,
         Commands::ProgramData(args) => handlers::program_elf::handle(args)?,
-        Commands::Send(args) => handlers::send::handle(args)?,
-        Commands::Config(args) => handlers::config::handle(args)?,
+        Commands::Send(args) => handlers::send::handle(args, json)?,
+        Commands::Config(args) => handlers::config::handle(args, json)?,
         Commands::Completions(args) => {
             handlers::completions::handle(args);
             return Ok(());
