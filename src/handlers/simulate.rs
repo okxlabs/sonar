@@ -151,7 +151,7 @@ pub(crate) fn handle(args: SimulateArgs, json: bool) -> Result<()> {
         );
     }
 
-    let resolved = resolve_and_derive_cache_key(tx, &rpc_url, resolver_cache_location, &progress)?;
+    let resolved = resolve_and_derive_cache_key(tx, &rpc_url, resolver_cache_location, &progress, history_slot)?;
     let resolved_input = resolved
         .resolved_txs
         .into_iter()
@@ -294,7 +294,7 @@ fn handle_bundle(
     log::info!("Bundle simulation mode: {} transactions", tx_inputs.len());
 
     let resolved =
-        resolve_and_derive_cache_key(tx_inputs, rpc_url, resolver_cache_location, progress)?;
+        resolve_and_derive_cache_key(tx_inputs, rpc_url, resolver_cache_location, progress, history_slot)?;
     let resolved_txs = resolved.resolved_txs;
     let mut parsed_txs: Vec<_> = resolved_txs.iter().map(|tx| tx.parsed_tx.clone()).collect();
     log::info!("Successfully parsed {} transactions", parsed_txs.len());
