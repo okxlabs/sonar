@@ -5,6 +5,7 @@ pub(crate) mod terminal;
 mod text;
 
 pub(crate) use account_text::render_account_text;
+pub(crate) use json::print_json;
 
 use anyhow::Result;
 

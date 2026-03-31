@@ -116,7 +116,7 @@ fn handle_list(json: bool) -> Result<()> {
                 }
             })
             .collect();
-        println!("{}", serde_json::to_string_pretty(&list)?);
+        crate::output::print_json(&list)?;
     } else {
         println!("{} ({}):\n", "Cached entries".bold(), cache_root.display());
 
@@ -168,7 +168,7 @@ fn handle_clean(args: crate::cli::CacheCleanArgs, json: bool) -> Result<()> {
     let cache_root = cache::resolve_cache_dir(&None);
     if !cache_root.exists() {
         if json {
-            println!("{}", serde_json::to_string_pretty(&CacheCleanOutput { removed: 0 })?);
+            crate::output::print_json(&CacheCleanOutput { removed: 0 })?;
         } else {
             eprintln!("No cache directory found at {}", cache_root.display());
         }
@@ -207,7 +207,7 @@ fn handle_clean(args: crate::cli::CacheCleanArgs, json: bool) -> Result<()> {
     }
 
     if json {
-        println!("{}", serde_json::to_string_pretty(&CacheCleanOutput { removed })?);
+        crate::output::print_json(&CacheCleanOutput { removed })?;
     } else {
         println!("Removed {} cache entries", removed);
     }
@@ -233,8 +233,10 @@ fn handle_info(args: crate::cli::CacheInfoArgs, json: bool) -> Result<()> {
         })
         .unwrap_or(0);
 
+    let meta_result = cache::read_meta_json(&dir);
+
     if json {
-        match cache::read_meta_json(&dir) {
+        match meta_result {
             Ok(meta) => {
                 let output = CacheInfoOutput {
                     key: args.key,
@@ -254,20 +256,19 @@ fn handle_info(args: crate::cli::CacheInfoArgs, json: bool) -> Result<()> {
                         .collect(),
                     account_files: file_count,
                 };
-                println!("{}", serde_json::to_string_pretty(&output)?);
+                crate::output::print_json(&output)?;
             }
             Err(_) => {
-                // Minimal JSON when no metadata exists
                 let output = serde_json::json!({
                     "key": args.key,
                     "account_files": file_count,
                     "error": "no _meta.json found"
                 });
-                println!("{}", serde_json::to_string_pretty(&output)?);
+                crate::output::print_json(&output)?;
             }
         }
     } else {
-        match cache::read_meta_json(&dir) {
+        match meta_result {
             Ok(meta) => {
                 println!("{}: {}", "Key".bold(), args.key);
                 println!("{}: {}", "Type".bold(), meta.cache_type);

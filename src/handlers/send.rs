@@ -37,8 +37,7 @@ pub(crate) fn handle(args: SendArgs, json: bool) -> Result<()> {
     };
 
     if json {
-        let output = SendOutput { signature: signature_text, explorer_url };
-        println!("{}", serde_json::to_string(&output)?);
+        crate::output::print_json(&SendOutput { signature: signature_text, explorer_url })?;
     } else {
         println!("{}", signature_text);
         eprintln!("{}", explorer_url);

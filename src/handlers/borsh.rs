@@ -73,8 +73,7 @@ fn handle_ser(args: BorshSerArgs, json: bool) -> Result<()> {
     let hex_str = format!("0x{}{}", prefix_hex, hex::encode(&bytes));
 
     if json {
-        let output = BorshSerOutput { hex: hex_str };
-        println!("{}", serde_json::to_string_pretty(&output)?);
+        crate::output::print_json(&BorshSerOutput { hex: hex_str })?;
     } else {
         println!("{hex_str}");
     }

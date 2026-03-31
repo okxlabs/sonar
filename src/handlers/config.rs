@@ -26,7 +26,7 @@ fn handle_list(json: bool) -> Result<()> {
             };
             map.insert(key.as_str().to_string(), value);
         }
-        println!("{}", serde_json::to_string(&map)?);
+        crate::output::print_json(&map)?;
     } else {
         for key in config::all_config_keys() {
             match current.value_for_key(*key) {
@@ -51,8 +51,7 @@ fn handle_get(key: &str, json: bool) -> Result<()> {
     let value = current.value_for_key(key);
 
     if json {
-        let output = ConfigGetOutput { key: key.as_str().to_string(), value };
-        println!("{}", serde_json::to_string(&output)?);
+        crate::output::print_json(&ConfigGetOutput { key: key.as_str().to_string(), value })?;
     } else {
         match value {
             Some(v) => println!("{}", v),
@@ -86,8 +85,10 @@ fn handle_set(args: ConfigSetArgs, json: bool) -> Result<()> {
     let normalized = config::set_config_key_value(key, &raw_value)?;
 
     if json {
-        let output = ConfigSetOutput { key: key.as_str().to_string(), value: normalized };
-        println!("{}", serde_json::to_string(&output)?);
+        crate::output::print_json(&ConfigSetOutput {
+            key: key.as_str().to_string(),
+            value: normalized,
+        })?;
     } else {
         println!("{}={}", key.as_str(), normalized);
     }

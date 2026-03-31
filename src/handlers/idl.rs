@@ -11,10 +11,18 @@ use crate::core::idl_fetcher;
 use crate::utils::progress::Progress;
 
 #[derive(Serialize)]
+#[serde(rename_all = "snake_case")]
+enum IdlFetchStatus {
+    Ok,
+    NotFound,
+    Error,
+}
+
+#[derive(Serialize)]
 struct IdlFetchResult {
     program: String,
     path: Option<String>,
-    status: String,
+    status: IdlFetchStatus,
 }
 
 #[derive(Serialize)]
@@ -53,7 +61,7 @@ fn handle_address(args: IdlAddressArgs, json: bool) -> Result<()> {
             program: program_id.to_string(),
             idl_address: idl_address.to_string(),
         };
-        println!("{}", serde_json::to_string(&output)?);
+        crate::output::print_json(&output)?;
     } else {
         println!("{idl_address}");
     }
@@ -110,7 +118,7 @@ fn fetch_and_write_idls(
                     json_results.push(IdlFetchResult {
                         program: program_id.to_string(),
                         path: Some(path.display().to_string()),
-                        status: "ok".to_string(),
+                        status: IdlFetchStatus::Ok,
                     });
                 } else {
                     println!("{}", path.display());
@@ -122,33 +130,31 @@ fn fetch_and_write_idls(
                     json_results.push(IdlFetchResult {
                         program: program_id.to_string(),
                         path: None,
-                        status: "not_found".to_string(),
+                        status: IdlFetchStatus::NotFound,
                     });
                 }
                 not_found.push(program_id);
             }
-            Err(_) => {
+            Err(e) => {
                 if json {
                     json_results.push(IdlFetchResult {
                         program: program_id.to_string(),
                         path: None,
-                        status: "error".to_string(),
+                        status: IdlFetchStatus::Error,
                     });
                 }
+                log::error!("IDL fetch error for {}: {:#}", program_id, e);
                 errors.push(program_id);
             }
         }
     }
 
     if json {
-        println!("{}", serde_json::to_string(&json_results)?);
+        crate::output::print_json(&json_results)?;
     }
 
     for id in &not_found {
         log::warn!("no IDL found: {}", id);
-    }
-    for id in &errors {
-        log::error!("IDL fetch error for {}", id);
     }
 
     let has_failures = !not_found.is_empty() || !errors.is_empty();

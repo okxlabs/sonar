@@ -27,8 +27,7 @@ pub(crate) fn handle(args: PdaArgs, json: bool) -> Result<()> {
     let (pda, bump) = Pubkey::find_program_address(&seed_slices, &program_id);
 
     if json {
-        let output = PdaOutput { pda: pda.to_string(), bump };
-        println!("{}", serde_json::to_string_pretty(&output)?);
+        crate::output::print_json(&PdaOutput { pda: pda.to_string(), bump })?;
     } else {
         println!("{pda} {bump}");
     }

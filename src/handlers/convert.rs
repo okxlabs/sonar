@@ -37,8 +37,12 @@ pub(crate) fn handle(mut args: ConvertArgs, json: bool) -> Result<()> {
     if json {
         let from_name = args.from.to_possible_value().unwrap().get_name().to_string();
         let to_name = args.to.to_possible_value().unwrap().get_name().to_string();
-        let json_output = ConvertOutput { input: input_str, output, from: from_name, to: to_name };
-        println!("{}", serde_json::to_string_pretty(&json_output)?);
+        crate::output::print_json(&ConvertOutput {
+            input: input_str,
+            output,
+            from: from_name,
+            to: to_name,
+        })?;
     } else {
         println!("{}", output);
     }
