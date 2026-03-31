@@ -114,6 +114,7 @@ pub(crate) fn resolve_and_derive_cache_key(
     rpc_url: &str,
     resolver_cache_location: Option<CacheLocation>,
     progress: &Progress,
+    history_slot: Option<u64>,
 ) -> Result<ResolvedWithCacheKey> {
     let is_bundle = tx_inputs.len() > 1;
     let parsed_inputs =
@@ -124,11 +125,12 @@ pub(crate) fn resolve_and_derive_cache_key(
         crate::core::cache::derive_cache_key_single(
             &resolved_txs[0].original_input,
             &resolved_txs[0].parsed_tx.transaction,
+            history_slot,
         )
     } else {
         let inputs: Vec<_> = resolved_txs.iter().map(|tx| tx.original_input.clone()).collect();
         let parsed_txs: Vec<_> = resolved_txs.iter().map(|tx| tx.parsed_tx.clone()).collect();
-        crate::core::cache::derive_cache_key_bundle(&inputs, &parsed_txs)
+        crate::core::cache::derive_cache_key_bundle(&inputs, &parsed_txs, history_slot)
     };
 
     Ok(ResolvedWithCacheKey { resolved_txs, cache_key })
