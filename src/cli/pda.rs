@@ -1,5 +1,6 @@
 //! PDA (Program Derived Address) derivation command.
 
+use crate::utils::parse_hex_data;
 use clap::Args;
 use solana_pubkey::Pubkey;
 use std::str::FromStr;
@@ -11,7 +12,7 @@ pub struct PdaArgs {
     pub program_id: String,
 
     /// Seeds in format: type:value (repeatable), e.g. string:hello pubkey:<PUBKEY>
-    /// Types: string (str), pubkey (pk), u64, u8
+    /// Types: string (str), pubkey (pk), bool, u8, u16, u32, u64, u128, i8, i16, i32, i64, i128, bytes (hex)
     #[arg(value_name = "SEED", num_args = 1.., required = true)]
     pub seeds: Vec<String>,
 }
@@ -23,10 +24,30 @@ pub enum SeedType {
     String,
     /// Base58-encoded Solana pubkey, converted to 32 bytes
     Pubkey,
-    /// Unsigned 64-bit integer, encoded as little-endian bytes
-    U64,
-    /// Unsigned 8-bit integer, encoded as a single byte
+    /// Boolean, encoded as a single byte (true=1, false=0)
+    Bool,
+    /// Unsigned 8-bit integer
     U8,
+    /// Unsigned 16-bit integer, little-endian
+    U16,
+    /// Unsigned 32-bit integer, little-endian
+    U32,
+    /// Unsigned 64-bit integer, little-endian
+    U64,
+    /// Unsigned 128-bit integer, little-endian
+    U128,
+    /// Signed 8-bit integer
+    I8,
+    /// Signed 16-bit integer, little-endian
+    I16,
+    /// Signed 32-bit integer, little-endian
+    I32,
+    /// Signed 64-bit integer, little-endian
+    I64,
+    /// Signed 128-bit integer, little-endian
+    I128,
+    /// Hex-encoded raw bytes
+    Bytes,
 }
 
 impl FromStr for SeedType {
@@ -36,10 +57,20 @@ impl FromStr for SeedType {
         match s.to_lowercase().as_str() {
             "string" | "str" => Ok(SeedType::String),
             "pubkey" | "publickey" | "pk" => Ok(SeedType::Pubkey),
-            "u64" => Ok(SeedType::U64),
+            "bool" => Ok(SeedType::Bool),
             "u8" => Ok(SeedType::U8),
+            "u16" => Ok(SeedType::U16),
+            "u32" => Ok(SeedType::U32),
+            "u64" => Ok(SeedType::U64),
+            "u128" => Ok(SeedType::U128),
+            "i8" => Ok(SeedType::I8),
+            "i16" => Ok(SeedType::I16),
+            "i32" => Ok(SeedType::I32),
+            "i64" => Ok(SeedType::I64),
+            "i128" => Ok(SeedType::I128),
+            "bytes" | "hex" => Ok(SeedType::Bytes),
             _ => Err(format!(
-                "Unknown seed type: '{}'. Supported types: string (str), pubkey (pk), u64, u8",
+                "Unknown seed type: '{}'. Supported: string, pubkey, bool, u8, u16, u32, u64, u128, i8, i16, i32, i64, i128, bytes",
                 s
             )),
         }
@@ -87,6 +118,32 @@ pub fn parse_seeds(inputs: &[String]) -> Result<Vec<ParsedSeed>, String> {
     Ok(seeds)
 }
 
+/// Parse an integer from a string and return its little-endian bytes.
+fn parse_int<T>(value: &str) -> Result<Vec<u8>, String>
+where
+    T: std::str::FromStr + ToLeBytes,
+    T::Err: std::fmt::Display,
+{
+    let v = value
+        .parse::<T>()
+        .map_err(|e| format!("Invalid {} '{}': {}", std::any::type_name::<T>(), value, e))?;
+    Ok(v.to_le_bytes_vec())
+}
+
+trait ToLeBytes {
+    fn to_le_bytes_vec(self) -> Vec<u8>;
+}
+
+macro_rules! impl_to_le_bytes {
+    ($($t:ty),*) => {
+        $(impl ToLeBytes for $t {
+            fn to_le_bytes_vec(self) -> Vec<u8> { self.to_le_bytes().to_vec() }
+        })*
+    };
+}
+
+impl_to_le_bytes!(u8, u16, u32, u64, u128, i8, i16, i32, i64, i128);
+
 /// Convert parsed seeds to byte vectors for PDA derivation.
 pub fn seeds_to_bytes(seeds: &[ParsedSeed]) -> Result<Vec<Vec<u8>>, String> {
     seeds
@@ -98,24 +155,22 @@ pub fn seeds_to_bytes(seeds: &[ParsedSeed]) -> Result<Vec<Vec<u8>>, String> {
                     .map_err(|e| format!("Invalid pubkey '{}': {}", seed.value, e))?;
                 Ok(pubkey.to_bytes().to_vec())
             }
-            SeedType::U64 => {
-                let value = seed.value.parse::<u64>().map_err(|e| {
-                    format!(
-                        "Invalid u64 '{}': expected an unsigned 64-bit integer ({})",
-                        seed.value, e
-                    )
-                })?;
-                Ok(value.to_le_bytes().to_vec())
-            }
-            SeedType::U8 => {
-                let value = seed.value.parse::<u8>().map_err(|e| {
-                    format!(
-                        "Invalid u8 '{}': expected an unsigned 8-bit integer ({})",
-                        seed.value, e
-                    )
-                })?;
-                Ok(vec![value])
-            }
+            SeedType::Bool => match seed.value.as_str() {
+                "true" | "1" => Ok(vec![1]),
+                "false" | "0" => Ok(vec![0]),
+                _ => Err(format!("Invalid bool '{}': expected true/false or 1/0", seed.value)),
+            },
+            SeedType::U8 => parse_int::<u8>(&seed.value),
+            SeedType::U16 => parse_int::<u16>(&seed.value),
+            SeedType::U32 => parse_int::<u32>(&seed.value),
+            SeedType::U64 => parse_int::<u64>(&seed.value),
+            SeedType::U128 => parse_int::<u128>(&seed.value),
+            SeedType::I8 => parse_int::<i8>(&seed.value),
+            SeedType::I16 => parse_int::<i16>(&seed.value),
+            SeedType::I32 => parse_int::<i32>(&seed.value),
+            SeedType::I64 => parse_int::<i64>(&seed.value),
+            SeedType::I128 => parse_int::<i128>(&seed.value),
+            SeedType::Bytes => parse_hex_data(&seed.value),
         })
         .collect()
 }
@@ -207,14 +262,39 @@ mod tests {
     }
 
     #[test]
+    fn parse_seeds_all_types() {
+        let seeds = parse_seeds(&[
+            "bool:true".to_string(),
+            "u16:1000".to_string(),
+            "u32:100000".to_string(),
+            "u128:99".to_string(),
+            "i8:-1".to_string(),
+            "i16:-100".to_string(),
+            "i32:-100000".to_string(),
+            "i64:-42".to_string(),
+            "i128:-99".to_string(),
+            "bytes:deadbeef".to_string(),
+            "hex:0xcafe".to_string(),
+        ])
+        .unwrap();
+        assert_eq!(seeds[0].seed_type, SeedType::Bool);
+        assert_eq!(seeds[1].seed_type, SeedType::U16);
+        assert_eq!(seeds[2].seed_type, SeedType::U32);
+        assert_eq!(seeds[3].seed_type, SeedType::U128);
+        assert_eq!(seeds[4].seed_type, SeedType::I8);
+        assert_eq!(seeds[5].seed_type, SeedType::I16);
+        assert_eq!(seeds[6].seed_type, SeedType::I32);
+        assert_eq!(seeds[7].seed_type, SeedType::I64);
+        assert_eq!(seeds[8].seed_type, SeedType::I128);
+        assert_eq!(seeds[9].seed_type, SeedType::Bytes);
+        assert_eq!(seeds[10].seed_type, SeedType::Bytes);
+    }
+
+    #[test]
     fn parse_seeds_removed_types_are_rejected() {
         let u64be_result = parse_seeds(&["u64be:42".to_string()]);
         assert!(u64be_result.is_err());
         assert!(u64be_result.unwrap_err().contains("Unknown seed type"));
-
-        let bytes_result = parse_seeds(&["bytes:deadbeef".to_string()]);
-        assert!(bytes_result.is_err());
-        assert!(bytes_result.unwrap_err().contains("Unknown seed type"));
     }
 
     #[test]
@@ -243,34 +323,79 @@ mod tests {
     }
 
     #[test]
-    fn seeds_to_bytes_u64_little_endian() {
-        let seeds = parse_seeds(&["u64:42".to_string()]).unwrap();
-        let bytes = seeds_to_bytes(&seeds).unwrap();
-        assert_eq!(bytes.len(), 1);
-        assert_eq!(bytes[0], 42_u64.to_le_bytes().to_vec());
+    fn seeds_to_bytes_bool() {
+        let t = seeds_to_bytes(&parse_seeds(&["bool:true".to_string()]).unwrap()).unwrap();
+        let f = seeds_to_bytes(&parse_seeds(&["bool:0".to_string()]).unwrap()).unwrap();
+        assert_eq!(t[0], vec![1]);
+        assert_eq!(f[0], vec![0]);
     }
 
     #[test]
-    fn seeds_to_bytes_u8() {
-        let seeds = parse_seeds(&["u8:42".to_string()]).unwrap();
-        let bytes = seeds_to_bytes(&seeds).unwrap();
-        assert_eq!(bytes.len(), 1);
-        assert_eq!(bytes[0], vec![42_u8]);
+    fn seeds_to_bytes_bool_invalid() {
+        let seeds = parse_seeds(&["bool:yes".to_string()]).unwrap();
+        assert!(seeds_to_bytes(&seeds).is_err());
     }
 
     #[test]
-    fn seeds_to_bytes_invalid_u8() {
+    fn seeds_to_bytes_integers() {
+        let cases: Vec<(&str, Vec<u8>)> = vec![
+            ("u8:42", vec![42]),
+            ("u16:1000", 1000_u16.to_le_bytes().to_vec()),
+            ("u32:100000", 100000_u32.to_le_bytes().to_vec()),
+            ("u64:42", 42_u64.to_le_bytes().to_vec()),
+            ("u128:99", 99_u128.to_le_bytes().to_vec()),
+            ("i8:-1", (-1_i8).to_le_bytes().to_vec()),
+            ("i16:-100", (-100_i16).to_le_bytes().to_vec()),
+            ("i32:-100000", (-100000_i32).to_le_bytes().to_vec()),
+            ("i64:-42", (-42_i64).to_le_bytes().to_vec()),
+            ("i128:-99", (-99_i128).to_le_bytes().to_vec()),
+        ];
+        for (input, expected) in cases {
+            let seeds = parse_seeds(&[input.to_string()]).unwrap();
+            let bytes = seeds_to_bytes(&seeds).unwrap();
+            assert_eq!(bytes[0], expected, "failed for {}", input);
+        }
+    }
+
+    #[test]
+    fn seeds_to_bytes_integer_overflow() {
         let seeds = parse_seeds(&["u8:999".to_string()]).unwrap();
-        let result = seeds_to_bytes(&seeds);
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("Invalid u8"));
+        assert!(seeds_to_bytes(&seeds).is_err());
     }
 
     #[test]
-    fn seeds_to_bytes_invalid_u64() {
+    fn seeds_to_bytes_integer_invalid() {
         let seeds = parse_seeds(&["u64:not_a_number".to_string()]).unwrap();
+        assert!(seeds_to_bytes(&seeds).is_err());
+    }
+
+    #[test]
+    fn seeds_to_bytes_hex() {
+        let seeds = parse_seeds(&["bytes:deadbeef".to_string()]).unwrap();
+        let bytes = seeds_to_bytes(&seeds).unwrap();
+        assert_eq!(bytes[0], vec![0xde, 0xad, 0xbe, 0xef]);
+    }
+
+    #[test]
+    fn seeds_to_bytes_hex_0x_prefix() {
+        let seeds = parse_seeds(&["hex:0xcafe".to_string()]).unwrap();
+        let bytes = seeds_to_bytes(&seeds).unwrap();
+        assert_eq!(bytes[0], vec![0xca, 0xfe]);
+    }
+
+    #[test]
+    fn seeds_to_bytes_hex_odd_length() {
+        let seeds = parse_seeds(&["bytes:abc".to_string()]).unwrap();
         let result = seeds_to_bytes(&seeds);
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("Invalid u64"));
+        assert!(result.unwrap_err().contains("odd length"));
+    }
+
+    #[test]
+    fn seeds_to_bytes_hex_invalid() {
+        let seeds = parse_seeds(&["bytes:zzzz".to_string()]).unwrap();
+        let result = seeds_to_bytes(&seeds);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Invalid hex"));
     }
 }
