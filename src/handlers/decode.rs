@@ -23,6 +23,7 @@ pub(crate) fn handle(args: DecodeArgs, json: bool) -> Result<()> {
         no_cache,
         cache_dir,
         refresh_cache,
+        history_slot,
     } = args;
     let rpc_url = rpc.rpc_url;
     let resolver_cache_location =
@@ -41,6 +42,7 @@ pub(crate) fn handle(args: DecodeArgs, json: bool) -> Result<()> {
             ix_data,
             json,
             no_idl_fetch,
+            history_slot,
             &mut parser_registry,
             &progress,
         );
@@ -69,6 +71,7 @@ pub(crate) fn handle(args: DecodeArgs, json: bool) -> Result<()> {
         &mut parser_registry,
         no_idl_fetch,
         &progress,
+        history_slot,
     )?;
 
     progress.finish();
@@ -96,6 +99,7 @@ fn handle_bundle(
     ix_data: bool,
     json: bool,
     no_idl_fetch: bool,
+    history_slot: Option<u64>,
     parser_registry: &mut ParserRegistry,
     progress: &Progress,
 ) -> Result<()> {
@@ -121,6 +125,7 @@ fn handle_bundle(
         parser_registry,
         no_idl_fetch,
         progress,
+        history_slot,
     )?;
 
     progress.finish();

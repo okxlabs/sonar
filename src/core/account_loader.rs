@@ -5,7 +5,7 @@ use log::debug;
 use solana_account::AccountSharedData;
 use solana_pubkey::Pubkey;
 
-use sonar_sim::AccountLoader;
+use sonar_sim::{AccountLoader, HistoricalRpcProvider};
 
 use crate::core::idl_fetcher::IdlFetcher;
 use crate::utils::progress::Progress;
@@ -106,6 +106,7 @@ pub fn create_loader(
     local_dir: Option<PathBuf>,
     offline: bool,
     progress: Option<Progress>,
+    history_slot: Option<u64>,
 ) -> Result<AccountLoader> {
     let url = if rpc_url.is_empty() && offline {
         "http://localhost:8899".to_string()
@@ -117,7 +118,11 @@ pub fn create_loader(
         rpc_url
     };
 
-    let mut loader = AccountLoader::new(url)?;
+    let mut loader = if let Some(slot) = history_slot {
+        AccountLoader::with_provider(Arc::new(HistoricalRpcProvider::new(url, slot)))
+    } else {
+        AccountLoader::new(url)?
+    };
 
     if let Some(dir) = local_dir {
         loader = loader.with_source(Arc::new(LocalDirSource::new(dir)));

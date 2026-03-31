@@ -77,6 +77,7 @@ pub(crate) fn handle(args: SimulateArgs, json: bool) -> Result<()> {
         show_balance_change,
         raw_log,
         show_ix_detail,
+        history_slot,
         timestamp,
         slot,
         data_patches: data_patch_args,
@@ -144,6 +145,7 @@ pub(crate) fn handle(args: SimulateArgs, json: bool) -> Result<()> {
             cache_dir,
             refresh_cache,
             no_idl_fetch,
+            history_slot,
             &progress,
         );
     }
@@ -175,6 +177,7 @@ pub(crate) fn handle(args: SimulateArgs, json: bool) -> Result<()> {
         &mut parser_registry,
         no_idl_fetch,
         &progress,
+        history_slot,
     )?;
 
     warn_unmatched_addresses(
@@ -282,6 +285,7 @@ fn handle_bundle(
     cache_dir: Option<PathBuf>,
     refresh_cache: bool,
     no_idl_fetch: bool,
+    history_slot: Option<u64>,
     progress: &Progress,
 ) -> Result<()> {
     log::info!("Bundle simulation mode: {} transactions", tx_inputs.len());
@@ -311,6 +315,7 @@ fn handle_bundle(
         parser_registry,
         no_idl_fetch,
         progress,
+        history_slot,
     )?;
 
     let parsed_tx_refs: Vec<_> = parsed_txs.iter().collect();
