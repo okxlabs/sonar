@@ -350,23 +350,26 @@ fn render_sol_balance_changes(sol_changes: &[SolBalanceChangeSection], indent: &
             let sol_after = c.after as f64 / 1_000_000_000.0;
             let sign = if c.change >= 0 { "+" } else { "" };
             let col_delta = format!("{}{:.9}", sign, c.change_sol);
-            let col_range = format!("{:.9} → {:.9}", sol_before, sol_after);
+            let col_before = format!("{:.9}", sol_before);
+            let col_after = format!("{:.9}", sol_after);
             let color = if c.change >= 0 { (152, 195, 121) } else { (224, 108, 117) };
-            (c.account.as_str(), col_delta, col_range, color)
+            (c.account.as_str(), col_delta, col_before, col_after, color)
         })
         .collect();
 
     let w_account = rows.iter().map(|r| r.0.len()).max().unwrap_or(0);
     let w_delta = rows.iter().map(|r| r.1.len()).max().unwrap_or(0);
+    let w_before = rows.iter().map(|r| r.2.len()).max().unwrap_or(0);
 
-    for (col_account, col_delta, col_range, color) in &rows {
+    for (col_account, col_delta, col_before, col_after, color) in &rows {
         println!(
             "{}{}{:<wa$}  {}  {}",
             indent,
             INDENT_L1,
             col_account,
             format!("{:<width$}", col_delta, width = w_delta).custom_color(*color),
-            col_range.custom_color((171, 178, 191)),
+            format!("{:<wb$} → {}", col_before, col_after, wb = w_before)
+                .custom_color((171, 178, 191)),
             wa = w_account,
         );
     }
@@ -386,13 +389,15 @@ fn render_token_balance_changes(token_changes: &[TokenBalanceChangeSection], ind
             let ui_after = c.after as f64 / divisor;
             let prec = c.decimals as usize;
             let sign = if c.change >= 0 { "+" } else { "" };
-            let col_range = format!("{:.prec$} → {:.prec$}", ui_before, ui_after, prec = prec);
+            let col_before = format!("{:.prec$}", ui_before, prec = prec);
+            let col_after = format!("{:.prec$}", ui_after, prec = prec);
             let col_delta = format!("{}{:.prec$}", sign, c.ui_change, prec = prec);
             let color = if c.change >= 0 { (152, 195, 121) } else { (224, 108, 117) };
             (
                 c.token_account.as_str(),
                 c.owner.as_str(),
-                col_range,
+                col_before,
+                col_after,
                 col_delta,
                 c.mint.as_str(),
                 color,
@@ -402,18 +407,20 @@ fn render_token_balance_changes(token_changes: &[TokenBalanceChangeSection], ind
 
     let w_ta = rows.iter().map(|r| r.0.len()).max().unwrap_or(0);
     let w_owner = rows.iter().map(|r| r.1.len()).max().unwrap_or(0);
-    let w_range = rows.iter().map(|r| r.2.len()).max().unwrap_or(0);
-    let w_delta = rows.iter().map(|r| r.3.len()).max().unwrap_or(0);
+    let w_before = rows.iter().map(|r| r.2.len()).max().unwrap_or(0);
+    let w_after = rows.iter().map(|r| r.3.len()).max().unwrap_or(0);
+    let w_delta = rows.iter().map(|r| r.4.len()).max().unwrap_or(0);
 
-    for (col_ta, col_owner, col_range, col_delta, col_mint, color) in &rows {
+    for (col_ta, col_owner, col_before, col_after, col_delta, col_mint, color) in &rows {
         println!(
             "{}{}{:<wt$}  {:<wo$}  {}  {}  {}",
             indent,
             INDENT_L1,
             col_ta,
             col_owner,
-            format!("{:<width$}", col_delta, width = w_delta).custom_color(*color),
-            format!("{:<width$}", col_range, width = w_range).custom_color((171, 178, 191)),
+            format!("{:<wd$}", col_delta, wd = w_delta).custom_color(*color),
+            format!("{:<wb$} → {:<wa$}", col_before, col_after, wb = w_before, wa = w_after)
+                .custom_color((171, 178, 191)),
             col_mint,
             wt = w_ta,
             wo = w_owner,
