@@ -32,7 +32,7 @@ fn handle_list() -> Result<()> {
 
     entries.sort_by_key(|e| e.file_name());
 
-    eprintln!("{} ({}):\n", "Cached entries".bold(), cache_root.display());
+    println!("{} ({}):\n", "Cached entries".bold(), cache_root.display());
 
     for entry in &entries {
         let dir = entry.path();
@@ -44,7 +44,7 @@ fn handle_list() -> Result<()> {
                 } else {
                     "single".to_string()
                 };
-                eprintln!(
+                println!(
                     "  {} — {} accounts, {} ({})",
                     key.cyan(),
                     meta.account_count,
@@ -56,12 +56,12 @@ fn handle_list() -> Result<()> {
                 let file_count = std::fs::read_dir(&dir)
                     .map(|rd| rd.filter_map(|e| e.ok()).count())
                     .unwrap_or(0);
-                eprintln!("  {} — {} files (no metadata)", key.yellow(), file_count,);
+                println!("  {} — {} files (no metadata)", key.yellow(), file_count,);
             }
         }
     }
 
-    eprintln!("\n{} entries total", entries.len());
+    println!("\n{} entries total", entries.len());
     Ok(())
 }
 
@@ -115,7 +115,7 @@ fn handle_clean(args: crate::cli::CacheCleanArgs) -> Result<()> {
         removed += 1;
     }
 
-    eprintln!("Removed {} cache entries", removed);
+    println!("Removed {} cache entries", removed);
     Ok(())
 }
 
@@ -129,26 +129,26 @@ fn handle_info(args: crate::cli::CacheInfoArgs) -> Result<()> {
 
     match cache::read_meta_json(&dir) {
         Ok(meta) => {
-            eprintln!("{}: {}", "Key".bold(), args.key);
-            eprintln!("{}: {}", "Type".bold(), meta.cache_type);
-            eprintln!("{}: {}", "Created".bold(), meta.created_at);
-            eprintln!("{}: {}", "RPC".bold(), meta.rpc_url);
-            eprintln!("{}: {}", "Accounts".bold(), meta.account_count);
-            eprintln!("{}: {}", "Sonar version".bold(), meta.sonar_version);
+            println!("{}: {}", "Key".bold(), args.key);
+            println!("{}: {}", "Type".bold(), meta.cache_type);
+            println!("{}: {}", "Created".bold(), meta.created_at);
+            println!("{}: {}", "RPC".bold(), meta.rpc_url);
+            println!("{}: {}", "Accounts".bold(), meta.account_count);
+            println!("{}: {}", "Sonar version".bold(), meta.sonar_version);
             if meta.transactions.len() > 1 || meta.cache_type == "bundle" {
-                eprintln!("{}:", "Transactions".bold());
+                println!("{}:", "Transactions".bold());
                 for (i, tx) in meta.transactions.iter().enumerate() {
                     let display = if tx.input.len() > 44 {
                         format!("{}...", &tx.input[..44])
                     } else {
                         tx.input.clone()
                     };
-                    eprintln!("  {}: {} ({})", i + 1, display, tx.resolved_from);
+                    println!("  {}: {} ({})", i + 1, display, tx.resolved_from);
                 }
             }
         }
         Err(_) => {
-            eprintln!("{}: {} (no _meta.json found)", "Key".bold(), args.key);
+            println!("{}: {} (no _meta.json found)", "Key".bold(), args.key);
         }
     }
 
@@ -162,7 +162,7 @@ fn handle_info(args: crate::cli::CacheInfoArgs) -> Result<()> {
                 .count()
         })
         .unwrap_or(0);
-    eprintln!("{}: {} account files on disk", "Files".bold(), file_count);
+    println!("{}: {} account files on disk", "Files".bold(), file_count);
 
     Ok(())
 }

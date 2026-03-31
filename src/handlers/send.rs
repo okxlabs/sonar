@@ -29,8 +29,11 @@ pub(crate) fn handle(args: SendArgs) -> Result<()> {
         None
     };
 
-    let output = render_send_output(&signature_text, &explorer_url, wait_info.as_deref());
-    println!("{}", output);
+    println!("{}", render_send_output(&signature_text));
+    eprintln!("{}", explorer_url);
+    if let Some(info) = wait_info {
+        eprintln!("{}", info);
+    }
 
     Ok(())
 }
@@ -68,13 +71,8 @@ fn build_explorer_url(signature: &str, rpc_url: &str) -> String {
     }
 }
 
-fn render_send_output(signature: &str, explorer_url: &str, wait_info: Option<&str>) -> String {
-    let mut out = format!("{signature}\n{explorer_url}");
-    if let Some(info) = wait_info {
-        out.push('\n');
-        out.push_str(info);
-    }
-    out
+fn render_send_output(signature: &str) -> String {
+    signature.to_string()
 }
 
 fn wait_for_confirmation(
@@ -223,30 +221,8 @@ mod tests {
     }
 
     #[test]
-    fn render_send_output_default_mode_stdout_only() {
-        let rendered = render_send_output(
-            "4sGjMW1sUnHzSxGspuhpqLDx6wiyjNtZ",
-            "https://explorer.solana.com/tx/4sGjMW1sUnHzSxGspuhpqLDx6wiyjNtZ",
-            None,
-        );
-
-        assert_eq!(
-            rendered,
-            "4sGjMW1sUnHzSxGspuhpqLDx6wiyjNtZ\nhttps://explorer.solana.com/tx/4sGjMW1sUnHzSxGspuhpqLDx6wiyjNtZ"
-        );
-    }
-
-    #[test]
-    fn render_send_output_wait_mode_appends_confirmation_to_stdout() {
-        let rendered = render_send_output(
-            "4sGjMW1sUnHzSxGspuhpqLDx6wiyjNtZ",
-            "https://explorer.solana.com/tx/4sGjMW1sUnHzSxGspuhpqLDx6wiyjNtZ",
-            Some("Transaction confirmed at finalized commitment."),
-        );
-
-        assert_eq!(
-            rendered,
-            "4sGjMW1sUnHzSxGspuhpqLDx6wiyjNtZ\nhttps://explorer.solana.com/tx/4sGjMW1sUnHzSxGspuhpqLDx6wiyjNtZ\nTransaction confirmed at finalized commitment."
-        );
+    fn render_send_output_returns_signature_only() {
+        let rendered = render_send_output("4sGjMW1sUnHzSxGspuhpqLDx6wiyjNtZ");
+        assert_eq!(rendered, "4sGjMW1sUnHzSxGspuhpqLDx6wiyjNtZ");
     }
 }
