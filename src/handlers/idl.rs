@@ -9,7 +9,7 @@ use crate::cli::{IdlAddressArgs, IdlArgs, IdlFetchArgs, IdlSubcommands, IdlSyncA
 use crate::core::idl_fetcher;
 use crate::utils::progress::Progress;
 
-pub(crate) fn handle(args: IdlArgs) -> Result<()> {
+pub(crate) fn handle(args: IdlArgs, _json: bool) -> Result<()> {
     match args.command {
         IdlSubcommands::Fetch(args) => handle_fetch(args),
         IdlSubcommands::Sync(args) => handle_sync(args),

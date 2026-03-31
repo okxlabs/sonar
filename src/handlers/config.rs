@@ -3,7 +3,7 @@ use anyhow::{Context, Result, anyhow};
 use crate::cli::{ConfigArgs, ConfigSetArgs, ConfigSubcommands};
 use crate::utils::config::{self, ConfigKey};
 
-pub(crate) fn handle(args: ConfigArgs) -> Result<()> {
+pub(crate) fn handle(args: ConfigArgs, _json: bool) -> Result<()> {
     match args.command {
         ConfigSubcommands::List => handle_list(),
         ConfigSubcommands::Get(args) => handle_get(&args.key),

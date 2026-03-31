@@ -2,7 +2,7 @@ use anyhow::Result;
 
 use crate::cli::{ConvertArgs, ConvertOutputFormat};
 
-pub(crate) fn handle(args: ConvertArgs) -> Result<()> {
+pub(crate) fn handle(args: ConvertArgs, _json: bool) -> Result<()> {
     if args.escape && args.to != ConvertOutputFormat::Text {
         log::warn!("--escape has no effect when output format is not 'text'");
     }

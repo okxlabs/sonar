@@ -5,7 +5,7 @@ use solana_pubkey::Pubkey;
 
 use crate::cli::PdaArgs;
 
-pub(crate) fn handle(args: PdaArgs) -> Result<()> {
+pub(crate) fn handle(args: PdaArgs, _json: bool) -> Result<()> {
     let program_id = Pubkey::from_str(&args.program_id)
         .with_context(|| format!("Invalid program ID: {}", args.program_id))?;
 

@@ -19,7 +19,7 @@ use crate::{
     core::idl_fetcher, parsers::metaplex_metadata_decoder, parsers::token_account_decoder,
 };
 
-pub(crate) fn handle(args: AccountArgs) -> Result<()> {
+pub(crate) fn handle(args: AccountArgs, json: bool) -> Result<()> {
     let (pubkey_str, account_pubkey, account) = match &args.account {
         Some(input) if input == "-" => load_account_json(std::io::stdin().lock())?,
         Some(input) => {
@@ -58,7 +58,7 @@ pub(crate) fn handle(args: AccountArgs) -> Result<()> {
     let client = RpcClient::new(&args.rpc.rpc_url);
 
     let (mut output, account_type, metadata_output) =
-        decode_account_output(&args, &client, &account_pubkey, &account)?;
+        decode_account_output(&args, &client, &account_pubkey, &account, json)?;
 
     if let Some(meta) = &metadata_output {
         output
@@ -67,7 +67,7 @@ pub(crate) fn handle(args: AccountArgs) -> Result<()> {
             .insert("metaplexMetadata".into(), meta.clone());
     }
 
-    if args.json {
+    if json {
         println!("{}", serde_json::to_string_pretty(&output)?);
     } else {
         crate::output::render_account_text(
@@ -165,10 +165,11 @@ fn decode_account_output(
     client: &RpcClient,
     account_pubkey: &Pubkey,
     account: &solana_account::Account,
+    json: bool,
 ) -> Result<(Value, String, Option<Value>)> {
     if *account_pubkey == solana_sdk_ids::sysvar::clock::id() {
         if let Ok(clock) = bincode::deserialize::<solana_clock::Clock>(account.data.as_slice()) {
-            let data_json = if args.json {
+            let data_json = if json {
                 serde_json::json!({
                     "slot": clock.slot,
                     "epoch": clock.epoch,

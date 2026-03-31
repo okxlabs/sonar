@@ -56,7 +56,7 @@ fn apply_ix_mutations(
     Ok(())
 }
 
-pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
+pub(crate) fn handle(args: SimulateArgs, json: bool) -> Result<()> {
     // Initialize instruction parser registry (uses configured/default IDL directory).
     let idl_dir = args.idl_dir.clone();
     let mut parser_registry = ParserRegistry::new(idl_dir);
@@ -92,7 +92,7 @@ pub(crate) fn handle(args: SimulateArgs) -> Result<()> {
     let rpc_url = rpc.rpc_url;
     let resolver_cache_location = Some(super::build_cache_location(&cache_dir));
 
-    let TransactionInputArgs { tx, json } = transaction;
+    let TransactionInputArgs { tx } = transaction;
 
     let overrides = parse_cli_args(override_args, cli::parse_override)?;
     let sol_fundings = parse_cli_args(funding_args, cli::parse_funding)?;

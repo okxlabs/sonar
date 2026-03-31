@@ -23,10 +23,6 @@ pub struct AccountArgs {
     /// Output raw account data as base64 JSON, skip decoding
     #[arg(long)]
     pub raw: bool,
-
-    /// Output as JSON instead of the default colored text format
-    #[arg(short = 'j', long)]
-    pub json: bool,
 }
 
 #[cfg(test)]
@@ -77,10 +73,7 @@ mod tests {
         ])
         .expect("should parse --json");
 
-        let Some(Commands::Account(args)) = cli.command else {
-            panic!("expected account subcommand");
-        };
-        assert!(args.json);
+        assert!(cli.json);
     }
 
     #[test]

@@ -5,7 +5,7 @@ use crate::converters::borsh_decode::decode_borsh;
 use crate::converters::borsh_encode::encode_borsh;
 use crate::converters::borsh_type::parse_borsh_type;
 
-pub(crate) fn handle(args: BorshArgs) -> Result<()> {
+pub(crate) fn handle(args: BorshArgs, _json: bool) -> Result<()> {
     match args.command {
         BorshCommands::De(args) => handle_de(args),
         BorshCommands::Ser(args) => handle_ser(args),

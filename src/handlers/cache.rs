@@ -4,7 +4,7 @@ use colored::Colorize;
 use crate::cli::{CacheArgs, CacheCommands};
 use crate::core::cache;
 
-pub(crate) fn handle(args: CacheArgs) -> Result<()> {
+pub(crate) fn handle(args: CacheArgs, _json: bool) -> Result<()> {
     match args.command {
         CacheCommands::List => handle_list(),
         CacheCommands::Clean(args) => handle_clean(args),
