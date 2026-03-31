@@ -162,7 +162,11 @@ pub(crate) fn handle(args: SimulateArgs, json: bool) -> Result<()> {
     let resolved_from = resolved_input.source.as_str().to_string();
     let mut parsed_tx = resolved_input.parsed_tx;
 
-    let cache_key = crate::core::cache::derive_cache_key_single(&raw_input, &parsed_tx.transaction);
+    let cache_key = crate::core::cache::derive_cache_key_single(
+        &raw_input,
+        &parsed_tx.transaction,
+        history_slot,
+    );
 
     apply_ix_mutations(&mut parsed_tx, &ix_account_patches, &ix_account_appends, &ix_data_patches)?;
     let (tx_cache_dir, offline) =
@@ -297,7 +301,8 @@ fn handle_bundle(
     let mut parsed_txs: Vec<_> = resolved_txs.iter().map(|tx| tx.parsed_tx.clone()).collect();
     log::info!("Successfully parsed {} transactions", parsed_txs.len());
 
-    let cache_key = crate::core::cache::derive_cache_key_bundle(&tx_inputs, &parsed_txs);
+    let cache_key =
+        crate::core::cache::derive_cache_key_bundle(&tx_inputs, &parsed_txs, history_slot);
 
     for parsed_tx in &mut parsed_txs {
         apply_ix_mutations(parsed_tx, &ix_account_patches, &ix_account_appends, &ix_data_patches)?;

@@ -57,8 +57,11 @@ pub(crate) fn handle(args: DecodeArgs, json: bool) -> Result<()> {
         .expect("single input resolve should produce one transaction");
     let original_input = resolved_tx.original_input;
     let parsed_tx = resolved_tx.parsed_tx;
-    let cache_key =
-        crate::core::cache::derive_cache_key_single(&original_input, &parsed_tx.transaction);
+    let cache_key = crate::core::cache::derive_cache_key_single(
+        &original_input,
+        &parsed_tx.transaction,
+        history_slot,
+    );
     let (decode_cache_dir, offline) =
         crate::core::cache::resolve_cache_state(!no_cache, &cache_dir, refresh_cache, &cache_key);
     let cache_read_dir_for_load = cache_read_dir(decode_cache_dir, refresh_cache);
@@ -111,7 +114,8 @@ fn handle_bundle(
     let raw_inputs: Vec<_> =
         resolved_txs.iter().map(|entry| entry.original_input.clone()).collect();
     let parsed_txs: Vec<_> = resolved_txs.into_iter().map(|entry| entry.parsed_tx).collect();
-    let cache_key = crate::core::cache::derive_cache_key_bundle(&raw_inputs, &parsed_txs);
+    let cache_key =
+        crate::core::cache::derive_cache_key_bundle(&raw_inputs, &parsed_txs, history_slot);
     let (decode_cache_dir, offline) =
         crate::core::cache::resolve_cache_state(cache, &cache_dir, refresh_cache, &cache_key);
     let cache_read_dir_for_load = cache_read_dir(decode_cache_dir, refresh_cache);
