@@ -5,7 +5,13 @@ use solana_pubkey::Pubkey;
 
 use crate::cli::PdaArgs;
 
-pub(crate) fn handle(args: PdaArgs, _json: bool) -> Result<()> {
+#[derive(serde::Serialize)]
+struct PdaOutput {
+    pda: String,
+    bump: u8,
+}
+
+pub(crate) fn handle(args: PdaArgs, json: bool) -> Result<()> {
     let program_id = Pubkey::from_str(&args.program_id)
         .with_context(|| format!("Invalid program ID: {}", args.program_id))?;
 
@@ -20,7 +26,12 @@ pub(crate) fn handle(args: PdaArgs, _json: bool) -> Result<()> {
 
     let (pda, bump) = Pubkey::find_program_address(&seed_slices, &program_id);
 
-    println!("{pda} {bump}");
+    if json {
+        let output = PdaOutput { pda: pda.to_string(), bump };
+        println!("{}", serde_json::to_string_pretty(&output)?);
+    } else {
+        println!("{pda} {bump}");
+    }
 
     Ok(())
 }
