@@ -2,13 +2,20 @@ use std::time::{Duration, Instant};
 
 use crate::core::rpc_client::{RpcClient, SendTransactionConfig};
 use anyhow::{Context, Result, anyhow};
+use serde::Serialize;
 use solana_signature::Signature;
 use solana_transaction_status_client_types::{TransactionConfirmationStatus, TransactionStatus};
 
 use crate::cli::{SendArgs, WaitCommitmentArg};
 use crate::core::transaction;
 
-pub(crate) fn handle(args: SendArgs, _json: bool) -> Result<()> {
+#[derive(Serialize)]
+struct SendOutput {
+    signature: String,
+    explorer_url: String,
+}
+
+pub(crate) fn handle(args: SendArgs, json: bool) -> Result<()> {
     let parsed = transaction::parse_raw_transaction(&args.tx)?;
     let client = RpcClient::new(&args.rpc.rpc_url);
 
@@ -29,8 +36,15 @@ pub(crate) fn handle(args: SendArgs, _json: bool) -> Result<()> {
         None
     };
 
-    println!("{}", render_send_output(&signature_text));
-    eprintln!("{}", explorer_url);
+    if json {
+        let output = SendOutput { signature: signature_text, explorer_url };
+        println!("{}", serde_json::to_string(&output)?);
+    } else {
+        println!("{}", signature_text);
+        eprintln!("{}", explorer_url);
+    }
+
+    // Wait-confirmation status always goes to stderr regardless of mode
     if let Some(info) = wait_info {
         eprintln!("{}", info);
     }
@@ -69,10 +83,6 @@ fn build_explorer_url(signature: &str, rpc_url: &str) -> String {
             format!("https://explorer.solana.com/tx/{signature}?cluster=testnet")
         }
     }
-}
-
-fn render_send_output(signature: &str) -> String {
-    signature.to_string()
 }
 
 fn wait_for_confirmation(
@@ -152,9 +162,7 @@ fn status_commitment_label(status: &TransactionStatus) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        ExplorerCluster, build_explorer_url, infer_cluster_from_rpc_url, render_send_output,
-    };
+    use super::{ExplorerCluster, build_explorer_url, infer_cluster_from_rpc_url};
 
     #[test]
     fn build_explorer_url_mainnet_no_cluster_param() {
@@ -218,11 +226,5 @@ mod tests {
             ExplorerCluster::Mainnet
         );
         assert_eq!(infer_cluster_from_rpc_url("https://example.com/rpc"), ExplorerCluster::Mainnet);
-    }
-
-    #[test]
-    fn render_send_output_returns_signature_only() {
-        let rendered = render_send_output("4sGjMW1sUnHzSxGspuhpqLDx6wiyjNtZ");
-        assert_eq!(rendered, "4sGjMW1sUnHzSxGspuhpqLDx6wiyjNtZ");
     }
 }
