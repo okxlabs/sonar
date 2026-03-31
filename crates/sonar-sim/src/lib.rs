@@ -53,7 +53,9 @@ pub use account_loader::AccountLoader;
 
 // ── RPC provider trait + implementations ──
 
-pub use rpc_provider::{FakeAccountProvider, RpcAccountProvider, SolanaRpcProvider};
+pub use rpc_provider::{
+    FakeAccountProvider, HistoricalRpcProvider, RpcAccountProvider, SolanaRpcProvider,
+};
 pub use svm_backend::SvmBackend;
 
 // ── Simulation execution ──

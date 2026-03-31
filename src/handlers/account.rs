@@ -33,7 +33,7 @@ pub(crate) fn handle(args: AccountArgs, json: bool) -> Result<()> {
                     .with_context(|| format!("Invalid account pubkey: {input}"))?;
                 let client = RpcClient::new(&args.rpc.rpc_url);
                 let acct = client
-                    .get_account(&pk)
+                    .get_account_maybe_historical(&pk, args.history_slot)
                     .with_context(|| format!("Failed to fetch account: {pk}"))?;
                 (pk.to_string(), pk, acct)
             }
