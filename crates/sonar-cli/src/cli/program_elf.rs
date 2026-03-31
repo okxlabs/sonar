@@ -21,4 +21,9 @@ pub struct ProgramDataArgs {
     /// Output file path for raw ELF bytes (use "-" for stdout)
     #[arg(short, long, required_unless_present = "verify_sha256")]
     pub output: Option<PathBuf>,
+
+    /// Fetch program data from a historical slot via the non-standard
+    /// getMultipleAccountsDataBySlot RPC method.
+    #[arg(long = "history-slot", value_name = "SLOT")]
+    pub history_slot: Option<u64>,
 }

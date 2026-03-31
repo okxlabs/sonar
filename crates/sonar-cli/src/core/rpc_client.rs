@@ -65,6 +65,8 @@ pub struct RpcTransactionResponse {
 // Client implementation
 // ---------------------------------------------------------------------------
 
+const HISTORICAL_RPC_METHOD: &str = "getMultipleAccountsDataBySlot";
+
 impl RpcClient {
     pub fn new(rpc_url: impl Into<String>) -> Self {
         Self { transport: RpcTransport::new(rpc_url) }
@@ -77,6 +79,41 @@ impl RpcClient {
         params: serde_json::Value,
     ) -> Result<T> {
         self.transport.call(method, params).map_err(|e| anyhow!("{e}"))
+    }
+
+    /// Fetch a single account, optionally at a historical slot.
+    ///
+    /// When `history_slot` is `Some`, uses the non-standard
+    /// `getMultipleAccountsDataBySlot` RPC method. Otherwise uses
+    /// standard `getAccountInfo`.
+    pub fn get_account_maybe_historical(
+        &self,
+        pubkey: &Pubkey,
+        history_slot: Option<u64>,
+    ) -> Result<Account> {
+        match history_slot {
+            Some(slot) => self.get_account_at_slot(pubkey, slot),
+            None => self.get_account(pubkey),
+        }
+    }
+
+    fn get_account_at_slot(&self, pubkey: &Pubkey, slot: u64) -> Result<Account> {
+        let result: RpcResultValue<Vec<Option<RpcAccountInfo>>> = self.call(
+            HISTORICAL_RPC_METHOD,
+            serde_json::json!([
+                [pubkey.to_string()],
+                slot,
+                {"encoding": "base64"}
+            ]),
+        )?;
+        result
+            .value
+            .into_iter()
+            .next()
+            .flatten()
+            .ok_or_else(|| anyhow!("AccountNotFound: {pubkey} at slot {slot}"))?
+            .into_account()
+            .map_err(|e| anyhow!("{e}"))
     }
 
     pub fn get_account(&self, pubkey: &Pubkey) -> Result<Account> {

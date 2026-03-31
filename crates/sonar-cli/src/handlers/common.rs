@@ -168,6 +168,7 @@ pub(crate) fn resolve_cache_and_prepare(
     parsed_txs: &[transaction::ParsedTransaction],
     parser_registry: &mut ParserRegistry,
     progress: &Progress,
+    history_slot: Option<u64>,
 ) -> Result<CachePreparedContext> {
     let (resolved_cache_dir, offline) = crate::core::cache::resolve_cache_state(
         args.cache_enabled,
@@ -186,6 +187,7 @@ pub(crate) fn resolve_cache_and_prepare(
         args.no_idl_fetch,
         progress,
         args.rpc_batch_size,
+        history_slot,
     )?;
 
     Ok(CachePreparedContext { cache_dir: resolved_cache_dir, offline, prepared })
@@ -310,6 +312,7 @@ pub(crate) fn prepare_accounts_and_idls(
     no_idl_fetch: bool,
     progress: &Progress,
     rpc_batch_size: usize,
+    history_slot: Option<u64>,
 ) -> Result<PreparedPipelineContext> {
     let mut account_loader = account_loader::create_loader(
         rpc_url.to_string(),
@@ -317,6 +320,7 @@ pub(crate) fn prepare_accounts_and_idls(
         offline,
         Some(progress.clone()),
         rpc_batch_size,
+        history_slot,
     )?;
     let resolved_accounts = if parsed_txs.len() == 1 {
         account_loader.load_for_transaction(&parsed_txs[0].transaction)?

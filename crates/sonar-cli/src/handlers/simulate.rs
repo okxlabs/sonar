@@ -156,6 +156,7 @@ pub(crate) fn handle(args: SimulateArgs, json: bool) -> Result<()> {
         show_balance_change,
         raw_log,
         show_ix_detail,
+        history_slot,
         timestamp,
         slot,
         data_patches: data_patch_args,
@@ -245,6 +246,7 @@ pub(crate) fn handle(args: SimulateArgs, json: bool) -> Result<()> {
                 refresh_cache,
                 no_idl_fetch,
                 rpc_batch_size,
+                history_slot,
                 &progress,
             );
         }
@@ -282,6 +284,7 @@ pub(crate) fn handle(args: SimulateArgs, json: bool) -> Result<()> {
         std::slice::from_ref(&parsed_tx),
         &mut parser_registry,
         &progress,
+        history_slot,
     )?;
     let tx_cache_dir = cached.cache_dir;
     let offline = cached.offline;
@@ -396,6 +399,7 @@ fn handle_bundle(
     refresh_cache: bool,
     no_idl_fetch: bool,
     rpc_batch_size: usize,
+    history_slot: Option<u64>,
     progress: &Progress,
 ) -> Result<()> {
     log::info!("Bundle simulation mode: {} transactions", tx_inputs.len());
@@ -424,6 +428,7 @@ fn handle_bundle(
         &parsed_txs,
         parser_registry,
         progress,
+        history_slot,
     )?;
     let bundle_cache_dir = cached.cache_dir;
     let offline = cached.offline;

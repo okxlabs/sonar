@@ -23,6 +23,11 @@ pub struct AccountArgs {
     /// Output raw account data as base64 JSON, skip decoding
     #[arg(long)]
     pub raw: bool,
+
+    /// Fetch account state from a historical slot via the non-standard
+    /// getMultipleAccountsDataBySlot RPC method.
+    #[arg(long = "history-slot", value_name = "SLOT")]
+    pub history_slot: Option<u64>,
 }
 
 #[cfg(test)]
