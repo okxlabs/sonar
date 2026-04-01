@@ -243,6 +243,12 @@ Fetch and decode a Solana account (`account` or alias `acc`):
 sonar account <PUBKEY> --rpc-url https://api.mainnet-beta.solana.com
 sonar acc <PUBKEY> --rpc-url <RPC_URL>
 
+# Load from a local JSON file (Solana CLI `--output json` format)
+sonar account ./account.json
+
+# Read from stdin
+solana account <PUBKEY> --output json | sonar account
+
 # Output raw account data as base64 JSON (skip all decoding)
 sonar account <PUBKEY> --rpc-url <RPC_URL> --raw
 
@@ -279,8 +285,7 @@ sonar convert hex text 0x48656cff6f --escape
 
 Supported formats:
 
-- Generic (input & output): `int`, `hex`, `hex-bytes` (`hb`), `bytes`, `text`, `base64` (`b64`), `base58` (`b58`), `lamports` (`lam`), `sol`
-- Generic (output only): `binary` (`bin`)
+- Generic (input & output): `int`, `hex`, `hex-bytes` (`hb`), `bytes`, `text`, `binary` (`bin`), `base64` (`b64`), `base58` (`b58`), `lamports` (`lam`), `sol`
 - Solana (input & output): `pubkey` (`pk`, 32-byte), `signature` (`sig`, 64-byte)
 - Solana (input only): `keypair` (`kp`, 64-byte)
 - Fixed-width integers: `u8`, `u16`, `u32`, `u64`, `u128`, `u256`, `i8`, `i16`, `i32`, `i64`, `i128`, `i256`
@@ -296,13 +301,19 @@ Validation rules:
 
 Derive a Program Derived Address from seeds:
 
-Seed types: `string` (`str`), `pubkey` (`pk`), `u64`, `u8`.
+Seed types: `string` (`str`), `pubkey` (`pk`), `bool`, `u8`, `u16`, `u32`, `u64`, `u128`, `i8`, `i16`, `i32`, `i64`, `i128`, `bytes` (`hex`).
 
 ```bash
 sonar pda <PROGRAM_ID> string:hello pubkey:<PUBKEY>
 
-# Numeric seeds (u64 little-endian, and single-byte u8)
+# Integer seeds (all little-endian)
 sonar pda <PROGRAM_ID> string:position u64:42 u8:7
+
+# Bool and signed integer seeds
+sonar pda <PROGRAM_ID> bool:true i64:-100
+
+# Raw bytes seed (hex-encoded)
+sonar pda <PROGRAM_ID> string:prefix bytes:deadbeef
 ```
 
 ### Program ELF
