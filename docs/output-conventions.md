@@ -8,12 +8,13 @@
 | **stderr** | Diagnostics (warnings, errors), progress indicators, and utility-command informational output (e.g. `cache list`). |
 
 - **stdout**: Machine-consumable primary results (stable fields, success output, confirmation messages).
-  - `send`: signature, cluster-aware explorer URL (inferred from `--rpc-url`), and `--wait` confirmation (when used).
+  - `send` (text mode): signature only. Explorer URL and `--wait` confirmation go to stderr.
+  - `send` (JSON mode): `{"signature", "explorer_url"}` object. `--wait` confirmation still goes to stderr.
   - `program-elf -o <file>`: success message (bytes written, path).
   - Other commands: main structured output.
 - **stderr**: Warnings, diagnostics, and errors only.
 
-When `--json` is used, **stdout always contains a single valid JSON document** (object or array). Diagnostics remain on stderr so that `jq` pipelines work without filtering.
+When `--json` is used, **stdout always contains a single valid JSON document** (object or array). Diagnostics remain on stderr so that `jq` pipelines work without filtering. Note: `program-elf` and `completions` do not support `--json`.
 
 ## Diagnostic Levels
 

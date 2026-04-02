@@ -21,13 +21,16 @@ Decoded types: BPF upgradeable, Address Lookup Table, SPL Token/Token-2022, Anch
 
 Derive a Program Derived Address from seeds:
 
-Seed types: `string` (`str`), `pubkey` (`pk`), `u64`, `u8`.
+Seed types: `string` (`str`), `pubkey` (`pk`), `bool`, `u8`, `u16`, `u32`, `u64`, `u128`, `i8`, `i16`, `i32`, `i64`, `i128`, `bytes` (`hex`).
 
 ```bash
 sonar pda <PROGRAM_ID> string:hello pubkey:<PUBKEY>
 
-# Numeric seeds (u64 little-endian, and single-byte u8)
+# Numeric seeds (little-endian)
 sonar pda <PROGRAM_ID> string:position u64:42 u8:7
+
+# Bool, signed integers, and raw bytes
+sonar pda <PROGRAM_ID> bool:true i64:-1 bytes:deadbeef
 ```
 
 ## Program ELF

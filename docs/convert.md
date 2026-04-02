@@ -27,8 +27,7 @@ sonar convert hex text 0x48656cff6f --escape
 
 ## Supported Formats
 
-- Generic (input & output): `int`, `hex`, `hex-bytes` (`hb`), `bytes`, `text`, `base64` (`b64`), `base58` (`b58`), `lamports` (`lam`), `sol`
-- Generic (output only): `binary` (`bin`)
+- Generic (input & output): `int`, `hex`, `hex-bytes` (`hb`), `bytes`, `text`, `binary` (`bin`), `base64` (`b64`), `base58` (`b58`), `lamports` (`lam`), `sol`
 - Solana (input & output): `pubkey` (`pk`, 32-byte), `signature` (`sig`, 64-byte)
 - Solana (input only): `keypair` (`kp`, 64-byte)
 - Fixed-width integers: `u8`, `u16`, `u32`, `u64`, `u128`, `u256`, `i8`, `i16`, `i32`, `i64`, `i128`, `i256`
