@@ -12,8 +12,9 @@ use sonar_sim::{
     prepare_token_fundings,
 };
 
-use super::{
-    cache_read_dir, prepare_accounts_and_idls, resolve_inputs_to_txs, warn_unmatched_addresses,
+use super::common::{
+    build_cache_location, cache_read_dir, prepare_accounts_and_idls, resolve_inputs_to_txs,
+    warn_unmatched_addresses,
 };
 
 /// Parse a vector of raw CLI strings using the given parser function.
@@ -91,7 +92,7 @@ pub(crate) fn handle(args: SimulateArgs, json: bool) -> Result<()> {
     // --cache-dir or --refresh-cache imply --cache
     let cache = cache || cache_dir.is_some() || refresh_cache;
     let rpc_url = rpc.rpc_url;
-    let resolver_cache_location = Some(super::build_cache_location(&cache_dir));
+    let resolver_cache_location = Some(build_cache_location(&cache_dir));
 
     let TransactionInputArgs { tx } = transaction;
 
@@ -432,7 +433,7 @@ fn handle_bundle(
 
 #[cfg(test)]
 mod tests {
-    use super::cache_read_dir;
+    use crate::handlers::common::cache_read_dir;
     use std::path::PathBuf;
 
     #[test]
