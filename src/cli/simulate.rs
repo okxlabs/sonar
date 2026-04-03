@@ -137,6 +137,11 @@ pub struct SimulateArgs {
         value_parser = parse_timestamp
     )]
     pub timestamp: Option<i64>,
+    /// Fetch account state from a historical slot via the non-standard
+    /// getMultipleAccountsDataBySlot RPC method. Requires an RPC node that
+    /// supports this method (e.g. certain archival providers).
+    #[arg(long = "history-slot", help_heading = HELP_HEADING_STATE_PREPARATION, value_name = "SLOT")]
+    pub history_slot: Option<u64>,
     /// Override the simulation slot
     #[arg(short = 's', long = "slot", help_heading = HELP_HEADING_SIMULATION_CONTROLS, value_name = "SLOT")]
     pub slot: Option<u64>,

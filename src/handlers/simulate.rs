@@ -78,6 +78,7 @@ pub(crate) fn handle(args: SimulateArgs, json: bool) -> Result<()> {
         show_balance_change,
         raw_log,
         show_ix_detail,
+        history_slot,
         timestamp,
         slot,
         data_patches: data_patch_args,
@@ -145,6 +146,7 @@ pub(crate) fn handle(args: SimulateArgs, json: bool) -> Result<()> {
             cache_dir,
             refresh_cache,
             no_idl_fetch,
+            history_slot,
             &progress,
         );
     }
@@ -161,7 +163,11 @@ pub(crate) fn handle(args: SimulateArgs, json: bool) -> Result<()> {
     let resolved_from = resolved_input.source.as_str().to_string();
     let mut parsed_tx = resolved_input.parsed_tx;
 
-    let cache_key = crate::core::cache::derive_cache_key_single(&raw_input, &parsed_tx.transaction);
+    let cache_key = crate::core::cache::derive_cache_key_single(
+        &raw_input,
+        &parsed_tx.transaction,
+        history_slot,
+    );
 
     apply_ix_mutations(&mut parsed_tx, &ix_account_patches, &ix_account_appends, &ix_data_patches)?;
     let (tx_cache_dir, offline) =
@@ -176,6 +182,7 @@ pub(crate) fn handle(args: SimulateArgs, json: bool) -> Result<()> {
         &mut parser_registry,
         no_idl_fetch,
         &progress,
+        history_slot,
     )?;
 
     warn_unmatched_addresses(
@@ -283,6 +290,7 @@ fn handle_bundle(
     cache_dir: Option<PathBuf>,
     refresh_cache: bool,
     no_idl_fetch: bool,
+    history_slot: Option<u64>,
     progress: &Progress,
 ) -> Result<()> {
     log::info!("Bundle simulation mode: {} transactions", tx_inputs.len());
@@ -294,7 +302,8 @@ fn handle_bundle(
     let mut parsed_txs: Vec<_> = resolved_txs.iter().map(|tx| tx.parsed_tx.clone()).collect();
     log::info!("Successfully parsed {} transactions", parsed_txs.len());
 
-    let cache_key = crate::core::cache::derive_cache_key_bundle(&tx_inputs, &parsed_txs);
+    let cache_key =
+        crate::core::cache::derive_cache_key_bundle(&tx_inputs, &parsed_txs, history_slot);
 
     for parsed_tx in &mut parsed_txs {
         apply_ix_mutations(parsed_tx, &ix_account_patches, &ix_account_appends, &ix_data_patches)?;
@@ -312,6 +321,7 @@ fn handle_bundle(
         parser_registry,
         no_idl_fetch,
         progress,
+        history_slot,
     )?;
 
     let parsed_tx_refs: Vec<_> = parsed_txs.iter().collect();

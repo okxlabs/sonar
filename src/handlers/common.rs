@@ -187,6 +187,7 @@ pub(crate) fn run_idl_pipeline(
 }
 
 /// Loads accounts for parsed transactions and runs the shared IDL pipeline.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn prepare_accounts_and_idls(
     rpc_url: &str,
     cache_dir: Option<PathBuf>,
@@ -195,12 +196,14 @@ pub(crate) fn prepare_accounts_and_idls(
     parser_registry: &mut ParserRegistry,
     no_idl_fetch: bool,
     progress: &Progress,
+    history_slot: Option<u64>,
 ) -> Result<PreparedPipelineContext> {
     let mut account_loader = account_loader::create_loader(
         rpc_url.to_string(),
         cache_dir,
         offline,
         Some(progress.clone()),
+        history_slot,
     )?;
     let resolved_accounts = if parsed_txs.len() == 1 {
         account_loader.load_for_transaction(&parsed_txs[0].transaction)?
