@@ -54,10 +54,8 @@ const DEFAULT_RETRY_DELAY: Duration = Duration::from_secs(2);
 
 impl RpcClient {
     pub fn new(rpc_url: impl Into<String>) -> Self {
-        let agent = ureq::Agent::config_builder()
-            .timeout_global(Some(RPC_TIMEOUT))
-            .build()
-            .new_agent();
+        let agent =
+            ureq::Agent::config_builder().timeout_global(Some(RPC_TIMEOUT)).build().new_agent();
         Self { agent, rpc_url: rpc_url.into() }
     }
 
@@ -87,7 +85,9 @@ impl RpcClient {
                     }
                     return rpc.result.ok_or_else(|| anyhow!("RPC returned empty result"));
                 }
-                Err(ureq::Error::StatusCode(status_code)) if (status_code == 429 || status_code == 503) && attempt < MAX_RETRIES => {
+                Err(ureq::Error::StatusCode(status_code))
+                    if (status_code == 429 || status_code == 503) && attempt < MAX_RETRIES =>
+                {
                     let delay = DEFAULT_RETRY_DELAY * (attempt + 1);
                     log::warn!(
                         "RPC returned {}; retrying in {:?} (attempt {}/{})",
@@ -129,10 +129,8 @@ impl RpcClient {
                 {"encoding": "base64", "commitment": commitment_str(commitment)}
             ]),
         )?;
-        let value = result
-            .value
-            .map(|info| info.into_account().map_err(|e| anyhow!("{e}")))
-            .transpose()?;
+        let value =
+            result.value.map(|info| info.into_account().map_err(|e| anyhow!("{e}"))).transpose()?;
         Ok(RpcResponse { value })
     }
 
@@ -148,14 +146,11 @@ impl RpcClient {
             "skipPreflight": config.skip_preflight,
         });
         if let Some(commitment) = config.preflight_commitment {
-            opts["preflightCommitment"] = serde_json::Value::String(
-                commitment_str(commitment).into(),
-            );
+            opts["preflightCommitment"] =
+                serde_json::Value::String(commitment_str(commitment).into());
         }
-        let sig_str: String = self.call(
-            "sendTransaction",
-            serde_json::json!([BASE64.encode(&tx_bytes), opts]),
-        )?;
+        let sig_str: String =
+            self.call("sendTransaction", serde_json::json!([BASE64.encode(&tx_bytes), opts]))?;
         Signature::from_str(&sig_str).map_err(|e| anyhow!("Invalid signature: {e}"))
     }
 
@@ -165,9 +160,7 @@ impl RpcClient {
     ) -> Result<RpcResponse<Vec<Option<TransactionStatus>>>> {
         self.call(
             "getSignatureStatuses",
-            serde_json::json!([
-                signatures.iter().map(|s| s.to_string()).collect::<Vec<_>>()
-            ]),
+            serde_json::json!([signatures.iter().map(|s| s.to_string()).collect::<Vec<_>>()]),
         )
     }
 

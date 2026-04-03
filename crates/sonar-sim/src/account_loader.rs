@@ -293,16 +293,12 @@ fn expand_lookup_table(
     table_account: &AccountSharedData,
     plan: &AddressLookupPlan,
 ) -> Result<ResolvedLookup> {
-    let lookup_table =
-        AddressLookupTable::deserialize(table_account.data()).map_err(|err| {
-            SonarSimError::LookupTable {
-                table: Some(plan.account_key),
-                reason: format!(
-                    "Failed to parse address lookup table `{}`: {err}",
-                    plan.account_key
-                ),
-            }
-        })?;
+    let lookup_table = AddressLookupTable::deserialize(table_account.data()).map_err(|err| {
+        SonarSimError::LookupTable {
+            table: Some(plan.account_key),
+            reason: format!("Failed to parse address lookup table `{}`: {err}", plan.account_key),
+        }
+    })?;
     let all_addresses = lookup_table.addresses.to_vec();
 
     let writable_addresses = resolve_lookup_indexes(&all_addresses, &plan.writable_indexes)
@@ -607,10 +603,8 @@ mod tests {
     fn collect_initial_accounts_single_plan_no_lookups() {
         let key1 = Pubkey::new_unique();
         let key2 = Pubkey::new_unique();
-        let plan = MessageAccountPlan {
-            static_accounts: vec![key1, key2],
-            address_lookups: vec![],
-        };
+        let plan =
+            MessageAccountPlan { static_accounts: vec![key1, key2], address_lookups: vec![] };
         let keys = collect_initial_accounts(&[plan]);
         assert!(keys.contains(&key1));
         assert!(keys.contains(&key2));
@@ -624,14 +618,10 @@ mod tests {
         let shared = Pubkey::new_unique();
         let unique1 = Pubkey::new_unique();
         let unique2 = Pubkey::new_unique();
-        let plan1 = MessageAccountPlan {
-            static_accounts: vec![shared, unique1],
-            address_lookups: vec![],
-        };
-        let plan2 = MessageAccountPlan {
-            static_accounts: vec![shared, unique2],
-            address_lookups: vec![],
-        };
+        let plan1 =
+            MessageAccountPlan { static_accounts: vec![shared, unique1], address_lookups: vec![] };
+        let plan2 =
+            MessageAccountPlan { static_accounts: vec![shared, unique2], address_lookups: vec![] };
         let keys = collect_initial_accounts(&[plan1, plan2]);
         let shared_count = keys.iter().filter(|k| **k == shared).count();
         assert_eq!(shared_count, 1);
@@ -812,9 +802,6 @@ mod tests {
 
         let err = expand_lookup_table(&account, &plan).unwrap_err();
         let msg = err.to_string();
-        assert!(
-            msg.contains("Failed to parse writable indexes"),
-            "unexpected error: {msg}"
-        );
+        assert!(msg.contains("Failed to parse writable indexes"), "unexpected error: {msg}");
     }
 }

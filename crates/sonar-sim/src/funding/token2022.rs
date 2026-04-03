@@ -229,7 +229,8 @@ mod tests {
             .unwrap(),
         );
         let result =
-            update_token_balance_in_account(&mut account, &token, &mint, &owner, 5_000_000, 6).unwrap();
+            update_token_balance_in_account(&mut account, &token, &mint, &owner, 5_000_000, 6)
+                .unwrap();
         assert_eq!(result.amount_raw, 5_000_000);
         assert!((result.ui_amount - 5.0).abs() < f64::EPSILON);
 
@@ -247,7 +248,8 @@ mod tests {
         let account =
             build_token_account_with_extensions(&token, &mint, &owner, &mint_account, &rent)
                 .unwrap();
-        let state = StateWithExtensions::<Token2022Account>::unpack(account.data()).expect("unpack");
+        let state =
+            StateWithExtensions::<Token2022Account>::unpack(account.data()).expect("unpack");
         assert_eq!(Pubkey::new_from_array(state.base.owner.to_bytes()), owner);
     }
 }

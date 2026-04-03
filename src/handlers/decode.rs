@@ -9,7 +9,7 @@ use crate::utils::progress::Progress;
 
 use super::common::{cache_read_dir, prepare_accounts_and_idls, resolve_inputs_to_txs};
 
-pub(crate) fn handle(args: DecodeArgs) -> Result<()> {
+pub(crate) fn handle(args: DecodeArgs, json: bool) -> Result<()> {
     let idl_dir = args.idl_dir.clone();
     let mut parser_registry = ParserRegistry::new(idl_dir);
     let progress = Progress::new();
@@ -25,12 +25,9 @@ pub(crate) fn handle(args: DecodeArgs) -> Result<()> {
         refresh_cache,
     } = args;
     let rpc_url = rpc.rpc_url;
-    let resolver_cache_location = if refresh_cache {
-        None
-    } else {
-        Some(super::common::build_cache_location(&cache_dir))
-    };
-    let TransactionInputArgs { tx, json } = transaction;
+    let resolver_cache_location =
+        if refresh_cache { None } else { Some(super::common::build_cache_location(&cache_dir)) };
+    let TransactionInputArgs { tx } = transaction;
 
     // Check if this is a bundle (multiple positional TX arguments)
     if tx.len() > 1 {

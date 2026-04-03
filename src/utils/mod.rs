@@ -29,16 +29,12 @@ pub fn read_cli_input(input: Option<&str>, kind: &str) -> Result<String, String>
         return Ok(trimmed.to_owned());
     }
 
-    Err(format!(
-        "No input provided. Pass {kind} as a positional argument or pipe via stdin"
-    ))
+    Err(format!("No input provided. Pass {kind} as a positional argument or pipe via stdin"))
 }
 
 /// Strip an optional `0x` or `0X` prefix from a hex string.
 pub fn strip_hex_prefix(s: &str) -> &str {
-    s.strip_prefix("0x")
-        .or_else(|| s.strip_prefix("0X"))
-        .unwrap_or(s)
+    s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")).unwrap_or(s)
 }
 
 /// Parse a hex string (with optional `0x`/`0X` prefix) into bytes.

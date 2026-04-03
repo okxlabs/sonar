@@ -1,4 +1,5 @@
 use assert_cmd::cargo::cargo_bin_cmd;
+use serde_json::Value;
 
 const VALID_PUBKEY: &str = "11111111111111111111111111111111";
 
@@ -622,5 +623,133 @@ fn cnofig_alias_is_rejected() {
     assert!(
         stderr.contains("unrecognized subcommand"),
         "expected clap unknown subcommand error, got: {stderr}"
+    );
+}
+
+// ─── Global --json flag e2e tests ───────────────────────────────────
+
+#[test]
+fn json_pda_returns_valid_json_with_expected_keys() {
+    let mut cmd = cargo_bin_cmd!("sonar");
+    cmd.arg("--json").arg("pda").arg(VALID_PUBKEY).arg("string:test");
+
+    let assert = cmd.assert().success();
+    let output = assert.get_output();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    let json: Value = serde_json::from_str(&stdout).expect("stdout should be valid JSON");
+    assert!(json.get("pda").and_then(|v| v.as_str()).is_some(), "expected 'pda' string key");
+    assert!(json.get("bump").and_then(|v| v.as_u64()).is_some(), "expected 'bump' integer key");
+    assert!(stderr.trim().is_empty(), "expected no stderr for --json pda, got: {stderr}");
+}
+
+#[test]
+fn json_convert_returns_valid_json_with_expected_keys() {
+    let mut cmd = cargo_bin_cmd!("sonar");
+    cmd.arg("--json").arg("convert").arg("hex").arg("text").arg("0x48656c6c6f");
+
+    let assert = cmd.assert().success();
+    let output = assert.get_output();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    let json: Value = serde_json::from_str(&stdout).expect("stdout should be valid JSON");
+    assert_eq!(json["output"], "Hello");
+    assert!(json.get("input").is_some(), "expected 'input' key");
+    assert!(json.get("from").is_some(), "expected 'from' key");
+    assert!(json.get("to").is_some(), "expected 'to' key");
+    assert!(stderr.trim().is_empty(), "expected no stderr for --json convert, got: {stderr}");
+}
+
+#[test]
+fn json_borsh_ser_returns_valid_json_with_hex_key() {
+    let mut cmd = cargo_bin_cmd!("sonar");
+    cmd.arg("--json").arg("borsh").arg("ser").arg("u8").arg("42");
+
+    let assert = cmd.assert().success();
+    let output = assert.get_output();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    let json: Value = serde_json::from_str(&stdout).expect("stdout should be valid JSON");
+    assert_eq!(json["hex"], "0x2a");
+    assert!(stderr.trim().is_empty(), "expected no stderr for --json borsh ser, got: {stderr}");
+}
+
+#[test]
+fn json_config_list_returns_valid_json_object() {
+    let mut cmd = cargo_bin_cmd!("sonar");
+    cmd.arg("--json").arg("config").arg("list");
+
+    let assert = cmd.assert().success();
+    let output = assert.get_output();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    let json: Value = serde_json::from_str(&stdout).expect("stdout should be valid JSON");
+    assert!(json.is_object(), "config list should return a JSON object");
+    assert!(json.get("rpc_url").is_some(), "config list should include rpc_url key");
+}
+
+#[test]
+fn json_config_get_returns_valid_json_with_key_value() {
+    let mut cmd = cargo_bin_cmd!("sonar");
+    cmd.arg("--json").arg("config").arg("get").arg("rpc_url");
+
+    let assert = cmd.assert().success();
+    let output = assert.get_output();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    let json: Value = serde_json::from_str(&stdout).expect("stdout should be valid JSON");
+    assert!(json.get("key").is_some(), "expected 'key' field");
+    assert!(json.get("value").is_some(), "expected 'value' field");
+}
+
+#[test]
+fn json_cache_list_returns_valid_json_array() {
+    let mut cmd = cargo_bin_cmd!("sonar");
+    cmd.arg("--json").arg("cache").arg("list");
+
+    let assert = cmd.assert().success();
+    let output = assert.get_output();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    let json: Value = serde_json::from_str(&stdout).expect("stdout should be valid JSON");
+    assert!(json.is_array(), "cache list should return a JSON array");
+    // If entries exist, check they have the expected shape
+    if let Some(first) = json.as_array().and_then(|a| a.first()) {
+        assert!(first.get("key").is_some(), "cache entry should have 'key' field");
+        assert!(first.get("cache_type").is_some(), "cache entry should have 'cache_type' field");
+    }
+    assert!(!stderr.contains('\x1b'), "stderr should not contain ANSI escape codes, got: {stderr}");
+}
+
+#[test]
+fn json_flag_after_subcommand_works() {
+    let mut cmd = cargo_bin_cmd!("sonar");
+    cmd.arg("pda").arg("--json").arg(VALID_PUBKEY).arg("string:test");
+
+    let assert = cmd.assert().success();
+    let output = assert.get_output();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    let json: Value = serde_json::from_str(&stdout).expect("--json after subcommand should work");
+    assert!(json.get("pda").is_some());
+}
+
+#[test]
+fn json_flag_ignored_by_completions() {
+    let mut cmd = cargo_bin_cmd!("sonar");
+    cmd.arg("--json").arg("completions").arg("bash");
+
+    let assert = cmd.assert().success();
+    let output = assert.get_output();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // completions should produce shell script, not JSON
+    assert!(
+        stdout.contains("_sonar") || stdout.contains("complete"),
+        "completions should output shell script even with --json, got: {stdout}"
     );
 }

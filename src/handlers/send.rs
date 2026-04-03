@@ -1,21 +1,26 @@
 use std::time::{Duration, Instant};
 
-use anyhow::{Context, Result, anyhow};
 use crate::core::rpc_client::{RpcClient, SendTransactionConfig};
+use anyhow::{Context, Result, anyhow};
+use serde::Serialize;
 use solana_signature::Signature;
 use solana_transaction_status_client_types::{TransactionConfirmationStatus, TransactionStatus};
 
 use crate::cli::{SendArgs, WaitCommitmentArg};
 use crate::core::transaction;
 
-pub(crate) fn handle(args: SendArgs) -> Result<()> {
+#[derive(Serialize)]
+struct SendOutput {
+    signature: String,
+    explorer_url: String,
+}
+
+pub(crate) fn handle(args: SendArgs, json: bool) -> Result<()> {
     let parsed = transaction::parse_raw_transaction(&args.tx)?;
     let client = RpcClient::new(&args.rpc.rpc_url);
 
-    let config = SendTransactionConfig {
-        skip_preflight: args.skip_preflight,
-        ..Default::default()
-    };
+    let config =
+        SendTransactionConfig { skip_preflight: args.skip_preflight, ..Default::default() };
 
     let signature = client
         .send_transaction_with_config(&parsed.transaction, config)
@@ -31,8 +36,17 @@ pub(crate) fn handle(args: SendArgs) -> Result<()> {
         None
     };
 
-    let output = render_send_output(&signature_text, &explorer_url, wait_info.as_deref());
-    println!("{}", output);
+    if json {
+        crate::output::print_json(&SendOutput { signature: signature_text, explorer_url })?;
+    } else {
+        println!("{}", signature_text);
+        eprintln!("{}", explorer_url);
+    }
+
+    // Wait-confirmation status always goes to stderr regardless of mode
+    if let Some(info) = wait_info {
+        eprintln!("{}", info);
+    }
 
     Ok(())
 }
@@ -68,15 +82,6 @@ fn build_explorer_url(signature: &str, rpc_url: &str) -> String {
             format!("https://explorer.solana.com/tx/{signature}?cluster=testnet")
         }
     }
-}
-
-fn render_send_output(signature: &str, explorer_url: &str, wait_info: Option<&str>) -> String {
-    let mut out = format!("{signature}\n{explorer_url}");
-    if let Some(info) = wait_info {
-        out.push('\n');
-        out.push_str(info);
-    }
-    out
 }
 
 fn wait_for_confirmation(
@@ -156,9 +161,7 @@ fn status_commitment_label(status: &TransactionStatus) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        ExplorerCluster, build_explorer_url, infer_cluster_from_rpc_url, render_send_output,
-    };
+    use super::{ExplorerCluster, build_explorer_url, infer_cluster_from_rpc_url};
 
     #[test]
     fn build_explorer_url_mainnet_no_cluster_param() {
@@ -222,33 +225,5 @@ mod tests {
             ExplorerCluster::Mainnet
         );
         assert_eq!(infer_cluster_from_rpc_url("https://example.com/rpc"), ExplorerCluster::Mainnet);
-    }
-
-    #[test]
-    fn render_send_output_default_mode_stdout_only() {
-        let rendered = render_send_output(
-            "4sGjMW1sUnHzSxGspuhpqLDx6wiyjNtZ",
-            "https://explorer.solana.com/tx/4sGjMW1sUnHzSxGspuhpqLDx6wiyjNtZ",
-            None,
-        );
-
-        assert_eq!(
-            rendered,
-            "4sGjMW1sUnHzSxGspuhpqLDx6wiyjNtZ\nhttps://explorer.solana.com/tx/4sGjMW1sUnHzSxGspuhpqLDx6wiyjNtZ"
-        );
-    }
-
-    #[test]
-    fn render_send_output_wait_mode_appends_confirmation_to_stdout() {
-        let rendered = render_send_output(
-            "4sGjMW1sUnHzSxGspuhpqLDx6wiyjNtZ",
-            "https://explorer.solana.com/tx/4sGjMW1sUnHzSxGspuhpqLDx6wiyjNtZ",
-            Some("Transaction confirmed at finalized commitment."),
-        );
-
-        assert_eq!(
-            rendered,
-            "4sGjMW1sUnHzSxGspuhpqLDx6wiyjNtZ\nhttps://explorer.solana.com/tx/4sGjMW1sUnHzSxGspuhpqLDx6wiyjNtZ\nTransaction confirmed at finalized commitment."
-        );
     }
 }

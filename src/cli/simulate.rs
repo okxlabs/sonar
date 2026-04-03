@@ -184,9 +184,6 @@ pub struct TransactionInputArgs {
     /// Pass multiple values for bundle mode.
     #[arg(value_name = "TX", required = false)]
     pub tx: Vec<String>,
-    /// Output as JSON instead of human-readable text
-    #[arg(short = 'j', long, default_value_t = false)]
-    pub json: bool,
 }
 
 pub use sonar_sim::{
@@ -295,11 +292,9 @@ pub fn parse_token_funding(raw: &str) -> Result<TokenFunding, String> {
             (parts[0], Some(mint), Some(owner))
         }
         _ => {
-            return Err(
-                "Token funding must be in <ACCOUNT>=<AMOUNT>, <ACCOUNT>:<MINT>=<AMOUNT>, \
+            return Err("Token funding must be in <ACCOUNT>=<AMOUNT>, <ACCOUNT>:<MINT>=<AMOUNT>, \
                  or <ACCOUNT>:<MINT>:<OWNER>=<AMOUNT> format"
-                    .to_string(),
-            );
+                .to_string());
         }
     };
 
@@ -580,7 +575,9 @@ mod tests {
     #[test]
     fn parse_token_funding_rejects_four_colons() {
         let keys: Vec<_> = (0..4).map(|_| Pubkey::new_unique()).collect();
-        let err = parse_token_funding(&format!("{}:{}:{}:{}=100", keys[0], keys[1], keys[2], keys[3])).unwrap_err();
+        let err =
+            parse_token_funding(&format!("{}:{}:{}:{}=100", keys[0], keys[1], keys[2], keys[3]))
+                .unwrap_err();
         assert!(err.contains("<ACCOUNT>"));
     }
 

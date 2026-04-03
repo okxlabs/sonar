@@ -190,8 +190,7 @@ pub(crate) fn format_fixed_integer(
             }
             ConvertValue::FixedBigSigned { value, .. } => {
                 let raw = value.to_string();
-                let as_i128 = i128::try_from(value).map_err(|_| out_of_range(&raw))?;
-                as_i128
+                i128::try_from(value).map_err(|_| out_of_range(&raw))?
             }
             ConvertValue::Lamports(value) => {
                 let as_u128 = u128::from(*value);
@@ -246,8 +245,7 @@ pub(crate) fn format_fixed_integer(
                 if value.sign() == Sign::Minus {
                     return Err(out_of_range(&raw));
                 }
-                let as_u128 = u128::try_from(value).map_err(|_| out_of_range(&raw))?;
-                as_u128
+                u128::try_from(value).map_err(|_| out_of_range(&raw))?
             }
             ConvertValue::Lamports(value) => u128::from(*value),
         };

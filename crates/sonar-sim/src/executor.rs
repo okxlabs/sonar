@@ -945,11 +945,7 @@ mod tests {
         };
         let mut svm = MockSvm::new().with_account(key, account);
 
-        let patches = vec![AccountDataPatch {
-            pubkey: key,
-            offset: 1,
-            data: vec![0xAA, 0xBB],
-        }];
+        let patches = vec![AccountDataPatch { pubkey: key, offset: 1, data: vec![0xAA, 0xBB] }];
         apply_data_patches(&mut svm, &patches).expect("should apply");
 
         let loaded = svm.get_account(&key).unwrap();
@@ -1016,7 +1012,8 @@ mod tests {
         let key = Pubkey::new_unique();
 
         // Should not error, just warn
-        apply_account_closures(&mut svm, &[key]).expect("closure of missing account should succeed");
+        apply_account_closures(&mut svm, &[key])
+            .expect("closure of missing account should succeed");
         assert!(svm.get_account(&key).is_none());
     }
 
