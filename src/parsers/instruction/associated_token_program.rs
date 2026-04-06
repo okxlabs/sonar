@@ -9,21 +9,7 @@ const CREATE_DISCRIMINATOR: u8 = 0;
 const CREATE_IDEMPOTENT_DISCRIMINATOR: u8 = 1;
 const RECOVER_NESTED_DISCRIMINATOR: u8 = 2;
 
-pub struct AssociatedTokenProgramParser {
-    program_id: Pubkey,
-}
-
-impl AssociatedTokenProgramParser {
-    pub fn new() -> Self {
-        Self { program_id: Pubkey::from_str_const(ASSOCIATED_TOKEN_PROGRAM_ID) }
-    }
-}
-
-impl Default for AssociatedTokenProgramParser {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+define_parser!(AssociatedTokenProgramParser, ASSOCIATED_TOKEN_PROGRAM_ID);
 
 impl InstructionParser for AssociatedTokenProgramParser {
     fn program_id(&self) -> &Pubkey {
@@ -106,12 +92,11 @@ fn append_extra_account_names(
     total_accounts: usize,
     accounted_accounts: usize,
 ) {
-    if total_accounts <= accounted_accounts {
-        return;
-    }
-
-    account_names.extend(
-        (0..(total_accounts - accounted_accounts)).map(|i| format!("additional_account_{}", i + 1)),
+    super::append_extra_account_names(
+        account_names,
+        total_accounts,
+        accounted_accounts,
+        "additional_account_",
     );
 }
 

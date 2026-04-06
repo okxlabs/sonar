@@ -87,6 +87,45 @@ impl PartialEq<String> for ParsedFieldValue {
 
 pub use sonar_idl::OrderedJsonValue;
 
+/// Append numbered account names for accounts beyond the named set.
+///
+/// For example, if an instruction has 5 accounts but only 3 are named,
+/// this appends `{prefix}1` and `{prefix}2` for the remaining accounts.
+pub(crate) fn append_extra_account_names(
+    account_names: &mut Vec<String>,
+    total_accounts: usize,
+    named_accounts: usize,
+    prefix: &str,
+) {
+    for i in 0..(total_accounts.saturating_sub(named_accounts)) {
+        account_names.push(format!("{}{}", prefix, i + 1));
+    }
+}
+
+/// Generate parser struct boilerplate: struct definition, `new()`, and `Default`.
+///
+/// Usage: `define_parser!(MyProgramParser, "ProgramId1111...");`
+/// Then implement `InstructionParser` manually (the struct has a `program_id` field).
+macro_rules! define_parser {
+    ($name:ident, $program_id:expr) => {
+        pub struct $name {
+            program_id: Pubkey,
+        }
+
+        impl $name {
+            pub fn new() -> Self {
+                Self { program_id: Pubkey::from_str_const($program_id) }
+            }
+        }
+
+        impl Default for $name {
+            fn default() -> Self {
+                Self::new()
+            }
+        }
+    };
+}
+
 /// Trait for parsing instructions of specific Solana programs
 pub trait InstructionParser: Send + Sync {
     /// Returns the program ID this parser handles

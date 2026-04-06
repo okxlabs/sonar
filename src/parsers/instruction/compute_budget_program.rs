@@ -3,6 +3,7 @@ use solana_pubkey::Pubkey;
 
 use super::{InstructionParser, ParsedField, ParsedInstruction};
 use crate::core::transaction::InstructionSummary;
+use crate::parsers::binary_reader;
 
 const COMPUTE_BUDGET_PROGRAM_ID: &str = "ComputeBudget111111111111111111111111111111";
 const UNUSED_DISCRIMINATOR: u8 = 0;
@@ -11,21 +12,7 @@ const SET_COMPUTE_UNIT_LIMIT_DISCRIMINATOR: u8 = 2;
 const SET_COMPUTE_UNIT_PRICE_DISCRIMINATOR: u8 = 3;
 const SET_LOADED_ACCOUNTS_DATA_SIZE_LIMIT_DISCRIMINATOR: u8 = 4;
 
-pub struct ComputeBudgetProgramParser {
-    program_id: Pubkey,
-}
-
-impl ComputeBudgetProgramParser {
-    pub fn new() -> Self {
-        Self { program_id: Pubkey::from_str_const(COMPUTE_BUDGET_PROGRAM_ID) }
-    }
-}
-
-impl Default for ComputeBudgetProgramParser {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+define_parser!(ComputeBudgetProgramParser, COMPUTE_BUDGET_PROGRAM_ID);
 
 impl InstructionParser for ComputeBudgetProgramParser {
     fn program_id(&self) -> &Pubkey {
@@ -83,13 +70,14 @@ fn parse_u32_instruction(
         return Ok(None);
     }
 
-    let value = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
-
-    Ok(Some(ParsedInstruction {
-        name: name.to_string(),
-        fields: vec![ParsedField::text(field_name, value.to_string())],
-        account_names: vec![],
-    }))
+    binary_reader::try_parse(data, |reader| {
+        let value = reader.read_u32()?;
+        Ok(ParsedInstruction {
+            name: name.to_string(),
+            fields: vec![ParsedField::text(field_name, value.to_string())],
+            account_names: vec![],
+        })
+    })
 }
 
 fn parse_u64_instruction(
@@ -101,15 +89,14 @@ fn parse_u64_instruction(
         return Ok(None);
     }
 
-    let value = u64::from_le_bytes([
-        data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7],
-    ]);
-
-    Ok(Some(ParsedInstruction {
-        name: name.to_string(),
-        fields: vec![ParsedField::text(field_name, value.to_string())],
-        account_names: vec![],
-    }))
+    binary_reader::try_parse(data, |reader| {
+        let value = reader.read_u64()?;
+        Ok(ParsedInstruction {
+            name: name.to_string(),
+            fields: vec![ParsedField::text(field_name, value.to_string())],
+            account_names: vec![],
+        })
+    })
 }
 
 #[cfg(test)]
