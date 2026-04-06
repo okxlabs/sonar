@@ -217,9 +217,7 @@ fn append_additional_signer_accounts(
     base_accounts: usize,
     total_accounts: usize,
 ) {
-    for i in base_accounts..total_accounts {
-        account_names.push(format!("additional_signer_{}", i - base_accounts + 1));
-    }
+    super::append_extra_account_names(account_names, total_accounts, base_accounts, "additional_signer_");
 }
 
 /// Parses a Transfer instruction: 3

@@ -106,13 +106,7 @@ fn append_extra_account_names(
     total_accounts: usize,
     accounted_accounts: usize,
 ) {
-    if total_accounts <= accounted_accounts {
-        return;
-    }
-
-    account_names.extend(
-        (0..(total_accounts - accounted_accounts)).map(|i| format!("additional_account_{}", i + 1)),
-    );
+    super::append_extra_account_names(account_names, total_accounts, accounted_accounts, "additional_account_");
 }
 
 #[cfg(test)]
