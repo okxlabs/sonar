@@ -10,7 +10,7 @@ CLI for local Solana transaction simulation (LiteSVM) plus utility subcommands.
 - `converters/`: bytes, integers, sol, text, types
 - `core/`: transaction, account_loader, cache, account_file, idl_fetcher
 - `output/`: report, text, json, account_text, terminal
-- `parsers/`: `instruction/` (anchor_idl, system_program, compute_budget, memo, ata, token2022, template), log_parser, metaplex_metadata_decoder, token_account_decoder
+- `parsers/`: `instruction/` (anchor_idl, system_program, compute_budget, memo, ata, token2022), log_parser, metaplex_metadata_decoder, token_account_decoder
 - `utils/`: config, progress
 - `tests/`: e2e_simulation, e2e_cli_output_streams, fixtures/
 
