@@ -963,7 +963,6 @@ fn parse_create_native_mint_instruction(
     }))
 }
 
-
 fn parse_initialize_permanent_delegate_instruction(
     data: &[u8],
     instruction: &InstructionSummary,

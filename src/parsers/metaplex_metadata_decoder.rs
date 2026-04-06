@@ -227,11 +227,8 @@ fn read_option_programmable_config(reader: &mut BinaryReader) -> Result<Option<V
     let variant = reader.read_u8()?;
     match variant {
         0 => {
-            let rule_set = if reader.read_bool()? {
-                Some(reader.read_pubkey()?.to_string())
-            } else {
-                None
-            };
+            let rule_set =
+                if reader.read_bool()? { Some(reader.read_pubkey()?.to_string()) } else { None };
             Ok(Some(json!({
                 "kind": "V1",
                 "rule_set": rule_set
