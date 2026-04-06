@@ -255,25 +255,13 @@ static INSTRUCTIONS: &[InstructionDef] = &[
     },
 ];
 
-/// Parser for the Token2022 Program instructions
-/// Supports all Token2022 Program instructions including Transfer and TransferChecked
-pub struct Token2022ProgramParser {
-    program_id: Pubkey,
-}
+// Parser for the Token2022 Program instructions.
+// Supports all Token2022 Program instructions including Transfer and TransferChecked.
+define_parser!(Token2022ProgramParser, TOKEN2022_PROGRAM_ID);
 
 impl Token2022ProgramParser {
-    pub fn new() -> Self {
-        Self::with_program_id(Pubkey::from_str_const(TOKEN2022_PROGRAM_ID))
-    }
-
     pub fn with_program_id(program_id: Pubkey) -> Self {
         Self { program_id }
-    }
-}
-
-impl Default for Token2022ProgramParser {
-    fn default() -> Self {
-        Self::new()
     }
 }
 

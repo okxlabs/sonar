@@ -102,6 +102,32 @@ pub(crate) fn append_extra_account_names(
     }
 }
 
+/// Generate parser struct boilerplate: struct definition, `new()`, and `Default`.
+///
+/// Usage: `define_parser!(MyProgramParser, "ProgramId1111...");`
+/// Then implement `InstructionParser` manually (the struct has a `program_id` field).
+macro_rules! define_parser {
+    ($name:ident, $program_id:expr) => {
+        pub struct $name {
+            program_id: Pubkey,
+        }
+
+        impl $name {
+            pub fn new() -> Self {
+                Self {
+                    program_id: Pubkey::from_str_const($program_id),
+                }
+            }
+        }
+
+        impl Default for $name {
+            fn default() -> Self {
+                Self::new()
+            }
+        }
+    };
+}
+
 /// Trait for parsing instructions of specific Solana programs
 pub trait InstructionParser: Send + Sync {
     /// Returns the program ID this parser handles

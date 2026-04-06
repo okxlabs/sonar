@@ -11,21 +11,7 @@ const SET_COMPUTE_UNIT_LIMIT_DISCRIMINATOR: u8 = 2;
 const SET_COMPUTE_UNIT_PRICE_DISCRIMINATOR: u8 = 3;
 const SET_LOADED_ACCOUNTS_DATA_SIZE_LIMIT_DISCRIMINATOR: u8 = 4;
 
-pub struct ComputeBudgetProgramParser {
-    program_id: Pubkey,
-}
-
-impl ComputeBudgetProgramParser {
-    pub fn new() -> Self {
-        Self { program_id: Pubkey::from_str_const(COMPUTE_BUDGET_PROGRAM_ID) }
-    }
-}
-
-impl Default for ComputeBudgetProgramParser {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+define_parser!(ComputeBudgetProgramParser, COMPUTE_BUDGET_PROGRAM_ID);
 
 impl InstructionParser for ComputeBudgetProgramParser {
     fn program_id(&self) -> &Pubkey {

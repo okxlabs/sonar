@@ -5,22 +5,7 @@ use super::{InstructionParser, ParsedField, ParsedInstruction};
 use crate::core::transaction::InstructionSummary;
 use crate::parsers::binary_reader::{self, BinaryReader};
 
-/// Parser for the System Program instructions
-pub struct SystemProgramParser {
-    program_id: Pubkey,
-}
-
-impl SystemProgramParser {
-    pub fn new() -> Self {
-        Self { program_id: solana_sdk_ids::system_program::id() }
-    }
-}
-
-impl Default for SystemProgramParser {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+define_parser!(SystemProgramParser, "11111111111111111111111111111111");
 
 impl InstructionParser for SystemProgramParser {
     fn program_id(&self) -> &Pubkey {

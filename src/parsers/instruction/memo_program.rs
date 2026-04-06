@@ -7,21 +7,7 @@ use crate::core::transaction::InstructionSummary;
 
 const MEMO_PROGRAM_ID: &str = "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr";
 
-pub struct MemoProgramParser {
-    program_id: Pubkey,
-}
-
-impl MemoProgramParser {
-    pub fn new() -> Self {
-        Self { program_id: Pubkey::from_str_const(MEMO_PROGRAM_ID) }
-    }
-}
-
-impl Default for MemoProgramParser {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+define_parser!(MemoProgramParser, MEMO_PROGRAM_ID);
 
 impl InstructionParser for MemoProgramParser {
     fn program_id(&self) -> &Pubkey {
