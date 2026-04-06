@@ -105,18 +105,9 @@ impl<'a> BinaryReader<'a> {
         String::from_utf8(bytes.to_vec()).context("invalid utf8 string")
     }
 
-    /// Read a borsh-style 1-byte option tag (0=None, 1=Some).
-    pub fn read_option_tag(&mut self) -> Result<bool> {
-        match self.read_u8()? {
-            0 => Ok(false),
-            1 => Ok(true),
-            v => bail!("invalid option discriminant {v}"),
-        }
-    }
-
     /// Read an optional pubkey (1-byte tag + 32-byte pubkey if present).
     pub fn read_option_pubkey(&mut self) -> Result<Option<Pubkey>> {
-        if !self.read_option_tag()? {
+        if !self.read_bool()? {
             return Ok(None);
         }
         Ok(Some(self.read_pubkey()?))
@@ -135,7 +126,10 @@ where
     let mut reader = BinaryReader::new(data);
     match f(&mut reader) {
         Ok(parsed) => Ok(Some(parsed)),
-        Err(_) => Ok(None),
+        Err(e) => {
+            log::debug!("try_parse: instruction parse failed: {e}");
+            Ok(None)
+        }
     }
 }
 

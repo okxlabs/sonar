@@ -24,7 +24,6 @@ const INITIALIZE_MINT_CLOSE_AUTHORITY_DISCRIMINATOR: u8 = 25;
 const TRANSFER_FEE_EXTENSION_DISCRIMINATOR: u8 = 26;
 const REALLOCATE_DISCRIMINATOR: u8 = 29;
 const CREATE_NATIVE_MINT_DISCRIMINATOR: u8 = 31;
-const INITIALIZE_NON_TRANSFERABLE_MINT_DISCRIMINATOR: u8 = 32;
 const INITIALIZE_PERMANENT_DELEGATE_DISCRIMINATOR: u8 = 35;
 const WITHDRAW_EXCESS_LAMPORTS_DISCRIMINATOR: u8 = 38;
 
@@ -160,6 +159,13 @@ static INSTRUCTIONS: &[InstructionDef] = &[
         layout: DataLayout::SingleAccount,
         min_accounts: 1,
         account_names: &["account"],
+    },
+    InstructionDef {
+        discriminator: 32,
+        name: "InitializeNonTransferableMint",
+        layout: DataLayout::SingleAccount,
+        min_accounts: 1,
+        account_names: &["mint"],
     },
     // ExtensionPrefix
     InstructionDef {
@@ -320,9 +326,6 @@ impl InstructionParser for Token2022ProgramParser {
             }
             REALLOCATE_DISCRIMINATOR => parse_reallocate_instruction(data, instruction),
             CREATE_NATIVE_MINT_DISCRIMINATOR => parse_create_native_mint_instruction(instruction),
-            INITIALIZE_NON_TRANSFERABLE_MINT_DISCRIMINATOR => {
-                parse_single_account_instruction("InitializeNonTransferableMint", instruction)
-            }
             INITIALIZE_PERMANENT_DELEGATE_DISCRIMINATOR => {
                 parse_initialize_permanent_delegate_instruction(data, instruction)
             }
@@ -441,7 +444,7 @@ fn parse_initialize_mint_instruction(
     binary_reader::try_parse(data, |reader| {
         let decimals = reader.read_u8()?;
         let _mint_authority = reader.read_pubkey()?;
-        let has_freeze_authority = reader.read_option_tag()?;
+        let has_freeze_authority = reader.read_bool()?;
         if has_freeze_authority {
             let _freeze_authority = reader.read_pubkey()?;
         }
@@ -616,7 +619,7 @@ fn parse_initialize_mint2_instruction(
     binary_reader::try_parse(data, |reader| {
         let decimals = reader.read_u8()?;
         let _mint_authority = reader.read_pubkey()?;
-        let has_freeze_authority = reader.read_option_tag()?;
+        let has_freeze_authority = reader.read_bool()?;
         if has_freeze_authority {
             let _freeze_authority = reader.read_pubkey()?;
         }
@@ -960,20 +963,6 @@ fn parse_create_native_mint_instruction(
     }))
 }
 
-fn parse_single_account_instruction(
-    name: &str,
-    instruction: &InstructionSummary,
-) -> Result<Option<ParsedInstruction>> {
-    if instruction.accounts.len() != 1 {
-        return Ok(None);
-    }
-
-    Ok(Some(ParsedInstruction {
-        name: name.to_string(),
-        fields: vec![],
-        account_names: vec!["mint".to_string()],
-    }))
-}
 
 fn parse_initialize_permanent_delegate_instruction(
     data: &[u8],

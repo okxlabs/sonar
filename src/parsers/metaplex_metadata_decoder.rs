@@ -6,7 +6,6 @@
 use anyhow::{Result, anyhow, bail};
 use serde_json::{Map, Value, json};
 use solana_pubkey::Pubkey;
-use std::str::FromStr;
 
 use super::binary_reader::BinaryReader;
 
@@ -15,7 +14,7 @@ const METADATA_V1_KEY: u8 = 4;
 
 /// Returns Metaplex Token Metadata program id.
 pub(crate) fn metadata_program_id() -> Pubkey {
-    Pubkey::from_str(METAPLEX_METADATA_PROGRAM_ID).expect("valid metaplex metadata program id")
+    Pubkey::from_str_const(METAPLEX_METADATA_PROGRAM_ID)
 }
 
 /// Derive metadata PDA for a legacy mint.
@@ -30,22 +29,22 @@ pub(crate) fn derive_metadata_pda(mint: &Pubkey) -> Pubkey {
 
 /// Decode a metaplex metadata account into JSON.
 pub(crate) fn decode_metadata_account_data(data: &[u8]) -> Result<Value> {
-    let mut parser = Parser::new(data);
+    let mut reader = BinaryReader::new(data);
 
-    let key = parser.read_u8()?;
+    let key = reader.read_u8()?;
     if key != METADATA_V1_KEY {
         bail!("not a MetadataV1 account, key={key}");
     }
 
-    let update_authority = parser.read_pubkey()?;
-    let mint = parser.read_pubkey()?;
-    let name = parser.read_string()?;
-    let symbol = parser.read_string()?;
-    let uri = parser.read_string()?;
-    let seller_fee_basis_points = parser.read_u16()?;
-    let creators = parser.read_option_creators()?;
-    let primary_sale_happened = parser.read_bool()?;
-    let is_mutable = parser.read_bool()?;
+    let update_authority = reader.read_pubkey()?;
+    let mint = reader.read_pubkey()?;
+    let name = reader.read_string()?;
+    let symbol = reader.read_string()?;
+    let uri = reader.read_string()?;
+    let seller_fee_basis_points = reader.read_u16()?;
+    let creators = read_option_creators(&mut reader)?;
+    let primary_sale_happened = reader.read_bool()?;
+    let is_mutable = reader.read_bool()?;
 
     let mut result = Map::new();
     result.insert("update_authority".into(), json!(update_authority.to_string()));
@@ -59,43 +58,43 @@ pub(crate) fn decode_metadata_account_data(data: &[u8]) -> Result<Value> {
     result.insert("creators".into(), creators_to_json(creators));
 
     // Optional trailing fields in Metadata account.
-    if parser.has_remaining() {
-        let edition_nonce = parser.read_option_u8()?;
+    if reader.has_remaining() {
+        let edition_nonce = read_option_u8(&mut reader)?;
         if let Some(v) = edition_nonce {
             result.insert("edition_nonce".into(), json!(v));
         }
     }
 
-    if parser.has_remaining() {
-        let token_standard = parser.read_option_token_standard()?;
+    if reader.has_remaining() {
+        let token_standard = read_option_token_standard(&mut reader)?;
         if let Some(v) = token_standard {
             result.insert("token_standard".into(), json!(v));
         }
     }
 
-    if parser.has_remaining() {
-        let collection = parser.read_option_collection()?;
+    if reader.has_remaining() {
+        let collection = read_option_collection(&mut reader)?;
         if let Some(v) = collection {
             result.insert("collection".into(), v);
         }
     }
 
-    if parser.has_remaining() {
-        let uses = parser.read_option_uses()?;
+    if reader.has_remaining() {
+        let uses = read_option_uses(&mut reader)?;
         if let Some(v) = uses {
             result.insert("uses".into(), v);
         }
     }
 
-    if parser.has_remaining() {
-        let collection_details = parser.read_option_collection_details()?;
+    if reader.has_remaining() {
+        let collection_details = read_option_collection_details(&mut reader)?;
         if let Some(v) = collection_details {
             result.insert("collection_details".into(), v);
         }
     }
 
-    if parser.has_remaining() {
-        let programmable_config = parser.read_option_programmable_config()?;
+    if reader.has_remaining() {
+        let programmable_config = read_option_programmable_config(&mut reader)?;
         if let Some(v) = programmable_config {
             result.insert("programmable_config".into(), v);
         }
@@ -133,154 +132,112 @@ fn trim_null_padding(input: &str) -> String {
     input.trim_end_matches('\0').to_string()
 }
 
-struct Parser<'a> {
-    reader: BinaryReader<'a>,
+fn read_option_u8(reader: &mut BinaryReader) -> Result<Option<u8>> {
+    if !reader.read_bool()? {
+        return Ok(None);
+    }
+    Ok(Some(reader.read_u8()?))
 }
 
-impl<'a> Parser<'a> {
-    fn new(bytes: &'a [u8]) -> Self {
-        Self { reader: BinaryReader::new(bytes) }
+fn read_option_creators(reader: &mut BinaryReader) -> Result<Option<Vec<Creator>>> {
+    if !reader.read_bool()? {
+        return Ok(None);
     }
 
-    fn has_remaining(&self) -> bool {
-        self.reader.has_remaining()
+    let len = reader.read_u32()? as usize;
+    let mut creators = Vec::with_capacity(len);
+    for _ in 0..len {
+        creators.push(Creator {
+            address: reader.read_pubkey()?,
+            verified: reader.read_bool()?,
+            share: reader.read_u8()?,
+        });
     }
+    Ok(Some(creators))
+}
 
-    fn read_u8(&mut self) -> Result<u8> {
-        self.reader.read_u8()
+fn read_option_token_standard(reader: &mut BinaryReader) -> Result<Option<&'static str>> {
+    if !reader.read_bool()? {
+        return Ok(None);
     }
+    let standard = match reader.read_u8()? {
+        0 => "NonFungible",
+        1 => "FungibleAsset",
+        2 => "Fungible",
+        3 => "NonFungibleEdition",
+        4 => "ProgrammableNonFungible",
+        5 => "ProgrammableNonFungibleEdition",
+        v => return Err(anyhow!("unsupported token_standard variant {v}")),
+    };
+    Ok(Some(standard))
+}
 
-    fn read_bool(&mut self) -> Result<bool> {
-        self.reader.read_bool()
+fn read_option_collection(reader: &mut BinaryReader) -> Result<Option<Value>> {
+    if !reader.read_bool()? {
+        return Ok(None);
     }
+    let verified = reader.read_bool()?;
+    let key = reader.read_pubkey()?;
+    Ok(Some(json!({
+        "verified": verified,
+        "key": key.to_string()
+    })))
+}
 
-    fn read_u16(&mut self) -> Result<u16> {
-        self.reader.read_u16()
+fn read_option_uses(reader: &mut BinaryReader) -> Result<Option<Value>> {
+    if !reader.read_bool()? {
+        return Ok(None);
     }
+    let use_method = match reader.read_u8()? {
+        0 => "Burn",
+        1 => "Multiple",
+        2 => "Single",
+        v => return Err(anyhow!("unsupported use_method variant {v}")),
+    };
+    let remaining = reader.read_u64()?;
+    let total = reader.read_u64()?;
+    Ok(Some(json!({
+        "use_method": use_method,
+        "remaining": remaining.to_string(),
+        "total": total.to_string()
+    })))
+}
 
-    fn read_u64(&mut self) -> Result<u64> {
-        self.reader.read_u64()
+fn read_option_collection_details(reader: &mut BinaryReader) -> Result<Option<Value>> {
+    if !reader.read_bool()? {
+        return Ok(None);
     }
-
-    fn read_pubkey(&mut self) -> Result<Pubkey> {
-        self.reader.read_pubkey()
-    }
-
-    fn read_string(&mut self) -> Result<String> {
-        self.reader.read_string()
-    }
-
-    fn read_option_tag(&mut self) -> Result<bool> {
-        self.reader.read_option_tag()
-    }
-
-    fn read_option_u8(&mut self) -> Result<Option<u8>> {
-        if !self.read_option_tag()? {
-            return Ok(None);
+    let variant = reader.read_u8()?;
+    match variant {
+        0 => {
+            let size = reader.read_u64()?;
+            Ok(Some(json!({
+                "kind": "V1",
+                "size": size.to_string()
+            })))
         }
-        Ok(Some(self.read_u8()?))
+        _ => Err(anyhow!("unsupported collection_details variant {variant}")),
     }
+}
 
-    fn read_option_creators(&mut self) -> Result<Option<Vec<Creator>>> {
-        if !self.read_option_tag()? {
-            return Ok(None);
-        }
-
-        let len = self.reader.read_u32()? as usize;
-        let mut creators = Vec::with_capacity(len);
-        for _ in 0..len {
-            creators.push(Creator {
-                address: self.read_pubkey()?,
-                verified: self.read_bool()?,
-                share: self.read_u8()?,
-            });
-        }
-        Ok(Some(creators))
+fn read_option_programmable_config(reader: &mut BinaryReader) -> Result<Option<Value>> {
+    if !reader.read_bool()? {
+        return Ok(None);
     }
-
-    fn read_option_token_standard(&mut self) -> Result<Option<&'static str>> {
-        if !self.read_option_tag()? {
-            return Ok(None);
+    let variant = reader.read_u8()?;
+    match variant {
+        0 => {
+            let rule_set = if reader.read_bool()? {
+                Some(reader.read_pubkey()?.to_string())
+            } else {
+                None
+            };
+            Ok(Some(json!({
+                "kind": "V1",
+                "rule_set": rule_set
+            })))
         }
-        let standard = match self.read_u8()? {
-            0 => "NonFungible",
-            1 => "FungibleAsset",
-            2 => "Fungible",
-            3 => "NonFungibleEdition",
-            4 => "ProgrammableNonFungible",
-            5 => "ProgrammableNonFungibleEdition",
-            v => return Err(anyhow!("unsupported token_standard variant {v}")),
-        };
-        Ok(Some(standard))
-    }
-
-    fn read_option_collection(&mut self) -> Result<Option<Value>> {
-        if !self.read_option_tag()? {
-            return Ok(None);
-        }
-        let verified = self.read_bool()?;
-        let key = self.read_pubkey()?;
-        Ok(Some(json!({
-            "verified": verified,
-            "key": key.to_string()
-        })))
-    }
-
-    fn read_option_uses(&mut self) -> Result<Option<Value>> {
-        if !self.read_option_tag()? {
-            return Ok(None);
-        }
-        let use_method = match self.read_u8()? {
-            0 => "Burn",
-            1 => "Multiple",
-            2 => "Single",
-            v => return Err(anyhow!("unsupported use_method variant {v}")),
-        };
-        let remaining = self.read_u64()?;
-        let total = self.read_u64()?;
-        Ok(Some(json!({
-            "use_method": use_method,
-            "remaining": remaining.to_string(),
-            "total": total.to_string()
-        })))
-    }
-
-    fn read_option_collection_details(&mut self) -> Result<Option<Value>> {
-        if !self.read_option_tag()? {
-            return Ok(None);
-        }
-        let variant = self.read_u8()?;
-        match variant {
-            0 => {
-                let size = self.read_u64()?;
-                Ok(Some(json!({
-                    "kind": "V1",
-                    "size": size.to_string()
-                })))
-            }
-            _ => Err(anyhow!("unsupported collection_details variant {variant}")),
-        }
-    }
-
-    fn read_option_programmable_config(&mut self) -> Result<Option<Value>> {
-        if !self.read_option_tag()? {
-            return Ok(None);
-        }
-        let variant = self.read_u8()?;
-        match variant {
-            0 => {
-                let rule_set = if self.read_option_tag()? {
-                    Some(self.read_pubkey()?.to_string())
-                } else {
-                    None
-                };
-                Ok(Some(json!({
-                    "kind": "V1",
-                    "rule_set": rule_set
-                })))
-            }
-            _ => Err(anyhow!("unsupported programmable_config variant {variant}")),
-        }
+        _ => Err(anyhow!("unsupported programmable_config variant {variant}")),
     }
 }
 
