@@ -3,10 +3,12 @@
 //! This module decodes metadata PDA account data following the Metaplex
 //! token-metadata standard account layout.
 
-use anyhow::{Context, Result, anyhow, bail};
+use anyhow::{Result, anyhow, bail};
 use serde_json::{Map, Value, json};
 use solana_pubkey::Pubkey;
 use std::str::FromStr;
+
+use super::binary_reader::BinaryReader;
 
 const METAPLEX_METADATA_PROGRAM_ID: &str = "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s";
 const METADATA_V1_KEY: u8 = 4;
@@ -132,76 +134,46 @@ fn trim_null_padding(input: &str) -> String {
 }
 
 struct Parser<'a> {
-    bytes: &'a [u8],
-    offset: usize,
+    reader: BinaryReader<'a>,
 }
 
 impl<'a> Parser<'a> {
     fn new(bytes: &'a [u8]) -> Self {
-        Self { bytes, offset: 0 }
+        Self {
+            reader: BinaryReader::new(bytes),
+        }
     }
 
     fn has_remaining(&self) -> bool {
-        self.offset < self.bytes.len()
-    }
-
-    fn read_exact(&mut self, len: usize) -> Result<&'a [u8]> {
-        if self.offset + len > self.bytes.len() {
-            bail!("metadata account data too short at offset {}, need {} bytes", self.offset, len);
-        }
-        let start = self.offset;
-        self.offset += len;
-        Ok(&self.bytes[start..start + len])
+        self.reader.has_remaining()
     }
 
     fn read_u8(&mut self) -> Result<u8> {
-        Ok(self.read_exact(1)?[0])
+        self.reader.read_u8()
     }
 
     fn read_bool(&mut self) -> Result<bool> {
-        match self.read_u8()? {
-            0 => Ok(false),
-            1 => Ok(true),
-            v => bail!("invalid bool discriminant {v}"),
-        }
+        self.reader.read_bool()
     }
 
     fn read_u16(&mut self) -> Result<u16> {
-        let mut buf = [0u8; 2];
-        buf.copy_from_slice(self.read_exact(2)?);
-        Ok(u16::from_le_bytes(buf))
-    }
-
-    fn read_u32(&mut self) -> Result<u32> {
-        let mut buf = [0u8; 4];
-        buf.copy_from_slice(self.read_exact(4)?);
-        Ok(u32::from_le_bytes(buf))
+        self.reader.read_u16()
     }
 
     fn read_u64(&mut self) -> Result<u64> {
-        let mut buf = [0u8; 8];
-        buf.copy_from_slice(self.read_exact(8)?);
-        Ok(u64::from_le_bytes(buf))
+        self.reader.read_u64()
     }
 
     fn read_pubkey(&mut self) -> Result<Pubkey> {
-        let mut bytes = [0u8; 32];
-        bytes.copy_from_slice(self.read_exact(32)?);
-        Ok(Pubkey::new_from_array(bytes))
+        self.reader.read_pubkey()
     }
 
     fn read_string(&mut self) -> Result<String> {
-        let len = self.read_u32()? as usize;
-        let bytes = self.read_exact(len)?;
-        String::from_utf8(bytes.to_vec()).context("invalid utf8 string in metadata account")
+        self.reader.read_string()
     }
 
     fn read_option_tag(&mut self) -> Result<bool> {
-        match self.read_u8()? {
-            0 => Ok(false),
-            1 => Ok(true),
-            v => bail!("invalid option discriminant {v}"),
-        }
+        self.reader.read_option_tag()
     }
 
     fn read_option_u8(&mut self) -> Result<Option<u8>> {
@@ -216,7 +188,7 @@ impl<'a> Parser<'a> {
             return Ok(None);
         }
 
-        let len = self.read_u32()? as usize;
+        let len = self.reader.read_u32()? as usize;
         let mut creators = Vec::with_capacity(len);
         for _ in 0..len {
             creators.push(Creator {
