@@ -114,9 +114,7 @@ macro_rules! define_parser {
 
         impl $name {
             pub fn new() -> Self {
-                Self {
-                    program_id: Pubkey::from_str_const($program_id),
-                }
+                Self { program_id: Pubkey::from_str_const($program_id) }
             }
         }
 

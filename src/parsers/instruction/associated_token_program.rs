@@ -92,7 +92,12 @@ fn append_extra_account_names(
     total_accounts: usize,
     accounted_accounts: usize,
 ) {
-    super::append_extra_account_names(account_names, total_accounts, accounted_accounts, "additional_account_");
+    super::append_extra_account_names(
+        account_names,
+        total_accounts,
+        accounted_accounts,
+        "additional_account_",
+    );
 }
 
 #[cfg(test)]

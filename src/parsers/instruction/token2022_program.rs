@@ -422,7 +422,12 @@ fn append_additional_signer_accounts(
     base_accounts: usize,
     total_accounts: usize,
 ) {
-    super::append_extra_account_names(account_names, total_accounts, base_accounts, "additional_signer_");
+    super::append_extra_account_names(
+        account_names,
+        total_accounts,
+        base_accounts,
+        "additional_signer_",
+    );
 }
 
 /// Parses an InitializeMint instruction: 0

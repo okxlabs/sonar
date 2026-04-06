@@ -139,9 +139,7 @@ struct Parser<'a> {
 
 impl<'a> Parser<'a> {
     fn new(bytes: &'a [u8]) -> Self {
-        Self {
-            reader: BinaryReader::new(bytes),
-        }
+        Self { reader: BinaryReader::new(bytes) }
     }
 
     fn has_remaining(&self) -> bool {
