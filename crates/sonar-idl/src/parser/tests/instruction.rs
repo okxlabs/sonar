@@ -1,7 +1,7 @@
 use serde_json::{Value, json};
 
 use crate::discriminator::sighash;
-use crate::models::Idl;
+use crate::models::{Idl, IdlAccount, IdlAccountItem, IdlAccounts, IdlInstruction, IdlMetadata};
 
 use super::super::IndexedIdl;
 use super::hello_anchor_idl;
@@ -54,31 +54,57 @@ fn indexed_idl_deserializes_legacy_json_and_parses_instruction() {
 
 #[test]
 fn indexed_idl_parse_instruction_exposes_flat_account_names() {
-    let indexed: IndexedIdl = serde_json::from_str(
-        r#"{
-            "address": "11111111111111111111111111111111",
-            "metadata": { "name": "current_program", "version": "0.1.0", "spec": "0.1.0" },
-            "instructions": [{
-                "name": "initialize",
-                "accounts": [
-                    { "name": "payer", "writable": true, "signer": true },
-                    { "name": "authority_group", "accounts": [
-                        { "name": "authority", "signer": true },
-                        { "name": "vault", "writable": true }
-                    ]}
-                ],
-                "args": []
-            }]
-        }"#,
-    )
-    .unwrap();
+    let indexed = IndexedIdl::new(Idl {
+        address: "11111111111111111111111111111111".to_string(),
+        metadata: IdlMetadata {
+            name: "current_program".to_string(),
+            version: "0.1.0".to_string(),
+            spec: "0.1.0".to_string(),
+            description: None,
+        },
+        instructions: vec![IdlInstruction {
+            name: "initialize".to_string(),
+            discriminator: Some(sighash("global", "initialize").to_vec()),
+            accounts: vec![
+                IdlAccountItem::Account(IdlAccount {
+                    name: "payer".to_string(),
+                    writable: true,
+                    signer: true,
+                    optional: false,
+                    address: None,
+                }),
+                IdlAccountItem::Accounts(IdlAccounts {
+                    name: "authority_group".to_string(),
+                    accounts: vec![
+                        IdlAccountItem::Account(IdlAccount {
+                            name: "authority".to_string(),
+                            writable: false,
+                            signer: true,
+                            optional: false,
+                            address: None,
+                        }),
+                        IdlAccountItem::Account(IdlAccount {
+                            name: "vault".to_string(),
+                            writable: true,
+                            signer: false,
+                            optional: false,
+                            address: None,
+                        }),
+                    ],
+                }),
+            ],
+            args: vec![],
+        }],
+        types: None,
+        events: None,
+    });
 
     let parsed = indexed
         .parse_instruction(&sighash("global", "initialize"))
         .unwrap()
         .expect("instruction should parse");
 
-    assert_eq!(parsed.account_names, vec!["payer", "authority_group"]);
+    assert_eq!(parsed.account_names, vec!["payer", "authority_group: []"]);
 }
 
 #[test]

@@ -213,7 +213,7 @@ fn flatten_account_names(accounts: &[IdlAccountItem]) -> Vec<String> {
     for item in accounts {
         match item {
             IdlAccountItem::Account(account) => names.push(account.name.clone()),
-            IdlAccountItem::Accounts(group) => names.push(group.name.clone()),
+            IdlAccountItem::Accounts(group) => names.push(format!("{}: []", group.name)),
         }
     }
     names
