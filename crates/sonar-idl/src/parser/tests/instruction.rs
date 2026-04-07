@@ -7,6 +7,52 @@ use super::super::IndexedIdl;
 use super::hello_anchor_idl;
 
 #[test]
+fn indexed_idl_deserializes_current_json_and_parses_instruction() {
+    let indexed: IndexedIdl = serde_json::from_str(
+        r#"{
+            "address": "11111111111111111111111111111111",
+            "metadata": { "name": "current_program", "version": "0.1.0", "spec": "0.1.0" },
+            "instructions": [{
+                "name": "doSomething",
+                "accounts": [],
+                "args": []
+            }]
+        }"#,
+    )
+    .unwrap();
+
+    let parsed = indexed
+        .parse_instruction(&sighash("global", "do_something"))
+        .unwrap()
+        .expect("instruction should parse");
+
+    assert_eq!(parsed.name, "doSomething");
+}
+
+#[test]
+fn indexed_idl_deserializes_legacy_json_and_parses_instruction() {
+    let indexed: IndexedIdl = serde_json::from_str(
+        r#"{
+            "version": "0.1.0",
+            "name": "legacy_program",
+            "instructions": [{
+                "name": "doSomething",
+                "accounts": [],
+                "args": []
+            }]
+        }"#,
+    )
+    .unwrap();
+
+    let parsed = indexed
+        .parse_instruction(&sighash("global", "do_something"))
+        .unwrap()
+        .expect("instruction should parse");
+
+    assert_eq!(parsed.name, "doSomething");
+}
+
+#[test]
 fn indexed_idl_parse_instruction_matches_discriminator_and_reads_u64_arg() {
     let indexed = IndexedIdl::new(hello_anchor_idl());
 

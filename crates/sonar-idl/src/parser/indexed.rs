@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, HashMap};
 
 use anyhow::{Result, anyhow};
+use serde::{Deserialize, Deserializer};
 use serde_json::Value;
 
 use crate::discriminator::sighash;
@@ -186,6 +187,16 @@ impl IndexedIdl {
     pub(super) fn find_type_definition(&self, name: &str) -> Option<&IdlTypeDefinition> {
         let idx = self.type_indices_by_name.get(name)?;
         self.idl.types.as_ref()?.get(*idx)
+    }
+}
+
+impl<'de> Deserialize<'de> for IndexedIdl {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let raw = RawAnchorIdl::deserialize(deserializer)?;
+        Ok(raw.into_indexed_idl(""))
     }
 }
 
