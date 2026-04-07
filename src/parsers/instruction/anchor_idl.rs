@@ -6,7 +6,6 @@
 //! provides the `AnchorIdlParser` that implements `InstructionParser`.
 
 use anyhow::Result;
-use serde_json::Value;
 use solana_pubkey::Pubkey;
 use sonar_idl::IdlParsedInstruction;
 
@@ -42,10 +41,6 @@ fn to_parsed_instruction(idl_parsed: IdlParsedInstruction) -> ParsedInstruction 
         .collect();
 
     ParsedInstruction { name: idl_parsed.name, fields, account_names }
-}
-
-pub fn parse_account_data(idl: &Idl, account_data: &[u8]) -> Result<Option<(String, Value)>> {
-    sonar_idl::parse_account_data(idl, account_data)
 }
 
 // ── AnchorIdlParser ──

@@ -3,7 +3,7 @@ use serde_json::json;
 use crate::discriminator::sighash;
 use crate::models::Idl;
 
-use super::super::{is_cpi_event_data, parse_cpi_event_data};
+use super::super::{IndexedIdl, is_cpi_event_data};
 use super::hello_anchor_idl;
 
 #[test]
@@ -24,17 +24,17 @@ fn is_cpi_event_data_rejects_wrong_prefix() {
 }
 
 #[test]
-fn parse_cpi_event_data_returns_none_for_unknown_event_discriminator() {
-    let idl = hello_anchor_idl();
+fn indexed_idl_parse_cpi_event_data_returns_none_for_unknown_event_discriminator() {
+    let indexed = IndexedIdl::new(hello_anchor_idl());
     let mut data = vec![0xe4, 0x45, 0xa5, 0x2e, 0x51, 0xcb, 0x9a, 0x1d];
     data.extend_from_slice(&[0; 8]);
 
-    let result = parse_cpi_event_data(&idl, &data).unwrap();
+    let result = indexed.parse_cpi_event_data(&data).unwrap();
     assert!(result.is_none());
 }
 
 #[test]
-fn parse_cpi_event_data_parses_event_fields() {
+fn indexed_idl_parse_cpi_event_data_parses_event_fields() {
     let event_disc = sighash("event", "TransferDone");
 
     let idl: Idl = serde_json::from_str(&format!(
@@ -56,7 +56,8 @@ fn parse_cpi_event_data_parses_event_fields() {
     data.extend_from_slice(&event_disc);
     data.extend_from_slice(&500u64.to_le_bytes());
 
-    let result = parse_cpi_event_data(&idl, &data).unwrap();
+    let indexed = IndexedIdl::new(idl);
+    let result = indexed.parse_cpi_event_data(&data).unwrap();
     let parsed = result.expect("should parse event");
 
     assert_eq!(parsed.name, "TransferDone");
@@ -66,7 +67,7 @@ fn parse_cpi_event_data_parses_event_fields() {
 }
 
 #[test]
-fn parse_cpi_event_data_parses_tuple_event_fields() {
+fn indexed_idl_parse_cpi_event_data_parses_tuple_event_fields() {
     let event_disc = sighash("event", "PairEvent");
 
     let idl: Idl = serde_json::from_str(&format!(
@@ -90,7 +91,8 @@ fn parse_cpi_event_data_parses_tuple_event_fields() {
     data.push(1);
     data.extend_from_slice(&7u16.to_le_bytes());
 
-    let result = parse_cpi_event_data(&idl, &data).unwrap();
+    let indexed = IndexedIdl::new(idl);
+    let result = indexed.parse_cpi_event_data(&data).unwrap();
     let parsed = result.expect("should parse tuple event");
 
     assert_eq!(parsed.name, "PairEvent");

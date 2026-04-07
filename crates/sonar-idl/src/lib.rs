@@ -5,8 +5,9 @@
 //!
 //! - **Models**: Canonical IDL types (`Idl`, `IdlInstruction`, etc.) plus
 //!   backward-compatible deserialization of legacy (pre-0.30) IDL JSON.
-//! - **Parsing**: Binary deserialization of instruction args, account data,
-//!   and CPI events using IDL type definitions.
+//! - **Parsing**: Binary deserialization via `IndexedIdl`, which normalizes
+//!   and indexes IDL definitions before decoding instruction args, account
+//!   data, and CPI events.
 //! - **Discriminator**: `sighash` for computing Anchor 8-byte discriminators.
 //! - **Values**: Parsed fields are returned as ordered `serde_json::Value`.
 
@@ -28,8 +29,4 @@ pub use models::{
 
 // ── Parsing ──
 
-pub use parser::{
-    IdlParsedField, IdlParsedInstruction, IndexedIdl, find_event_by_discriminator,
-    find_instruction_by_discriminator, is_cpi_event_data, parse_account_data, parse_cpi_event_data,
-    parse_instruction,
-};
+pub use parser::{IdlParsedField, IdlParsedInstruction, IndexedIdl, is_cpi_event_data};

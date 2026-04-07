@@ -6,7 +6,7 @@ use solana_pubkey::Pubkey;
 use crate::models::{DefinedType, Idl, IdlArrayType, IdlType};
 
 use super::super::{
-    parse_array_type, parse_instruction, parse_option_type, parse_simple_type, parse_vec_type,
+    IndexedIdl, parse_array_type, parse_option_type, parse_simple_type, parse_vec_type,
 };
 use super::hello_anchor_idl;
 
@@ -212,9 +212,9 @@ fn parse_vec_type_u32_elements() {
     data.extend_from_slice(&20u32.to_le_bytes());
     data.extend_from_slice(&30u32.to_le_bytes());
     let mut offset = 0;
-    let idl = hello_anchor_idl();
+    let indexed = IndexedIdl::new(hello_anchor_idl());
     let element_type = IdlType::Simple("u32".into());
-    let val = parse_vec_type(&data, &mut offset, &element_type, &idl).unwrap();
+    let val = parse_vec_type(&data, &mut offset, &element_type, &indexed).unwrap();
     assert_eq!(val, json!([10u64, 20u64, 30u64]));
     assert_eq!(offset, 16);
 }
@@ -223,9 +223,9 @@ fn parse_vec_type_u32_elements() {
 fn parse_vec_type_empty() {
     let data = 0u32.to_le_bytes();
     let mut offset = 0;
-    let idl = hello_anchor_idl();
+    let indexed = IndexedIdl::new(hello_anchor_idl());
     let element_type = IdlType::Simple("u8".into());
-    let val = parse_vec_type(&data, &mut offset, &element_type, &idl).unwrap();
+    let val = parse_vec_type(&data, &mut offset, &element_type, &indexed).unwrap();
     assert_eq!(val, json!([]));
     assert_eq!(offset, 4);
 }
@@ -234,9 +234,9 @@ fn parse_vec_type_empty() {
 fn parse_vec_type_truncated_length() {
     let data = [0u8; 2];
     let mut offset = 0;
-    let idl = hello_anchor_idl();
+    let indexed = IndexedIdl::new(hello_anchor_idl());
     let element_type = IdlType::Simple("u8".into());
-    let err = parse_vec_type(&data, &mut offset, &element_type, &idl).unwrap_err();
+    let err = parse_vec_type(&data, &mut offset, &element_type, &indexed).unwrap_err();
     assert!(err.to_string().contains("Insufficient data"));
 }
 
@@ -245,10 +245,10 @@ fn parse_vec_type_errors_when_declared_elements_are_missing() {
     let mut data = 2u32.to_le_bytes().to_vec();
     data.extend_from_slice(&10u32.to_le_bytes());
     let mut offset = 0;
-    let idl = hello_anchor_idl();
+    let indexed = IndexedIdl::new(hello_anchor_idl());
     let element_type = IdlType::Simple("u32".into());
 
-    let err = parse_vec_type(&data, &mut offset, &element_type, &idl).unwrap_err();
+    let err = parse_vec_type(&data, &mut offset, &element_type, &indexed).unwrap_err();
     assert!(err.to_string().contains("Insufficient data"));
 }
 
@@ -256,10 +256,10 @@ fn parse_vec_type_errors_when_declared_elements_are_missing() {
 fn parse_vec_type_stops_when_element_parser_makes_no_progress() {
     let data = 3u32.to_le_bytes();
     let mut offset = 0;
-    let idl = hello_anchor_idl();
+    let indexed = IndexedIdl::new(hello_anchor_idl());
     let element_type = IdlType::Defined { defined: DefinedType::Simple("MissingType".into()) };
 
-    let val = parse_vec_type(&data, &mut offset, &element_type, &idl).unwrap();
+    let val = parse_vec_type(&data, &mut offset, &element_type, &indexed).unwrap();
 
     assert_eq!(val, json!([]));
     assert_eq!(offset, 4);
@@ -270,9 +270,9 @@ fn parse_option_type_some() {
     let mut data = vec![1u8];
     data.extend_from_slice(&500u16.to_le_bytes());
     let mut offset = 0;
-    let idl = hello_anchor_idl();
+    let indexed = IndexedIdl::new(hello_anchor_idl());
     let inner = IdlType::Simple("u16".into());
-    let val = parse_option_type(&data, &mut offset, &inner, &idl).unwrap();
+    let val = parse_option_type(&data, &mut offset, &inner, &indexed).unwrap();
     assert_eq!(val, json!(500u64));
     assert_eq!(offset, 3);
 }
@@ -281,9 +281,9 @@ fn parse_option_type_some() {
 fn parse_option_type_none() {
     let data = vec![0u8];
     let mut offset = 0;
-    let idl = hello_anchor_idl();
+    let indexed = IndexedIdl::new(hello_anchor_idl());
     let inner = IdlType::Simple("u16".into());
-    let val = parse_option_type(&data, &mut offset, &inner, &idl).unwrap();
+    let val = parse_option_type(&data, &mut offset, &inner, &indexed).unwrap();
     assert_eq!(val, Value::Null);
     assert_eq!(offset, 1);
 }
@@ -292,9 +292,9 @@ fn parse_option_type_none() {
 fn parse_option_type_truncated_discriminant() {
     let data: [u8; 0] = [];
     let mut offset = 0;
-    let idl = hello_anchor_idl();
+    let indexed = IndexedIdl::new(hello_anchor_idl());
     let inner = IdlType::Simple("u8".into());
-    let err = parse_option_type(&data, &mut offset, &inner, &idl).unwrap_err();
+    let err = parse_option_type(&data, &mut offset, &inner, &indexed).unwrap_err();
     assert!(err.to_string().contains("Insufficient data"));
 }
 
@@ -302,10 +302,10 @@ fn parse_option_type_truncated_discriminant() {
 fn parse_array_type_fixed_3_u8() {
     let data = vec![10, 20, 30];
     let mut offset = 0;
-    let idl = hello_anchor_idl();
+    let indexed = IndexedIdl::new(hello_anchor_idl());
     let array_def =
         IdlArrayType { element_type: Box::new(IdlType::Simple("u8".into())), length: 3 };
-    let val = parse_array_type(&data, &mut offset, &array_def, &idl).unwrap();
+    let val = parse_array_type(&data, &mut offset, &array_def, &indexed).unwrap();
     assert_eq!(val, json!([10u64, 20u64, 30u64]));
     assert_eq!(offset, 3);
 }
@@ -349,7 +349,8 @@ fn parse_instruction_with_defined_tuple_struct_arg_supports_nested_types() {
     data.extend_from_slice(&777u32.to_le_bytes());
     data.extend_from_slice(&42u16.to_le_bytes());
 
-    let parsed = parse_instruction(&idl, &data).unwrap().unwrap();
+    let indexed = IndexedIdl::new(idl);
+    let parsed = indexed.parse_instruction(&data).unwrap().unwrap();
 
     assert_eq!(parsed.fields.len(), 1);
     assert_eq!(parsed.fields[0].name, "payload");
@@ -393,7 +394,8 @@ fn parse_enum_with_struct_variant() {
     data.extend_from_slice(&5000u64.to_le_bytes());
     data.extend_from_slice(&100u16.to_le_bytes());
 
-    let parsed = parse_instruction(&idl, &data).unwrap().unwrap();
+    let indexed = IndexedIdl::new(idl);
+    let parsed = indexed.parse_instruction(&data).unwrap().unwrap();
     let val = &parsed.fields[0].value;
     assert_eq!(*val, json!({ "Transfer": { "amount": 5000u64, "fee": 100u64 } }));
 }
@@ -429,7 +431,8 @@ fn parse_enum_with_tuple_variant() {
     data.extend_from_slice(&111u32.to_le_bytes());
     data.extend_from_slice(&222u32.to_le_bytes());
 
-    let parsed = parse_instruction(&idl, &data).unwrap().unwrap();
+    let indexed = IndexedIdl::new(idl);
+    let parsed = indexed.parse_instruction(&data).unwrap().unwrap();
     let val = &parsed.fields[0].value;
     assert_eq!(*val, json!({ "SetPair": [111u64, 222u64] }));
 }
@@ -460,7 +463,8 @@ fn parse_enum_out_of_range_variant_index_falls_through() {
     let mut data = vec![7, 7, 7, 7, 7, 7, 7, 7];
     data.push(99);
 
-    let parsed = parse_instruction(&idl, &data).unwrap().unwrap();
+    let indexed = IndexedIdl::new(idl);
+    let parsed = indexed.parse_instruction(&data).unwrap().unwrap();
     if let Value::Object(entries) = &parsed.fields[0].value {
         let keys: Vec<&str> = entries.keys().map(|key| key.as_str()).collect();
         assert!(keys.contains(&"raw_hex"));

@@ -1,15 +1,18 @@
 use std::collections::{BTreeMap, HashMap};
 
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use serde_json::Value;
 
 use crate::discriminator::sighash;
 use crate::models::*;
 
-use super::{
-    IdlParsedInstruction, parse_account_data_with_lookup, parse_cpi_event_data_with_lookup,
-    parse_instruction_with_lookup,
+use super::decode::{
+    parse_idl_fields_as_parsed_fields, parse_instruction_args, parse_type_definition,
+    raw_unparsed_value,
 };
+use super::{IdlParsedField, IdlParsedInstruction};
+
+pub(super) const EMIT_CPI_DISCRIMINATOR: [u8; 8] = [0xe4, 0x45, 0xa5, 0x2e, 0x51, 0xcb, 0x9a, 0x1d];
 
 #[derive(Debug, Clone)]
 pub struct IndexedIdl {
@@ -71,15 +74,83 @@ impl IndexedIdl {
     }
 
     pub fn parse_instruction(&self, data: &[u8]) -> Result<Option<IdlParsedInstruction>> {
-        parse_instruction_with_lookup(self, data)
+        let Some(idl_instruction) = self.find_instruction_by_discriminator(data) else {
+            return Ok(None);
+        };
+
+        let mut offset = idl_instruction.discriminator.as_ref().map_or(0, |d| d.len());
+        let fields = parse_instruction_args(data, &mut offset, &idl_instruction.args, self)?;
+
+        Ok(Some(IdlParsedInstruction {
+            name: idl_instruction.name.clone(),
+            fields,
+            accounts: idl_instruction.accounts.clone(),
+        }))
     }
 
     pub fn parse_account_data(&self, account_data: &[u8]) -> Result<Option<(String, Value)>> {
-        parse_account_data_with_lookup(self, account_data)
+        if account_data.len() < 8 {
+            return Err(anyhow!(
+                "Account data too short: {} bytes (expected at least 8 for discriminator)",
+                account_data.len()
+            ));
+        }
+
+        let discriminator = &account_data[..8];
+
+        let Some(type_def) = self.find_account_type_by_discriminator(discriminator) else {
+            return Ok(None);
+        };
+
+        let mut offset = 8;
+        let parsed_value = parse_type_definition(account_data, &mut offset, type_def, self)?;
+
+        Ok(Some((type_def.name.clone(), parsed_value)))
     }
 
     pub fn parse_cpi_event_data(&self, data: &[u8]) -> Result<Option<IdlParsedInstruction>> {
-        parse_cpi_event_data_with_lookup(self, data)
+        if data.len() < 16 {
+            return Ok(None);
+        }
+
+        if data[..8] != EMIT_CPI_DISCRIMINATOR {
+            return Ok(None);
+        }
+
+        let event_discriminator = &data[8..16];
+
+        let Some(event_def) = self.find_event_by_discriminator(event_discriminator) else {
+            return Ok(None);
+        };
+
+        let type_fields = if let Some(fields) = &event_def.fields {
+            Some(fields.clone())
+        } else {
+            self.find_type_definition(&event_def.name)
+                .and_then(|type_def| type_def.type_.fields.clone())
+        };
+
+        let mut offset = 16;
+        let fields = match type_fields.as_ref() {
+            Some(fields) => parse_idl_fields_as_parsed_fields(data, &mut offset, fields, self)?,
+            None => {
+                let mut raw_fields = Vec::new();
+                if offset < data.len() {
+                    let raw_data = &data[offset..];
+                    raw_fields.push(IdlParsedField {
+                        name: "raw_data".into(),
+                        value: raw_unparsed_value("event_data", &event_def.name, raw_data),
+                    });
+                }
+                raw_fields
+            }
+        };
+
+        Ok(Some(IdlParsedInstruction {
+            name: event_def.name.clone(),
+            fields,
+            accounts: Vec::new(),
+        }))
     }
 
     pub fn find_instruction_by_discriminator(&self, data: &[u8]) -> Option<&IdlInstruction> {
@@ -94,13 +165,13 @@ impl IndexedIdl {
         None
     }
 
-    fn find_event_by_discriminator(&self, discriminator: &[u8]) -> Option<&IdlEvent> {
+    pub fn find_event_by_discriminator(&self, discriminator: &[u8]) -> Option<&IdlEvent> {
         let key = discriminator_key(Some(discriminator))?;
         let idx = self.event_indices_by_discriminator.get(&key)?;
         self.idl.events.as_ref()?.get(*idx)
     }
 
-    fn find_account_type_by_discriminator(
+    pub(super) fn find_account_type_by_discriminator(
         &self,
         discriminator: &[u8],
     ) -> Option<&IdlTypeDefinition> {
@@ -109,61 +180,9 @@ impl IndexedIdl {
         self.idl.types.as_ref()?.get(*idx)
     }
 
-    fn find_type_definition(&self, name: &str) -> Option<&IdlTypeDefinition> {
+    pub(super) fn find_type_definition(&self, name: &str) -> Option<&IdlTypeDefinition> {
         let idx = self.type_indices_by_name.get(name)?;
         self.idl.types.as_ref()?.get(*idx)
-    }
-}
-
-pub(super) trait IdlLookup {
-    fn find_instruction_by_discriminator(&self, data: &[u8]) -> Option<&IdlInstruction>;
-    fn find_event_by_discriminator(&self, discriminator: &[u8]) -> Option<&IdlEvent>;
-    fn find_account_type_by_discriminator(
-        &self,
-        discriminator: &[u8],
-    ) -> Option<&IdlTypeDefinition>;
-    fn find_type_definition(&self, name: &str) -> Option<&IdlTypeDefinition>;
-}
-
-impl IdlLookup for Idl {
-    fn find_instruction_by_discriminator(&self, data: &[u8]) -> Option<&IdlInstruction> {
-        scan_instruction_by_discriminator(self, data)
-    }
-
-    fn find_event_by_discriminator(&self, discriminator: &[u8]) -> Option<&IdlEvent> {
-        scan_event_by_discriminator(self, discriminator)
-    }
-
-    fn find_account_type_by_discriminator(
-        &self,
-        discriminator: &[u8],
-    ) -> Option<&IdlTypeDefinition> {
-        scan_account_type_by_discriminator(self, discriminator)
-    }
-
-    fn find_type_definition(&self, name: &str) -> Option<&IdlTypeDefinition> {
-        self.types.as_ref()?.iter().find(|type_def| type_def.name == name)
-    }
-}
-
-impl IdlLookup for IndexedIdl {
-    fn find_instruction_by_discriminator(&self, data: &[u8]) -> Option<&IdlInstruction> {
-        IndexedIdl::find_instruction_by_discriminator(self, data)
-    }
-
-    fn find_event_by_discriminator(&self, discriminator: &[u8]) -> Option<&IdlEvent> {
-        IndexedIdl::find_event_by_discriminator(self, discriminator)
-    }
-
-    fn find_account_type_by_discriminator(
-        &self,
-        discriminator: &[u8],
-    ) -> Option<&IdlTypeDefinition> {
-        IndexedIdl::find_account_type_by_discriminator(self, discriminator)
-    }
-
-    fn find_type_definition(&self, name: &str) -> Option<&IdlTypeDefinition> {
-        IndexedIdl::find_type_definition(self, name)
     }
 }
 
@@ -176,49 +195,4 @@ pub(super) fn discriminator_key(discriminator: Option<&[u8]>) -> Option<[u8; 8]>
     let mut key = [0u8; 8];
     key.copy_from_slice(discriminator);
     Some(key)
-}
-
-pub(super) fn scan_instruction_by_discriminator<'a>(
-    idl: &'a Idl,
-    data: &[u8],
-) -> Option<&'a IdlInstruction> {
-    idl.instructions
-        .iter()
-        .filter_map(|inst| {
-            let disc = inst.discriminator.as_deref()?;
-            let disc_len = disc.len();
-            (data.len() >= disc_len && &data[..disc_len] == disc).then_some((disc_len, inst))
-        })
-        .max_by_key(|(disc_len, _)| *disc_len)
-        .map(|(_, inst)| inst)
-}
-
-pub(super) fn scan_event_by_discriminator<'a>(
-    idl: &'a Idl,
-    discriminator: &[u8],
-) -> Option<&'a IdlEvent> {
-    if let Some(events) = &idl.events {
-        events.iter().find(|event| {
-            event.discriminator.as_ref().is_some_and(|candidate| {
-                candidate.len() == 8 && candidate.as_slice() == discriminator
-            })
-        })
-    } else {
-        None
-    }
-}
-
-pub(super) fn scan_account_type_by_discriminator<'a>(
-    idl: &'a Idl,
-    discriminator: &[u8],
-) -> Option<&'a IdlTypeDefinition> {
-    let types = idl.types.as_ref()?;
-
-    types.iter().find(|type_def| {
-        if type_def.type_.kind != IdlTypeDefinitionKind::Struct {
-            return false;
-        }
-        let expected_discriminator = sighash("account", &type_def.name);
-        discriminator == expected_discriminator
-    })
 }

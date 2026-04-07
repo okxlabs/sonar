@@ -5,18 +5,18 @@ use solana_pubkey::Pubkey;
 use crate::models::*;
 
 use super::IdlParsedField;
-use super::indexed::IdlLookup;
+use super::indexed::IndexedIdl;
 
 pub(super) fn parse_instruction_args(
     data: &[u8],
     offset: &mut usize,
     args: &[IdlArg],
-    lookup: &impl IdlLookup,
+    indexed: &IndexedIdl,
 ) -> Result<Vec<IdlParsedField>> {
     let mut fields = Vec::new();
 
     for arg in args {
-        let value = parse_type(data, offset, &arg.type_, lookup)?;
+        let value = parse_type(data, offset, &arg.type_, indexed)?;
         fields.push(IdlParsedField { name: arg.name.clone(), value });
     }
 
@@ -27,12 +27,12 @@ fn parse_named_fields_to_entries(
     data: &[u8],
     offset: &mut usize,
     fields: &[IdlField],
-    lookup: &impl IdlLookup,
+    indexed: &IndexedIdl,
 ) -> Result<Map<String, Value>> {
     let mut entries = Map::new();
 
     for field in fields {
-        let value = parse_type(data, offset, &field.type_, lookup)?;
+        let value = parse_type(data, offset, &field.type_, indexed)?;
         entries.insert(field.name.clone(), value);
     }
 
@@ -43,12 +43,12 @@ fn parse_tuple_fields_to_values(
     data: &[u8],
     offset: &mut usize,
     fields: &[IdlType],
-    lookup: &impl IdlLookup,
+    indexed: &IndexedIdl,
 ) -> Result<Vec<Value>> {
     let mut values = Vec::new();
 
     for field_type in fields {
-        values.push(parse_type(data, offset, field_type, lookup)?);
+        values.push(parse_type(data, offset, field_type, indexed)?);
     }
 
     Ok(values)
@@ -58,14 +58,14 @@ fn parse_idl_fields_value(
     data: &[u8],
     offset: &mut usize,
     fields: &IdlFields,
-    lookup: &impl IdlLookup,
+    indexed: &IndexedIdl,
 ) -> Result<Value> {
     match fields {
         IdlFields::Named(named_fields) => {
-            Ok(Value::Object(parse_named_fields_to_entries(data, offset, named_fields, lookup)?))
+            Ok(Value::Object(parse_named_fields_to_entries(data, offset, named_fields, indexed)?))
         }
         IdlFields::Tuple(tuple_fields) => {
-            Ok(Value::Array(parse_tuple_fields_to_values(data, offset, tuple_fields, lookup)?))
+            Ok(Value::Array(parse_tuple_fields_to_values(data, offset, tuple_fields, indexed)?))
         }
     }
 }
@@ -74,17 +74,17 @@ pub(super) fn parse_idl_fields_as_parsed_fields(
     data: &[u8],
     offset: &mut usize,
     fields: &IdlFields,
-    lookup: &impl IdlLookup,
+    indexed: &IndexedIdl,
 ) -> Result<Vec<IdlParsedField>> {
     match fields {
         IdlFields::Named(named_fields) => {
-            Ok(parse_named_fields_to_entries(data, offset, named_fields, lookup)?
+            Ok(parse_named_fields_to_entries(data, offset, named_fields, indexed)?
                 .into_iter()
                 .map(|(name, value)| IdlParsedField { name, value })
                 .collect())
         }
         IdlFields::Tuple(tuple_fields) => {
-            Ok(parse_tuple_fields_to_values(data, offset, tuple_fields, lookup)?
+            Ok(parse_tuple_fields_to_values(data, offset, tuple_fields, indexed)?
                 .into_iter()
                 .enumerate()
                 .map(|(idx, value)| IdlParsedField { name: format!("field_{}", idx), value })
@@ -105,14 +105,14 @@ fn parse_type(
     data: &[u8],
     offset: &mut usize,
     idl_type: &IdlType,
-    lookup: &impl IdlLookup,
+    indexed: &IndexedIdl,
 ) -> Result<Value> {
     match idl_type {
         IdlType::Simple(type_name) => parse_simple_type(data, offset, type_name),
-        IdlType::Vec { vec } => parse_vec_type(data, offset, vec, lookup),
-        IdlType::Option { option } => parse_option_type(data, offset, option, lookup),
-        IdlType::Array { array } => parse_array_type(data, offset, array, lookup),
-        IdlType::Defined { defined } => parse_defined_type(data, offset, defined, lookup),
+        IdlType::Vec { vec } => parse_vec_type(data, offset, vec, indexed),
+        IdlType::Option { option } => parse_option_type(data, offset, option, indexed),
+        IdlType::Array { array } => parse_array_type(data, offset, array, indexed),
+        IdlType::Defined { defined } => parse_defined_type(data, offset, defined, indexed),
     }
 }
 
@@ -286,7 +286,7 @@ pub(super) fn parse_vec_type(
     data: &[u8],
     offset: &mut usize,
     element_type: &IdlType,
-    lookup: &impl IdlLookup,
+    indexed: &IndexedIdl,
 ) -> Result<Value> {
     let start = *offset;
     check_data_len(data, start, 4)?;
@@ -299,7 +299,7 @@ pub(super) fn parse_vec_type(
     let mut elements = Vec::with_capacity(length);
     for _ in 0..length {
         let element_start = *offset;
-        let element = parse_type(data, offset, element_type, lookup)?;
+        let element = parse_type(data, offset, element_type, indexed)?;
         if *offset == element_start {
             break;
         }
@@ -313,7 +313,7 @@ pub(super) fn parse_option_type(
     data: &[u8],
     offset: &mut usize,
     inner_type: &IdlType,
-    lookup: &impl IdlLookup,
+    indexed: &IndexedIdl,
 ) -> Result<Value> {
     let start = *offset;
     check_data_len(data, start, 1)?;
@@ -321,18 +321,18 @@ pub(super) fn parse_option_type(
     let is_some = data[start] != 0;
     *offset += 1;
 
-    if !is_some { Ok(Value::Null) } else { parse_type(data, offset, inner_type, lookup) }
+    if !is_some { Ok(Value::Null) } else { parse_type(data, offset, inner_type, indexed) }
 }
 
 pub(super) fn parse_array_type(
     data: &[u8],
     offset: &mut usize,
     array_def: &IdlArrayType,
-    lookup: &impl IdlLookup,
+    indexed: &IndexedIdl,
 ) -> Result<Value> {
     let mut elements = Vec::with_capacity(array_def.length);
     for _ in 0..array_def.length {
-        let element = parse_type(data, offset, &array_def.element_type, lookup)?;
+        let element = parse_type(data, offset, &array_def.element_type, indexed)?;
         elements.push(element);
     }
 
@@ -343,10 +343,10 @@ fn parse_defined_type(
     data: &[u8],
     offset: &mut usize,
     defined: &DefinedType,
-    lookup: &impl IdlLookup,
+    indexed: &IndexedIdl,
 ) -> Result<Value> {
-    if let Some(type_def) = lookup.find_type_definition(defined.name()) {
-        return parse_type_definition(data, offset, type_def, lookup);
+    if let Some(type_def) = indexed.find_type_definition(defined.name()) {
+        return parse_type_definition(data, offset, type_def, indexed);
     }
 
     let start = *offset;
@@ -360,12 +360,12 @@ pub(super) fn parse_type_definition(
     data: &[u8],
     offset: &mut usize,
     type_def: &IdlTypeDefinition,
-    lookup: &impl IdlLookup,
+    indexed: &IndexedIdl,
 ) -> Result<Value> {
     match &type_def.type_.kind {
         IdlTypeDefinitionKind::Struct => {
             if let Some(fields) = &type_def.type_.fields {
-                return parse_idl_fields_value(data, offset, fields, lookup);
+                return parse_idl_fields_value(data, offset, fields, indexed);
             }
         }
         IdlTypeDefinitionKind::Enum => {
@@ -377,7 +377,7 @@ pub(super) fn parse_type_definition(
                 if variant_index < variants.len() {
                     let variant = &variants[variant_index];
                     let payload = match variant.fields.as_ref() {
-                        Some(fields) => parse_idl_fields_value(data, offset, fields, lookup)?,
+                        Some(fields) => parse_idl_fields_value(data, offset, fields, indexed)?,
                         None => Value::Null,
                     };
 
