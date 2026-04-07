@@ -27,6 +27,33 @@ pub(crate) struct PreparedPipelineContext {
     pub resolved_accounts: ResolvedAccounts,
 }
 
+/// Result of resolving transaction inputs and deriving a cache key.
+/// This is the first half of the shared setup pipeline, before any
+/// simulate-specific mutations.
+pub(crate) struct ResolvedWithCacheKey {
+    pub resolved_txs: Vec<transaction::ResolvedTxInput>,
+    pub cache_key: String,
+}
+
+/// Common cache and prepare arguments shared by simulate and decode handlers.
+/// Simulate computes `cache_enabled` as `(cache || cache_dir.is_some() || refresh_cache)` (opt-in);
+/// decode computes it as `(!no_cache)` (opt-out).
+pub(crate) struct CachePrepareArgs<'a> {
+    pub rpc_url: &'a str,
+    pub cache_enabled: bool,
+    pub cache_dir: &'a Option<PathBuf>,
+    pub refresh_cache: bool,
+    pub no_idl_fetch: bool,
+}
+
+/// Result of resolving cache state and preparing accounts/IDLs.
+/// This is the second half of the shared setup pipeline.
+pub(crate) struct CachePreparedContext {
+    pub cache_dir: Option<PathBuf>,
+    pub offline: bool,
+    pub prepared: PreparedPipelineContext,
+}
+
 // ---------------------------------------------------------------------------
 // Cache helpers
 // ---------------------------------------------------------------------------
@@ -72,6 +99,70 @@ pub(crate) fn resolve_inputs_to_txs(
     let raw_input = transaction::read_raw_transaction(tx_single)?;
     let resolved_txs = resolver.resolve_many(&[raw_input], Some(progress))?;
     Ok(ResolvedInputTransactions { resolved_txs })
+}
+
+// ---------------------------------------------------------------------------
+// Shared setup pipeline
+// ---------------------------------------------------------------------------
+
+/// Resolves transaction inputs and derives a cache key. This is the first phase
+/// of the shared handler setup — call this before any simulate-specific mutations,
+/// then call [`resolve_cache_and_prepare`] after mutations are applied.
+pub(crate) fn resolve_and_derive_cache_key(
+    tx_inputs: Vec<String>,
+    rpc_url: &str,
+    resolver_cache_location: Option<CacheLocation>,
+    progress: &Progress,
+) -> Result<ResolvedWithCacheKey> {
+    let is_bundle = tx_inputs.len() > 1;
+    let parsed_inputs =
+        resolve_inputs_to_txs(tx_inputs, rpc_url, resolver_cache_location, progress, is_bundle)?;
+    let resolved_txs = parsed_inputs.resolved_txs;
+
+    let cache_key = if resolved_txs.len() == 1 {
+        crate::core::cache::derive_cache_key_single(
+            &resolved_txs[0].original_input,
+            &resolved_txs[0].parsed_tx.transaction,
+        )
+    } else {
+        let inputs: Vec<_> = resolved_txs.iter().map(|tx| tx.original_input.clone()).collect();
+        let parsed_txs: Vec<_> =
+            resolved_txs.iter().map(|tx| tx.parsed_tx.clone()).collect();
+        crate::core::cache::derive_cache_key_bundle(&inputs, &parsed_txs)
+    };
+
+    Ok(ResolvedWithCacheKey { resolved_txs, cache_key })
+}
+
+/// Resolves cache state and prepares accounts/IDLs. This is the second phase of
+/// the shared handler setup — called after any simulate-specific mutations have
+/// been applied to the parsed transactions.
+pub(crate) fn resolve_cache_and_prepare(
+    args: &CachePrepareArgs,
+    cache_key: &str,
+    parsed_txs: &[transaction::ParsedTransaction],
+    parser_registry: &mut ParserRegistry,
+    progress: &Progress,
+) -> Result<CachePreparedContext> {
+    let (resolved_cache_dir, offline) = crate::core::cache::resolve_cache_state(
+        args.cache_enabled,
+        args.cache_dir,
+        args.refresh_cache,
+        cache_key,
+    );
+    let cache_read_dir_for_load = cache_read_dir(resolved_cache_dir.clone(), args.refresh_cache);
+
+    let prepared = prepare_accounts_and_idls(
+        args.rpc_url,
+        cache_read_dir_for_load,
+        offline,
+        parsed_txs,
+        parser_registry,
+        args.no_idl_fetch,
+        progress,
+    )?;
+
+    Ok(CachePreparedContext { cache_dir: resolved_cache_dir, offline, prepared })
 }
 
 // ---------------------------------------------------------------------------

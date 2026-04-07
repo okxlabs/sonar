@@ -13,8 +13,8 @@ use sonar_sim::{
 };
 
 use super::common::{
-    build_cache_location, cache_read_dir, prepare_accounts_and_idls, resolve_inputs_to_txs,
-    warn_unmatched_addresses,
+    build_cache_location, resolve_and_derive_cache_key, resolve_cache_and_prepare,
+    warn_unmatched_addresses, CachePrepareArgs,
 };
 
 /// Parse a vector of raw CLI strings using the given parser function.
@@ -149,9 +149,8 @@ pub(crate) fn handle(args: SimulateArgs, json: bool) -> Result<()> {
         );
     }
 
-    let parsed_inputs =
-        resolve_inputs_to_txs(tx, &rpc_url, resolver_cache_location, &progress, false)?;
-    let resolved_input = parsed_inputs
+    let resolved = resolve_and_derive_cache_key(tx, &rpc_url, resolver_cache_location, &progress)?;
+    let resolved_input = resolved
         .resolved_txs
         .into_iter()
         .next()
@@ -161,22 +160,25 @@ pub(crate) fn handle(args: SimulateArgs, json: bool) -> Result<()> {
     let resolved_from = resolved_input.source.as_str().to_string();
     let mut parsed_tx = resolved_input.parsed_tx;
 
-    let cache_key = crate::core::cache::derive_cache_key_single(&raw_input, &parsed_tx.transaction);
-
     apply_ix_mutations(&mut parsed_tx, &ix_account_patches, &ix_account_appends, &ix_data_patches)?;
-    let (tx_cache_dir, offline) =
-        crate::core::cache::resolve_cache_state(cache, &cache_dir, refresh_cache, &cache_key);
-    let cache_read_dir_for_load = cache_read_dir(tx_cache_dir.clone(), refresh_cache);
 
-    let mut prepared = prepare_accounts_and_idls(
-        &rpc_url,
-        cache_read_dir_for_load,
-        offline,
+    let cache_args = CachePrepareArgs {
+        rpc_url: &rpc_url,
+        cache_enabled: cache,
+        cache_dir: &cache_dir,
+        refresh_cache,
+        no_idl_fetch,
+    };
+    let cached = resolve_cache_and_prepare(
+        &cache_args,
+        &resolved.cache_key,
         std::slice::from_ref(&parsed_tx),
         &mut parser_registry,
-        no_idl_fetch,
         &progress,
     )?;
+    let tx_cache_dir = cached.cache_dir;
+    let offline = cached.offline;
+    let mut prepared = cached.prepared;
 
     warn_unmatched_addresses(
         &overrides,
@@ -287,32 +289,32 @@ fn handle_bundle(
 ) -> Result<()> {
     log::info!("Bundle simulation mode: {} transactions", tx_inputs.len());
 
-    let parsed_inputs =
-        resolve_inputs_to_txs(tx_inputs, rpc_url, resolver_cache_location, progress, true)?;
-    let resolved_txs = parsed_inputs.resolved_txs;
-    let tx_inputs: Vec<_> = resolved_txs.iter().map(|tx| tx.original_input.clone()).collect();
+    let resolved = resolve_and_derive_cache_key(tx_inputs, rpc_url, resolver_cache_location, progress)?;
+    let resolved_txs = resolved.resolved_txs;
     let mut parsed_txs: Vec<_> = resolved_txs.iter().map(|tx| tx.parsed_tx.clone()).collect();
     log::info!("Successfully parsed {} transactions", parsed_txs.len());
-
-    let cache_key = crate::core::cache::derive_cache_key_bundle(&tx_inputs, &parsed_txs);
 
     for parsed_tx in &mut parsed_txs {
         apply_ix_mutations(parsed_tx, &ix_account_patches, &ix_account_appends, &ix_data_patches)?;
     }
-    let (bundle_cache_dir, offline) =
-        crate::core::cache::resolve_cache_state(cache, &cache_dir, refresh_cache, &cache_key);
-    let cache_read_dir_for_load = cache_read_dir(bundle_cache_dir.clone(), refresh_cache);
 
-    let tx_refs: Vec<_> = parsed_txs.iter().map(|p| &p.transaction).collect();
-    let mut prepared = prepare_accounts_and_idls(
+    let cache_args = CachePrepareArgs {
         rpc_url,
-        cache_read_dir_for_load,
-        offline,
+        cache_enabled: cache,
+        cache_dir: &cache_dir,
+        refresh_cache,
+        no_idl_fetch,
+    };
+    let cached = resolve_cache_and_prepare(
+        &cache_args,
+        &resolved.cache_key,
         &parsed_txs,
         parser_registry,
-        no_idl_fetch,
         progress,
     )?;
+    let bundle_cache_dir = cached.cache_dir;
+    let offline = cached.offline;
+    let mut prepared = cached.prepared;
 
     let parsed_tx_refs: Vec<_> = parsed_txs.iter().collect();
     warn_unmatched_addresses(
@@ -376,6 +378,7 @@ fn handle_bundle(
     let mut runner =
         PreparedSimulation::prepare(prepared.resolved_accounts, sim_opts)?.into_runner();
 
+    let tx_refs: Vec<_> = parsed_txs.iter().map(|p| &p.transaction).collect();
     let bundle_results = runner.execute_bundle(&tx_refs);
     let simulations: Vec<_> = bundle_results
         .into_iter()
