@@ -204,8 +204,9 @@ fn decode_account_output(
         }
     };
 
-    let indexed: IndexedIdl =
-        serde_json::from_str(&idl_json).with_context(|| "Failed to parse IDL JSON")?;
+    let owner_address = owner.to_string();
+    let indexed = IndexedIdl::from_json_with_program_address(&idl_json, &owner_address)
+        .with_context(|| "Failed to parse IDL JSON")?;
 
     match indexed.parse_account_data(&account.data)? {
         Some((type_name, parsed_value)) => Ok((

@@ -275,10 +275,13 @@ impl ParserRegistry {
         let idl_content = std::fs::read_to_string(&idl_file_path)
             .with_context(|| format!("Failed to read IDL file: {}", idl_file_path.display()))?;
 
-        let indexed_idl: crate::parsers::instruction::anchor_idl::IndexedIdl =
-            serde_json::from_str(&idl_content).with_context(|| {
-                format!("Failed to parse IDL JSON: {}", idl_file_path.display())
-            })?;
+        let program_address = program_id.to_string();
+        let indexed_idl =
+            crate::parsers::instruction::anchor_idl::IndexedIdl::from_json_with_program_address(
+                &idl_content,
+                &program_address,
+            )
+            .with_context(|| format!("Failed to parse IDL JSON: {}", idl_file_path.display()))?;
 
         let parser = Box::new(crate::parsers::instruction::anchor_idl::AnchorIdlParser::new(
             *program_id,

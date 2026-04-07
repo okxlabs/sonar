@@ -25,6 +25,14 @@ pub struct IndexedIdl {
 }
 
 impl IndexedIdl {
+    pub fn from_json_with_program_address(
+        idl_json: &str,
+        program_address: &str,
+    ) -> serde_json::Result<Self> {
+        let raw: RawAnchorIdl = serde_json::from_str(idl_json)?;
+        Ok(raw.into_indexed_idl(program_address))
+    }
+
     pub(crate) fn from_normalized_idl(idl: Idl) -> Self {
         let mut instruction_indices_by_length = BTreeMap::<usize, HashMap<Vec<u8>, usize>>::new();
         for (idx, instruction) in idl.instructions.iter().enumerate() {
@@ -176,6 +184,11 @@ impl IndexedIdl {
     pub(super) fn find_type_definition(&self, name: &str) -> Option<&IdlTypeDefinition> {
         let idx = self.type_indices_by_name.get(name)?;
         self.idl.types.as_ref()?.get(*idx)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn address_for_tests(&self) -> &str {
+        &self.idl.address
     }
 }
 

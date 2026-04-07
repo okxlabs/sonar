@@ -53,6 +53,25 @@ fn indexed_idl_deserializes_legacy_json_and_parses_instruction() {
 }
 
 #[test]
+fn indexed_idl_from_json_with_program_address_preserves_legacy_address_fallback() {
+    let indexed = IndexedIdl::from_json_with_program_address(
+        r#"{
+            "version": "0.1.0",
+            "name": "legacy_program",
+            "instructions": [{
+                "name": "doSomething",
+                "accounts": [],
+                "args": []
+            }]
+        }"#,
+        "11111111111111111111111111111111",
+    )
+    .unwrap();
+
+    assert_eq!(indexed.address_for_tests(), "11111111111111111111111111111111");
+}
+
+#[test]
 fn indexed_idl_parse_instruction_exposes_flat_account_names() {
     let indexed = IndexedIdl::from_normalized_idl(Idl {
         address: "11111111111111111111111111111111".to_string(),
