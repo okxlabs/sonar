@@ -13,7 +13,6 @@
 mod discriminator;
 mod models;
 mod parser;
-mod value;
 
 // ── Discriminator ──
 
@@ -26,10 +25,6 @@ pub use models::{
     IdlEnumVariant, IdlEvent, IdlField, IdlFields, IdlInstruction, IdlMetadata, IdlType,
     IdlTypeDefinition, IdlTypeDefinitionBody, IdlTypeDefinitionKind, LegacyIdl, RawAnchorIdl,
 };
-
-// ── Value ──
-
-pub use value::OrderedJsonValue;
 
 // ── Parsing ──
 

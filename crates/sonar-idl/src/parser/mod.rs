@@ -1,8 +1,8 @@
 use anyhow::{Result, anyhow};
 use serde::Serialize;
+use serde_json::Value;
 
 use crate::models::*;
-use crate::value::OrderedJsonValue;
 
 mod decode;
 mod lookup;
@@ -32,7 +32,7 @@ pub struct IdlParsedInstruction {
 #[derive(Debug, Clone, Serialize)]
 pub struct IdlParsedField {
     pub name: String,
-    pub value: OrderedJsonValue,
+    pub value: Value,
 }
 
 const EMIT_CPI_DISCRIMINATOR: [u8; 8] = [0xe4, 0x45, 0xa5, 0x2e, 0x51, 0xcb, 0x9a, 0x1d];
@@ -70,17 +70,14 @@ fn parse_instruction_with_lookup<L: IdlLookup>(
 /// Returns `Ok(Some((type_name, parsed_data)))` if the account type is found and parsed,
 /// `Ok(None)` if no matching account type is found in the IDL,
 /// or an error if parsing fails.
-pub fn parse_account_data(
-    idl: &Idl,
-    account_data: &[u8],
-) -> Result<Option<(String, OrderedJsonValue)>> {
+pub fn parse_account_data(idl: &Idl, account_data: &[u8]) -> Result<Option<(String, Value)>> {
     parse_account_data_with_lookup(idl, account_data)
 }
 
 fn parse_account_data_with_lookup<L: IdlLookup>(
     lookup: &L,
     account_data: &[u8],
-) -> Result<Option<(String, OrderedJsonValue)>> {
+) -> Result<Option<(String, Value)>> {
     if account_data.len() < 8 {
         return Err(anyhow!(
             "Account data too short: {} bytes (expected at least 8 for discriminator)",

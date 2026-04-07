@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use anyhow::{Context, Result};
 use serde::Serialize;
+use serde_json::Value;
 use solana_account::ReadableAccount;
 use solana_pubkey::Pubkey;
 use solana_sdk_ids::bpf_loader_upgradeable;
@@ -32,7 +33,7 @@ impl ParsedField {
         Self { name: name.into(), value: ParsedFieldValue::Text(value.into()) }
     }
 
-    pub fn json(name: impl Into<String>, value: OrderedJsonValue) -> Self {
+    pub fn json(name: impl Into<String>, value: Value) -> Self {
         Self { name: name.into(), value: ParsedFieldValue::Json(value) }
     }
 }
@@ -52,7 +53,7 @@ where
 #[serde(untagged)]
 pub enum ParsedFieldValue {
     Text(String),
-    Json(OrderedJsonValue),
+    Json(Value),
 }
 
 impl From<String> for ParsedFieldValue {
@@ -84,8 +85,6 @@ impl PartialEq<String> for ParsedFieldValue {
         }
     }
 }
-
-pub use sonar_idl::OrderedJsonValue;
 
 /// Append numbered account names for accounts beyond the named set.
 ///

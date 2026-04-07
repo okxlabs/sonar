@@ -1,5 +1,6 @@
 use super::*;
 use crate::discriminator::sighash;
+use serde_json::{Value, json};
 use solana_pubkey::Pubkey;
 use std::str::FromStr;
 
@@ -40,7 +41,7 @@ fn parse_instruction_matches_discriminator_and_reads_u64_arg() {
     assert_eq!(parsed.name, "initialize");
     assert_eq!(parsed.fields.len(), 1);
     assert_eq!(parsed.fields[0].name, "data");
-    assert_eq!(parsed.fields[0].value, OrderedJsonValue::Number(42u64.into()));
+    assert_eq!(parsed.fields[0].value, json!(42u64));
 }
 
 #[test]
@@ -56,7 +57,32 @@ fn resolved_idl_parses_instruction_matches_discriminator_and_reads_u64_arg() {
     assert_eq!(parsed.name, "initialize");
     assert_eq!(parsed.fields.len(), 1);
     assert_eq!(parsed.fields[0].name, "data");
-    assert_eq!(parsed.fields[0].value, OrderedJsonValue::Number(42u64.into()));
+    assert_eq!(parsed.fields[0].value, json!(42u64));
+}
+
+#[test]
+fn resolved_idl_normalizes_current_format_instruction_discriminator() {
+    let idl: Idl = serde_json::from_str(
+        r#"{
+            "address": "11111111111111111111111111111111",
+            "metadata": { "name": "current_program", "version": "0.1.0", "spec": "0.1.0" },
+            "instructions": [{
+                "name": "doSomething",
+                "accounts": [],
+                "args": []
+            }]
+        }"#,
+    )
+    .unwrap();
+
+    let resolved = ResolvedIdl::new(idl);
+    let data = sighash("global", "do_something").to_vec();
+
+    let result = resolved.parse_instruction(&data).unwrap();
+    let parsed = result.expect("should match");
+
+    assert_eq!(parsed.name, "doSomething");
+    assert!(parsed.fields.is_empty());
 }
 
 #[test]
@@ -80,10 +106,7 @@ fn parse_account_data_matches_struct_by_discriminator() {
     let (type_name, value) = result.expect("should match NewAccount");
 
     assert_eq!(type_name, "NewAccount");
-    assert_eq!(
-        value,
-        OrderedJsonValue::Object(vec![("data".into(), OrderedJsonValue::Number(99u64.into()),)])
-    );
+    assert_eq!(value, json!({ "data": 99u64 }));
 }
 
 #[test]
@@ -98,10 +121,7 @@ fn resolved_idl_parse_account_data_matches_struct_by_discriminator() {
     let (type_name, value) = result.expect("should match NewAccount");
 
     assert_eq!(type_name, "NewAccount");
-    assert_eq!(
-        value,
-        OrderedJsonValue::Object(vec![("data".into(), OrderedJsonValue::Number(99u64.into()),)])
-    );
+    assert_eq!(value, json!({ "data": 99u64 }));
 }
 
 #[test]
@@ -177,7 +197,7 @@ fn parse_cpi_event_data_parses_event_fields() {
     assert_eq!(parsed.name, "TransferDone");
     assert_eq!(parsed.fields.len(), 1);
     assert_eq!(parsed.fields[0].name, "amount");
-    assert_eq!(parsed.fields[0].value, OrderedJsonValue::Number(500u64.into()));
+    assert_eq!(parsed.fields[0].value, json!(500u64));
 }
 
 #[test]
@@ -211,9 +231,9 @@ fn parse_cpi_event_data_parses_tuple_event_fields() {
     assert_eq!(parsed.name, "PairEvent");
     assert_eq!(parsed.fields.len(), 2);
     assert_eq!(parsed.fields[0].name, "field_0");
-    assert_eq!(parsed.fields[0].value, OrderedJsonValue::Number(9u64.into()));
+    assert_eq!(parsed.fields[0].value, json!(9u64));
     assert_eq!(parsed.fields[1].name, "field_1");
-    assert_eq!(parsed.fields[1].value, OrderedJsonValue::Number(7u64.into()));
+    assert_eq!(parsed.fields[1].value, json!(7u64));
 }
 
 #[test]
@@ -247,10 +267,10 @@ fn parse_instruction_multiple_primitive_args() {
     data.extend_from_slice(s);
 
     let parsed = parse_instruction(&idl, &data).unwrap().unwrap();
-    assert_eq!(parsed.fields[0].value, OrderedJsonValue::Number(42u64.into()));
-    assert_eq!(parsed.fields[1].value, OrderedJsonValue::Bool(true));
-    assert_eq!(parsed.fields[2].value, OrderedJsonValue::Number((-5i64).into()));
-    assert_eq!(parsed.fields[3].value, OrderedJsonValue::String("hello".into()));
+    assert_eq!(parsed.fields[0].value, json!(42u64));
+    assert_eq!(parsed.fields[1].value, json!(true));
+    assert_eq!(parsed.fields[2].value, json!(-5i64));
+    assert_eq!(parsed.fields[3].value, json!("hello"));
 }
 
 #[test]
@@ -312,13 +332,7 @@ fn parse_instruction_with_defined_struct_arg() {
 
     let parsed = parse_instruction(&idl, &data).unwrap().unwrap();
     assert_eq!(parsed.fields[0].name, "params");
-    assert_eq!(
-        parsed.fields[0].value,
-        OrderedJsonValue::Object(vec![
-            ("x".into(), OrderedJsonValue::Number(100u64.into())),
-            ("y".into(), OrderedJsonValue::Number(200u64.into())),
-        ])
-    );
+    assert_eq!(parsed.fields[0].value, json!({ "x": 100u64, "y": 200u64 }));
 }
 
 #[test]
@@ -355,6 +369,42 @@ fn parse_instruction_errors_when_a_defined_struct_field_is_missing() {
 }
 
 #[test]
+fn parse_instruction_preserves_named_field_order_in_serde_json_value() {
+    let idl: Idl = serde_json::from_str(
+        r#"{
+            "address": "11111111111111111111111111111111",
+            "metadata": { "name": "t", "version": "0.1.0", "spec": "0.1.0" },
+            "instructions": [{
+                "name": "create",
+                "discriminator": [10,20,30,40,50,60,70,80],
+                "accounts": [],
+                "args": [{ "name": "params", "type": { "defined": "Params" } }]
+            }],
+            "types": [{
+                "name": "Params",
+                "type": {
+                    "kind": "struct",
+                    "fields": [
+                        { "name": "zeta", "type": "u32" },
+                        { "name": "alpha", "type": "u32" }
+                    ]
+                }
+            }]
+        }"#,
+    )
+    .unwrap();
+
+    let mut data = vec![10, 20, 30, 40, 50, 60, 70, 80];
+    data.extend_from_slice(&100u32.to_le_bytes());
+    data.extend_from_slice(&200u32.to_le_bytes());
+
+    let parsed = parse_instruction(&idl, &data).unwrap().unwrap();
+    let json = serde_json::to_value(&parsed.fields[0].value).unwrap();
+
+    assert_eq!(serde_json::to_string(&json).unwrap(), r#"{"zeta":100,"alpha":200}"#);
+}
+
+#[test]
 fn parse_instruction_with_enum_arg() {
     let idl: Idl = serde_json::from_str(
         r#"{
@@ -382,17 +432,11 @@ fn parse_instruction_with_enum_arg() {
 
     let mut data = vec![1, 1, 1, 1, 1, 1, 1, 1, 0];
     let parsed = parse_instruction(&idl, &data).unwrap().unwrap();
-    assert_eq!(
-        parsed.fields[0].value,
-        OrderedJsonValue::Object(vec![("Start".into(), OrderedJsonValue::Null)])
-    );
+    assert_eq!(parsed.fields[0].value, json!({ "Start": null }));
 
     data[8] = 1;
     let parsed = parse_instruction(&idl, &data).unwrap().unwrap();
-    assert_eq!(
-        parsed.fields[0].value,
-        OrderedJsonValue::Object(vec![("Stop".into(), OrderedJsonValue::Null)])
-    );
+    assert_eq!(parsed.fields[0].value, json!({ "Stop": null }));
 }
 
 #[test]
@@ -419,14 +463,7 @@ fn parse_instruction_with_vec_arg() {
     data.extend_from_slice(&30u16.to_le_bytes());
 
     let parsed = parse_instruction(&idl, &data).unwrap().unwrap();
-    assert_eq!(
-        parsed.fields[0].value,
-        OrderedJsonValue::Array(vec![
-            OrderedJsonValue::Number(10u64.into()),
-            OrderedJsonValue::Number(20u64.into()),
-            OrderedJsonValue::Number(30u64.into()),
-        ])
-    );
+    assert_eq!(parsed.fields[0].value, json!([10u64, 20u64, 30u64]));
 }
 
 #[test]
@@ -449,11 +486,11 @@ fn parse_instruction_with_option_arg() {
     let mut data = vec![3, 3, 3, 3, 3, 3, 3, 3, 1];
     data.extend_from_slice(&777u32.to_le_bytes());
     let parsed = parse_instruction(&idl, &data).unwrap().unwrap();
-    assert_eq!(parsed.fields[0].value, OrderedJsonValue::Number(777u64.into()));
+    assert_eq!(parsed.fields[0].value, json!(777u64));
 
     let data_none = vec![3, 3, 3, 3, 3, 3, 3, 3, 0];
     let parsed = parse_instruction(&idl, &data_none).unwrap().unwrap();
-    assert_eq!(parsed.fields[0].value, OrderedJsonValue::Null);
+    assert_eq!(parsed.fields[0].value, Value::Null);
 }
 
 #[test]
@@ -497,7 +534,7 @@ fn parse_simple_u8() {
     let data = [42u8];
     let mut offset = 0;
     let val = parse_simple_type(&data, &mut offset, "u8").unwrap();
-    assert_eq!(val, OrderedJsonValue::Number(42u64.into()));
+    assert_eq!(val, json!(42u64));
     assert_eq!(offset, 1);
 }
 
@@ -506,7 +543,7 @@ fn parse_simple_i8() {
     let data = [(-5i8) as u8];
     let mut offset = 0;
     let val = parse_simple_type(&data, &mut offset, "i8").unwrap();
-    assert_eq!(val, OrderedJsonValue::Number((-5i64).into()));
+    assert_eq!(val, json!(-5i64));
     assert_eq!(offset, 1);
 }
 
@@ -515,7 +552,7 @@ fn parse_simple_u16() {
     let data = 1000u16.to_le_bytes();
     let mut offset = 0;
     let val = parse_simple_type(&data, &mut offset, "u16").unwrap();
-    assert_eq!(val, OrderedJsonValue::Number(1000u64.into()));
+    assert_eq!(val, json!(1000u64));
     assert_eq!(offset, 2);
 }
 
@@ -524,7 +561,7 @@ fn parse_simple_i16() {
     let data = (-300i16).to_le_bytes();
     let mut offset = 0;
     let val = parse_simple_type(&data, &mut offset, "i16").unwrap();
-    assert_eq!(val, OrderedJsonValue::Number((-300i64).into()));
+    assert_eq!(val, json!(-300i64));
     assert_eq!(offset, 2);
 }
 
@@ -533,7 +570,7 @@ fn parse_simple_u32() {
     let data = 70000u32.to_le_bytes();
     let mut offset = 0;
     let val = parse_simple_type(&data, &mut offset, "u32").unwrap();
-    assert_eq!(val, OrderedJsonValue::Number(70000u64.into()));
+    assert_eq!(val, json!(70000u64));
     assert_eq!(offset, 4);
 }
 
@@ -542,7 +579,7 @@ fn parse_simple_i32() {
     let data = (-70000i32).to_le_bytes();
     let mut offset = 0;
     let val = parse_simple_type(&data, &mut offset, "i32").unwrap();
-    assert_eq!(val, OrderedJsonValue::Number((-70000i64).into()));
+    assert_eq!(val, json!(-70000i64));
     assert_eq!(offset, 4);
 }
 
@@ -551,7 +588,7 @@ fn parse_simple_u64() {
     let data = u64::MAX.to_le_bytes();
     let mut offset = 0;
     let val = parse_simple_type(&data, &mut offset, "u64").unwrap();
-    assert_eq!(val, OrderedJsonValue::Number(u64::MAX.into()));
+    assert_eq!(val, json!(u64::MAX));
     assert_eq!(offset, 8);
 }
 
@@ -560,7 +597,7 @@ fn parse_simple_i64() {
     let data = i64::MIN.to_le_bytes();
     let mut offset = 0;
     let val = parse_simple_type(&data, &mut offset, "i64").unwrap();
-    assert_eq!(val, OrderedJsonValue::Number(i64::MIN.into()));
+    assert_eq!(val, json!(i64::MIN));
     assert_eq!(offset, 8);
 }
 
@@ -570,7 +607,7 @@ fn parse_simple_u128() {
     let data = val_in.to_le_bytes();
     let mut offset = 0;
     let val = parse_simple_type(&data, &mut offset, "u128").unwrap();
-    assert_eq!(val, OrderedJsonValue::String(val_in.to_string()));
+    assert_eq!(val, json!(val_in.to_string()));
     assert_eq!(offset, 16);
 }
 
@@ -580,7 +617,7 @@ fn parse_simple_i128() {
     let data = val_in.to_le_bytes();
     let mut offset = 0;
     let val = parse_simple_type(&data, &mut offset, "i128").unwrap();
-    assert_eq!(val, OrderedJsonValue::String(val_in.to_string()));
+    assert_eq!(val, json!(val_in.to_string()));
     assert_eq!(offset, 16);
 }
 
@@ -589,7 +626,7 @@ fn parse_simple_bool_true() {
     let data = [1u8];
     let mut offset = 0;
     let val = parse_simple_type(&data, &mut offset, "bool").unwrap();
-    assert_eq!(val, OrderedJsonValue::Bool(true));
+    assert_eq!(val, json!(true));
     assert_eq!(offset, 1);
 }
 
@@ -598,7 +635,7 @@ fn parse_simple_bool_false() {
     let data = [0u8];
     let mut offset = 0;
     let val = parse_simple_type(&data, &mut offset, "bool").unwrap();
-    assert_eq!(val, OrderedJsonValue::Bool(false));
+    assert_eq!(val, json!(false));
     assert_eq!(offset, 1);
 }
 
@@ -608,7 +645,7 @@ fn parse_simple_pubkey() {
     let data = pk.to_bytes();
     let mut offset = 0;
     let val = parse_simple_type(&data, &mut offset, "pubkey").unwrap();
-    assert_eq!(val, OrderedJsonValue::String(pk.to_string()));
+    assert_eq!(val, json!(pk.to_string()));
     assert_eq!(offset, 32);
 }
 
@@ -619,7 +656,7 @@ fn parse_simple_string() {
     data.extend_from_slice(s);
     let mut offset = 0;
     let val = parse_simple_type(&data, &mut offset, "string").unwrap();
-    assert_eq!(val, OrderedJsonValue::String("hello".into()));
+    assert_eq!(val, json!("hello"));
     assert_eq!(offset, 9);
 }
 
@@ -630,14 +667,7 @@ fn parse_simple_bytes() {
     data.extend_from_slice(&payload);
     let mut offset = 0;
     let val = parse_simple_type(&data, &mut offset, "bytes").unwrap();
-    assert_eq!(
-        val,
-        OrderedJsonValue::Array(vec![
-            OrderedJsonValue::Number(0xAAu64.into()),
-            OrderedJsonValue::Number(0xBBu64.into()),
-            OrderedJsonValue::Number(0xCCu64.into()),
-        ])
-    );
+    assert_eq!(val, json!([0xAAu64, 0xBBu64, 0xCCu64]));
     assert_eq!(offset, 7);
 }
 
@@ -671,14 +701,27 @@ fn parse_simple_type_unknown_falls_back_to_raw() {
     let data = [1, 2, 3, 4];
     let mut offset = 0;
     let val = parse_simple_type(&data, &mut offset, "unknown_type").unwrap();
-    if let OrderedJsonValue::Object(entries) = &val {
-        let keys: Vec<&str> = entries.iter().map(|(k, _)| k.as_str()).collect();
+    if let Value::Object(entries) = &val {
+        let keys: Vec<&str> = entries.keys().map(|k| k.as_str()).collect();
         assert!(keys.contains(&"context"));
         assert!(keys.contains(&"type_hint"));
         assert!(keys.contains(&"raw_hex"));
     } else {
         panic!("expected Object for unknown type, got {:?}", val);
     }
+}
+
+#[test]
+fn parse_simple_type_unknown_preserves_fallback_key_order_in_serde_json_value() {
+    let data = [1, 2, 3, 4];
+    let mut offset = 0;
+    let val = parse_simple_type(&data, &mut offset, "unknown_type").unwrap();
+    let json = serde_json::to_value(&val).unwrap();
+
+    assert_eq!(
+        serde_json::to_string(&json).unwrap(),
+        r#"{"context":"simple_type","type_hint":"unknown_type","raw_hex":"01020304"}"#
+    );
 }
 
 #[test]
@@ -691,14 +734,7 @@ fn parse_vec_type_u32_elements() {
     let idl = hello_anchor_idl();
     let element_type = IdlType::Simple("u32".into());
     let val = parse_vec_type(&data, &mut offset, &element_type, &idl).unwrap();
-    assert_eq!(
-        val,
-        OrderedJsonValue::Array(vec![
-            OrderedJsonValue::Number(10u64.into()),
-            OrderedJsonValue::Number(20u64.into()),
-            OrderedJsonValue::Number(30u64.into()),
-        ])
-    );
+    assert_eq!(val, json!([10u64, 20u64, 30u64]));
     assert_eq!(offset, 16);
 }
 
@@ -709,7 +745,7 @@ fn parse_vec_type_empty() {
     let idl = hello_anchor_idl();
     let element_type = IdlType::Simple("u8".into());
     let val = parse_vec_type(&data, &mut offset, &element_type, &idl).unwrap();
-    assert_eq!(val, OrderedJsonValue::Array(vec![]));
+    assert_eq!(val, json!([]));
     assert_eq!(offset, 4);
 }
 
@@ -736,6 +772,19 @@ fn parse_vec_type_errors_when_declared_elements_are_missing() {
 }
 
 #[test]
+fn parse_vec_type_stops_when_element_parser_makes_no_progress() {
+    let data = 3u32.to_le_bytes();
+    let mut offset = 0;
+    let idl = hello_anchor_idl();
+    let element_type = IdlType::Defined { defined: DefinedType::Simple("MissingType".into()) };
+
+    let val = parse_vec_type(&data, &mut offset, &element_type, &idl).unwrap();
+
+    assert_eq!(val, json!([]));
+    assert_eq!(offset, 4);
+}
+
+#[test]
 fn parse_option_type_some() {
     let mut data = vec![1u8];
     data.extend_from_slice(&500u16.to_le_bytes());
@@ -743,7 +792,7 @@ fn parse_option_type_some() {
     let idl = hello_anchor_idl();
     let inner = IdlType::Simple("u16".into());
     let val = parse_option_type(&data, &mut offset, &inner, &idl).unwrap();
-    assert_eq!(val, OrderedJsonValue::Number(500u64.into()));
+    assert_eq!(val, json!(500u64));
     assert_eq!(offset, 3);
 }
 
@@ -754,7 +803,7 @@ fn parse_option_type_none() {
     let idl = hello_anchor_idl();
     let inner = IdlType::Simple("u16".into());
     let val = parse_option_type(&data, &mut offset, &inner, &idl).unwrap();
-    assert_eq!(val, OrderedJsonValue::Null);
+    assert_eq!(val, Value::Null);
     assert_eq!(offset, 1);
 }
 
@@ -776,14 +825,7 @@ fn parse_array_type_fixed_3_u8() {
     let array_def =
         IdlArrayType { element_type: Box::new(IdlType::Simple("u8".into())), length: 3 };
     let val = parse_array_type(&data, &mut offset, &array_def, &idl).unwrap();
-    assert_eq!(
-        val,
-        OrderedJsonValue::Array(vec![
-            OrderedJsonValue::Number(10u64.into()),
-            OrderedJsonValue::Number(20u64.into()),
-            OrderedJsonValue::Number(30u64.into()),
-        ])
-    );
+    assert_eq!(val, json!([10u64, 20u64, 30u64]));
     assert_eq!(offset, 3);
 }
 
@@ -830,16 +872,7 @@ fn parse_instruction_with_defined_tuple_struct_arg_supports_nested_types() {
 
     assert_eq!(parsed.fields.len(), 1);
     assert_eq!(parsed.fields[0].name, "payload");
-    assert_eq!(
-        parsed.fields[0].value,
-        OrderedJsonValue::Array(vec![
-            OrderedJsonValue::Number(777u64.into()),
-            OrderedJsonValue::Object(vec![(
-                "amount".into(),
-                OrderedJsonValue::Number(42u64.into()),
-            )]),
-        ])
-    );
+    assert_eq!(parsed.fields[0].value, json!([777u64, { "amount": 42u64 }]));
 }
 
 #[test]
@@ -881,16 +914,7 @@ fn parse_enum_with_struct_variant() {
 
     let parsed = parse_instruction(&idl, &data).unwrap().unwrap();
     let val = &parsed.fields[0].value;
-    assert_eq!(
-        *val,
-        OrderedJsonValue::Object(vec![(
-            "Transfer".into(),
-            OrderedJsonValue::Object(vec![
-                ("amount".into(), OrderedJsonValue::Number(5000u64.into())),
-                ("fee".into(), OrderedJsonValue::Number(100u64.into())),
-            ]),
-        )])
-    );
+    assert_eq!(*val, json!({ "Transfer": { "amount": 5000u64, "fee": 100u64 } }));
 }
 
 #[test]
@@ -926,16 +950,7 @@ fn parse_enum_with_tuple_variant() {
 
     let parsed = parse_instruction(&idl, &data).unwrap().unwrap();
     let val = &parsed.fields[0].value;
-    assert_eq!(
-        *val,
-        OrderedJsonValue::Object(vec![(
-            "SetPair".into(),
-            OrderedJsonValue::Array(vec![
-                OrderedJsonValue::Number(111u64.into()),
-                OrderedJsonValue::Number(222u64.into()),
-            ]),
-        )])
-    );
+    assert_eq!(*val, json!({ "SetPair": [111u64, 222u64] }));
 }
 
 #[test]
@@ -965,8 +980,8 @@ fn parse_enum_out_of_range_variant_index_falls_through() {
     data.push(99);
 
     let parsed = parse_instruction(&idl, &data).unwrap().unwrap();
-    if let OrderedJsonValue::Object(entries) = &parsed.fields[0].value {
-        let keys: Vec<&str> = entries.iter().map(|(k, _)| k.as_str()).collect();
+    if let Value::Object(entries) = &parsed.fields[0].value {
+        let keys: Vec<&str> = entries.keys().map(|k| k.as_str()).collect();
         assert!(keys.contains(&"raw_hex"));
     } else {
         panic!("expected raw fallback for out-of-range variant");

@@ -4,12 +4,13 @@ use anyhow::Result;
 use colored::Colorize;
 use serde::Serialize;
 use serde::ser::SerializeMap;
+use serde_json::Value;
 use solana_account::ReadableAccount;
 use solana_pubkey::Pubkey;
 use unicode_width::UnicodeWidthStr;
 
 use crate::parsers::{
-    instruction::{OrderedJsonValue, ParsedField, ParsedFieldValue, ParserRegistry},
+    instruction::{ParsedField, ParsedFieldValue, ParserRegistry},
     log_parser::{LogEntry, LogEntryWithDepth, parse_logs_by_instruction},
 };
 use sonar_sim::ResolvedAccounts;
@@ -294,7 +295,7 @@ fn extract_compute_unit_limit(transaction: &TransactionSection) -> Option<u64> {
                                 }
                             }
                             ParsedFieldValue::Json(json) => {
-                                if let OrderedJsonValue::Number(num) = json {
+                                if let Value::Number(num) = json {
                                     return num.as_u64();
                                 }
                             }

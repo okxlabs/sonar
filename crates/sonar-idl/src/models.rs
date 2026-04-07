@@ -66,7 +66,7 @@ impl LegacyIdl {
 }
 
 impl Idl {
-    fn normalize(mut self, fallback_address: &str) -> Self {
+    pub(crate) fn normalize(mut self, fallback_address: &str) -> Self {
         if self.address.is_empty() {
             self.address = fallback_address.to_string();
         }

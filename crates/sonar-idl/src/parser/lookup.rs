@@ -1,9 +1,9 @@
 use anyhow::Result;
+use serde_json::Value;
 use std::collections::{BTreeMap, HashMap};
 
 use crate::discriminator::sighash;
 use crate::models::*;
-use crate::value::OrderedJsonValue;
 
 use super::{
     IdlParsedInstruction, parse_account_data_with_lookup, parse_cpi_event_data_with_lookup,
@@ -21,6 +21,7 @@ pub struct ResolvedIdl {
 
 impl ResolvedIdl {
     pub fn new(idl: Idl) -> Self {
+        let idl = idl.normalize("");
         let mut instruction_indices_by_length = BTreeMap::<usize, HashMap<Vec<u8>, usize>>::new();
         for (idx, instruction) in idl.instructions.iter().enumerate() {
             if let Some(discriminator) = instruction.discriminator.clone() {
@@ -72,10 +73,7 @@ impl ResolvedIdl {
         parse_instruction_with_lookup(self, data)
     }
 
-    pub fn parse_account_data(
-        &self,
-        account_data: &[u8],
-    ) -> Result<Option<(String, OrderedJsonValue)>> {
+    pub fn parse_account_data(&self, account_data: &[u8]) -> Result<Option<(String, Value)>> {
         parse_account_data_with_lookup(self, account_data)
     }
 
