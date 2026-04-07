@@ -1,9 +1,12 @@
+use std::path::{Path, PathBuf};
+
 use anyhow::{Context, Result};
 use colored::Colorize;
 use serde::Serialize;
 
 use crate::cli::{CacheArgs, CacheCommands};
 use crate::core::cache;
+use crate::core::cache::CacheMeta;
 
 #[derive(Serialize)]
 struct CacheListEntry {
@@ -47,6 +50,36 @@ struct CacheCleanOutput {
     removed: usize,
 }
 
+struct CacheEntry {
+    path: PathBuf,
+    key: String,
+    meta: Option<CacheMeta>,
+}
+
+/// Reads the cache root directory, filters to directories, sorts by name,
+/// and reads `_meta.json` for each entry (storing `None` on failure).
+fn list_cache_entries(cache_root: &Path) -> Result<Vec<CacheEntry>> {
+    let mut dir_entries: Vec<_> = std::fs::read_dir(cache_root)
+        .with_context(|| format!("Failed to read cache directory: {}", cache_root.display()))?
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().is_dir())
+        .collect();
+
+    dir_entries.sort_by_key(|e| e.file_name());
+
+    let entries = dir_entries
+        .into_iter()
+        .map(|e| {
+            let path = e.path();
+            let key = e.file_name().to_string_lossy().to_string();
+            let meta = cache::read_meta_json(&path).ok();
+            CacheEntry { path, key, meta }
+        })
+        .collect();
+
+    Ok(entries)
+}
+
 pub(crate) fn handle(args: CacheArgs, json: bool) -> Result<()> {
     match args.command {
         CacheCommands::List => handle_list(json),
@@ -66,11 +99,7 @@ fn handle_list(json: bool) -> Result<()> {
         return Ok(());
     }
 
-    let mut entries: Vec<_> = std::fs::read_dir(&cache_root)
-        .with_context(|| format!("Failed to read cache directory: {}", cache_root.display()))?
-        .filter_map(|e| e.ok())
-        .filter(|e| e.path().is_dir())
-        .collect();
+    let entries = list_cache_entries(&cache_root)?;
 
     if entries.is_empty() {
         if json {
@@ -81,37 +110,31 @@ fn handle_list(json: bool) -> Result<()> {
         return Ok(());
     }
 
-    entries.sort_by_key(|e| e.file_name());
-
     if json {
         let list: Vec<CacheListEntry> = entries
             .iter()
-            .map(|entry| {
-                let dir = entry.path();
-                let key = entry.file_name().to_string_lossy().to_string();
-                match cache::read_meta_json(&dir) {
-                    Ok(meta) => CacheListEntry {
-                        key,
-                        cache_type: Some(meta.cache_type),
-                        account_count: Some(meta.account_count),
-                        created_at: Some(meta.created_at),
-                        rpc_url: Some(meta.rpc_url),
-                        sonar_version: Some(meta.sonar_version),
-                        file_count: None,
-                    },
-                    Err(_) => {
-                        let fc = std::fs::read_dir(&dir)
-                            .map(|rd| rd.filter_map(|e| e.ok()).count())
-                            .unwrap_or(0);
-                        CacheListEntry {
-                            key,
-                            cache_type: None,
-                            account_count: None,
-                            created_at: None,
-                            rpc_url: None,
-                            sonar_version: None,
-                            file_count: Some(fc),
-                        }
+            .map(|entry| match &entry.meta {
+                Some(meta) => CacheListEntry {
+                    key: entry.key.clone(),
+                    cache_type: Some(meta.cache_type.clone()),
+                    account_count: Some(meta.account_count),
+                    created_at: Some(meta.created_at.clone()),
+                    rpc_url: Some(meta.rpc_url.clone()),
+                    sonar_version: Some(meta.sonar_version.clone()),
+                    file_count: None,
+                },
+                None => {
+                    let fc = std::fs::read_dir(&entry.path)
+                        .map(|rd| rd.filter_map(|e| e.ok()).count())
+                        .unwrap_or(0);
+                    CacheListEntry {
+                        key: entry.key.clone(),
+                        cache_type: None,
+                        account_count: None,
+                        created_at: None,
+                        rpc_url: None,
+                        sonar_version: None,
+                        file_count: Some(fc),
                     }
                 }
             })
@@ -121,10 +144,8 @@ fn handle_list(json: bool) -> Result<()> {
         println!("{} ({}):\n", "Cached entries".bold(), cache_root.display());
 
         for entry in &entries {
-            let dir = entry.path();
-            let key = entry.file_name().to_string_lossy().to_string();
-            match cache::read_meta_json(&dir) {
-                Ok(meta) => {
+            match &entry.meta {
+                Some(meta) => {
                     let type_label = if meta.cache_type == "bundle" {
                         format!("bundle, {} txs", meta.transactions.len())
                     } else {
@@ -132,17 +153,17 @@ fn handle_list(json: bool) -> Result<()> {
                     };
                     println!(
                         "  {} — {} accounts, {} ({})",
-                        key.cyan(),
+                        entry.key.cyan(),
                         meta.account_count,
                         type_label,
                         meta.created_at,
                     );
                 }
-                Err(_) => {
-                    let file_count = std::fs::read_dir(&dir)
+                None => {
+                    let file_count = std::fs::read_dir(&entry.path)
                         .map(|rd| rd.filter_map(|e| e.ok()).count())
                         .unwrap_or(0);
-                    println!("  {} — {} files (no metadata)", key.yellow(), file_count,);
+                    println!("  {} — {} files (no metadata)", entry.key.yellow(), file_count,);
                 }
             }
         }
@@ -180,18 +201,12 @@ fn handle_clean(args: crate::cli::CacheCleanArgs, json: bool) -> Result<()> {
         None => None,
     };
 
-    let entries: Vec<_> = std::fs::read_dir(&cache_root)
-        .with_context(|| format!("Failed to read cache directory: {}", cache_root.display()))?
-        .filter_map(|e| e.ok())
-        .filter(|e| e.path().is_dir())
-        .collect();
+    let entries = list_cache_entries(&cache_root)?;
 
     let mut removed = 0usize;
     for entry in &entries {
-        let dir = entry.path();
-
         if let Some(max_age_days) = min_age_days {
-            if let Ok(meta) = cache::read_meta_json(&dir) {
+            if let Some(meta) = &entry.meta {
                 if let Ok(created) = chrono::DateTime::parse_from_rfc3339(&meta.created_at) {
                     let age = chrono::Utc::now().signed_duration_since(created);
                     if age.num_days() < max_age_days as i64 {
@@ -201,8 +216,8 @@ fn handle_clean(args: crate::cli::CacheCleanArgs, json: bool) -> Result<()> {
             }
         }
 
-        std::fs::remove_dir_all(&dir)
-            .with_context(|| format!("Failed to remove cache entry: {}", dir.display()))?;
+        std::fs::remove_dir_all(&entry.path)
+            .with_context(|| format!("Failed to remove cache entry: {}", entry.path.display()))?;
         removed += 1;
     }
 
