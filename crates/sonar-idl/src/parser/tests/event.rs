@@ -1,10 +1,9 @@
 use serde_json::json;
 
 use crate::discriminator::sighash;
-use crate::models::Idl;
 
 use super::super::{IndexedIdl, is_cpi_event_data};
-use super::hello_anchor_idl;
+use super::hello_anchor_indexed_idl;
 
 #[test]
 fn is_cpi_event_data_detects_emit_cpi() {
@@ -25,7 +24,7 @@ fn is_cpi_event_data_rejects_wrong_prefix() {
 
 #[test]
 fn indexed_idl_parse_cpi_event_data_returns_none_for_unknown_event_discriminator() {
-    let indexed = IndexedIdl::new(hello_anchor_idl());
+    let indexed = hello_anchor_indexed_idl();
     let mut data = vec![0xe4, 0x45, 0xa5, 0x2e, 0x51, 0xcb, 0x9a, 0x1d];
     data.extend_from_slice(&[0; 8]);
 
@@ -37,7 +36,7 @@ fn indexed_idl_parse_cpi_event_data_returns_none_for_unknown_event_discriminator
 fn indexed_idl_parse_cpi_event_data_parses_event_fields() {
     let event_disc = sighash("event", "TransferDone");
 
-    let idl: Idl = serde_json::from_str(&format!(
+    let indexed: IndexedIdl = serde_json::from_str(&format!(
         r#"{{
             "address": "BYFW1vhC1ohxwRbYoLbAWs86STa25i9sD5uEusVjTYNd",
             "metadata": {{ "name": "ev", "version": "0.1.0", "spec": "0.1.0" }},
@@ -56,7 +55,6 @@ fn indexed_idl_parse_cpi_event_data_parses_event_fields() {
     data.extend_from_slice(&event_disc);
     data.extend_from_slice(&500u64.to_le_bytes());
 
-    let indexed = IndexedIdl::new(idl);
     let result = indexed.parse_cpi_event_data(&data).unwrap();
     let parsed = result.expect("should parse event");
 
@@ -70,7 +68,7 @@ fn indexed_idl_parse_cpi_event_data_parses_event_fields() {
 fn indexed_idl_parse_cpi_event_data_parses_tuple_event_fields() {
     let event_disc = sighash("event", "PairEvent");
 
-    let idl: Idl = serde_json::from_str(&format!(
+    let indexed: IndexedIdl = serde_json::from_str(&format!(
         r#"{{
             "address": "11111111111111111111111111111111",
             "metadata": {{ "name": "ev", "version": "0.1.0", "spec": "0.1.0" }},
@@ -91,7 +89,6 @@ fn indexed_idl_parse_cpi_event_data_parses_tuple_event_fields() {
     data.push(1);
     data.extend_from_slice(&7u16.to_le_bytes());
 
-    let indexed = IndexedIdl::new(idl);
     let result = indexed.parse_cpi_event_data(&data).unwrap();
     let parsed = result.expect("should parse tuple event");
 

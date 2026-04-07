@@ -3,6 +3,8 @@ use crate::discriminator::sighash;
 
 use super::*;
 
+const EMIT_CPI_DISCRIMINATOR: [u8; 8] = [0xe4, 0x45, 0xa5, 0x2e, 0x51, 0xcb, 0x9a, 0x1d];
+
 const CURRENT_IDL_JSON: &str = r#"{
     "address": "BYFW1vhC1ohxwRbYoLbAWs86STa25i9sD5uEusVjTYNd",
     "metadata": {
@@ -63,43 +65,21 @@ const LEGACY_IDL_JSON: &str = r#"{
 
 #[test]
 fn parse_current_idl_format() {
-    let raw: RawAnchorIdl = serde_json::from_str(CURRENT_IDL_JSON).unwrap();
-    let indexed = raw.into_indexed_idl("BYFW1vhC1ohxwRbYoLbAWs86STa25i9sD5uEusVjTYNd");
-    let idl = indexed.idl();
+    let indexed: IndexedIdl = serde_json::from_str(CURRENT_IDL_JSON).unwrap();
+    let mut data = vec![175, 175, 109, 31, 13, 152, 155, 237];
+    data.extend_from_slice(&42u64.to_le_bytes());
 
-    assert_eq!(idl.metadata.name, "hello_anchor");
-    assert_eq!(idl.instructions.len(), 1);
-    assert_eq!(idl.instructions[0].name, "initialize");
-    assert_eq!(idl.instructions[0].discriminator, Some(vec![175, 175, 109, 31, 13, 152, 155, 237]));
-    assert_eq!(idl.instructions[0].args.len(), 1);
-    assert_eq!(idl.instructions[0].args[0].name, "data");
-}
+    let parsed = indexed.parse_instruction(&data).unwrap().expect("should parse");
 
-#[test]
-fn current_idl_instruction_gets_auto_discriminator_on_into_indexed_idl_model() {
-    let raw: RawAnchorIdl = serde_json::from_str(
-        r#"{
-            "address": "11111111111111111111111111111111",
-            "metadata": { "name": "current_program", "version": "0.1.0", "spec": "0.1.0" },
-            "instructions": [{
-                "name": "doSomething",
-                "accounts": [],
-                "args": []
-            }]
-        }"#,
-    )
-    .unwrap();
-
-    let indexed = raw.into_indexed_idl("11111111111111111111111111111111");
-    let idl = indexed.idl();
-    let instruction = &idl.instructions[0];
-
-    assert_eq!(instruction.discriminator, Some(sighash("global", "do_something").to_vec()));
+    assert_eq!(parsed.name, "initialize");
+    assert_eq!(parsed.fields.len(), 1);
+    assert_eq!(parsed.fields[0].name, "data");
+    assert_eq!(parsed.fields[0].value, serde_json::json!(42u64));
 }
 
 #[test]
 fn current_idl_instruction_gets_auto_discriminator_on_into_indexed_idl() {
-    let raw: RawAnchorIdl = serde_json::from_str(
+    let indexed: IndexedIdl = serde_json::from_str(
         r#"{
             "address": "11111111111111111111111111111111",
             "metadata": { "name": "current_program", "version": "0.1.0", "spec": "0.1.0" },
@@ -112,7 +92,6 @@ fn current_idl_instruction_gets_auto_discriminator_on_into_indexed_idl() {
     )
     .unwrap();
 
-    let indexed: IndexedIdl = raw.into_indexed_idl("11111111111111111111111111111111");
     let data = sighash("global", "do_something").to_vec();
 
     let parsed = indexed.parse_instruction(&data).unwrap().expect("should parse");
@@ -122,8 +101,8 @@ fn current_idl_instruction_gets_auto_discriminator_on_into_indexed_idl() {
 }
 
 #[test]
-fn current_idl_event_gets_auto_discriminator_on_into_indexed_idl_model() {
-    let raw: RawAnchorIdl = serde_json::from_str(
+fn current_idl_event_gets_auto_discriminator_on_into_indexed_idl() {
+    let indexed: IndexedIdl = serde_json::from_str(
         r#"{
             "address": "11111111111111111111111111111111",
             "metadata": { "name": "current_program", "version": "0.1.0", "spec": "0.1.0" },
@@ -136,16 +115,21 @@ fn current_idl_event_gets_auto_discriminator_on_into_indexed_idl_model() {
     )
     .unwrap();
 
-    let indexed = raw.into_indexed_idl("11111111111111111111111111111111");
-    let idl = indexed.idl();
-    let event = &idl.events.as_ref().unwrap()[0];
+    let mut data = EMIT_CPI_DISCRIMINATOR.to_vec();
+    data.extend_from_slice(&sighash("event", "TransferEvent"));
+    data.extend_from_slice(&7u64.to_le_bytes());
 
-    assert_eq!(event.discriminator, Some(sighash("event", "TransferEvent").to_vec()));
+    let parsed = indexed.parse_cpi_event_data(&data).unwrap().expect("should parse event");
+
+    assert_eq!(parsed.name, "TransferEvent");
+    assert_eq!(parsed.fields.len(), 1);
+    assert_eq!(parsed.fields[0].name, "amount");
+    assert_eq!(parsed.fields[0].value, serde_json::json!(7u64));
 }
 
 #[test]
 fn current_idl_event_fields_support_tuple_types() {
-    let raw: RawAnchorIdl = serde_json::from_str(
+    let indexed: IndexedIdl = serde_json::from_str(
         r#"{
             "address": "11111111111111111111111111111111",
             "metadata": { "name": "current_program", "version": "0.1.0", "spec": "0.1.0" },
@@ -158,36 +142,34 @@ fn current_idl_event_fields_support_tuple_types() {
     )
     .unwrap();
 
-    let indexed = raw.into_indexed_idl("11111111111111111111111111111111");
-    let idl = indexed.idl();
-    let event = &idl.events.as_ref().unwrap()[0];
+    let mut data = EMIT_CPI_DISCRIMINATOR.to_vec();
+    data.extend_from_slice(&sighash("event", "PairEvent"));
+    data.extend_from_slice(&9u32.to_le_bytes());
+    data.push(1);
+    data.extend_from_slice(&7u16.to_le_bytes());
 
-    assert_eq!(
-        event.fields,
-        Some(IdlFields::Tuple(vec![
-            IdlType::Simple("u32".into()),
-            IdlType::Option { option: Box::new(IdlType::Simple("u16".into())) },
-        ]))
-    );
+    let parsed = indexed.parse_cpi_event_data(&data).unwrap().expect("should parse tuple event");
+
+    assert_eq!(parsed.name, "PairEvent");
+    assert_eq!(parsed.fields.len(), 2);
+    assert_eq!(parsed.fields[0].name, "field_0");
+    assert_eq!(parsed.fields[0].value, serde_json::json!(9u64));
+    assert_eq!(parsed.fields[1].name, "field_1");
+    assert_eq!(parsed.fields[1].value, serde_json::json!(7u64));
 }
 
 #[test]
 fn parse_legacy_idl_and_into_indexed_idl() {
-    let raw: RawAnchorIdl = serde_json::from_str(LEGACY_IDL_JSON).unwrap();
-    let indexed = raw.into_indexed_idl("11111111111111111111111111111111");
-    let idl = indexed.idl();
+    let indexed: IndexedIdl = serde_json::from_str(LEGACY_IDL_JSON).unwrap();
+    let mut data = sighash("global", "do_something").to_vec();
+    data.extend_from_slice(&123u64.to_le_bytes());
 
-    assert_eq!(idl.metadata.name, "legacy_program");
-    assert_eq!(idl.address, "11111111111111111111111111111111");
+    let parsed = indexed.parse_instruction(&data).unwrap().expect("should parse");
 
-    assert_eq!(idl.instructions.len(), 1);
-    let inst = &idl.instructions[0];
-    assert_eq!(inst.name, "doSomething");
-    assert!(inst.discriminator.is_some(), "legacy instruction should get auto-discriminator");
-    assert_eq!(inst.discriminator.as_ref().unwrap().len(), 8);
-
-    let types = idl.types.as_ref().expect("types should be populated from legacy accounts");
-    assert!(types.iter().any(|type_def| type_def.name == "MyState"));
+    assert_eq!(parsed.name, "doSomething");
+    assert_eq!(parsed.fields.len(), 1);
+    assert_eq!(parsed.fields[0].name, "amount");
+    assert_eq!(parsed.fields[0].value, serde_json::json!(123u64));
 }
 
 #[test]
@@ -203,39 +185,12 @@ fn legacy_idl_accounts_merge_into_types() {
             { "name": "TypeB", "type": { "kind": "struct", "fields": [] } }
         ]
     }"#;
-    let raw: RawAnchorIdl = serde_json::from_str(json).unwrap();
-    let indexed = raw.into_indexed_idl("11111111111111111111111111111111");
-    let idl = indexed.idl();
+    let indexed: IndexedIdl = serde_json::from_str(json).unwrap();
+    let data = sighash("account", "AcctA").to_vec();
 
-    let types = idl.types.clone().unwrap();
-    assert_eq!(types.len(), 2);
-    assert!(types.iter().any(|type_def| type_def.name == "TypeB"));
-    assert!(types.iter().any(|type_def| type_def.name == "AcctA"));
-}
-
-#[test]
-fn legacy_accounts_use_is_mut_and_is_signer_aliases() {
-    let json = r#"{
-        "version": "0.1.0",
-        "name": "alias_test",
-        "instructions": [{
-            "name": "init",
-            "accounts": [
-                { "name": "payer", "isMut": true, "isSigner": true }
-            ],
-            "args": []
-        }]
-    }"#;
-    let raw: RawAnchorIdl = serde_json::from_str(json).unwrap();
-    let indexed = raw.into_indexed_idl("11111111111111111111111111111111");
-    let idl = indexed.idl();
-
-    let account = match &idl.instructions[0].accounts[0] {
-        IdlAccountItem::Account(account) => account,
-        _ => panic!("expected Account"),
-    };
-    assert!(account.writable);
-    assert!(account.signer);
+    let (type_name, value) = indexed.parse_account_data(&data).unwrap().expect("should parse");
+    assert_eq!(type_name, "AcctA");
+    assert_eq!(value, serde_json::json!([]));
 }
 
 #[test]
@@ -339,12 +294,15 @@ fn legacy_event_gets_auto_discriminator() {
             { "name": "TransferEvent", "fields": [{ "name": "amount", "type": "u64" }] }
         ]
     }"#;
-    let raw: RawAnchorIdl = serde_json::from_str(json).unwrap();
-    let indexed = raw.into_indexed_idl("11111111111111111111111111111111");
-    let idl = indexed.idl();
+    let indexed: IndexedIdl = serde_json::from_str(json).unwrap();
+    let mut data = EMIT_CPI_DISCRIMINATOR.to_vec();
+    data.extend_from_slice(&sighash("event", "TransferEvent"));
+    data.extend_from_slice(&7u64.to_le_bytes());
 
-    let events = idl.events.as_ref().unwrap();
-    assert_eq!(events.len(), 1);
-    assert!(events[0].discriminator.is_some());
-    assert_eq!(events[0].discriminator.as_ref().unwrap().len(), 8);
+    let parsed = indexed.parse_cpi_event_data(&data).unwrap().expect("should parse event");
+
+    assert_eq!(parsed.name, "TransferEvent");
+    assert_eq!(parsed.fields.len(), 1);
+    assert_eq!(parsed.fields[0].name, "amount");
+    assert_eq!(parsed.fields[0].value, serde_json::json!(7u64));
 }

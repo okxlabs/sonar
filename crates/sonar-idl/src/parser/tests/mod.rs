@@ -1,6 +1,6 @@
-use crate::models::Idl;
+use super::IndexedIdl;
 
-fn hello_anchor_idl() -> Idl {
+fn hello_anchor_indexed_idl() -> IndexedIdl {
     serde_json::from_str(
         r#"{
             "address": "BYFW1vhC1ohxwRbYoLbAWs86STa25i9sD5uEusVjTYNd",

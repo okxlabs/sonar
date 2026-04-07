@@ -4,7 +4,7 @@ use crate::discriminator::sighash;
 use crate::models::{Idl, IdlAccount, IdlAccountItem, IdlAccounts, IdlInstruction, IdlMetadata};
 
 use super::super::IndexedIdl;
-use super::hello_anchor_idl;
+use super::hello_anchor_indexed_idl;
 
 #[test]
 fn indexed_idl_deserializes_current_json_and_parses_instruction() {
@@ -54,7 +54,7 @@ fn indexed_idl_deserializes_legacy_json_and_parses_instruction() {
 
 #[test]
 fn indexed_idl_parse_instruction_exposes_flat_account_names() {
-    let indexed = IndexedIdl::new(Idl {
+    let indexed = IndexedIdl::from_normalized_idl(Idl {
         address: "11111111111111111111111111111111".to_string(),
         metadata: IdlMetadata {
             name: "current_program".to_string(),
@@ -109,7 +109,7 @@ fn indexed_idl_parse_instruction_exposes_flat_account_names() {
 
 #[test]
 fn indexed_idl_parse_instruction_matches_discriminator_and_reads_u64_arg() {
-    let indexed = IndexedIdl::new(hello_anchor_idl());
+    let indexed = hello_anchor_indexed_idl();
 
     let mut data = vec![175, 175, 109, 31, 13, 152, 155, 237];
     data.extend_from_slice(&42u64.to_le_bytes());
@@ -125,7 +125,7 @@ fn indexed_idl_parse_instruction_matches_discriminator_and_reads_u64_arg() {
 
 #[test]
 fn indexed_idl_normalizes_current_format_instruction_discriminator() {
-    let idl: Idl = serde_json::from_str(
+    let indexed: IndexedIdl = serde_json::from_str(
         r#"{
             "address": "11111111111111111111111111111111",
             "metadata": { "name": "current_program", "version": "0.1.0", "spec": "0.1.0" },
@@ -137,8 +137,6 @@ fn indexed_idl_normalizes_current_format_instruction_discriminator() {
         }"#,
     )
     .unwrap();
-
-    let indexed = IndexedIdl::new(idl);
     let data = sighash("global", "do_something").to_vec();
 
     let result = indexed.parse_instruction(&data).unwrap();
@@ -150,7 +148,7 @@ fn indexed_idl_normalizes_current_format_instruction_discriminator() {
 
 #[test]
 fn indexed_idl_parse_instruction_returns_none_for_unknown_discriminator() {
-    let indexed = IndexedIdl::new(hello_anchor_idl());
+    let indexed = hello_anchor_indexed_idl();
     let data = vec![0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0];
 
     let result = indexed.parse_instruction(&data).unwrap();
@@ -159,7 +157,7 @@ fn indexed_idl_parse_instruction_returns_none_for_unknown_discriminator() {
 
 #[test]
 fn indexed_idl_parse_instruction_multiple_primitive_args() {
-    let idl: Idl = serde_json::from_str(
+    let indexed: IndexedIdl = serde_json::from_str(
         r#"{
             "address": "11111111111111111111111111111111",
             "metadata": { "name": "t", "version": "0.1.0", "spec": "0.1.0" },
@@ -187,7 +185,6 @@ fn indexed_idl_parse_instruction_multiple_primitive_args() {
     data.extend_from_slice(&(string.len() as u32).to_le_bytes());
     data.extend_from_slice(string);
 
-    let indexed = IndexedIdl::new(idl);
     let parsed = indexed.parse_instruction(&data).unwrap().unwrap();
     assert_eq!(parsed.fields[0].value, json!(42u64));
     assert_eq!(parsed.fields[1].value, json!(true));
@@ -197,7 +194,7 @@ fn indexed_idl_parse_instruction_multiple_primitive_args() {
 
 #[test]
 fn indexed_idl_parse_instruction_errors_when_a_required_arg_is_missing() {
-    let idl: Idl = serde_json::from_str(
+    let indexed: IndexedIdl = serde_json::from_str(
         r#"{
             "address": "11111111111111111111111111111111",
             "metadata": { "name": "t", "version": "0.1.0", "spec": "0.1.0" },
@@ -218,14 +215,13 @@ fn indexed_idl_parse_instruction_errors_when_a_required_arg_is_missing() {
     let mut data = vec![4, 5, 6, 7, 8, 9, 10, 11];
     data.extend_from_slice(&123u32.to_le_bytes());
 
-    let indexed = IndexedIdl::new(idl);
     let err = indexed.parse_instruction(&data).unwrap_err();
     assert!(err.to_string().contains("Insufficient data"));
 }
 
 #[test]
 fn indexed_idl_parse_instruction_with_defined_struct_arg() {
-    let idl: Idl = serde_json::from_str(
+    let indexed: IndexedIdl = serde_json::from_str(
         r#"{
             "address": "11111111111111111111111111111111",
             "metadata": { "name": "t", "version": "0.1.0", "spec": "0.1.0" },
@@ -253,7 +249,6 @@ fn indexed_idl_parse_instruction_with_defined_struct_arg() {
     data.extend_from_slice(&100u32.to_le_bytes());
     data.extend_from_slice(&200u32.to_le_bytes());
 
-    let indexed = IndexedIdl::new(idl);
     let parsed = indexed.parse_instruction(&data).unwrap().unwrap();
     assert_eq!(parsed.fields[0].name, "params");
     assert_eq!(parsed.fields[0].value, json!({ "x": 100u64, "y": 200u64 }));
@@ -261,7 +256,7 @@ fn indexed_idl_parse_instruction_with_defined_struct_arg() {
 
 #[test]
 fn indexed_idl_parse_instruction_errors_when_a_defined_struct_field_is_missing() {
-    let idl: Idl = serde_json::from_str(
+    let indexed: IndexedIdl = serde_json::from_str(
         r#"{
             "address": "11111111111111111111111111111111",
             "metadata": { "name": "t", "version": "0.1.0", "spec": "0.1.0" },
@@ -288,14 +283,13 @@ fn indexed_idl_parse_instruction_errors_when_a_defined_struct_field_is_missing()
     let mut data = vec![10, 20, 30, 40, 50, 60, 70, 80];
     data.extend_from_slice(&100u32.to_le_bytes());
 
-    let indexed = IndexedIdl::new(idl);
     let err = indexed.parse_instruction(&data).unwrap_err();
     assert!(err.to_string().contains("Insufficient data"));
 }
 
 #[test]
 fn indexed_idl_parse_instruction_preserves_named_field_order_in_serde_json_value() {
-    let idl: Idl = serde_json::from_str(
+    let indexed: IndexedIdl = serde_json::from_str(
         r#"{
             "address": "11111111111111111111111111111111",
             "metadata": { "name": "t", "version": "0.1.0", "spec": "0.1.0" },
@@ -323,7 +317,6 @@ fn indexed_idl_parse_instruction_preserves_named_field_order_in_serde_json_value
     data.extend_from_slice(&100u32.to_le_bytes());
     data.extend_from_slice(&200u32.to_le_bytes());
 
-    let indexed = IndexedIdl::new(idl);
     let parsed = indexed.parse_instruction(&data).unwrap().unwrap();
     let json = serde_json::to_value(&parsed.fields[0].value).unwrap();
 
@@ -332,7 +325,7 @@ fn indexed_idl_parse_instruction_preserves_named_field_order_in_serde_json_value
 
 #[test]
 fn indexed_idl_parse_instruction_with_enum_arg() {
-    let idl: Idl = serde_json::from_str(
+    let indexed: IndexedIdl = serde_json::from_str(
         r#"{
             "address": "11111111111111111111111111111111",
             "metadata": { "name": "t", "version": "0.1.0", "spec": "0.1.0" },
@@ -357,7 +350,6 @@ fn indexed_idl_parse_instruction_with_enum_arg() {
     .unwrap();
 
     let mut data = vec![1, 1, 1, 1, 1, 1, 1, 1, 0];
-    let indexed = IndexedIdl::new(idl);
     let parsed = indexed.parse_instruction(&data).unwrap().unwrap();
     assert_eq!(parsed.fields[0].value, json!({ "Start": null }));
 
@@ -368,7 +360,7 @@ fn indexed_idl_parse_instruction_with_enum_arg() {
 
 #[test]
 fn indexed_idl_parse_instruction_with_vec_arg() {
-    let idl: Idl = serde_json::from_str(
+    let indexed: IndexedIdl = serde_json::from_str(
         r#"{
             "address": "11111111111111111111111111111111",
             "metadata": { "name": "t", "version": "0.1.0", "spec": "0.1.0" },
@@ -389,14 +381,13 @@ fn indexed_idl_parse_instruction_with_vec_arg() {
     data.extend_from_slice(&20u16.to_le_bytes());
     data.extend_from_slice(&30u16.to_le_bytes());
 
-    let indexed = IndexedIdl::new(idl);
     let parsed = indexed.parse_instruction(&data).unwrap().unwrap();
     assert_eq!(parsed.fields[0].value, json!([10u64, 20u64, 30u64]));
 }
 
 #[test]
 fn indexed_idl_parse_instruction_with_option_arg() {
-    let idl: Idl = serde_json::from_str(
+    let indexed: IndexedIdl = serde_json::from_str(
         r#"{
             "address": "11111111111111111111111111111111",
             "metadata": { "name": "t", "version": "0.1.0", "spec": "0.1.0" },
@@ -413,7 +404,6 @@ fn indexed_idl_parse_instruction_with_option_arg() {
 
     let mut data = vec![3, 3, 3, 3, 3, 3, 3, 3, 1];
     data.extend_from_slice(&777u32.to_le_bytes());
-    let indexed = IndexedIdl::new(idl);
     let parsed = indexed.parse_instruction(&data).unwrap().unwrap();
     assert_eq!(parsed.fields[0].value, json!(777u64));
 
@@ -424,7 +414,7 @@ fn indexed_idl_parse_instruction_with_option_arg() {
 
 #[test]
 fn indexed_idl_find_instruction_prefers_longest_discriminator() {
-    let idl: Idl = serde_json::from_str(
+    let indexed: IndexedIdl = serde_json::from_str(
         r#"{
             "address": "11111111111111111111111111111111",
             "metadata": { "name": "t", "version": "0.1.0", "spec": "0.1.0" },
@@ -436,7 +426,6 @@ fn indexed_idl_find_instruction_prefers_longest_discriminator() {
     )
     .unwrap();
 
-    let indexed = IndexedIdl::new(idl);
     let data = vec![1, 0, 0, 0];
     let found = indexed.find_instruction_by_discriminator(&data).unwrap();
     assert_eq!(found.name, "specific");
@@ -444,7 +433,7 @@ fn indexed_idl_find_instruction_prefers_longest_discriminator() {
 
 #[test]
 fn indexed_idl_find_instruction_ignores_missing_discriminator() {
-    let idl: Idl = serde_json::from_str(
+    let indexed: IndexedIdl = serde_json::from_str(
         r#"{
             "address": "11111111111111111111111111111111",
             "metadata": { "name": "t", "version": "0.1.0", "spec": "0.1.0" },
@@ -455,7 +444,6 @@ fn indexed_idl_find_instruction_ignores_missing_discriminator() {
     )
     .unwrap();
 
-    let indexed = IndexedIdl::new(idl);
     let found = indexed.find_instruction_by_discriminator(&[1, 2, 3, 4]);
     assert!(found.is_none());
 }

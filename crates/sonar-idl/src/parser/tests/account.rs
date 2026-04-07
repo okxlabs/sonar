@@ -2,12 +2,11 @@ use serde_json::json;
 
 use crate::discriminator::sighash;
 
-use super::super::IndexedIdl;
-use super::hello_anchor_idl;
+use super::hello_anchor_indexed_idl;
 
 #[test]
 fn indexed_idl_parses_account_data_matches_struct_by_discriminator() {
-    let indexed = IndexedIdl::new(hello_anchor_idl());
+    let indexed = hello_anchor_indexed_idl();
 
     let disc = sighash("account", "NewAccount");
     let mut data = disc.to_vec();
@@ -22,7 +21,7 @@ fn indexed_idl_parses_account_data_matches_struct_by_discriminator() {
 
 #[test]
 fn indexed_idl_parse_account_data_returns_none_for_unknown_discriminator() {
-    let indexed = IndexedIdl::new(hello_anchor_idl());
+    let indexed = hello_anchor_indexed_idl();
     let data = [0u8; 16];
 
     let result = indexed.parse_account_data(&data).unwrap();
@@ -31,7 +30,7 @@ fn indexed_idl_parse_account_data_returns_none_for_unknown_discriminator() {
 
 #[test]
 fn indexed_idl_parse_account_data_rejects_short_data() {
-    let indexed = IndexedIdl::new(hello_anchor_idl());
+    let indexed = hello_anchor_indexed_idl();
 
     let result = indexed.parse_account_data(&[0u8; 4]);
     assert!(result.is_err());

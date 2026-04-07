@@ -25,10 +25,6 @@ pub struct IndexedIdl {
 }
 
 impl IndexedIdl {
-    pub fn new(idl: Idl) -> Self {
-        Self::from_normalized_idl(idl.normalize(""))
-    }
-
     pub(crate) fn from_normalized_idl(idl: Idl) -> Self {
         let mut instruction_indices_by_length = BTreeMap::<usize, HashMap<Vec<u8>, usize>>::new();
         for (idx, instruction) in idl.instructions.iter().enumerate() {
@@ -71,10 +67,6 @@ impl IndexedIdl {
             account_type_indices_by_discriminator,
             type_indices_by_name,
         }
-    }
-
-    pub fn idl(&self) -> &Idl {
-        &self.idl
     }
 
     pub fn parse_instruction(&self, data: &[u8]) -> Result<Option<IdlParsedInstruction>> {

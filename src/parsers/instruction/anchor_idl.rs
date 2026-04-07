@@ -14,7 +14,7 @@ use crate::parsers::instruction::{InstructionParser, ParsedField, ParsedInstruct
 
 // ── Re-exports from sonar-idl ──
 
-pub use sonar_idl::{IndexedIdl, LegacyIdl, RawAnchorIdl};
+pub use sonar_idl::IndexedIdl;
 
 // ── Adapter: IDL model → CLI model ──
 

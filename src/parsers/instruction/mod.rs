@@ -275,28 +275,10 @@ impl ParserRegistry {
         let idl_content = std::fs::read_to_string(&idl_file_path)
             .with_context(|| format!("Failed to read IDL file: {}", idl_file_path.display()))?;
 
-        // Parse as RawAnchorIdl to support both legacy and new formats
-        let raw_idl: crate::parsers::instruction::anchor_idl::RawAnchorIdl =
-            match serde_json::from_str(&idl_content) {
-                Ok(idl) => idl,
-                Err(e) => {
-                    // Try to debug why it failed by trying to parse as LegacyIdl directly
-                    if let Err(legacy_err) = serde_json::from_str::<
-                        crate::parsers::instruction::anchor_idl::LegacyIdl,
-                    >(&idl_content)
-                    {
-                        log::warn!("Failed to parse as LegacyIdl: {}", legacy_err);
-                    }
-                    return Err(anyhow::anyhow!(
-                        "Failed to parse IDL JSON: {} - {}",
-                        idl_file_path.display(),
-                        e
-                    ));
-                }
-            };
-
-        // Normalize and index the IDL for decoding.
-        let indexed_idl = raw_idl.into_indexed_idl(&program_id.to_string());
+        let indexed_idl: crate::parsers::instruction::anchor_idl::IndexedIdl =
+            serde_json::from_str(&idl_content).with_context(|| {
+                format!("Failed to parse IDL JSON: {}", idl_file_path.display())
+            })?;
 
         let parser = Box::new(crate::parsers::instruction::anchor_idl::AnchorIdlParser::new(
             *program_id,

@@ -10,6 +10,20 @@
 //!   data, and CPI events.
 //! - **Discriminator**: `sighash` for computing Anchor 8-byte discriminators.
 //! - **Values**: Parsed fields are returned as ordered `serde_json::Value`.
+//!
+//! ```rust
+//! use sonar_idl::IndexedIdl;
+//!
+//! let indexed: IndexedIdl = serde_json::from_str(
+//!     r#"{
+//!         "address": "11111111111111111111111111111111",
+//!         "metadata": { "name": "demo", "version": "0.1.0", "spec": "0.1.0" },
+//!         "instructions": []
+//!     }"#,
+//! )?;
+//! # let _ = indexed;
+//! # Ok::<(), serde_json::Error>(())
+//! ```
 
 mod discriminator;
 mod models;
