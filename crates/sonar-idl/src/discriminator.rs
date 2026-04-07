@@ -15,21 +15,6 @@ pub fn sighash(namespace: &str, name: &str) -> [u8; 8] {
     out
 }
 
-pub(crate) fn to_snake_case(s: &str) -> String {
-    let mut snake = String::new();
-    for (i, c) in s.chars().enumerate() {
-        if c.is_uppercase() {
-            if i > 0 {
-                snake.push('_');
-            }
-            snake.push(c.to_ascii_lowercase());
-        } else {
-            snake.push(c);
-        }
-    }
-    snake
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -52,20 +37,5 @@ mod tests {
         let disc = sighash("event", "MyEvent");
         assert_eq!(disc.len(), 8);
         assert_ne!(disc, sighash("global", "MyEvent"));
-    }
-
-    #[test]
-    fn to_snake_case_camel() {
-        assert_eq!(to_snake_case("createAccount"), "create_account");
-    }
-
-    #[test]
-    fn to_snake_case_already_snake() {
-        assert_eq!(to_snake_case("transfer"), "transfer");
-    }
-
-    #[test]
-    fn to_snake_case_pascal() {
-        assert_eq!(to_snake_case("InitializeAccount"), "initialize_account");
     }
 }

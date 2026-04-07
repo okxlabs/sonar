@@ -1,8 +1,9 @@
+use heck::ToSnakeCase;
 use serde::de::Error;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value as JsonValue;
 
-use crate::discriminator::{sighash, to_snake_case};
+use crate::discriminator::sighash;
 
 /// Enum to handle both legacy (flat) and new (nested metadata) IDL formats.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -81,7 +82,7 @@ impl Idl {
 
 fn normalize_instruction(mut instruction: IdlInstruction) -> IdlInstruction {
     if instruction.discriminator.is_none() {
-        let snake_name = to_snake_case(&instruction.name);
+        let snake_name = instruction.name.to_snake_case();
         instruction.discriminator = Some(sighash("global", &snake_name).to_vec());
     }
 
