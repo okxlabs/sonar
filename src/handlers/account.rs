@@ -167,163 +167,30 @@ fn decode_account_output(
     account: &solana_account::Account,
     json: bool,
 ) -> Result<(Value, String, Option<Value>)> {
-    if *account_pubkey == solana_sdk_ids::sysvar::clock::id() {
-        if let Ok(clock) = bincode::deserialize::<solana_clock::Clock>(account.data.as_slice()) {
-            let data_json = if json {
-                serde_json::json!({
-                    "slot": clock.slot,
-                    "epoch": clock.epoch,
-                    "leaderScheduleEpoch": clock.leader_schedule_epoch,
-                    "unixTimestamp": clock.unix_timestamp,
-                    "epochStartTimestamp": clock.epoch_start_timestamp,
-                })
-            } else {
-                serde_json::json!({
-                    "slot": clock.slot,
-                    "epoch": clock.epoch,
-                    "leaderScheduleEpoch": clock.leader_schedule_epoch,
-                    "unixTimestamp": format_timestamp_with_utc(clock.unix_timestamp),
-                    "epochStartTimestamp": format_timestamp_with_utc(clock.epoch_start_timestamp),
-                })
-            };
-            return Ok((wrap_account_data_output(account, data_json), "Sysvar Clock".into(), None));
-        }
+    // Try each known account type in order; return on first match.
+    if let Some(result) = decode_clock_sysvar(account_pubkey, account, json) {
+        return Ok(result);
+    }
+    if let Some(result) = decode_rent_sysvar(account_pubkey, account) {
+        return Ok(result);
+    }
+    if let Some(result) = decode_epoch_schedule_sysvar(account_pubkey, account) {
+        return Ok(result);
+    }
+    if let Some(result) = decode_nonce_account(account) {
+        return Ok(result);
+    }
+    if let Some(result) = decode_bpf_upgradeable(account)? {
+        return Ok(result);
+    }
+    if let Some(result) = decode_address_lookup_table(account) {
+        return Ok(result);
+    }
+    if let Some(result) = decode_spl_token(client, account_pubkey, account) {
+        return Ok(result);
     }
 
-    if *account_pubkey == solana_sdk_ids::sysvar::rent::id() {
-        if let Ok(rent) = bincode::deserialize::<solana_rent::Rent>(account.data.as_slice()) {
-            let data_json = serde_json::json!({
-                "lamportsPerByteYear": rent.lamports_per_byte_year,
-                "exemptionThreshold": rent.exemption_threshold,
-                "burnPercent": rent.burn_percent,
-            });
-            return Ok((wrap_account_data_output(account, data_json), "Sysvar Rent".into(), None));
-        }
-    }
-
-    if *account_pubkey == solana_sdk_ids::sysvar::epoch_schedule::id() {
-        if let Ok(schedule) =
-            bincode::deserialize::<solana_epoch_schedule::EpochSchedule>(account.data.as_slice())
-        {
-            let data_json = serde_json::json!({
-                "slotsPerEpoch": schedule.slots_per_epoch,
-                "leaderScheduleSlotOffset": schedule.leader_schedule_slot_offset,
-                "warmup": schedule.warmup,
-                "firstNormalEpoch": schedule.first_normal_epoch,
-                "firstNormalSlot": schedule.first_normal_slot,
-            });
-            return Ok((
-                wrap_account_data_output(account, data_json),
-                "Sysvar Epoch Schedule".into(),
-                None,
-            ));
-        }
-    }
-
-    if account.owner == solana_sdk_ids::system_program::id() && account.data.len() == 80 {
-        if let Ok(versions) =
-            bincode::deserialize::<solana_nonce::versions::Versions>(account.data.as_slice())
-        {
-            if let solana_nonce::state::State::Initialized(data) = versions.state() {
-                let data_json = serde_json::json!({
-                    "authority": data.authority.to_string(),
-                    "blockhash": data.blockhash().to_string(),
-                    "lamportsPerSignature": data.fee_calculator.lamports_per_signature,
-                });
-                return Ok((
-                    wrap_account_data_output(account, data_json),
-                    "Nonce Account".into(),
-                    None,
-                ));
-            }
-        }
-    }
-
-    if account.owner == bpf_loader_upgradeable::id() {
-        if let Ok(state) = bincode::deserialize::<UpgradeableLoaderState>(account.data.as_slice()) {
-            match state {
-                UpgradeableLoaderState::Program { programdata_address } => {
-                    let programdata_pubkey = Pubkey::new_from_array(programdata_address.to_bytes());
-                    let data_json = serde_json::json!({
-                        "programdataAddress": programdata_pubkey.to_string()
-                    });
-                    return Ok((
-                        wrap_account_data_output(account, data_json),
-                        "BPF Upgradeable Program".into(),
-                        None,
-                    ));
-                }
-                UpgradeableLoaderState::ProgramData { .. } => {
-                    let data_json = build_programdata_json(account)?;
-                    return Ok((
-                        wrap_account_data_output(account, data_json),
-                        "Program Data".into(),
-                        None,
-                    ));
-                }
-                UpgradeableLoaderState::Buffer { authority_address, .. } => {
-                    const BUFFER_HEADER_SIZE: usize = 37;
-                    let data_size = account.data.len().saturating_sub(BUFFER_HEADER_SIZE);
-                    let data_json = serde_json::json!({
-                        "authority": authority_address
-                            .map(|a| Pubkey::new_from_array(a.to_bytes()).to_string()),
-                        "dataSize": data_size
-                    });
-                    return Ok((
-                        wrap_account_data_output(account, data_json),
-                        "Buffer".into(),
-                        None,
-                    ));
-                }
-                _ => {}
-            }
-        }
-    }
-
-    if account.owner == address_lookup_table::id() {
-        if let Ok(lookup_table) = AddressLookupTable::deserialize(account.data.as_slice()) {
-            let authority = lookup_table.meta.authority.map(|a| a.to_string());
-            let data_json = serde_json::json!({
-                "meta": {
-                    "deactivation_slot": lookup_table.meta.deactivation_slot,
-                    "last_extended_slot": lookup_table.meta.last_extended_slot,
-                    "last_extended_slot_start_index": lookup_table.meta.last_extended_slot_start_index,
-                    "authority": authority,
-                    "_padding": lookup_table.meta._padding,
-                },
-                "addresses": lookup_table.addresses.iter().map(|k| k.to_string()).collect::<Vec<_>>()
-            });
-            return Ok((
-                wrap_account_data_output(account, data_json),
-                "Address Lookup Table".into(),
-                None,
-            ));
-        }
-    }
-
-    if let Some(token_json) = token_account_decoder::decode_spl_token_account(account) {
-        let account_type = detect_token_type(account, &token_json);
-
-        let metadata_output = if should_enrich_with_metaplex_metadata(account, &token_json) {
-            match fetch_metadata_for_mint(client, account_pubkey) {
-                Ok((meta_account, decoded)) => {
-                    Some(wrap_account_data_output(&meta_account, decoded))
-                }
-                Err(error) => {
-                    log::warn!(
-                        "Metaplex metadata enrichment failed ({error}). \
-                         Showing mint account data only."
-                    );
-                    None
-                }
-            }
-        } else {
-            None
-        };
-
-        return Ok((token_json, account_type, metadata_output));
-    }
-
+    // IDL decode + fallback — depends on args and has complex fallback paths.
     let owner = account.owner;
     let idl_json = try_load_idl_from_dir(&args.idl_dir, &owner).or_else(|| {
         let fetcher = idl_fetcher::IdlFetcher::new(args.rpc.rpc_url.clone(), None).ok()?;
@@ -374,6 +241,186 @@ fn decode_account_output(
             Ok((json, "Unknown".into(), None))
         }
     }
+}
+
+/// Decode a Clock sysvar account. Only Clock needs `json` to toggle timestamp formatting.
+fn decode_clock_sysvar(
+    account_pubkey: &Pubkey,
+    account: &solana_account::Account,
+    json: bool,
+) -> Option<(Value, String, Option<Value>)> {
+    if *account_pubkey != solana_sdk_ids::sysvar::clock::id() {
+        return None;
+    }
+    let clock = bincode::deserialize::<solana_clock::Clock>(account.data.as_slice()).ok()?;
+    let data_json = if json {
+        serde_json::json!({
+            "slot": clock.slot,
+            "epoch": clock.epoch,
+            "leaderScheduleEpoch": clock.leader_schedule_epoch,
+            "unixTimestamp": clock.unix_timestamp,
+            "epochStartTimestamp": clock.epoch_start_timestamp,
+        })
+    } else {
+        serde_json::json!({
+            "slot": clock.slot,
+            "epoch": clock.epoch,
+            "leaderScheduleEpoch": clock.leader_schedule_epoch,
+            "unixTimestamp": format_timestamp_with_utc(clock.unix_timestamp),
+            "epochStartTimestamp": format_timestamp_with_utc(clock.epoch_start_timestamp),
+        })
+    };
+    Some((wrap_account_data_output(account, data_json), "Sysvar Clock".into(), None))
+}
+
+/// Decode a Rent sysvar account.
+fn decode_rent_sysvar(
+    account_pubkey: &Pubkey,
+    account: &solana_account::Account,
+) -> Option<(Value, String, Option<Value>)> {
+    if *account_pubkey != solana_sdk_ids::sysvar::rent::id() {
+        return None;
+    }
+    let rent = bincode::deserialize::<solana_rent::Rent>(account.data.as_slice()).ok()?;
+    let data_json = serde_json::json!({
+        "lamportsPerByteYear": rent.lamports_per_byte_year,
+        "exemptionThreshold": rent.exemption_threshold,
+        "burnPercent": rent.burn_percent,
+    });
+    Some((wrap_account_data_output(account, data_json), "Sysvar Rent".into(), None))
+}
+
+/// Decode an EpochSchedule sysvar account.
+fn decode_epoch_schedule_sysvar(
+    account_pubkey: &Pubkey,
+    account: &solana_account::Account,
+) -> Option<(Value, String, Option<Value>)> {
+    if *account_pubkey != solana_sdk_ids::sysvar::epoch_schedule::id() {
+        return None;
+    }
+    let schedule =
+        bincode::deserialize::<solana_epoch_schedule::EpochSchedule>(account.data.as_slice())
+            .ok()?;
+    let data_json = serde_json::json!({
+        "slotsPerEpoch": schedule.slots_per_epoch,
+        "leaderScheduleSlotOffset": schedule.leader_schedule_slot_offset,
+        "warmup": schedule.warmup,
+        "firstNormalEpoch": schedule.first_normal_epoch,
+        "firstNormalSlot": schedule.first_normal_slot,
+    });
+    Some((wrap_account_data_output(account, data_json), "Sysvar Epoch Schedule".into(), None))
+}
+
+/// Decode a Nonce account (system program, 80-byte data).
+fn decode_nonce_account(
+    account: &solana_account::Account,
+) -> Option<(Value, String, Option<Value>)> {
+    if account.owner != solana_sdk_ids::system_program::id() || account.data.len() != 80 {
+        return None;
+    }
+    let versions =
+        bincode::deserialize::<solana_nonce::versions::Versions>(account.data.as_slice()).ok()?;
+    if let solana_nonce::state::State::Initialized(data) = versions.state() {
+        let data_json = serde_json::json!({
+            "authority": data.authority.to_string(),
+            "blockhash": data.blockhash().to_string(),
+            "lamportsPerSignature": data.fee_calculator.lamports_per_signature,
+        });
+        Some((wrap_account_data_output(account, data_json), "Nonce Account".into(), None))
+    } else {
+        None
+    }
+}
+
+/// Decode a BPF Upgradeable Loader account (Program, ProgramData, or Buffer).
+fn decode_bpf_upgradeable(
+    account: &solana_account::Account,
+) -> Result<Option<(Value, String, Option<Value>)>> {
+    if account.owner != bpf_loader_upgradeable::id() {
+        return Ok(None);
+    }
+    let state = match bincode::deserialize::<UpgradeableLoaderState>(account.data.as_slice()) {
+        Ok(s) => s,
+        Err(_) => return Ok(None),
+    };
+    match state {
+        UpgradeableLoaderState::Program { programdata_address } => {
+            let programdata_pubkey = Pubkey::new_from_array(programdata_address.to_bytes());
+            let data_json = serde_json::json!({
+                "programdataAddress": programdata_pubkey.to_string()
+            });
+            Ok(Some((
+                wrap_account_data_output(account, data_json),
+                "BPF Upgradeable Program".into(),
+                None,
+            )))
+        }
+        UpgradeableLoaderState::ProgramData { .. } => {
+            let data_json = build_programdata_json(account)?;
+            Ok(Some((wrap_account_data_output(account, data_json), "Program Data".into(), None)))
+        }
+        UpgradeableLoaderState::Buffer { authority_address, .. } => {
+            const BUFFER_HEADER_SIZE: usize = 37;
+            let data_size = account.data.len().saturating_sub(BUFFER_HEADER_SIZE);
+            let data_json = serde_json::json!({
+                "authority": authority_address
+                    .map(|a| Pubkey::new_from_array(a.to_bytes()).to_string()),
+                "dataSize": data_size
+            });
+            Ok(Some((wrap_account_data_output(account, data_json), "Buffer".into(), None)))
+        }
+        _ => Ok(None),
+    }
+}
+
+/// Decode an Address Lookup Table account.
+fn decode_address_lookup_table(
+    account: &solana_account::Account,
+) -> Option<(Value, String, Option<Value>)> {
+    if account.owner != address_lookup_table::id() {
+        return None;
+    }
+    let lookup_table = AddressLookupTable::deserialize(account.data.as_slice()).ok()?;
+    let authority = lookup_table.meta.authority.map(|a| a.to_string());
+    let data_json = serde_json::json!({
+        "meta": {
+            "deactivation_slot": lookup_table.meta.deactivation_slot,
+            "last_extended_slot": lookup_table.meta.last_extended_slot,
+            "last_extended_slot_start_index": lookup_table.meta.last_extended_slot_start_index,
+            "authority": authority,
+            "_padding": lookup_table.meta._padding,
+        },
+        "addresses": lookup_table.addresses.iter().map(|k| k.to_string()).collect::<Vec<_>>()
+    });
+    Some((wrap_account_data_output(account, data_json), "Address Lookup Table".into(), None))
+}
+
+/// Decode an SPL Token or Token-2022 account. Returns `token_json` directly
+/// (not wrapped through `wrap_account_data_output`), with optional Metaplex metadata.
+fn decode_spl_token(
+    client: &RpcClient,
+    account_pubkey: &Pubkey,
+    account: &solana_account::Account,
+) -> Option<(Value, String, Option<Value>)> {
+    let token_json = token_account_decoder::decode_spl_token_account(account)?;
+    let account_type = detect_token_type(account, &token_json);
+
+    let metadata_output = if should_enrich_with_metaplex_metadata(account, &token_json) {
+        match fetch_metadata_for_mint(client, account_pubkey) {
+            Ok((meta_account, decoded)) => Some(wrap_account_data_output(&meta_account, decoded)),
+            Err(error) => {
+                log::warn!(
+                    "Metaplex metadata enrichment failed ({error}). \
+                     Showing mint account data only."
+                );
+                None
+            }
+        }
+    } else {
+        None
+    };
+
+    Some((token_json, account_type, metadata_output))
 }
 
 fn detect_token_type(account: &solana_account::Account, token_json: &Value) -> String {
