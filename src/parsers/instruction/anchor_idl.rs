@@ -6,13 +6,12 @@
 //! provides the `AnchorIdlParser` that implements `InstructionParser`.
 
 use anyhow::Result;
+use serde_json::Value;
 use solana_pubkey::Pubkey;
 use sonar_idl::IdlParsedInstruction;
 
 use crate::core::transaction::InstructionSummary;
-use crate::parsers::instruction::{
-    InstructionParser, OrderedJsonValue, ParsedField, ParsedInstruction,
-};
+use crate::parsers::instruction::{InstructionParser, ParsedField, ParsedInstruction};
 
 // ── Re-exports from sonar-idl ──
 
@@ -46,10 +45,10 @@ fn to_parsed_instruction(idl_parsed: IdlParsedInstruction) -> ParsedInstruction 
 }
 
 pub fn parse_account_data(
-    idl: &Idl,
+    idl: &ResolvedIdl,
     account_data: &[u8],
-) -> Result<Option<(String, OrderedJsonValue)>> {
-    sonar_idl::parse_account_data(idl, account_data)
+) -> Result<Option<(String, Value)>> {
+    Ok(sonar_idl::parse_account_data(idl, account_data)?)
 }
 
 // ── AnchorIdlParser ──

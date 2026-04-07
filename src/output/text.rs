@@ -9,7 +9,7 @@ use solana_pubkey::Pubkey;
 use unicode_width::UnicodeWidthStr;
 
 use crate::parsers::{
-    instruction::{OrderedJsonValue, ParsedField, ParsedFieldValue, ParserRegistry},
+    instruction::{ParsedField, ParsedFieldValue, ParserRegistry},
     log_parser::{LogEntry, LogEntryWithDepth, parse_logs_by_instruction},
 };
 use sonar_sim::ResolvedAccounts;
@@ -294,8 +294,8 @@ fn extract_compute_unit_limit(transaction: &TransactionSection) -> Option<u64> {
                                 }
                             }
                             ParsedFieldValue::Json(json) => {
-                                if let OrderedJsonValue::Number(num) = json {
-                                    return num.as_u64();
+                                if let Some(num) = json.as_u64() {
+                                    return Some(num);
                                 }
                             }
                         }

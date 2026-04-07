@@ -1,15 +1,16 @@
-use anyhow::Result;
 use std::collections::{BTreeMap, HashMap};
 
-use crate::discriminator::sighash;
+use crate::discriminator::{NAMESPACE_ACCOUNT, sighash};
 use crate::models::*;
-use crate::value::OrderedJsonValue;
 
 use super::{
     IdlParsedInstruction, parse_account_data_with_lookup, parse_cpi_event_data_with_lookup,
     parse_instruction_with_lookup,
 };
+use crate::error::Result;
+use serde_json::Value;
 
+/// A resolved IDL with pre-built lookup indexes for efficient parsing.
 #[derive(Debug, Clone)]
 pub struct ResolvedIdl {
     idl: Idl,
@@ -20,6 +21,7 @@ pub struct ResolvedIdl {
 }
 
 impl ResolvedIdl {
+    /// Create a new `ResolvedIdl` from an `Idl`, building lookup indexes.
     pub fn new(idl: Idl) -> Self {
         let mut instruction_indices_by_length = BTreeMap::<usize, HashMap<Vec<u8>, usize>>::new();
         for (idx, instruction) in idl.instructions.iter().enumerate() {
@@ -34,8 +36,8 @@ impl ResolvedIdl {
         let mut event_indices_by_discriminator = HashMap::new();
         if let Some(events) = &idl.events {
             for (idx, event) in events.iter().enumerate() {
-                if let Some(discriminator) = discriminator_key(event.discriminator.as_deref()) {
-                    event_indices_by_discriminator.insert(discriminator, idx);
+                if let Some(key) = discriminator_key(event.discriminator.as_deref()) {
+                    event_indices_by_discriminator.insert(key, idx);
                 }
             }
         }
@@ -46,8 +48,10 @@ impl ResolvedIdl {
             for (idx, type_def) in types.iter().enumerate() {
                 type_indices_by_name.insert(type_def.name.clone(), idx);
                 if type_def.type_.kind == IdlTypeDefinitionKind::Struct {
-                    account_type_indices_by_discriminator
-                        .insert(sighash("account", &type_def.name), idx);
+                    account_type_indices_by_discriminator.insert(
+                        sighash(NAMESPACE_ACCOUNT, &type_def.name).as_bytes().to_owned(),
+                        idx,
+                    );
                 }
             }
         }
@@ -64,26 +68,27 @@ impl ResolvedIdl {
         }
     }
 
+    /// Get a reference to the underlying IDL.
     pub fn idl(&self) -> &Idl {
         &self.idl
     }
 
+    /// Parse an instruction from binary data.
     pub fn parse_instruction(&self, data: &[u8]) -> Result<Option<IdlParsedInstruction>> {
         parse_instruction_with_lookup(self, data)
     }
 
-    pub fn parse_account_data(
-        &self,
-        account_data: &[u8],
-    ) -> Result<Option<(String, OrderedJsonValue)>> {
+    /// Parse account data.
+    pub fn parse_account_data(&self, account_data: &[u8]) -> Result<Option<(String, Value)>> {
         parse_account_data_with_lookup(self, account_data)
     }
 
+    /// Parse CPI event data.
     pub fn parse_cpi_event_data(&self, data: &[u8]) -> Result<Option<IdlParsedInstruction>> {
         parse_cpi_event_data_with_lookup(self, data)
     }
 
-    pub fn find_instruction_by_discriminator(&self, data: &[u8]) -> Option<&IdlInstruction> {
+    fn find_instruction_by_discriminator(&self, data: &[u8]) -> Option<&IdlInstruction> {
         for (disc_len, instructions) in &self.instruction_indices_by_length {
             if data.len() < *disc_len {
                 continue;
@@ -116,6 +121,11 @@ impl ResolvedIdl {
     }
 }
 
+/// Internal trait for IDL lookup operations.
+///
+/// This trait is implemented by `ResolvedIdl` for efficient lookups.
+/// It is intentionally not implemented for `Idl` to encourage use of
+/// the indexed `ResolvedIdl` for parsing operations.
 pub(super) trait IdlLookup {
     fn find_instruction_by_discriminator(&self, data: &[u8]) -> Option<&IdlInstruction>;
     fn find_event_by_discriminator(&self, discriminator: &[u8]) -> Option<&IdlEvent>;
@@ -124,27 +134,6 @@ pub(super) trait IdlLookup {
         discriminator: &[u8],
     ) -> Option<&IdlTypeDefinition>;
     fn find_type_definition(&self, name: &str) -> Option<&IdlTypeDefinition>;
-}
-
-impl IdlLookup for Idl {
-    fn find_instruction_by_discriminator(&self, data: &[u8]) -> Option<&IdlInstruction> {
-        scan_instruction_by_discriminator(self, data)
-    }
-
-    fn find_event_by_discriminator(&self, discriminator: &[u8]) -> Option<&IdlEvent> {
-        scan_event_by_discriminator(self, discriminator)
-    }
-
-    fn find_account_type_by_discriminator(
-        &self,
-        discriminator: &[u8],
-    ) -> Option<&IdlTypeDefinition> {
-        scan_account_type_by_discriminator(self, discriminator)
-    }
-
-    fn find_type_definition(&self, name: &str) -> Option<&IdlTypeDefinition> {
-        self.types.as_ref()?.iter().find(|type_def| type_def.name == name)
-    }
 }
 
 impl IdlLookup for ResolvedIdl {
@@ -168,7 +157,7 @@ impl IdlLookup for ResolvedIdl {
     }
 }
 
-pub(super) fn discriminator_key(discriminator: Option<&[u8]>) -> Option<[u8; 8]> {
+fn discriminator_key(discriminator: Option<&[u8]>) -> Option<[u8; 8]> {
     let discriminator = discriminator?;
     if discriminator.len() != 8 {
         return None;
@@ -208,19 +197,4 @@ pub(super) fn scan_event_by_discriminator<'a>(
     } else {
         None
     }
-}
-
-pub(super) fn scan_account_type_by_discriminator<'a>(
-    idl: &'a Idl,
-    discriminator: &[u8],
-) -> Option<&'a IdlTypeDefinition> {
-    let types = idl.types.as_ref()?;
-
-    types.iter().find(|type_def| {
-        if type_def.type_.kind != IdlTypeDefinitionKind::Struct {
-            return false;
-        }
-        let expected_discriminator = sighash("account", &type_def.name);
-        discriminator == expected_discriminator
-    })
 }

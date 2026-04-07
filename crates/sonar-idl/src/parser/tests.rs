@@ -1,7 +1,15 @@
-use super::*;
-use crate::discriminator::sighash;
+use serde_json::{Value, json};
 use solana_pubkey::Pubkey;
 use std::str::FromStr;
+
+use crate::discriminator::{NAMESPACE_ACCOUNT, sighash};
+use crate::models::*;
+use crate::parser::{
+    ResolvedIdl,
+    decode::{parse_array_type, parse_option_type, parse_simple_type, parse_vec_type},
+    find_instruction_by_discriminator, is_cpi_event_data, parse_account_data, parse_cpi_event_data,
+    parse_instruction,
+};
 
 fn hello_anchor_idl() -> Idl {
     serde_json::from_str(
@@ -29,7 +37,7 @@ fn hello_anchor_idl() -> Idl {
 
 #[test]
 fn parse_instruction_matches_discriminator_and_reads_u64_arg() {
-    let idl = hello_anchor_idl();
+    let idl = ResolvedIdl::new(hello_anchor_idl());
 
     let mut data = vec![175, 175, 109, 31, 13, 152, 155, 237];
     data.extend_from_slice(&42u64.to_le_bytes());
@@ -40,7 +48,7 @@ fn parse_instruction_matches_discriminator_and_reads_u64_arg() {
     assert_eq!(parsed.name, "initialize");
     assert_eq!(parsed.fields.len(), 1);
     assert_eq!(parsed.fields[0].name, "data");
-    assert_eq!(parsed.fields[0].value, OrderedJsonValue::Number(42u64.into()));
+    assert_eq!(parsed.fields[0].value, Value::Number(42u64.into()));
 }
 
 #[test]
@@ -56,12 +64,12 @@ fn resolved_idl_parses_instruction_matches_discriminator_and_reads_u64_arg() {
     assert_eq!(parsed.name, "initialize");
     assert_eq!(parsed.fields.len(), 1);
     assert_eq!(parsed.fields[0].name, "data");
-    assert_eq!(parsed.fields[0].value, OrderedJsonValue::Number(42u64.into()));
+    assert_eq!(parsed.fields[0].value, Value::Number(42u64.into()));
 }
 
 #[test]
 fn parse_instruction_returns_none_for_unknown_discriminator() {
-    let idl = hello_anchor_idl();
+    let idl = ResolvedIdl::new(hello_anchor_idl());
     let data = vec![0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0];
 
     let result = parse_instruction(&idl, &data).unwrap();
@@ -70,43 +78,37 @@ fn parse_instruction_returns_none_for_unknown_discriminator() {
 
 #[test]
 fn parse_account_data_matches_struct_by_discriminator() {
-    let idl = hello_anchor_idl();
+    let idl = ResolvedIdl::new(hello_anchor_idl());
 
-    let disc = sighash("account", "NewAccount");
-    let mut data = disc.to_vec();
+    let disc = sighash(NAMESPACE_ACCOUNT, "NewAccount");
+    let mut data = disc.as_bytes().to_vec();
     data.extend_from_slice(&99u64.to_le_bytes());
 
     let result = parse_account_data(&idl, &data).unwrap();
     let (type_name, value) = result.expect("should match NewAccount");
 
     assert_eq!(type_name, "NewAccount");
-    assert_eq!(
-        value,
-        OrderedJsonValue::Object(vec![("data".into(), OrderedJsonValue::Number(99u64.into()),)])
-    );
+    assert_eq!(value, json!({"data": 99}));
 }
 
 #[test]
 fn resolved_idl_parse_account_data_matches_struct_by_discriminator() {
     let resolved = ResolvedIdl::new(hello_anchor_idl());
 
-    let disc = sighash("account", "NewAccount");
-    let mut data = disc.to_vec();
+    let disc = sighash(NAMESPACE_ACCOUNT, "NewAccount");
+    let mut data = disc.as_bytes().to_vec();
     data.extend_from_slice(&99u64.to_le_bytes());
 
     let result = resolved.parse_account_data(&data).unwrap();
     let (type_name, value) = result.expect("should match NewAccount");
 
     assert_eq!(type_name, "NewAccount");
-    assert_eq!(
-        value,
-        OrderedJsonValue::Object(vec![("data".into(), OrderedJsonValue::Number(99u64.into()),)])
-    );
+    assert_eq!(value, json!({"data": 99}));
 }
 
 #[test]
 fn parse_account_data_returns_none_for_unknown_discriminator() {
-    let idl = hello_anchor_idl();
+    let idl = ResolvedIdl::new(hello_anchor_idl());
     let data = [0u8; 16];
 
     let result = parse_account_data(&idl, &data).unwrap();
@@ -115,7 +117,7 @@ fn parse_account_data_returns_none_for_unknown_discriminator() {
 
 #[test]
 fn parse_account_data_rejects_short_data() {
-    let idl = hello_anchor_idl();
+    let idl = ResolvedIdl::new(hello_anchor_idl());
 
     let result = parse_account_data(&idl, &[0u8; 4]);
     assert!(result.is_err());
@@ -140,7 +142,7 @@ fn is_cpi_event_data_rejects_wrong_prefix() {
 
 #[test]
 fn parse_cpi_event_data_returns_none_for_unknown_event_discriminator() {
-    let idl = hello_anchor_idl();
+    let idl = ResolvedIdl::new(hello_anchor_idl());
     let mut data = vec![0xe4, 0x45, 0xa5, 0x2e, 0x51, 0xcb, 0x9a, 0x1d];
     data.extend_from_slice(&[0; 8]);
 
@@ -163,21 +165,22 @@ fn parse_cpi_event_data_parses_event_fields() {
                 "fields": [{{ "name": "amount", "type": "u64" }}]
             }}]
         }}"#,
-        event_disc.to_vec()
+        event_disc.as_bytes().to_vec()
     ))
     .unwrap();
 
     let mut data = vec![0xe4, 0x45, 0xa5, 0x2e, 0x51, 0xcb, 0x9a, 0x1d];
-    data.extend_from_slice(&event_disc);
+    data.extend_from_slice(event_disc.as_bytes());
     data.extend_from_slice(&500u64.to_le_bytes());
 
-    let result = parse_cpi_event_data(&idl, &data).unwrap();
+    let resolved = ResolvedIdl::new(idl);
+    let result = parse_cpi_event_data(&resolved, &data).unwrap();
     let parsed = result.expect("should parse event");
 
     assert_eq!(parsed.name, "TransferDone");
     assert_eq!(parsed.fields.len(), 1);
     assert_eq!(parsed.fields[0].name, "amount");
-    assert_eq!(parsed.fields[0].value, OrderedJsonValue::Number(500u64.into()));
+    assert_eq!(parsed.fields[0].value, Value::Number(500u64.into()));
 }
 
 #[test]
@@ -195,48 +198,51 @@ fn parse_cpi_event_data_parses_tuple_event_fields() {
                 "fields": ["u32", {{"option":"u16"}}]
             }}]
         }}"#,
-        event_disc.to_vec()
+        event_disc.as_bytes().to_vec()
     ))
     .unwrap();
 
     let mut data = vec![0xe4, 0x45, 0xa5, 0x2e, 0x51, 0xcb, 0x9a, 0x1d];
-    data.extend_from_slice(&event_disc);
+    data.extend_from_slice(event_disc.as_bytes());
     data.extend_from_slice(&9u32.to_le_bytes());
     data.push(1);
     data.extend_from_slice(&7u16.to_le_bytes());
 
-    let result = parse_cpi_event_data(&idl, &data).unwrap();
+    let resolved = ResolvedIdl::new(idl);
+    let result = parse_cpi_event_data(&resolved, &data).unwrap();
     let parsed = result.expect("should parse tuple event");
 
     assert_eq!(parsed.name, "PairEvent");
     assert_eq!(parsed.fields.len(), 2);
     assert_eq!(parsed.fields[0].name, "field_0");
-    assert_eq!(parsed.fields[0].value, OrderedJsonValue::Number(9u64.into()));
+    assert_eq!(parsed.fields[0].value, Value::Number(9u64.into()));
     assert_eq!(parsed.fields[1].name, "field_1");
-    assert_eq!(parsed.fields[1].value, OrderedJsonValue::Number(7u64.into()));
+    assert_eq!(parsed.fields[1].value, Value::Number(7u64.into()));
 }
 
 #[test]
 fn parse_instruction_multiple_primitive_args() {
-    let idl: Idl = serde_json::from_str(
-        r#"{
-            "address": "11111111111111111111111111111111",
-            "metadata": { "name": "t", "version": "0.1.0", "spec": "0.1.0" },
-            "instructions": [{
-                "name": "multi",
-                "discriminator": [1,2,3,4,5,6,7,8],
-                "accounts": [],
-                "args": [
-                    { "name": "a", "type": "u8" },
-                    { "name": "b", "type": "bool" },
-                    { "name": "c", "type": "i16" },
-                    { "name": "d", "type": "string" }
-                ]
-            }],
-            "types": []
-        }"#,
-    )
-    .unwrap();
+    let idl = ResolvedIdl::new(
+        serde_json::from_str(
+            r#"{
+                "address": "11111111111111111111111111111111",
+                "metadata": { "name": "t", "version": "0.1.0", "spec": "0.1.0" },
+                "instructions": [{
+                    "name": "multi",
+                    "discriminator": [1,2,3,4,5,6,7,8],
+                    "accounts": [],
+                    "args": [
+                        { "name": "a", "type": "u8" },
+                        { "name": "b", "type": "bool" },
+                        { "name": "c", "type": "i16" },
+                        { "name": "d", "type": "string" }
+                    ]
+                }],
+                "types": []
+            }"#,
+        )
+        .unwrap(),
+    );
 
     let mut data = vec![1, 2, 3, 4, 5, 6, 7, 8];
     data.push(42);
@@ -247,64 +253,68 @@ fn parse_instruction_multiple_primitive_args() {
     data.extend_from_slice(s);
 
     let parsed = parse_instruction(&idl, &data).unwrap().unwrap();
-    assert_eq!(parsed.fields[0].value, OrderedJsonValue::Number(42u64.into()));
-    assert_eq!(parsed.fields[1].value, OrderedJsonValue::Bool(true));
-    assert_eq!(parsed.fields[2].value, OrderedJsonValue::Number((-5i64).into()));
-    assert_eq!(parsed.fields[3].value, OrderedJsonValue::String("hello".into()));
+    assert_eq!(parsed.fields[0].value, Value::Number(42u64.into()));
+    assert_eq!(parsed.fields[1].value, Value::Bool(true));
+    assert_eq!(parsed.fields[2].value, Value::Number((-5i64).into()));
+    assert_eq!(parsed.fields[3].value, Value::String("hello".into()));
 }
 
 #[test]
 fn parse_instruction_errors_when_a_required_arg_is_missing() {
-    let idl: Idl = serde_json::from_str(
-        r#"{
-            "address": "11111111111111111111111111111111",
-            "metadata": { "name": "t", "version": "0.1.0", "spec": "0.1.0" },
-            "instructions": [{
-                "name": "pair",
-                "discriminator": [4,5,6,7,8,9,10,11],
-                "accounts": [],
-                "args": [
-                    { "name": "left", "type": "u32" },
-                    { "name": "right", "type": "u32" }
-                ]
-            }],
-            "types": []
-        }"#,
-    )
-    .unwrap();
+    let idl = ResolvedIdl::new(
+        serde_json::from_str(
+            r#"{
+                "address": "11111111111111111111111111111111",
+                "metadata": { "name": "t", "version": "0.1.0", "spec": "0.1.0" },
+                "instructions": [{
+                    "name": "pair",
+                    "discriminator": [4,5,6,7,8,9,10,11],
+                    "accounts": [],
+                    "args": [
+                        { "name": "left", "type": "u32" },
+                        { "name": "right", "type": "u32" }
+                    ]
+                }],
+                "types": []
+            }"#,
+        )
+        .unwrap(),
+    );
 
     let mut data = vec![4, 5, 6, 7, 8, 9, 10, 11];
     data.extend_from_slice(&123u32.to_le_bytes());
 
     let err = parse_instruction(&idl, &data).unwrap_err();
-    assert!(err.to_string().contains("Insufficient data"));
+    assert!(err.to_string().contains("insufficient data"));
 }
 
 #[test]
 fn parse_instruction_with_defined_struct_arg() {
-    let idl: Idl = serde_json::from_str(
-        r#"{
-            "address": "11111111111111111111111111111111",
-            "metadata": { "name": "t", "version": "0.1.0", "spec": "0.1.0" },
-            "instructions": [{
-                "name": "create",
-                "discriminator": [10,20,30,40,50,60,70,80],
-                "accounts": [],
-                "args": [{ "name": "params", "type": { "defined": "Params" } }]
-            }],
-            "types": [{
-                "name": "Params",
-                "type": {
-                    "kind": "struct",
-                    "fields": [
-                        { "name": "x", "type": "u32" },
-                        { "name": "y", "type": "u32" }
-                    ]
-                }
-            }]
-        }"#,
-    )
-    .unwrap();
+    let idl = ResolvedIdl::new(
+        serde_json::from_str(
+            r#"{
+                "address": "11111111111111111111111111111111",
+                "metadata": { "name": "t", "version": "0.1.0", "spec": "0.1.0" },
+                "instructions": [{
+                    "name": "create",
+                    "discriminator": [10,20,30,40,50,60,70,80],
+                    "accounts": [],
+                    "args": [{ "name": "params", "type": { "defined": "Params" } }]
+                }],
+                "types": [{
+                    "name": "Params",
+                    "type": {
+                        "kind": "struct",
+                        "fields": [
+                            { "name": "x", "type": "u32" },
+                            { "name": "y", "type": "u32" }
+                        ]
+                    }
+                }]
+            }"#,
+        )
+        .unwrap(),
+    );
 
     let mut data = vec![10, 20, 30, 40, 50, 60, 70, 80];
     data.extend_from_slice(&100u32.to_le_bytes());
@@ -312,105 +322,99 @@ fn parse_instruction_with_defined_struct_arg() {
 
     let parsed = parse_instruction(&idl, &data).unwrap().unwrap();
     assert_eq!(parsed.fields[0].name, "params");
-    assert_eq!(
-        parsed.fields[0].value,
-        OrderedJsonValue::Object(vec![
-            ("x".into(), OrderedJsonValue::Number(100u64.into())),
-            ("y".into(), OrderedJsonValue::Number(200u64.into())),
-        ])
-    );
+    assert_eq!(parsed.fields[0].value, json!({"x": 100, "y": 200}));
 }
 
 #[test]
 fn parse_instruction_errors_when_a_defined_struct_field_is_missing() {
-    let idl: Idl = serde_json::from_str(
-        r#"{
-            "address": "11111111111111111111111111111111",
-            "metadata": { "name": "t", "version": "0.1.0", "spec": "0.1.0" },
-            "instructions": [{
-                "name": "create",
-                "discriminator": [10,20,30,40,50,60,70,80],
-                "accounts": [],
-                "args": [{ "name": "params", "type": { "defined": "Params" } }]
-            }],
-            "types": [{
-                "name": "Params",
-                "type": {
-                    "kind": "struct",
-                    "fields": [
-                        { "name": "x", "type": "u32" },
-                        { "name": "y", "type": "u32" }
-                    ]
-                }
-            }]
-        }"#,
-    )
-    .unwrap();
+    let idl = ResolvedIdl::new(
+        serde_json::from_str(
+            r#"{
+                "address": "11111111111111111111111111111111",
+                "metadata": { "name": "t", "version": "0.1.0", "spec": "0.1.0" },
+                "instructions": [{
+                    "name": "create",
+                    "discriminator": [10,20,30,40,50,60,70,80],
+                    "accounts": [],
+                    "args": [{ "name": "params", "type": { "defined": "Params" } }]
+                }],
+                "types": [{
+                    "name": "Params",
+                    "type": {
+                        "kind": "struct",
+                        "fields": [
+                            { "name": "x", "type": "u32" },
+                            { "name": "y", "type": "u32" }
+                        ]
+                    }
+                }]
+            }"#,
+        )
+        .unwrap(),
+    );
 
     let mut data = vec![10, 20, 30, 40, 50, 60, 70, 80];
     data.extend_from_slice(&100u32.to_le_bytes());
 
     let err = parse_instruction(&idl, &data).unwrap_err();
-    assert!(err.to_string().contains("Insufficient data"));
+    assert!(err.to_string().contains("insufficient data"));
 }
 
 #[test]
 fn parse_instruction_with_enum_arg() {
-    let idl: Idl = serde_json::from_str(
-        r#"{
-            "address": "11111111111111111111111111111111",
-            "metadata": { "name": "t", "version": "0.1.0", "spec": "0.1.0" },
-            "instructions": [{
-                "name": "act",
-                "discriminator": [1,1,1,1,1,1,1,1],
-                "accounts": [],
-                "args": [{ "name": "action", "type": { "defined": "Action" } }]
-            }],
-            "types": [{
-                "name": "Action",
-                "type": {
-                    "kind": "enum",
-                    "variants": [
-                        { "name": "Start" },
-                        { "name": "Stop" }
-                    ]
-                }
-            }]
-        }"#,
-    )
-    .unwrap();
+    let idl = ResolvedIdl::new(
+        serde_json::from_str(
+            r#"{
+                "address": "11111111111111111111111111111111",
+                "metadata": { "name": "t", "version": "0.1.0", "spec": "0.1.0" },
+                "instructions": [{
+                    "name": "act",
+                    "discriminator": [1,1,1,1,1,1,1,1],
+                    "accounts": [],
+                    "args": [{ "name": "action", "type": { "defined": "Action" } }]
+                }],
+                "types": [{
+                    "name": "Action",
+                    "type": {
+                        "kind": "enum",
+                        "variants": [
+                            { "name": "Start" },
+                            { "name": "Stop" }
+                        ]
+                    }
+                }]
+            }"#,
+        )
+        .unwrap(),
+    );
 
     let mut data = vec![1, 1, 1, 1, 1, 1, 1, 1, 0];
     let parsed = parse_instruction(&idl, &data).unwrap().unwrap();
-    assert_eq!(
-        parsed.fields[0].value,
-        OrderedJsonValue::Object(vec![("Start".into(), OrderedJsonValue::Null)])
-    );
+    assert_eq!(parsed.fields[0].value, json!({"Start": null}));
 
     data[8] = 1;
     let parsed = parse_instruction(&idl, &data).unwrap().unwrap();
-    assert_eq!(
-        parsed.fields[0].value,
-        OrderedJsonValue::Object(vec![("Stop".into(), OrderedJsonValue::Null)])
-    );
+    assert_eq!(parsed.fields[0].value, json!({"Stop": null}));
 }
 
 #[test]
 fn parse_instruction_with_vec_arg() {
-    let idl: Idl = serde_json::from_str(
-        r#"{
-            "address": "11111111111111111111111111111111",
-            "metadata": { "name": "t", "version": "0.1.0", "spec": "0.1.0" },
-            "instructions": [{
-                "name": "bulk",
-                "discriminator": [2,2,2,2,2,2,2,2],
-                "accounts": [],
-                "args": [{ "name": "vals", "type": { "vec": "u16" } }]
-            }],
-            "types": []
-        }"#,
-    )
-    .unwrap();
+    let idl = ResolvedIdl::new(
+        serde_json::from_str(
+            r#"{
+                "address": "11111111111111111111111111111111",
+                "metadata": { "name": "t", "version": "0.1.0", "spec": "0.1.0" },
+                "instructions": [{
+                    "name": "bulk",
+                    "discriminator": [2,2,2,2,2,2,2,2],
+                    "accounts": [],
+                    "args": [{ "name": "vals", "type": { "vec": "u16" } }]
+                }],
+                "types": []
+            }"#,
+        )
+        .unwrap(),
+    );
 
     let mut data = vec![2, 2, 2, 2, 2, 2, 2, 2];
     data.extend_from_slice(&3u32.to_le_bytes());
@@ -419,41 +423,36 @@ fn parse_instruction_with_vec_arg() {
     data.extend_from_slice(&30u16.to_le_bytes());
 
     let parsed = parse_instruction(&idl, &data).unwrap().unwrap();
-    assert_eq!(
-        parsed.fields[0].value,
-        OrderedJsonValue::Array(vec![
-            OrderedJsonValue::Number(10u64.into()),
-            OrderedJsonValue::Number(20u64.into()),
-            OrderedJsonValue::Number(30u64.into()),
-        ])
-    );
+    assert_eq!(parsed.fields[0].value, json!([10, 20, 30]));
 }
 
 #[test]
 fn parse_instruction_with_option_arg() {
-    let idl: Idl = serde_json::from_str(
-        r#"{
-            "address": "11111111111111111111111111111111",
-            "metadata": { "name": "t", "version": "0.1.0", "spec": "0.1.0" },
-            "instructions": [{
-                "name": "opt",
-                "discriminator": [3,3,3,3,3,3,3,3],
-                "accounts": [],
-                "args": [{ "name": "maybe", "type": { "option": "u32" } }]
-            }],
-            "types": []
-        }"#,
-    )
-    .unwrap();
+    let idl = ResolvedIdl::new(
+        serde_json::from_str(
+            r#"{
+                "address": "11111111111111111111111111111111",
+                "metadata": { "name": "t", "version": "0.1.0", "spec": "0.1.0" },
+                "instructions": [{
+                    "name": "opt",
+                    "discriminator": [3,3,3,3,3,3,3,3],
+                    "accounts": [],
+                    "args": [{ "name": "maybe", "type": { "option": "u32" } }]
+                }],
+                "types": []
+            }"#,
+        )
+        .unwrap(),
+    );
 
     let mut data = vec![3, 3, 3, 3, 3, 3, 3, 3, 1];
     data.extend_from_slice(&777u32.to_le_bytes());
     let parsed = parse_instruction(&idl, &data).unwrap().unwrap();
-    assert_eq!(parsed.fields[0].value, OrderedJsonValue::Number(777u64.into()));
+    assert_eq!(parsed.fields[0].value, Value::Number(777u64.into()));
 
     let data_none = vec![3, 3, 3, 3, 3, 3, 3, 3, 0];
     let parsed = parse_instruction(&idl, &data_none).unwrap().unwrap();
-    assert_eq!(parsed.fields[0].value, OrderedJsonValue::Null);
+    assert_eq!(parsed.fields[0].value, Value::Null);
 }
 
 #[test]
@@ -497,7 +496,7 @@ fn parse_simple_u8() {
     let data = [42u8];
     let mut offset = 0;
     let val = parse_simple_type(&data, &mut offset, "u8").unwrap();
-    assert_eq!(val, OrderedJsonValue::Number(42u64.into()));
+    assert_eq!(val, Value::Number(42u64.into()));
     assert_eq!(offset, 1);
 }
 
@@ -506,7 +505,7 @@ fn parse_simple_i8() {
     let data = [(-5i8) as u8];
     let mut offset = 0;
     let val = parse_simple_type(&data, &mut offset, "i8").unwrap();
-    assert_eq!(val, OrderedJsonValue::Number((-5i64).into()));
+    assert_eq!(val, Value::Number((-5i64).into()));
     assert_eq!(offset, 1);
 }
 
@@ -515,7 +514,7 @@ fn parse_simple_u16() {
     let data = 1000u16.to_le_bytes();
     let mut offset = 0;
     let val = parse_simple_type(&data, &mut offset, "u16").unwrap();
-    assert_eq!(val, OrderedJsonValue::Number(1000u64.into()));
+    assert_eq!(val, Value::Number(1000u64.into()));
     assert_eq!(offset, 2);
 }
 
@@ -524,7 +523,7 @@ fn parse_simple_i16() {
     let data = (-300i16).to_le_bytes();
     let mut offset = 0;
     let val = parse_simple_type(&data, &mut offset, "i16").unwrap();
-    assert_eq!(val, OrderedJsonValue::Number((-300i64).into()));
+    assert_eq!(val, Value::Number((-300i64).into()));
     assert_eq!(offset, 2);
 }
 
@@ -533,7 +532,7 @@ fn parse_simple_u32() {
     let data = 70000u32.to_le_bytes();
     let mut offset = 0;
     let val = parse_simple_type(&data, &mut offset, "u32").unwrap();
-    assert_eq!(val, OrderedJsonValue::Number(70000u64.into()));
+    assert_eq!(val, Value::Number(70000u64.into()));
     assert_eq!(offset, 4);
 }
 
@@ -542,7 +541,7 @@ fn parse_simple_i32() {
     let data = (-70000i32).to_le_bytes();
     let mut offset = 0;
     let val = parse_simple_type(&data, &mut offset, "i32").unwrap();
-    assert_eq!(val, OrderedJsonValue::Number((-70000i64).into()));
+    assert_eq!(val, Value::Number((-70000i64).into()));
     assert_eq!(offset, 4);
 }
 
@@ -551,7 +550,7 @@ fn parse_simple_u64() {
     let data = u64::MAX.to_le_bytes();
     let mut offset = 0;
     let val = parse_simple_type(&data, &mut offset, "u64").unwrap();
-    assert_eq!(val, OrderedJsonValue::Number(u64::MAX.into()));
+    assert_eq!(val, Value::Number(u64::MAX.into()));
     assert_eq!(offset, 8);
 }
 
@@ -560,7 +559,7 @@ fn parse_simple_i64() {
     let data = i64::MIN.to_le_bytes();
     let mut offset = 0;
     let val = parse_simple_type(&data, &mut offset, "i64").unwrap();
-    assert_eq!(val, OrderedJsonValue::Number(i64::MIN.into()));
+    assert_eq!(val, Value::Number(i64::MIN.into()));
     assert_eq!(offset, 8);
 }
 
@@ -570,7 +569,7 @@ fn parse_simple_u128() {
     let data = val_in.to_le_bytes();
     let mut offset = 0;
     let val = parse_simple_type(&data, &mut offset, "u128").unwrap();
-    assert_eq!(val, OrderedJsonValue::String(val_in.to_string()));
+    assert_eq!(val, Value::String(val_in.to_string()));
     assert_eq!(offset, 16);
 }
 
@@ -580,7 +579,7 @@ fn parse_simple_i128() {
     let data = val_in.to_le_bytes();
     let mut offset = 0;
     let val = parse_simple_type(&data, &mut offset, "i128").unwrap();
-    assert_eq!(val, OrderedJsonValue::String(val_in.to_string()));
+    assert_eq!(val, Value::String(val_in.to_string()));
     assert_eq!(offset, 16);
 }
 
@@ -589,7 +588,7 @@ fn parse_simple_bool_true() {
     let data = [1u8];
     let mut offset = 0;
     let val = parse_simple_type(&data, &mut offset, "bool").unwrap();
-    assert_eq!(val, OrderedJsonValue::Bool(true));
+    assert_eq!(val, Value::Bool(true));
     assert_eq!(offset, 1);
 }
 
@@ -598,7 +597,7 @@ fn parse_simple_bool_false() {
     let data = [0u8];
     let mut offset = 0;
     let val = parse_simple_type(&data, &mut offset, "bool").unwrap();
-    assert_eq!(val, OrderedJsonValue::Bool(false));
+    assert_eq!(val, Value::Bool(false));
     assert_eq!(offset, 1);
 }
 
@@ -608,7 +607,7 @@ fn parse_simple_pubkey() {
     let data = pk.to_bytes();
     let mut offset = 0;
     let val = parse_simple_type(&data, &mut offset, "pubkey").unwrap();
-    assert_eq!(val, OrderedJsonValue::String(pk.to_string()));
+    assert_eq!(val, Value::String(pk.to_string()));
     assert_eq!(offset, 32);
 }
 
@@ -619,7 +618,7 @@ fn parse_simple_string() {
     data.extend_from_slice(s);
     let mut offset = 0;
     let val = parse_simple_type(&data, &mut offset, "string").unwrap();
-    assert_eq!(val, OrderedJsonValue::String("hello".into()));
+    assert_eq!(val, Value::String("hello".into()));
     assert_eq!(offset, 9);
 }
 
@@ -632,10 +631,10 @@ fn parse_simple_bytes() {
     let val = parse_simple_type(&data, &mut offset, "bytes").unwrap();
     assert_eq!(
         val,
-        OrderedJsonValue::Array(vec![
-            OrderedJsonValue::Number(0xAAu64.into()),
-            OrderedJsonValue::Number(0xBBu64.into()),
-            OrderedJsonValue::Number(0xCCu64.into()),
+        Value::Array(vec![
+            Value::Number(0xAAu64.into()),
+            Value::Number(0xBBu64.into()),
+            Value::Number(0xCCu64.into()),
         ])
     );
     assert_eq!(offset, 7);
@@ -646,7 +645,7 @@ fn parse_simple_type_truncated_u32() {
     let data = [0u8; 2];
     let mut offset = 0;
     let err = parse_simple_type(&data, &mut offset, "u32").unwrap_err();
-    assert!(err.to_string().contains("Insufficient data"));
+    assert!(err.to_string().contains("insufficient data"));
 }
 
 #[test]
@@ -654,7 +653,7 @@ fn parse_simple_type_truncated_string_length() {
     let data = [0u8; 2];
     let mut offset = 0;
     let err = parse_simple_type(&data, &mut offset, "string").unwrap_err();
-    assert!(err.to_string().contains("Insufficient data"));
+    assert!(err.to_string().contains("insufficient data"));
 }
 
 #[test]
@@ -663,7 +662,7 @@ fn parse_simple_type_truncated_string_body() {
     data.extend_from_slice(&[0, 0]);
     let mut offset = 0;
     let err = parse_simple_type(&data, &mut offset, "string").unwrap_err();
-    assert!(err.to_string().contains("Insufficient data"));
+    assert!(err.to_string().contains("insufficient data"));
 }
 
 #[test]
@@ -671,8 +670,8 @@ fn parse_simple_type_unknown_falls_back_to_raw() {
     let data = [1, 2, 3, 4];
     let mut offset = 0;
     let val = parse_simple_type(&data, &mut offset, "unknown_type").unwrap();
-    if let OrderedJsonValue::Object(entries) = &val {
-        let keys: Vec<&str> = entries.iter().map(|(k, _)| k.as_str()).collect();
+    if let Value::Object(entries) = &val {
+        let keys: Vec<&str> = entries.keys().map(|k| k.as_str()).collect();
         assert!(keys.contains(&"context"));
         assert!(keys.contains(&"type_hint"));
         assert!(keys.contains(&"raw_hex"));
@@ -688,15 +687,15 @@ fn parse_vec_type_u32_elements() {
     data.extend_from_slice(&20u32.to_le_bytes());
     data.extend_from_slice(&30u32.to_le_bytes());
     let mut offset = 0;
-    let idl = hello_anchor_idl();
+    let idl = ResolvedIdl::new(hello_anchor_idl());
     let element_type = IdlType::Simple("u32".into());
     let val = parse_vec_type(&data, &mut offset, &element_type, &idl).unwrap();
     assert_eq!(
         val,
-        OrderedJsonValue::Array(vec![
-            OrderedJsonValue::Number(10u64.into()),
-            OrderedJsonValue::Number(20u64.into()),
-            OrderedJsonValue::Number(30u64.into()),
+        Value::Array(vec![
+            Value::Number(10u64.into()),
+            Value::Number(20u64.into()),
+            Value::Number(30u64.into()),
         ])
     );
     assert_eq!(offset, 16);
@@ -706,10 +705,10 @@ fn parse_vec_type_u32_elements() {
 fn parse_vec_type_empty() {
     let data = 0u32.to_le_bytes();
     let mut offset = 0;
-    let idl = hello_anchor_idl();
+    let idl = ResolvedIdl::new(hello_anchor_idl());
     let element_type = IdlType::Simple("u8".into());
     let val = parse_vec_type(&data, &mut offset, &element_type, &idl).unwrap();
-    assert_eq!(val, OrderedJsonValue::Array(vec![]));
+    assert_eq!(val, Value::Array(vec![]));
     assert_eq!(offset, 4);
 }
 
@@ -717,10 +716,10 @@ fn parse_vec_type_empty() {
 fn parse_vec_type_truncated_length() {
     let data = [0u8; 2];
     let mut offset = 0;
-    let idl = hello_anchor_idl();
+    let idl = ResolvedIdl::new(hello_anchor_idl());
     let element_type = IdlType::Simple("u8".into());
     let err = parse_vec_type(&data, &mut offset, &element_type, &idl).unwrap_err();
-    assert!(err.to_string().contains("Insufficient data"));
+    assert!(err.to_string().contains("insufficient data"));
 }
 
 #[test]
@@ -728,11 +727,11 @@ fn parse_vec_type_errors_when_declared_elements_are_missing() {
     let mut data = 2u32.to_le_bytes().to_vec();
     data.extend_from_slice(&10u32.to_le_bytes());
     let mut offset = 0;
-    let idl = hello_anchor_idl();
+    let idl = ResolvedIdl::new(hello_anchor_idl());
     let element_type = IdlType::Simple("u32".into());
 
     let err = parse_vec_type(&data, &mut offset, &element_type, &idl).unwrap_err();
-    assert!(err.to_string().contains("Insufficient data"));
+    assert!(err.to_string().contains("insufficient data"));
 }
 
 #[test]
@@ -740,10 +739,10 @@ fn parse_option_type_some() {
     let mut data = vec![1u8];
     data.extend_from_slice(&500u16.to_le_bytes());
     let mut offset = 0;
-    let idl = hello_anchor_idl();
+    let idl = ResolvedIdl::new(hello_anchor_idl());
     let inner = IdlType::Simple("u16".into());
     let val = parse_option_type(&data, &mut offset, &inner, &idl).unwrap();
-    assert_eq!(val, OrderedJsonValue::Number(500u64.into()));
+    assert_eq!(val, Value::Number(500u64.into()));
     assert_eq!(offset, 3);
 }
 
@@ -751,10 +750,10 @@ fn parse_option_type_some() {
 fn parse_option_type_none() {
     let data = vec![0u8];
     let mut offset = 0;
-    let idl = hello_anchor_idl();
+    let idl = ResolvedIdl::new(hello_anchor_idl());
     let inner = IdlType::Simple("u16".into());
     let val = parse_option_type(&data, &mut offset, &inner, &idl).unwrap();
-    assert_eq!(val, OrderedJsonValue::Null);
+    assert_eq!(val, Value::Null);
     assert_eq!(offset, 1);
 }
 
@@ -762,26 +761,26 @@ fn parse_option_type_none() {
 fn parse_option_type_truncated_discriminant() {
     let data: [u8; 0] = [];
     let mut offset = 0;
-    let idl = hello_anchor_idl();
+    let idl = ResolvedIdl::new(hello_anchor_idl());
     let inner = IdlType::Simple("u8".into());
     let err = parse_option_type(&data, &mut offset, &inner, &idl).unwrap_err();
-    assert!(err.to_string().contains("Insufficient data"));
+    assert!(err.to_string().contains("insufficient data"));
 }
 
 #[test]
 fn parse_array_type_fixed_3_u8() {
     let data = vec![10, 20, 30];
     let mut offset = 0;
-    let idl = hello_anchor_idl();
+    let idl = ResolvedIdl::new(hello_anchor_idl());
     let array_def =
         IdlArrayType { element_type: Box::new(IdlType::Simple("u8".into())), length: 3 };
     let val = parse_array_type(&data, &mut offset, &array_def, &idl).unwrap();
     assert_eq!(
         val,
-        OrderedJsonValue::Array(vec![
-            OrderedJsonValue::Number(10u64.into()),
-            OrderedJsonValue::Number(20u64.into()),
-            OrderedJsonValue::Number(30u64.into()),
+        Value::Array(vec![
+            Value::Number(10u64.into()),
+            Value::Number(20u64.into()),
+            Value::Number(30u64.into()),
         ])
     );
     assert_eq!(offset, 3);
@@ -789,38 +788,40 @@ fn parse_array_type_fixed_3_u8() {
 
 #[test]
 fn parse_instruction_with_defined_tuple_struct_arg_supports_nested_types() {
-    let idl: Idl = serde_json::from_str(
-        r#"{
-            "address": "11111111111111111111111111111111",
-            "metadata": { "name": "t", "version": "0.1.0", "spec": "0.1.0" },
-            "instructions": [{
-                "name": "wrap",
-                "discriminator": [6,6,6,6,6,6,6,6],
-                "accounts": [],
-                "args": [{ "name": "payload", "type": { "defined": "Wrapper" } }]
-            }],
-            "types": [
-                {
-                    "name": "Inner",
-                    "type": {
-                        "kind": "struct",
-                        "fields": [{ "name": "amount", "type": "u16" }]
+    let idl = ResolvedIdl::new(
+        serde_json::from_str(
+            r#"{
+                "address": "11111111111111111111111111111111",
+                "metadata": { "name": "t", "version": "0.1.0", "spec": "0.1.0" },
+                "instructions": [{
+                    "name": "wrap",
+                    "discriminator": [6,6,6,6,6,6,6,6],
+                    "accounts": [],
+                    "args": [{ "name": "payload", "type": { "defined": "Wrapper" } }]
+                }],
+                "types": [
+                    {
+                        "name": "Inner",
+                        "type": {
+                            "kind": "struct",
+                            "fields": [{ "name": "amount", "type": "u16" }]
+                        }
+                    },
+                    {
+                        "name": "Wrapper",
+                        "type": {
+                            "kind": "struct",
+                            "fields": [
+                                { "option": "u32" },
+                                { "defined": "Inner" }
+                            ]
+                        }
                     }
-                },
-                {
-                    "name": "Wrapper",
-                    "type": {
-                        "kind": "struct",
-                        "fields": [
-                            { "option": "u32" },
-                            { "defined": "Inner" }
-                        ]
-                    }
-                }
-            ]
-        }"#,
-    )
-    .unwrap();
+                ]
+            }"#,
+        )
+        .unwrap(),
+    );
 
     let mut data = vec![6, 6, 6, 6, 6, 6, 6, 6, 1];
     data.extend_from_slice(&777u32.to_le_bytes());
@@ -830,49 +831,42 @@ fn parse_instruction_with_defined_tuple_struct_arg_supports_nested_types() {
 
     assert_eq!(parsed.fields.len(), 1);
     assert_eq!(parsed.fields[0].name, "payload");
-    assert_eq!(
-        parsed.fields[0].value,
-        OrderedJsonValue::Array(vec![
-            OrderedJsonValue::Number(777u64.into()),
-            OrderedJsonValue::Object(vec![(
-                "amount".into(),
-                OrderedJsonValue::Number(42u64.into()),
-            )]),
-        ])
-    );
+    assert_eq!(parsed.fields[0].value, json!([777, {"amount": 42}]));
 }
 
 #[test]
 fn parse_enum_with_struct_variant() {
-    let idl: Idl = serde_json::from_str(
-        r#"{
-            "address": "11111111111111111111111111111111",
-            "metadata": { "name": "t", "version": "0.1.0", "spec": "0.1.0" },
-            "instructions": [{
-                "name": "cmd",
-                "discriminator": [9,9,9,9,9,9,9,9],
-                "accounts": [],
-                "args": [{ "name": "op", "type": { "defined": "Op" } }]
-            }],
-            "types": [{
-                "name": "Op",
-                "type": {
-                    "kind": "enum",
-                    "variants": [
-                        { "name": "Noop" },
-                        {
-                            "name": "Transfer",
-                            "fields": [
-                                { "name": "amount", "type": "u64" },
-                                { "name": "fee", "type": "u16" }
-                            ]
-                        }
-                    ]
-                }
-            }]
-        }"#,
-    )
-    .unwrap();
+    let idl = ResolvedIdl::new(
+        serde_json::from_str(
+            r#"{
+                "address": "11111111111111111111111111111111",
+                "metadata": { "name": "t", "version": "0.1.0", "spec": "0.1.0" },
+                "instructions": [{
+                    "name": "cmd",
+                    "discriminator": [9,9,9,9,9,9,9,9],
+                    "accounts": [],
+                    "args": [{ "name": "op", "type": { "defined": "Op" } }]
+                }],
+                "types": [{
+                    "name": "Op",
+                    "type": {
+                        "kind": "enum",
+                        "variants": [
+                            { "name": "Noop" },
+                            {
+                                "name": "Transfer",
+                                "fields": [
+                                    { "name": "amount", "type": "u64" },
+                                    { "name": "fee", "type": "u16" }
+                                ]
+                            }
+                        ]
+                    }
+                }]
+            }"#,
+        )
+        .unwrap(),
+    );
 
     let mut data = vec![9, 9, 9, 9, 9, 9, 9, 9];
     data.push(1);
@@ -881,43 +875,36 @@ fn parse_enum_with_struct_variant() {
 
     let parsed = parse_instruction(&idl, &data).unwrap().unwrap();
     let val = &parsed.fields[0].value;
-    assert_eq!(
-        *val,
-        OrderedJsonValue::Object(vec![(
-            "Transfer".into(),
-            OrderedJsonValue::Object(vec![
-                ("amount".into(), OrderedJsonValue::Number(5000u64.into())),
-                ("fee".into(), OrderedJsonValue::Number(100u64.into())),
-            ]),
-        )])
-    );
+    assert_eq!(*val, json!({"Transfer": {"amount": 5000, "fee": 100}}));
 }
 
 #[test]
 fn parse_enum_with_tuple_variant() {
-    let idl: Idl = serde_json::from_str(
-        r#"{
-            "address": "11111111111111111111111111111111",
-            "metadata": { "name": "t", "version": "0.1.0", "spec": "0.1.0" },
-            "instructions": [{
-                "name": "cmd",
-                "discriminator": [8,8,8,8,8,8,8,8],
-                "accounts": [],
-                "args": [{ "name": "op", "type": { "defined": "Op" } }]
-            }],
-            "types": [{
-                "name": "Op",
-                "type": {
-                    "kind": "enum",
-                    "variants": [
-                        { "name": "Noop" },
-                        { "name": "SetPair", "fields": ["u32", "u32"] }
-                    ]
-                }
-            }]
-        }"#,
-    )
-    .unwrap();
+    let idl = ResolvedIdl::new(
+        serde_json::from_str(
+            r#"{
+                "address": "11111111111111111111111111111111",
+                "metadata": { "name": "t", "version": "0.1.0", "spec": "0.1.0" },
+                "instructions": [{
+                    "name": "cmd",
+                    "discriminator": [8,8,8,8,8,8,8,8],
+                    "accounts": [],
+                    "args": [{ "name": "op", "type": { "defined": "Op" } }]
+                }],
+                "types": [{
+                    "name": "Op",
+                    "type": {
+                        "kind": "enum",
+                        "variants": [
+                            { "name": "Noop" },
+                            { "name": "SetPair", "fields": ["u32", "u32"] }
+                        ]
+                    }
+                }]
+            }"#,
+        )
+        .unwrap(),
+    );
 
     let mut data = vec![8, 8, 8, 8, 8, 8, 8, 8];
     data.push(1);
@@ -926,47 +913,40 @@ fn parse_enum_with_tuple_variant() {
 
     let parsed = parse_instruction(&idl, &data).unwrap().unwrap();
     let val = &parsed.fields[0].value;
-    assert_eq!(
-        *val,
-        OrderedJsonValue::Object(vec![(
-            "SetPair".into(),
-            OrderedJsonValue::Array(vec![
-                OrderedJsonValue::Number(111u64.into()),
-                OrderedJsonValue::Number(222u64.into()),
-            ]),
-        )])
-    );
+    assert_eq!(*val, json!({"SetPair": [111, 222]}));
 }
 
 #[test]
 fn parse_enum_out_of_range_variant_index_falls_through() {
-    let idl: Idl = serde_json::from_str(
-        r#"{
-            "address": "11111111111111111111111111111111",
-            "metadata": { "name": "t", "version": "0.1.0", "spec": "0.1.0" },
-            "instructions": [{
-                "name": "cmd",
-                "discriminator": [7,7,7,7,7,7,7,7],
-                "accounts": [],
-                "args": [{ "name": "val", "type": { "defined": "Small" } }]
-            }],
-            "types": [{
-                "name": "Small",
-                "type": {
-                    "kind": "enum",
-                    "variants": [{ "name": "Only" }]
-                }
-            }]
-        }"#,
-    )
-    .unwrap();
+    let idl = ResolvedIdl::new(
+        serde_json::from_str(
+            r#"{
+                "address": "11111111111111111111111111111111",
+                "metadata": { "name": "t", "version": "0.1.0", "spec": "0.1.0" },
+                "instructions": [{
+                    "name": "cmd",
+                    "discriminator": [7,7,7,7,7,7,7,7],
+                    "accounts": [],
+                    "args": [{ "name": "val", "type": { "defined": "Small" } }]
+                }],
+                "types": [{
+                    "name": "Small",
+                    "type": {
+                        "kind": "enum",
+                        "variants": [{ "name": "Only" }]
+                    }
+                }]
+            }"#,
+        )
+        .unwrap(),
+    );
 
     let mut data = vec![7, 7, 7, 7, 7, 7, 7, 7];
     data.push(99);
 
     let parsed = parse_instruction(&idl, &data).unwrap().unwrap();
-    if let OrderedJsonValue::Object(entries) = &parsed.fields[0].value {
-        let keys: Vec<&str> = entries.iter().map(|(k, _)| k.as_str()).collect();
+    if let Value::Object(entries) = &parsed.fields[0].value {
+        let keys: Vec<&str> = entries.keys().map(|k| k.as_str()).collect();
         assert!(keys.contains(&"raw_hex"));
     } else {
         panic!("expected raw fallback for out-of-range variant");

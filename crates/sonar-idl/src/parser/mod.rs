@@ -1,8 +1,9 @@
-use anyhow::{Result, anyhow};
 use serde::Serialize;
+use serde_json::Value;
 
+use crate::discriminator::CPI_EVENT_DISCRIMINATOR;
+use crate::error::Result;
 use crate::models::*;
-use crate::value::OrderedJsonValue;
 
 mod decode;
 mod lookup;
@@ -10,12 +11,6 @@ mod lookup;
 #[cfg(test)]
 mod tests;
 
-#[cfg(test)]
-use self::decode::{parse_array_type, parse_option_type, parse_simple_type, parse_vec_type};
-use self::decode::{
-    parse_idl_fields_as_parsed_fields, parse_instruction_args, parse_type_definition,
-    raw_unparsed_value,
-};
 pub use self::lookup::ResolvedIdl;
 use self::lookup::{IdlLookup, scan_event_by_discriminator, scan_instruction_by_discriminator};
 
@@ -32,10 +27,8 @@ pub struct IdlParsedInstruction {
 #[derive(Debug, Clone, Serialize)]
 pub struct IdlParsedField {
     pub name: String,
-    pub value: OrderedJsonValue,
+    pub value: Value,
 }
-
-const EMIT_CPI_DISCRIMINATOR: [u8; 8] = [0xe4, 0x45, 0xa5, 0x2e, 0x51, 0xcb, 0x9a, 0x1d];
 
 /// Parse an instruction's binary data using an IDL.
 ///
@@ -43,7 +36,7 @@ const EMIT_CPI_DISCRIMINATOR: [u8; 8] = [0xe4, 0x45, 0xa5, 0x2e, 0x51, 0xcb, 0x9
 /// deserializes the remaining bytes according to the matched instruction's args.
 ///
 /// Returns `Ok(None)` if no instruction discriminator matches.
-pub fn parse_instruction(idl: &Idl, data: &[u8]) -> Result<Option<IdlParsedInstruction>> {
+pub fn parse_instruction(idl: &ResolvedIdl, data: &[u8]) -> Result<Option<IdlParsedInstruction>> {
     parse_instruction_with_lookup(idl, data)
 }
 
@@ -56,7 +49,7 @@ fn parse_instruction_with_lookup<L: IdlLookup>(
     };
 
     let mut offset = idl_instruction.discriminator.as_ref().map_or(0, |d| d.len());
-    let fields = parse_instruction_args(data, &mut offset, &idl_instruction.args, lookup)?;
+    let fields = decode::parse_instruction_args(data, &mut offset, &idl_instruction.args, lookup)?;
 
     Ok(Some(IdlParsedInstruction {
         name: idl_instruction.name.clone(),
@@ -71,21 +64,18 @@ fn parse_instruction_with_lookup<L: IdlLookup>(
 /// `Ok(None)` if no matching account type is found in the IDL,
 /// or an error if parsing fails.
 pub fn parse_account_data(
-    idl: &Idl,
+    idl: &ResolvedIdl,
     account_data: &[u8],
-) -> Result<Option<(String, OrderedJsonValue)>> {
+) -> Result<Option<(String, Value)>> {
     parse_account_data_with_lookup(idl, account_data)
 }
 
 fn parse_account_data_with_lookup<L: IdlLookup>(
     lookup: &L,
     account_data: &[u8],
-) -> Result<Option<(String, OrderedJsonValue)>> {
+) -> Result<Option<(String, Value)>> {
     if account_data.len() < 8 {
-        return Err(anyhow!(
-            "Account data too short: {} bytes (expected at least 8 for discriminator)",
-            account_data.len()
-        ));
+        return Err(crate::IdlError::insufficient_data(8, 0, account_data.len()));
     }
 
     let discriminator = &account_data[..8];
@@ -95,20 +85,23 @@ fn parse_account_data_with_lookup<L: IdlLookup>(
     };
 
     let mut offset = 8;
-    let parsed_value = parse_type_definition(account_data, &mut offset, type_def, lookup)?;
+    let parsed_value = decode::parse_type_definition(account_data, &mut offset, type_def, lookup)?;
 
     Ok(Some((type_def.name.clone(), parsed_value)))
 }
 
 /// Check if raw instruction data represents an Anchor CPI event.
 pub fn is_cpi_event_data(data: &[u8]) -> bool {
-    data.len() >= 16 && data[..8] == EMIT_CPI_DISCRIMINATOR
+    data.len() >= 16 && data[..8] == CPI_EVENT_DISCRIMINATOR
 }
 
 /// Parse an Anchor CPI event from raw instruction data.
 ///
 /// The caller provides the instruction `data` and the emitting program's IDL.
-pub fn parse_cpi_event_data(idl: &Idl, data: &[u8]) -> Result<Option<IdlParsedInstruction>> {
+pub fn parse_cpi_event_data(
+    idl: &ResolvedIdl,
+    data: &[u8],
+) -> Result<Option<IdlParsedInstruction>> {
     parse_cpi_event_data_with_lookup(idl, data)
 }
 
@@ -120,7 +113,7 @@ fn parse_cpi_event_data_with_lookup<L: IdlLookup>(
         return Ok(None);
     }
 
-    if data[..8] != EMIT_CPI_DISCRIMINATOR {
+    if data[..8] != CPI_EVENT_DISCRIMINATOR {
         return Ok(None);
     }
 
@@ -140,14 +133,16 @@ fn parse_cpi_event_data_with_lookup<L: IdlLookup>(
 
     let mut offset = 16;
     let fields = match type_fields.as_ref() {
-        Some(fields) => parse_idl_fields_as_parsed_fields(data, &mut offset, fields, lookup)?,
+        Some(fields) => {
+            decode::parse_idl_fields_as_parsed_fields(data, &mut offset, fields, lookup)?
+        }
         None => {
             let mut raw_fields = Vec::new();
             if offset < data.len() {
                 let raw_data = &data[offset..];
                 raw_fields.push(IdlParsedField {
                     name: "raw_data".into(),
-                    value: raw_unparsed_value("event_data", &event_def.name, raw_data),
+                    value: decode::raw_unparsed_value("event_data", &event_def.name, raw_data),
                 });
             }
             raw_fields

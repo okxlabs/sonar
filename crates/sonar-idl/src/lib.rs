@@ -8,16 +8,38 @@
 //! - **Parsing**: Binary deserialization of instruction args, account data,
 //!   and CPI events using IDL type definitions.
 //! - **Discriminator**: `sighash` for computing Anchor 8-byte discriminators.
-//! - **Value**: Internal JSON-like AST used by parser internals.
+//!
+//! # Example
+//!
+//! ```
+//! use sonar_idl::Idl;
+//!
+//! # fn example(json: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
+//! let idl = Idl::parse(json, "ProgramAddress1111111111111111111111111111111")?;
+//!
+//! // Parse instruction data
+//! if let Some(instruction) = idl.parse_instruction(&[/* instruction data */])? {
+//!     println!("Instruction: {}", instruction.name);
+//! }
+//! # Ok(())
+//! # }
+//! ```
 
 mod discriminator;
+mod error;
 mod models;
 mod parser;
-mod value;
 
 // ── Discriminator ──
 
-pub use discriminator::sighash;
+pub use discriminator::{
+    CPI_EVENT_DISCRIMINATOR, DISCRIMINATOR_LEN, Discriminator, NAMESPACE_ACCOUNT, NAMESPACE_EVENT,
+    NAMESPACE_GLOBAL, sighash,
+};
+
+// ── Error ──
+
+pub use error::{IdlError, Result};
 
 // ── Models ──
 
@@ -26,10 +48,6 @@ pub use models::{
     IdlEnumVariant, IdlEvent, IdlField, IdlFields, IdlInstruction, IdlMetadata, IdlType,
     IdlTypeDefinition, IdlTypeDefinitionBody, IdlTypeDefinitionKind, LegacyIdl, RawAnchorIdl,
 };
-
-// ── Value ──
-
-pub use value::OrderedJsonValue;
 
 // ── Parsing ──
 
