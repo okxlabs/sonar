@@ -5,7 +5,6 @@
 //!
 //! - **Models**: Canonical IDL types (`Idl`, `IdlInstruction`, etc.) plus
 //!   backward-compatible deserialization of legacy (pre-0.30) IDL JSON.
-//! - **Registry**: `IdlRegistry` for multi-program type resolution.
 //! - **Parsing**: Binary deserialization of instruction args, account data,
 //!   and CPI events using IDL type definitions.
 //! - **Discriminator**: `sighash` for computing Anchor 8-byte discriminators.
@@ -14,7 +13,6 @@
 mod discriminator;
 mod models;
 mod parser;
-mod registry;
 mod value;
 
 // ── Discriminator ──
@@ -28,10 +26,6 @@ pub use models::{
     IdlField, IdlFields, IdlInstruction, IdlMetadata, IdlType, IdlTypeDefinition,
     IdlTypeDefinitionBody, LegacyIdl, RawAnchorIdl,
 };
-
-// ── Registry ──
-
-pub use registry::IdlRegistry;
 
 // ── Value ──
 
