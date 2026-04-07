@@ -13,8 +13,8 @@ use sonar_sim::{
 };
 
 use super::common::{
-    build_cache_location, resolve_and_derive_cache_key, resolve_cache_and_prepare,
-    warn_unmatched_addresses, CachePrepareArgs,
+    CachePrepareArgs, build_cache_location, resolve_and_derive_cache_key,
+    resolve_cache_and_prepare, warn_unmatched_addresses,
 };
 
 /// Parse a vector of raw CLI strings using the given parser function.
@@ -289,7 +289,8 @@ fn handle_bundle(
 ) -> Result<()> {
     log::info!("Bundle simulation mode: {} transactions", tx_inputs.len());
 
-    let resolved = resolve_and_derive_cache_key(tx_inputs, rpc_url, resolver_cache_location, progress)?;
+    let resolved =
+        resolve_and_derive_cache_key(tx_inputs, rpc_url, resolver_cache_location, progress)?;
     let resolved_txs = resolved.resolved_txs;
     let mut parsed_txs: Vec<_> = resolved_txs.iter().map(|tx| tx.parsed_tx.clone()).collect();
     log::info!("Successfully parsed {} transactions", parsed_txs.len());

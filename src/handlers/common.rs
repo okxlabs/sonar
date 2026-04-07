@@ -126,8 +126,7 @@ pub(crate) fn resolve_and_derive_cache_key(
         )
     } else {
         let inputs: Vec<_> = resolved_txs.iter().map(|tx| tx.original_input.clone()).collect();
-        let parsed_txs: Vec<_> =
-            resolved_txs.iter().map(|tx| tx.parsed_tx.clone()).collect();
+        let parsed_txs: Vec<_> = resolved_txs.iter().map(|tx| tx.parsed_tx.clone()).collect();
         crate::core::cache::derive_cache_key_bundle(&inputs, &parsed_txs)
     };
 

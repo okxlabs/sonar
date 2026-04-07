@@ -5,9 +5,7 @@ use crate::output;
 use crate::parsers::instruction::ParserRegistry;
 use crate::utils::progress::Progress;
 
-use super::common::{
-    resolve_and_derive_cache_key, resolve_cache_and_prepare, CachePrepareArgs,
-};
+use super::common::{CachePrepareArgs, resolve_and_derive_cache_key, resolve_cache_and_prepare};
 
 pub(crate) fn handle(args: DecodeArgs, json: bool) -> Result<()> {
     let idl_dir = args.idl_dir.clone();
