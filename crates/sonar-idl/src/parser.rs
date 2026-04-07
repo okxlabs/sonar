@@ -5,7 +5,6 @@ use solana_pubkey::Pubkey;
 
 use crate::discriminator::sighash;
 use crate::models::*;
-use crate::registry::IdlRegistry;
 use crate::value::OrderedJsonValue;
 
 // ── Return types ──
@@ -34,17 +33,13 @@ pub struct IdlParsedField {
 /// deserializes the remaining bytes according to the matched instruction's args.
 ///
 /// Returns `Ok(None)` if no instruction discriminator matches.
-pub fn parse_instruction(
-    idl: &Idl,
-    data: &[u8],
-    registry: &IdlRegistry,
-) -> Result<Option<IdlParsedInstruction>> {
+pub fn parse_instruction(idl: &Idl, data: &[u8]) -> Result<Option<IdlParsedInstruction>> {
     let Some(idl_instruction) = find_instruction_by_discriminator(idl, data) else {
         return Ok(None);
     };
 
     let mut offset = idl_instruction.discriminator.as_ref().map_or(0, |d| d.len());
-    let fields = parse_instruction_args(data, &mut offset, &idl_instruction.args, registry, idl)?;
+    let fields = parse_instruction_args(data, &mut offset, &idl_instruction.args, idl)?;
 
     Ok(Some(IdlParsedInstruction {
         name: idl_instruction.name.clone(),
@@ -61,7 +56,6 @@ pub fn parse_instruction(
 pub fn parse_account_data(
     idl: &Idl,
     account_data: &[u8],
-    registry: &IdlRegistry,
 ) -> Result<Option<(String, OrderedJsonValue)>> {
     if account_data.len() < 8 {
         return Err(anyhow!(
@@ -77,7 +71,7 @@ pub fn parse_account_data(
     };
 
     let mut offset = 8;
-    let parsed_value = parse_type_definition(account_data, &mut offset, type_def, registry, idl)?;
+    let parsed_value = parse_type_definition(account_data, &mut offset, type_def, idl)?;
 
     Ok(Some((type_def.name.clone(), parsed_value)))
 }
@@ -91,13 +85,8 @@ pub fn is_cpi_event_data(data: &[u8]) -> bool {
 
 /// Parse an Anchor CPI event from raw instruction data.
 ///
-/// The caller provides the instruction `data`, the IDL `registry`, and the
-/// `program_id` that emitted the event.
-pub fn parse_cpi_event_data(
-    data: &[u8],
-    idl_registry: &IdlRegistry,
-    program_id: &Pubkey,
-) -> Result<Option<IdlParsedInstruction>> {
+/// The caller provides the instruction `data` and the emitting program's IDL.
+pub fn parse_cpi_event_data(idl: &Idl, data: &[u8]) -> Result<Option<IdlParsedInstruction>> {
     if data.len() < 16 {
         return Ok(None);
     }
@@ -108,10 +97,6 @@ pub fn parse_cpi_event_data(
 
     let event_discriminator = &data[8..16];
 
-    let Some(idl) = idl_registry.get(program_id) else {
-        return Ok(None);
-    };
-
     let Some(event_def) = find_event_by_discriminator(idl, event_discriminator) else {
         return Ok(None);
     };
@@ -121,9 +106,7 @@ pub fn parse_cpi_event_data(
     } else if let Some(types) = &idl.types {
         types.iter().find(|t| t.name == event_def.name).and_then(|t| t.type_.fields.clone())
     } else {
-        idl_registry
-            .get_type_by_program(program_id, &event_def.name)
-            .and_then(|t| t.type_.fields.clone())
+        None
     };
 
     let mut offset = 16;
@@ -135,7 +118,7 @@ pub fn parse_cpi_event_data(
                 if offset >= data.len() {
                     break;
                 }
-                let value = parse_type(data, &mut offset, &field.type_, idl_registry, idl)?;
+                let value = parse_type(data, &mut offset, &field.type_, idl)?;
                 fields.push(IdlParsedField { name: field.name.clone(), value });
             }
         }
@@ -219,7 +202,6 @@ fn parse_instruction_args(
     data: &[u8],
     offset: &mut usize,
     args: &[IdlArg],
-    registry: &IdlRegistry,
     idl: &Idl,
 ) -> Result<Vec<IdlParsedField>> {
     let mut fields = Vec::new();
@@ -229,7 +211,7 @@ fn parse_instruction_args(
             break;
         }
 
-        let value = parse_type(data, offset, &arg.type_, registry, idl)?;
+        let value = parse_type(data, offset, &arg.type_, idl)?;
         fields.push(IdlParsedField { name: arg.name.clone(), value });
     }
 
@@ -248,15 +230,14 @@ fn parse_type(
     data: &[u8],
     offset: &mut usize,
     idl_type: &IdlType,
-    registry: &IdlRegistry,
     idl: &Idl,
 ) -> Result<OrderedJsonValue> {
     match idl_type {
         IdlType::Simple(type_name) => parse_simple_type(data, offset, type_name),
-        IdlType::Vec { vec } => parse_vec_type(data, offset, vec, registry, idl),
-        IdlType::Option { option } => parse_option_type(data, offset, option, registry, idl),
-        IdlType::Array { array } => parse_array_type(data, offset, array, registry, idl),
-        IdlType::Defined { defined } => parse_defined_type(data, offset, defined, registry, idl),
+        IdlType::Vec { vec } => parse_vec_type(data, offset, vec, idl),
+        IdlType::Option { option } => parse_option_type(data, offset, option, idl),
+        IdlType::Array { array } => parse_array_type(data, offset, array, idl),
+        IdlType::Defined { defined } => parse_defined_type(data, offset, defined, idl),
     }
 }
 
@@ -430,7 +411,6 @@ fn parse_vec_type(
     data: &[u8],
     offset: &mut usize,
     element_type: &IdlType,
-    registry: &IdlRegistry,
     idl: &Idl,
 ) -> Result<OrderedJsonValue> {
     let start = *offset;
@@ -446,7 +426,7 @@ fn parse_vec_type(
         if *offset >= data.len() {
             break;
         }
-        let element = parse_type(data, offset, element_type, registry, idl)?;
+        let element = parse_type(data, offset, element_type, idl)?;
         elements.push(element);
     }
 
@@ -457,7 +437,6 @@ fn parse_option_type(
     data: &[u8],
     offset: &mut usize,
     inner_type: &IdlType,
-    registry: &IdlRegistry,
     idl: &Idl,
 ) -> Result<OrderedJsonValue> {
     let start = *offset;
@@ -466,18 +445,13 @@ fn parse_option_type(
     let is_some = data[start] != 0;
     *offset += 1;
 
-    if !is_some {
-        Ok(OrderedJsonValue::Null)
-    } else {
-        parse_type(data, offset, inner_type, registry, idl)
-    }
+    if !is_some { Ok(OrderedJsonValue::Null) } else { parse_type(data, offset, inner_type, idl) }
 }
 
 fn parse_array_type(
     data: &[u8],
     offset: &mut usize,
     array_def: &[JsonValue; 2],
-    registry: &IdlRegistry,
     idl: &Idl,
 ) -> Result<OrderedJsonValue> {
     let element_type = array_def[0].clone();
@@ -491,7 +465,7 @@ fn parse_array_type(
         if *offset >= data.len() {
             break;
         }
-        let element = parse_type(data, offset, &idl_type, registry, idl)?;
+        let element = parse_type(data, offset, &idl_type, idl)?;
         elements.push(element);
     }
 
@@ -502,20 +476,12 @@ fn parse_defined_type(
     data: &[u8],
     offset: &mut usize,
     defined: &DefinedType,
-    registry: &IdlRegistry,
     idl: &Idl,
 ) -> Result<OrderedJsonValue> {
-    let program_id = Pubkey::try_from(idl.address.as_str())
-        .map_err(|_| anyhow!("Invalid program ID in IDL: {}", idl.address))?;
-
     if let Some(types) = &idl.types {
         if let Some(type_def) = types.iter().find(|t| t.name == defined.name()) {
-            return parse_type_definition(data, offset, type_def, registry, idl);
+            return parse_type_definition(data, offset, type_def, idl);
         }
-    }
-
-    if let Some(type_def) = registry.get_type_by_program(&program_id, defined.name()) {
-        return parse_type_definition(data, offset, type_def, registry, idl);
     }
 
     let start = *offset;
@@ -529,7 +495,6 @@ fn parse_type_definition(
     data: &[u8],
     offset: &mut usize,
     type_def: &IdlTypeDefinition,
-    registry: &IdlRegistry,
     idl: &Idl,
 ) -> Result<OrderedJsonValue> {
     match type_def.type_.kind.as_str() {
@@ -542,7 +507,7 @@ fn parse_type_definition(
                             if *offset >= data.len() {
                                 break;
                             }
-                            let value = parse_type(data, offset, &field.type_, registry, idl)?;
+                            let value = parse_type(data, offset, &field.type_, idl)?;
                             entries.push((field.name.clone(), value));
                         }
                         Ok(OrderedJsonValue::Object(entries))
@@ -583,8 +548,7 @@ fn parse_type_definition(
                                             .map_err(|_| {
                                                 anyhow!("Failed to parse enum field type")
                                             })?;
-                                        let value =
-                                            parse_type(data, offset, &type_, registry, idl)?;
+                                        let value = parse_type(data, offset, &type_, idl)?;
                                         entries
                                             .push((name.as_str().unwrap_or("").to_string(), value));
                                     }
@@ -595,7 +559,7 @@ fn parse_type_definition(
                                 for type_value in fields_array {
                                     let type_ = serde_json::from_value(type_value.clone())
                                         .map_err(|_| anyhow!("Failed to parse tuple field type"))?;
-                                    let value = parse_type(data, offset, &type_, registry, idl)?;
+                                    let value = parse_type(data, offset, &type_, idl)?;
                                     values.push(value);
                                 }
                                 OrderedJsonValue::Array(values)
@@ -669,12 +633,11 @@ mod tests {
     #[test]
     fn parse_instruction_matches_discriminator_and_reads_u64_arg() {
         let idl = hello_anchor_idl();
-        let registry = IdlRegistry::new();
 
         let mut data = vec![175, 175, 109, 31, 13, 152, 155, 237];
         data.extend_from_slice(&42u64.to_le_bytes());
 
-        let result = parse_instruction(&idl, &data, &registry).unwrap();
+        let result = parse_instruction(&idl, &data).unwrap();
         let parsed = result.expect("should match");
 
         assert_eq!(parsed.name, "initialize");
@@ -686,10 +649,9 @@ mod tests {
     #[test]
     fn parse_instruction_returns_none_for_unknown_discriminator() {
         let idl = hello_anchor_idl();
-        let registry = IdlRegistry::new();
         let data = vec![0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0];
 
-        let result = parse_instruction(&idl, &data, &registry).unwrap();
+        let result = parse_instruction(&idl, &data).unwrap();
         assert!(result.is_none());
     }
 
@@ -698,13 +660,12 @@ mod tests {
     #[test]
     fn parse_account_data_matches_struct_by_discriminator() {
         let idl = hello_anchor_idl();
-        let registry = IdlRegistry::new();
 
         let disc = sighash("account", "NewAccount");
         let mut data = disc.to_vec();
         data.extend_from_slice(&99u64.to_le_bytes());
 
-        let result = parse_account_data(&idl, &data, &registry).unwrap();
+        let result = parse_account_data(&idl, &data).unwrap();
         let (type_name, value) = result.expect("should match NewAccount");
 
         assert_eq!(type_name, "NewAccount");
@@ -719,19 +680,17 @@ mod tests {
     #[test]
     fn parse_account_data_returns_none_for_unknown_discriminator() {
         let idl = hello_anchor_idl();
-        let registry = IdlRegistry::new();
         let data = [0u8; 16];
 
-        let result = parse_account_data(&idl, &data, &registry).unwrap();
+        let result = parse_account_data(&idl, &data).unwrap();
         assert!(result.is_none());
     }
 
     #[test]
     fn parse_account_data_rejects_short_data() {
         let idl = hello_anchor_idl();
-        let registry = IdlRegistry::new();
 
-        let result = parse_account_data(&idl, &[0u8; 4], &registry);
+        let result = parse_account_data(&idl, &[0u8; 4]);
         assert!(result.is_err());
     }
 
@@ -755,20 +714,17 @@ mod tests {
     }
 
     #[test]
-    fn parse_cpi_event_data_returns_none_when_no_idl_registered() {
-        let registry = IdlRegistry::new();
-        let program_id = Pubkey::new_unique();
-
+    fn parse_cpi_event_data_returns_none_for_unknown_event_discriminator() {
+        let idl = hello_anchor_idl();
         let mut data = vec![0xe4, 0x45, 0xa5, 0x2e, 0x51, 0xcb, 0x9a, 0x1d];
         data.extend_from_slice(&[0; 8]);
 
-        let result = parse_cpi_event_data(&data, &registry, &program_id).unwrap();
+        let result = parse_cpi_event_data(&idl, &data).unwrap();
         assert!(result.is_none());
     }
 
     #[test]
     fn parse_cpi_event_data_parses_event_fields() {
-        let program_id = Pubkey::from_str("BYFW1vhC1ohxwRbYoLbAWs86STa25i9sD5uEusVjTYNd").unwrap();
         let event_disc = sighash("event", "TransferDone");
 
         let idl: Idl = serde_json::from_str(&format!(
@@ -786,13 +742,11 @@ mod tests {
         ))
         .unwrap();
 
-        let registry = IdlRegistry::with_idl(program_id, &idl);
-
         let mut data = vec![0xe4, 0x45, 0xa5, 0x2e, 0x51, 0xcb, 0x9a, 0x1d];
         data.extend_from_slice(&event_disc);
         data.extend_from_slice(&500u64.to_le_bytes());
 
-        let result = parse_cpi_event_data(&data, &registry, &program_id).unwrap();
+        let result = parse_cpi_event_data(&idl, &data).unwrap();
         let parsed = result.expect("should parse event");
 
         assert_eq!(parsed.name, "TransferDone");
@@ -825,7 +779,6 @@ mod tests {
         )
         .unwrap();
 
-        let registry = IdlRegistry::new();
         let mut data = vec![1, 2, 3, 4, 5, 6, 7, 8]; // discriminator
         data.push(42); // u8
         data.push(1); // bool true
@@ -834,7 +787,7 @@ mod tests {
         data.extend_from_slice(&(s.len() as u32).to_le_bytes());
         data.extend_from_slice(s);
 
-        let parsed = parse_instruction(&idl, &data, &registry).unwrap().unwrap();
+        let parsed = parse_instruction(&idl, &data).unwrap().unwrap();
         assert_eq!(parsed.fields[0].value, OrderedJsonValue::Number(42u64.into()));
         assert_eq!(parsed.fields[1].value, OrderedJsonValue::Bool(true));
         assert_eq!(parsed.fields[2].value, OrderedJsonValue::Number((-5i64).into()));
@@ -869,12 +822,11 @@ mod tests {
         )
         .unwrap();
 
-        let registry = IdlRegistry::new();
         let mut data = vec![10, 20, 30, 40, 50, 60, 70, 80];
         data.extend_from_slice(&100u32.to_le_bytes());
         data.extend_from_slice(&200u32.to_le_bytes());
 
-        let parsed = parse_instruction(&idl, &data, &registry).unwrap().unwrap();
+        let parsed = parse_instruction(&idl, &data).unwrap().unwrap();
         assert_eq!(parsed.fields[0].name, "params");
         assert_eq!(
             parsed.fields[0].value,
@@ -911,11 +863,9 @@ mod tests {
         )
         .unwrap();
 
-        let registry = IdlRegistry::new();
-
         // variant index 0 = Start
         let mut data = vec![1, 1, 1, 1, 1, 1, 1, 1, 0];
-        let parsed = parse_instruction(&idl, &data, &registry).unwrap().unwrap();
+        let parsed = parse_instruction(&idl, &data).unwrap().unwrap();
         assert_eq!(
             parsed.fields[0].value,
             OrderedJsonValue::Object(vec![("Start".into(), OrderedJsonValue::Null)])
@@ -923,7 +873,7 @@ mod tests {
 
         // variant index 1 = Stop
         data[8] = 1;
-        let parsed = parse_instruction(&idl, &data, &registry).unwrap().unwrap();
+        let parsed = parse_instruction(&idl, &data).unwrap().unwrap();
         assert_eq!(
             parsed.fields[0].value,
             OrderedJsonValue::Object(vec![("Stop".into(), OrderedJsonValue::Null)])
@@ -949,14 +899,13 @@ mod tests {
         )
         .unwrap();
 
-        let registry = IdlRegistry::new();
         let mut data = vec![2, 2, 2, 2, 2, 2, 2, 2]; // disc
         data.extend_from_slice(&3u32.to_le_bytes()); // vec length = 3
         data.extend_from_slice(&10u16.to_le_bytes());
         data.extend_from_slice(&20u16.to_le_bytes());
         data.extend_from_slice(&30u16.to_le_bytes());
 
-        let parsed = parse_instruction(&idl, &data, &registry).unwrap().unwrap();
+        let parsed = parse_instruction(&idl, &data).unwrap().unwrap();
         assert_eq!(
             parsed.fields[0].value,
             OrderedJsonValue::Array(vec![
@@ -984,17 +933,15 @@ mod tests {
         )
         .unwrap();
 
-        let registry = IdlRegistry::new();
-
         // Some(777)
         let mut data = vec![3, 3, 3, 3, 3, 3, 3, 3, 1];
         data.extend_from_slice(&777u32.to_le_bytes());
-        let parsed = parse_instruction(&idl, &data, &registry).unwrap().unwrap();
+        let parsed = parse_instruction(&idl, &data).unwrap().unwrap();
         assert_eq!(parsed.fields[0].value, OrderedJsonValue::Number(777u64.into()));
 
         // None
         let data_none = vec![3, 3, 3, 3, 3, 3, 3, 3, 0];
-        let parsed = parse_instruction(&idl, &data_none, &registry).unwrap().unwrap();
+        let parsed = parse_instruction(&idl, &data_none).unwrap().unwrap();
         assert_eq!(parsed.fields[0].value, OrderedJsonValue::Null);
     }
 
@@ -1223,10 +1170,9 @@ mod tests {
         data.extend_from_slice(&20u32.to_le_bytes());
         data.extend_from_slice(&30u32.to_le_bytes());
         let mut offset = 0;
-        let registry = IdlRegistry::new();
         let idl = hello_anchor_idl();
         let element_type = IdlType::Simple("u32".into());
-        let val = parse_vec_type(&data, &mut offset, &element_type, &registry, &idl).unwrap();
+        let val = parse_vec_type(&data, &mut offset, &element_type, &idl).unwrap();
         assert_eq!(
             val,
             OrderedJsonValue::Array(vec![
@@ -1242,10 +1188,9 @@ mod tests {
     fn parse_vec_type_empty() {
         let data = 0u32.to_le_bytes();
         let mut offset = 0;
-        let registry = IdlRegistry::new();
         let idl = hello_anchor_idl();
         let element_type = IdlType::Simple("u8".into());
-        let val = parse_vec_type(&data, &mut offset, &element_type, &registry, &idl).unwrap();
+        let val = parse_vec_type(&data, &mut offset, &element_type, &idl).unwrap();
         assert_eq!(val, OrderedJsonValue::Array(vec![]));
         assert_eq!(offset, 4);
     }
@@ -1254,10 +1199,9 @@ mod tests {
     fn parse_vec_type_truncated_length() {
         let data = [0u8; 2];
         let mut offset = 0;
-        let registry = IdlRegistry::new();
         let idl = hello_anchor_idl();
         let element_type = IdlType::Simple("u8".into());
-        let err = parse_vec_type(&data, &mut offset, &element_type, &registry, &idl).unwrap_err();
+        let err = parse_vec_type(&data, &mut offset, &element_type, &idl).unwrap_err();
         assert!(err.to_string().contains("Insufficient data"));
     }
 
@@ -1266,10 +1210,9 @@ mod tests {
         let mut data = vec![1u8];
         data.extend_from_slice(&500u16.to_le_bytes());
         let mut offset = 0;
-        let registry = IdlRegistry::new();
         let idl = hello_anchor_idl();
         let inner = IdlType::Simple("u16".into());
-        let val = parse_option_type(&data, &mut offset, &inner, &registry, &idl).unwrap();
+        let val = parse_option_type(&data, &mut offset, &inner, &idl).unwrap();
         assert_eq!(val, OrderedJsonValue::Number(500u64.into()));
         assert_eq!(offset, 3);
     }
@@ -1278,10 +1221,9 @@ mod tests {
     fn parse_option_type_none() {
         let data = vec![0u8];
         let mut offset = 0;
-        let registry = IdlRegistry::new();
         let idl = hello_anchor_idl();
         let inner = IdlType::Simple("u16".into());
-        let val = parse_option_type(&data, &mut offset, &inner, &registry, &idl).unwrap();
+        let val = parse_option_type(&data, &mut offset, &inner, &idl).unwrap();
         assert_eq!(val, OrderedJsonValue::Null);
         assert_eq!(offset, 1);
     }
@@ -1290,10 +1232,9 @@ mod tests {
     fn parse_option_type_truncated_discriminant() {
         let data: [u8; 0] = [];
         let mut offset = 0;
-        let registry = IdlRegistry::new();
         let idl = hello_anchor_idl();
         let inner = IdlType::Simple("u8".into());
-        let err = parse_option_type(&data, &mut offset, &inner, &registry, &idl).unwrap_err();
+        let err = parse_option_type(&data, &mut offset, &inner, &idl).unwrap_err();
         assert!(err.to_string().contains("Insufficient data"));
     }
 
@@ -1301,10 +1242,9 @@ mod tests {
     fn parse_array_type_fixed_3_u8() {
         let data = vec![10, 20, 30];
         let mut offset = 0;
-        let registry = IdlRegistry::new();
         let idl = hello_anchor_idl();
         let array_def = [serde_json::json!("u8"), serde_json::json!(3)];
-        let val = parse_array_type(&data, &mut offset, &array_def, &registry, &idl).unwrap();
+        let val = parse_array_type(&data, &mut offset, &array_def, &idl).unwrap();
         assert_eq!(
             val,
             OrderedJsonValue::Array(vec![
@@ -1350,13 +1290,12 @@ mod tests {
         )
         .unwrap();
 
-        let registry = IdlRegistry::new();
         let mut data = vec![9, 9, 9, 9, 9, 9, 9, 9];
         data.push(1); // variant index 1 = Transfer
         data.extend_from_slice(&5000u64.to_le_bytes());
         data.extend_from_slice(&100u16.to_le_bytes());
 
-        let parsed = parse_instruction(&idl, &data, &registry).unwrap().unwrap();
+        let parsed = parse_instruction(&idl, &data).unwrap().unwrap();
         let val = &parsed.fields[0].value;
         assert_eq!(
             *val,
@@ -1396,13 +1335,12 @@ mod tests {
         )
         .unwrap();
 
-        let registry = IdlRegistry::new();
         let mut data = vec![8, 8, 8, 8, 8, 8, 8, 8];
         data.push(1); // variant index 1 = SetPair
         data.extend_from_slice(&111u32.to_le_bytes());
         data.extend_from_slice(&222u32.to_le_bytes());
 
-        let parsed = parse_instruction(&idl, &data, &registry).unwrap().unwrap();
+        let parsed = parse_instruction(&idl, &data).unwrap().unwrap();
         let val = &parsed.fields[0].value;
         assert_eq!(
             *val,
@@ -1439,11 +1377,10 @@ mod tests {
         )
         .unwrap();
 
-        let registry = IdlRegistry::new();
         let mut data = vec![7, 7, 7, 7, 7, 7, 7, 7];
         data.push(99); // out-of-range variant
 
-        let parsed = parse_instruction(&idl, &data, &registry).unwrap().unwrap();
+        let parsed = parse_instruction(&idl, &data).unwrap().unwrap();
         // Should fall through to raw_unparsed_value
         if let OrderedJsonValue::Object(entries) = &parsed.fields[0].value {
             let keys: Vec<&str> = entries.iter().map(|(k, _)| k.as_str()).collect();

@@ -302,7 +302,6 @@ impl ParserRegistry {
         let parser = Box::new(crate::parsers::instruction::anchor_idl::AnchorIdlParser::new(
             *program_id,
             idl_data.clone(),
-            crate::parsers::instruction::anchor_idl::IdlRegistry::with_idl(*program_id, &idl_data),
         ));
 
         self.parsers.insert(*program_id, parser);
