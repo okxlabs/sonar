@@ -308,11 +308,7 @@ fn decode_epoch_schedule_sysvar(
         "firstNormalEpoch": schedule.first_normal_epoch,
         "firstNormalSlot": schedule.first_normal_slot,
     });
-    Some((
-        wrap_account_data_output(account, data_json),
-        "Sysvar Epoch Schedule".into(),
-        None,
-    ))
+    Some((wrap_account_data_output(account, data_json), "Sysvar Epoch Schedule".into(), None))
 }
 
 /// Decode a Nonce account (system program, 80-byte data).
@@ -330,11 +326,7 @@ fn decode_nonce_account(
             "blockhash": data.blockhash().to_string(),
             "lamportsPerSignature": data.fee_calculator.lamports_per_signature,
         });
-        Some((
-            wrap_account_data_output(account, data_json),
-            "Nonce Account".into(),
-            None,
-        ))
+        Some((wrap_account_data_output(account, data_json), "Nonce Account".into(), None))
     } else {
         None
     }
@@ -365,11 +357,7 @@ fn decode_bpf_upgradeable(
         }
         UpgradeableLoaderState::ProgramData { .. } => {
             let data_json = build_programdata_json(account)?;
-            Ok(Some((
-                wrap_account_data_output(account, data_json),
-                "Program Data".into(),
-                None,
-            )))
+            Ok(Some((wrap_account_data_output(account, data_json), "Program Data".into(), None)))
         }
         UpgradeableLoaderState::Buffer { authority_address, .. } => {
             const BUFFER_HEADER_SIZE: usize = 37;
@@ -379,11 +367,7 @@ fn decode_bpf_upgradeable(
                     .map(|a| Pubkey::new_from_array(a.to_bytes()).to_string()),
                 "dataSize": data_size
             });
-            Ok(Some((
-                wrap_account_data_output(account, data_json),
-                "Buffer".into(),
-                None,
-            )))
+            Ok(Some((wrap_account_data_output(account, data_json), "Buffer".into(), None)))
         }
         _ => Ok(None),
     }
@@ -408,11 +392,7 @@ fn decode_address_lookup_table(
         },
         "addresses": lookup_table.addresses.iter().map(|k| k.to_string()).collect::<Vec<_>>()
     });
-    Some((
-        wrap_account_data_output(account, data_json),
-        "Address Lookup Table".into(),
-        None,
-    ))
+    Some((wrap_account_data_output(account, data_json), "Address Lookup Table".into(), None))
 }
 
 /// Decode an SPL Token or Token-2022 account. Returns `token_json` directly
@@ -427,9 +407,7 @@ fn decode_spl_token(
 
     let metadata_output = if should_enrich_with_metaplex_metadata(account, &token_json) {
         match fetch_metadata_for_mint(client, account_pubkey) {
-            Ok((meta_account, decoded)) => {
-                Some(wrap_account_data_output(&meta_account, decoded))
-            }
+            Ok((meta_account, decoded)) => Some(wrap_account_data_output(&meta_account, decoded)),
             Err(error) => {
                 log::warn!(
                     "Metaplex metadata enrichment failed ({error}). \
