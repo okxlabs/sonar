@@ -1,8 +1,6 @@
 use serde::Serialize;
 use serde_json::Value;
 
-use crate::models::IdlAccountItem;
-
 mod decode;
 mod indexed;
 
@@ -18,8 +16,7 @@ pub use self::indexed::IndexedIdl;
 pub struct IdlParsedInstruction {
     pub name: String,
     pub fields: Vec<IdlParsedField>,
-    /// The account items from the matched IDL instruction definition.
-    pub accounts: Vec<IdlAccountItem>,
+    pub account_names: Vec<String>,
 }
 
 /// A single parsed field from IDL binary data.

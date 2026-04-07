@@ -53,6 +53,35 @@ fn indexed_idl_deserializes_legacy_json_and_parses_instruction() {
 }
 
 #[test]
+fn indexed_idl_parse_instruction_exposes_flat_account_names() {
+    let indexed: IndexedIdl = serde_json::from_str(
+        r#"{
+            "address": "11111111111111111111111111111111",
+            "metadata": { "name": "current_program", "version": "0.1.0", "spec": "0.1.0" },
+            "instructions": [{
+                "name": "initialize",
+                "accounts": [
+                    { "name": "payer", "writable": true, "signer": true },
+                    { "name": "authority_group", "accounts": [
+                        { "name": "authority", "signer": true },
+                        { "name": "vault", "writable": true }
+                    ]}
+                ],
+                "args": []
+            }]
+        }"#,
+    )
+    .unwrap();
+
+    let parsed = indexed
+        .parse_instruction(&sighash("global", "initialize"))
+        .unwrap()
+        .expect("instruction should parse");
+
+    assert_eq!(parsed.account_names, vec!["payer", "authority_group"]);
+}
+
+#[test]
 fn indexed_idl_parse_instruction_matches_discriminator_and_reads_u64_arg() {
     let indexed = IndexedIdl::new(hello_anchor_idl());
 

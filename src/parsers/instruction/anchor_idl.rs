@@ -18,29 +18,14 @@ pub use sonar_idl::{IndexedIdl, LegacyIdl, RawAnchorIdl};
 
 // ── Adapter: IDL model → CLI model ──
 
-fn flatten_account_names(accounts: &[sonar_idl::IdlAccountItem]) -> Vec<String> {
-    let mut names = Vec::new();
-    for item in accounts {
-        match item {
-            sonar_idl::IdlAccountItem::Account(account) => names.push(account.name.clone()),
-            sonar_idl::IdlAccountItem::Accounts(group) => {
-                // This is a CLI display convention, so keep it in the adapter layer.
-                names.push(format!("{}: []", group.name));
-            }
-        }
-    }
-    names
-}
-
 fn to_parsed_instruction(idl_parsed: IdlParsedInstruction) -> ParsedInstruction {
-    let account_names = flatten_account_names(&idl_parsed.accounts);
     let fields = idl_parsed
         .fields
         .into_iter()
         .map(|field| ParsedField::json(field.name, field.value))
         .collect();
 
-    ParsedInstruction { name: idl_parsed.name, fields, account_names }
+    ParsedInstruction { name: idl_parsed.name, fields, account_names: idl_parsed.account_names }
 }
 
 // ── AnchorIdlParser ──

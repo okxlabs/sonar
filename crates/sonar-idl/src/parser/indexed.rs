@@ -84,12 +84,9 @@ impl IndexedIdl {
 
         let mut offset = idl_instruction.discriminator.as_ref().map_or(0, |d| d.len());
         let fields = parse_instruction_args(data, &mut offset, &idl_instruction.args, self)?;
+        let account_names = flatten_account_names(&idl_instruction.accounts);
 
-        Ok(Some(IdlParsedInstruction {
-            name: idl_instruction.name.clone(),
-            fields,
-            accounts: idl_instruction.accounts.clone(),
-        }))
+        Ok(Some(IdlParsedInstruction { name: idl_instruction.name.clone(), fields, account_names }))
     }
 
     pub fn parse_account_data(&self, account_data: &[u8]) -> Result<Option<(String, Value)>> {
@@ -153,7 +150,7 @@ impl IndexedIdl {
         Ok(Some(IdlParsedInstruction {
             name: event_def.name.clone(),
             fields,
-            accounts: Vec::new(),
+            account_names: Vec::new(),
         }))
     }
 
@@ -209,4 +206,15 @@ pub(super) fn discriminator_key(discriminator: Option<&[u8]>) -> Option<[u8; 8]>
     let mut key = [0u8; 8];
     key.copy_from_slice(discriminator);
     Some(key)
+}
+
+fn flatten_account_names(accounts: &[IdlAccountItem]) -> Vec<String> {
+    let mut names = Vec::new();
+    for item in accounts {
+        match item {
+            IdlAccountItem::Account(account) => names.push(account.name.clone()),
+            IdlAccountItem::Accounts(group) => names.push(group.name.clone()),
+        }
+    }
+    names
 }
