@@ -16,7 +16,7 @@ use crate::parsers::instruction::{
 
 // ── Re-exports from sonar-idl ──
 
-pub use sonar_idl::{Idl, LegacyIdl, RawAnchorIdl};
+pub use sonar_idl::{Idl, LegacyIdl, RawAnchorIdl, ResolvedIdl};
 
 // ── Adapter: IDL model → CLI model ──
 
@@ -60,12 +60,12 @@ pub fn parse_account_data(
 /// `ParserRegistry` alongside built-in program parsers.
 pub struct AnchorIdlParser {
     program_id: Pubkey,
-    pub(crate) idl: Idl,
+    pub(crate) idl: ResolvedIdl,
 }
 
 impl AnchorIdlParser {
     pub fn new(program_id: Pubkey, idl: Idl) -> Self {
-        Self { program_id, idl }
+        Self { program_id, idl: ResolvedIdl::new(idl) }
     }
 }
 
@@ -78,7 +78,7 @@ impl InstructionParser for AnchorIdlParser {
         &self,
         instruction: &InstructionSummary,
     ) -> Result<Option<ParsedInstruction>> {
-        let parsed = sonar_idl::parse_instruction(&self.idl, &instruction.data)?;
+        let parsed = self.idl.parse_instruction(&instruction.data)?;
         Ok(parsed.map(to_parsed_instruction))
     }
 
@@ -87,7 +87,7 @@ impl InstructionParser for AnchorIdlParser {
         instruction: &InstructionSummary,
         _program_id: &Pubkey,
     ) -> Result<Option<ParsedInstruction>> {
-        let parsed = sonar_idl::parse_cpi_event_data(&self.idl, &instruction.data)?;
+        let parsed = self.idl.parse_cpi_event_data(&instruction.data)?;
         Ok(parsed.map(to_parsed_instruction))
     }
 }

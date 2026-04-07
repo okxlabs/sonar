@@ -22,9 +22,9 @@ pub use discriminator::sighash;
 // ── Models ──
 
 pub use models::{
-    DefinedType, Idl, IdlAccount, IdlAccountItem, IdlAccounts, IdlArg, IdlEnumVariant, IdlEvent,
-    IdlField, IdlFields, IdlInstruction, IdlMetadata, IdlType, IdlTypeDefinition,
-    IdlTypeDefinitionBody, LegacyIdl, RawAnchorIdl,
+    DefinedType, Idl, IdlAccount, IdlAccountItem, IdlAccounts, IdlArg, IdlArrayType,
+    IdlEnumVariant, IdlEvent, IdlField, IdlFields, IdlInstruction, IdlMetadata, IdlType,
+    IdlTypeDefinition, IdlTypeDefinitionBody, IdlTypeDefinitionKind, LegacyIdl, RawAnchorIdl,
 };
 
 // ── Value ──
@@ -34,7 +34,7 @@ pub use value::OrderedJsonValue;
 // ── Parsing ──
 
 pub use parser::{
-    IdlParsedField, IdlParsedInstruction, find_event_by_discriminator,
+    IdlParsedField, IdlParsedInstruction, ResolvedIdl, find_event_by_discriminator,
     find_instruction_by_discriminator, is_cpi_event_data, parse_account_data, parse_cpi_event_data,
     parse_instruction,
 };
