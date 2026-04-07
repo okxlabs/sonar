@@ -10,46 +10,22 @@ use solana_pubkey::Pubkey;
 use sonar_idl::IdlParsedInstruction;
 
 use crate::core::transaction::InstructionSummary;
-use crate::parsers::instruction::{
-    InstructionParser, OrderedJsonValue, ParsedField, ParsedInstruction,
-};
+use crate::parsers::instruction::{InstructionParser, ParsedField, ParsedInstruction};
 
 // ── Re-exports from sonar-idl ──
 
-pub use sonar_idl::{Idl, LegacyIdl, RawAnchorIdl, ResolvedIdl};
+pub use sonar_idl::IndexedIdl;
 
 // ── Adapter: IDL model → CLI model ──
 
-fn flatten_account_names(accounts: &[sonar_idl::IdlAccountItem]) -> Vec<String> {
-    let mut names = Vec::new();
-    for item in accounts {
-        match item {
-            sonar_idl::IdlAccountItem::Account(account) => names.push(account.name.clone()),
-            sonar_idl::IdlAccountItem::Accounts(group) => {
-                // This is a CLI display convention, so keep it in the adapter layer.
-                names.push(format!("{}: []", group.name));
-            }
-        }
-    }
-    names
-}
-
 fn to_parsed_instruction(idl_parsed: IdlParsedInstruction) -> ParsedInstruction {
-    let account_names = flatten_account_names(&idl_parsed.accounts);
     let fields = idl_parsed
         .fields
         .into_iter()
         .map(|field| ParsedField::json(field.name, field.value))
         .collect();
 
-    ParsedInstruction { name: idl_parsed.name, fields, account_names }
-}
-
-pub fn parse_account_data(
-    idl: &Idl,
-    account_data: &[u8],
-) -> Result<Option<(String, OrderedJsonValue)>> {
-    sonar_idl::parse_account_data(idl, account_data)
+    ParsedInstruction { name: idl_parsed.name, fields, account_names: idl_parsed.account_names }
 }
 
 // ── AnchorIdlParser ──
@@ -60,12 +36,12 @@ pub fn parse_account_data(
 /// `ParserRegistry` alongside built-in program parsers.
 pub struct AnchorIdlParser {
     program_id: Pubkey,
-    pub(crate) idl: ResolvedIdl,
+    pub(crate) idl: IndexedIdl,
 }
 
 impl AnchorIdlParser {
-    pub fn new(program_id: Pubkey, idl: Idl) -> Self {
-        Self { program_id, idl: ResolvedIdl::new(idl) }
+    pub fn new(program_id: Pubkey, idl: IndexedIdl) -> Self {
+        Self { program_id, idl }
     }
 }
 

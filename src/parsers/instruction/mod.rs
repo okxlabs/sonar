@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use anyhow::{Context, Result};
 use serde::Serialize;
+use serde_json::Value;
 use solana_account::ReadableAccount;
 use solana_pubkey::Pubkey;
 use solana_sdk_ids::bpf_loader_upgradeable;
@@ -32,7 +33,7 @@ impl ParsedField {
         Self { name: name.into(), value: ParsedFieldValue::Text(value.into()) }
     }
 
-    pub fn json(name: impl Into<String>, value: OrderedJsonValue) -> Self {
+    pub fn json(name: impl Into<String>, value: Value) -> Self {
         Self { name: name.into(), value: ParsedFieldValue::Json(value) }
     }
 }
@@ -52,7 +53,7 @@ where
 #[serde(untagged)]
 pub enum ParsedFieldValue {
     Text(String),
-    Json(OrderedJsonValue),
+    Json(Value),
 }
 
 impl From<String> for ParsedFieldValue {
@@ -84,8 +85,6 @@ impl PartialEq<String> for ParsedFieldValue {
         }
     }
 }
-
-pub use sonar_idl::OrderedJsonValue;
 
 /// Append numbered account names for accounts beyond the named set.
 ///
@@ -276,32 +275,17 @@ impl ParserRegistry {
         let idl_content = std::fs::read_to_string(&idl_file_path)
             .with_context(|| format!("Failed to read IDL file: {}", idl_file_path.display()))?;
 
-        // Parse as RawAnchorIdl to support both legacy and new formats
-        let raw_idl: crate::parsers::instruction::anchor_idl::RawAnchorIdl =
-            match serde_json::from_str(&idl_content) {
-                Ok(idl) => idl,
-                Err(e) => {
-                    // Try to debug why it failed by trying to parse as LegacyIdl directly
-                    if let Err(legacy_err) = serde_json::from_str::<
-                        crate::parsers::instruction::anchor_idl::LegacyIdl,
-                    >(&idl_content)
-                    {
-                        log::warn!("Failed to parse as LegacyIdl: {}", legacy_err);
-                    }
-                    return Err(anyhow::anyhow!(
-                        "Failed to parse IDL JSON: {} - {}",
-                        idl_file_path.display(),
-                        e
-                    ));
-                }
-            };
-
-        // Convert to canonical Idl
-        let idl_data = raw_idl.convert(&program_id.to_string());
+        let program_address = program_id.to_string();
+        let indexed_idl =
+            crate::parsers::instruction::anchor_idl::IndexedIdl::from_json_with_program_address(
+                &idl_content,
+                &program_address,
+            )
+            .with_context(|| format!("Failed to parse IDL JSON: {}", idl_file_path.display()))?;
 
         let parser = Box::new(crate::parsers::instruction::anchor_idl::AnchorIdlParser::new(
             *program_id,
-            idl_data.clone(),
+            indexed_idl,
         ));
 
         self.parsers.insert(*program_id, parser);

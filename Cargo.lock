@@ -4104,6 +4104,7 @@ name = "sonar-idl"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "heck",
  "hex",
  "serde",
  "serde_json",
