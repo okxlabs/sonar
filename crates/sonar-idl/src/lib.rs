@@ -29,7 +29,7 @@ pub use models::{
 // ── Parsing ──
 
 pub use parser::{
-    IdlParsedField, IdlParsedInstruction, ResolvedIdl, find_event_by_discriminator,
+    IdlParsedField, IdlParsedInstruction, IndexedIdl, find_event_by_discriminator,
     find_instruction_by_discriminator, is_cpi_event_data, parse_account_data, parse_cpi_event_data,
     parse_instruction,
 };

@@ -3,7 +3,7 @@ use serde_json::{Value, json};
 use crate::discriminator::sighash;
 use crate::models::Idl;
 
-use super::super::{ResolvedIdl, find_instruction_by_discriminator, parse_instruction};
+use super::super::{IndexedIdl, find_instruction_by_discriminator, parse_instruction};
 use super::hello_anchor_idl;
 
 #[test]
@@ -23,13 +23,13 @@ fn parse_instruction_matches_discriminator_and_reads_u64_arg() {
 }
 
 #[test]
-fn resolved_idl_parses_instruction_matches_discriminator_and_reads_u64_arg() {
-    let resolved = ResolvedIdl::new(hello_anchor_idl());
+fn indexed_idl_parses_instruction_matches_discriminator_and_reads_u64_arg() {
+    let indexed = IndexedIdl::new(hello_anchor_idl());
 
     let mut data = vec![175, 175, 109, 31, 13, 152, 155, 237];
     data.extend_from_slice(&42u64.to_le_bytes());
 
-    let result = resolved.parse_instruction(&data).unwrap();
+    let result = indexed.parse_instruction(&data).unwrap();
     let parsed = result.expect("should match");
 
     assert_eq!(parsed.name, "initialize");
@@ -39,7 +39,7 @@ fn resolved_idl_parses_instruction_matches_discriminator_and_reads_u64_arg() {
 }
 
 #[test]
-fn resolved_idl_normalizes_current_format_instruction_discriminator() {
+fn indexed_idl_normalizes_current_format_instruction_discriminator() {
     let idl: Idl = serde_json::from_str(
         r#"{
             "address": "11111111111111111111111111111111",
@@ -53,10 +53,10 @@ fn resolved_idl_normalizes_current_format_instruction_discriminator() {
     )
     .unwrap();
 
-    let resolved = ResolvedIdl::new(idl);
+    let indexed = IndexedIdl::new(idl);
     let data = sighash("global", "do_something").to_vec();
 
-    let result = resolved.parse_instruction(&data).unwrap();
+    let result = indexed.parse_instruction(&data).unwrap();
     let parsed = result.expect("should match");
 
     assert_eq!(parsed.name, "doSomething");

@@ -5,7 +5,7 @@ use serde_json::Value;
 use crate::models::*;
 
 mod decode;
-mod resolved;
+mod indexed;
 
 #[cfg(test)]
 mod tests;
@@ -16,8 +16,8 @@ use self::decode::{
     parse_idl_fields_as_parsed_fields, parse_instruction_args, parse_type_definition,
     raw_unparsed_value,
 };
-pub use self::resolved::ResolvedIdl;
-use self::resolved::{IdlLookup, scan_event_by_discriminator, scan_instruction_by_discriminator};
+pub use self::indexed::IndexedIdl;
+use self::indexed::{IdlLookup, scan_event_by_discriminator, scan_instruction_by_discriminator};
 
 /// A fully parsed IDL instruction with resolved argument fields.
 #[derive(Debug, Clone, Serialize)]

@@ -34,13 +34,13 @@
 ### Task 2: Rename the resolved parser module and keep the parser API stable
 
 **Files:**
-- Create: `crates/sonar-idl/src/parser/resolved.rs`
+- Create: `crates/sonar-idl/src/parser/indexed.rs`
 - Modify: `crates/sonar-idl/src/parser/mod.rs`
 - Delete: `crates/sonar-idl/src/parser/lookup.rs`
 
-**Step 1:** Move `ResolvedIdl`, the lookup trait, and discriminator scan helpers into `resolved.rs`.
+**Step 1:** Move `IndexedIdl`, the lookup trait, and discriminator scan helpers into `indexed.rs`.
 
-**Step 2:** Update `parser/mod.rs` to import from `resolved.rs` and keep the same public exports.
+**Step 2:** Update `parser/mod.rs` to import from `indexed.rs` and keep the same public exports.
 
 **Step 3:** Keep function signatures and visibility unchanged so downstream code does not need any updates.
 

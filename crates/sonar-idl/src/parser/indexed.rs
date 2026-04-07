@@ -1,6 +1,7 @@
+use std::collections::{BTreeMap, HashMap};
+
 use anyhow::Result;
 use serde_json::Value;
-use std::collections::{BTreeMap, HashMap};
 
 use crate::discriminator::sighash;
 use crate::models::*;
@@ -11,7 +12,7 @@ use super::{
 };
 
 #[derive(Debug, Clone)]
-pub struct ResolvedIdl {
+pub struct IndexedIdl {
     idl: Idl,
     instruction_indices_by_length: Vec<(usize, HashMap<Vec<u8>, usize>)>,
     event_indices_by_discriminator: HashMap<[u8; 8], usize>,
@@ -19,7 +20,7 @@ pub struct ResolvedIdl {
     type_indices_by_name: HashMap<String, usize>,
 }
 
-impl ResolvedIdl {
+impl IndexedIdl {
     pub fn new(idl: Idl) -> Self {
         let idl = idl.normalize("");
         let mut instruction_indices_by_length = BTreeMap::<usize, HashMap<Vec<u8>, usize>>::new();
@@ -145,24 +146,24 @@ impl IdlLookup for Idl {
     }
 }
 
-impl IdlLookup for ResolvedIdl {
+impl IdlLookup for IndexedIdl {
     fn find_instruction_by_discriminator(&self, data: &[u8]) -> Option<&IdlInstruction> {
-        ResolvedIdl::find_instruction_by_discriminator(self, data)
+        IndexedIdl::find_instruction_by_discriminator(self, data)
     }
 
     fn find_event_by_discriminator(&self, discriminator: &[u8]) -> Option<&IdlEvent> {
-        ResolvedIdl::find_event_by_discriminator(self, discriminator)
+        IndexedIdl::find_event_by_discriminator(self, discriminator)
     }
 
     fn find_account_type_by_discriminator(
         &self,
         discriminator: &[u8],
     ) -> Option<&IdlTypeDefinition> {
-        ResolvedIdl::find_account_type_by_discriminator(self, discriminator)
+        IndexedIdl::find_account_type_by_discriminator(self, discriminator)
     }
 
     fn find_type_definition(&self, name: &str) -> Option<&IdlTypeDefinition> {
-        ResolvedIdl::find_type_definition(self, name)
+        IndexedIdl::find_type_definition(self, name)
     }
 }
 
@@ -198,10 +199,9 @@ pub(super) fn scan_event_by_discriminator<'a>(
 ) -> Option<&'a IdlEvent> {
     if let Some(events) = &idl.events {
         events.iter().find(|event| {
-            event
-                .discriminator
-                .as_ref()
-                .is_some_and(|d| d.len() == 8 && d.as_slice() == discriminator)
+            event.discriminator.as_ref().is_some_and(|candidate| {
+                candidate.len() == 8 && candidate.as_slice() == discriminator
+            })
         })
     } else {
         None

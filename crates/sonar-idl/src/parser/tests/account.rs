@@ -2,7 +2,7 @@ use serde_json::json;
 
 use crate::discriminator::sighash;
 
-use super::super::{ResolvedIdl, parse_account_data};
+use super::super::{IndexedIdl, parse_account_data};
 use super::hello_anchor_idl;
 
 #[test]
@@ -21,14 +21,14 @@ fn parse_account_data_matches_struct_by_discriminator() {
 }
 
 #[test]
-fn resolved_idl_parse_account_data_matches_struct_by_discriminator() {
-    let resolved = ResolvedIdl::new(hello_anchor_idl());
+fn indexed_idl_parse_account_data_matches_struct_by_discriminator() {
+    let indexed = IndexedIdl::new(hello_anchor_idl());
 
     let disc = sighash("account", "NewAccount");
     let mut data = disc.to_vec();
     data.extend_from_slice(&99u64.to_le_bytes());
 
-    let result = resolved.parse_account_data(&data).unwrap();
+    let result = indexed.parse_account_data(&data).unwrap();
     let (type_name, value) = result.expect("should match NewAccount");
 
     assert_eq!(type_name, "NewAccount");

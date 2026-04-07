@@ -5,7 +5,7 @@ use solana_pubkey::Pubkey;
 use crate::models::*;
 
 use super::IdlParsedField;
-use super::resolved::IdlLookup;
+use super::indexed::IdlLookup;
 
 pub(super) fn parse_instruction_args(
     data: &[u8],
