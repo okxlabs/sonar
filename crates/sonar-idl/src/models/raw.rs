@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 
+use crate::parser::IndexedIdl;
+
 use super::{Idl, IdlEvent, IdlInstruction, IdlMetadata, IdlTypeDefinition};
 
 /// Enum to handle both legacy (flat) and new (nested metadata) IDL formats.
@@ -12,13 +14,15 @@ pub enum RawAnchorIdl {
 }
 
 impl RawAnchorIdl {
-    pub fn convert(self, program_address: &str) -> Idl {
-        match self {
+    pub fn into_indexed_idl(self, program_address: &str) -> IndexedIdl {
+        let idl = match self {
             RawAnchorIdl::Current(idl) => idl.normalize(program_address),
             RawAnchorIdl::Legacy(legacy) => {
                 legacy.into_idl(program_address).normalize(program_address)
             }
-        }
+        };
+
+        IndexedIdl::from_normalized_idl(idl)
     }
 }
 

@@ -295,12 +295,12 @@ impl ParserRegistry {
                 }
             };
 
-        // Convert to canonical Idl
-        let idl_data = raw_idl.convert(&program_id.to_string());
+        // Normalize and index the IDL for decoding.
+        let indexed_idl = raw_idl.into_indexed_idl(&program_id.to_string());
 
         let parser = Box::new(crate::parsers::instruction::anchor_idl::AnchorIdlParser::new(
             *program_id,
-            idl_data.clone(),
+            indexed_idl,
         ));
 
         self.parsers.insert(*program_id, parser);

@@ -14,7 +14,7 @@ use solana_pubkey::Pubkey;
 use solana_sdk_ids::{address_lookup_table, bpf_loader_upgradeable};
 
 use crate::cli::AccountArgs;
-use crate::parsers::instruction::anchor_idl::{IndexedIdl, RawAnchorIdl};
+use crate::parsers::instruction::anchor_idl::RawAnchorIdl;
 use crate::{
     core::idl_fetcher, parsers::metaplex_metadata_decoder, parsers::token_account_decoder,
 };
@@ -206,8 +206,7 @@ fn decode_account_output(
 
     let raw_idl: RawAnchorIdl =
         serde_json::from_str(&idl_json).with_context(|| "Failed to parse IDL JSON")?;
-    let idl = raw_idl.convert(&owner.to_string());
-    let indexed = IndexedIdl::new(idl);
+    let indexed = raw_idl.into_indexed_idl(&owner.to_string());
 
     match indexed.parse_account_data(&account.data)? {
         Some((type_name, parsed_value)) => Ok((

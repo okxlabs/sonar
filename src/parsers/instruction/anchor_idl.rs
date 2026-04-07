@@ -14,7 +14,7 @@ use crate::parsers::instruction::{InstructionParser, ParsedField, ParsedInstruct
 
 // ── Re-exports from sonar-idl ──
 
-pub use sonar_idl::{Idl, IndexedIdl, LegacyIdl, RawAnchorIdl};
+pub use sonar_idl::{IndexedIdl, LegacyIdl, RawAnchorIdl};
 
 // ── Adapter: IDL model → CLI model ──
 
@@ -55,8 +55,8 @@ pub struct AnchorIdlParser {
 }
 
 impl AnchorIdlParser {
-    pub fn new(program_id: Pubkey, idl: Idl) -> Self {
-        Self { program_id, idl: IndexedIdl::new(idl) }
+    pub fn new(program_id: Pubkey, idl: IndexedIdl) -> Self {
+        Self { program_id, idl }
     }
 }
 

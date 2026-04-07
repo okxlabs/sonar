@@ -1,3 +1,4 @@
+use crate::IndexedIdl;
 use crate::discriminator::sighash;
 
 use super::*;
@@ -63,7 +64,8 @@ const LEGACY_IDL_JSON: &str = r#"{
 #[test]
 fn parse_current_idl_format() {
     let raw: RawAnchorIdl = serde_json::from_str(CURRENT_IDL_JSON).unwrap();
-    let idl = raw.convert("BYFW1vhC1ohxwRbYoLbAWs86STa25i9sD5uEusVjTYNd");
+    let indexed = raw.into_indexed_idl("BYFW1vhC1ohxwRbYoLbAWs86STa25i9sD5uEusVjTYNd");
+    let idl = indexed.idl();
 
     assert_eq!(idl.metadata.name, "hello_anchor");
     assert_eq!(idl.instructions.len(), 1);
@@ -74,7 +76,7 @@ fn parse_current_idl_format() {
 }
 
 #[test]
-fn current_idl_instruction_gets_auto_discriminator_on_convert() {
+fn current_idl_instruction_gets_auto_discriminator_on_into_indexed_idl_model() {
     let raw: RawAnchorIdl = serde_json::from_str(
         r#"{
             "address": "11111111111111111111111111111111",
@@ -88,14 +90,39 @@ fn current_idl_instruction_gets_auto_discriminator_on_convert() {
     )
     .unwrap();
 
-    let idl = raw.convert("11111111111111111111111111111111");
+    let indexed = raw.into_indexed_idl("11111111111111111111111111111111");
+    let idl = indexed.idl();
     let instruction = &idl.instructions[0];
 
     assert_eq!(instruction.discriminator, Some(sighash("global", "do_something").to_vec()));
 }
 
 #[test]
-fn current_idl_event_gets_auto_discriminator_on_convert() {
+fn current_idl_instruction_gets_auto_discriminator_on_into_indexed_idl() {
+    let raw: RawAnchorIdl = serde_json::from_str(
+        r#"{
+            "address": "11111111111111111111111111111111",
+            "metadata": { "name": "current_program", "version": "0.1.0", "spec": "0.1.0" },
+            "instructions": [{
+                "name": "doSomething",
+                "accounts": [],
+                "args": []
+            }]
+        }"#,
+    )
+    .unwrap();
+
+    let indexed: IndexedIdl = raw.into_indexed_idl("11111111111111111111111111111111");
+    let data = sighash("global", "do_something").to_vec();
+
+    let parsed = indexed.parse_instruction(&data).unwrap().expect("should parse");
+
+    assert_eq!(parsed.name, "doSomething");
+    assert!(parsed.fields.is_empty());
+}
+
+#[test]
+fn current_idl_event_gets_auto_discriminator_on_into_indexed_idl_model() {
     let raw: RawAnchorIdl = serde_json::from_str(
         r#"{
             "address": "11111111111111111111111111111111",
@@ -109,7 +136,8 @@ fn current_idl_event_gets_auto_discriminator_on_convert() {
     )
     .unwrap();
 
-    let idl = raw.convert("11111111111111111111111111111111");
+    let indexed = raw.into_indexed_idl("11111111111111111111111111111111");
+    let idl = indexed.idl();
     let event = &idl.events.as_ref().unwrap()[0];
 
     assert_eq!(event.discriminator, Some(sighash("event", "TransferEvent").to_vec()));
@@ -130,7 +158,8 @@ fn current_idl_event_fields_support_tuple_types() {
     )
     .unwrap();
 
-    let idl = raw.convert("11111111111111111111111111111111");
+    let indexed = raw.into_indexed_idl("11111111111111111111111111111111");
+    let idl = indexed.idl();
     let event = &idl.events.as_ref().unwrap()[0];
 
     assert_eq!(
@@ -143,9 +172,10 @@ fn current_idl_event_fields_support_tuple_types() {
 }
 
 #[test]
-fn parse_legacy_idl_and_convert() {
+fn parse_legacy_idl_and_into_indexed_idl() {
     let raw: RawAnchorIdl = serde_json::from_str(LEGACY_IDL_JSON).unwrap();
-    let idl = raw.convert("11111111111111111111111111111111");
+    let indexed = raw.into_indexed_idl("11111111111111111111111111111111");
+    let idl = indexed.idl();
 
     assert_eq!(idl.metadata.name, "legacy_program");
     assert_eq!(idl.address, "11111111111111111111111111111111");
@@ -174,9 +204,10 @@ fn legacy_idl_accounts_merge_into_types() {
         ]
     }"#;
     let raw: RawAnchorIdl = serde_json::from_str(json).unwrap();
-    let idl = raw.convert("11111111111111111111111111111111");
+    let indexed = raw.into_indexed_idl("11111111111111111111111111111111");
+    let idl = indexed.idl();
 
-    let types = idl.types.unwrap();
+    let types = idl.types.clone().unwrap();
     assert_eq!(types.len(), 2);
     assert!(types.iter().any(|type_def| type_def.name == "TypeB"));
     assert!(types.iter().any(|type_def| type_def.name == "AcctA"));
@@ -196,7 +227,8 @@ fn legacy_accounts_use_is_mut_and_is_signer_aliases() {
         }]
     }"#;
     let raw: RawAnchorIdl = serde_json::from_str(json).unwrap();
-    let idl = raw.convert("11111111111111111111111111111111");
+    let indexed = raw.into_indexed_idl("11111111111111111111111111111111");
+    let idl = indexed.idl();
 
     let account = match &idl.instructions[0].accounts[0] {
         IdlAccountItem::Account(account) => account,
@@ -308,7 +340,8 @@ fn legacy_event_gets_auto_discriminator() {
         ]
     }"#;
     let raw: RawAnchorIdl = serde_json::from_str(json).unwrap();
-    let idl = raw.convert("11111111111111111111111111111111");
+    let indexed = raw.into_indexed_idl("11111111111111111111111111111111");
+    let idl = indexed.idl();
 
     let events = idl.events.as_ref().unwrap();
     assert_eq!(events.len(), 1);

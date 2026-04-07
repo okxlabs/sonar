@@ -25,7 +25,10 @@ pub struct IndexedIdl {
 
 impl IndexedIdl {
     pub fn new(idl: Idl) -> Self {
-        let idl = idl.normalize("");
+        Self::from_normalized_idl(idl.normalize(""))
+    }
+
+    pub(crate) fn from_normalized_idl(idl: Idl) -> Self {
         let mut instruction_indices_by_length = BTreeMap::<usize, HashMap<Vec<u8>, usize>>::new();
         for (idx, instruction) in idl.instructions.iter().enumerate() {
             if let Some(discriminator) = instruction.discriminator.clone() {
