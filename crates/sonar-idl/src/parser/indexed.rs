@@ -14,6 +14,7 @@ use super::decode::{
 use super::{IdlParsedField, IdlParsedInstruction};
 
 pub(super) const EMIT_CPI_DISCRIMINATOR: [u8; 8] = [0xe4, 0x45, 0xa5, 0x2e, 0x51, 0xcb, 0x9a, 0x1d];
+const CPI_EVENT_ACCOUNT_NAME: &str = "event_authority";
 
 #[derive(Debug, Clone)]
 pub struct IndexedIdl {
@@ -150,7 +151,7 @@ impl IndexedIdl {
         Ok(Some(IdlParsedInstruction {
             name: event_def.name.clone(),
             fields,
-            account_names: Vec::new(),
+            account_names: vec![CPI_EVENT_ACCOUNT_NAME.to_string()],
         }))
     }
 

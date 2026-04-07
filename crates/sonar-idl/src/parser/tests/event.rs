@@ -62,6 +62,7 @@ fn indexed_idl_parse_cpi_event_data_parses_event_fields() {
     assert_eq!(parsed.fields.len(), 1);
     assert_eq!(parsed.fields[0].name, "amount");
     assert_eq!(parsed.fields[0].value, json!(500u64));
+    assert_eq!(parsed.account_names, vec!["event_authority"]);
 }
 
 #[test]
@@ -98,4 +99,5 @@ fn indexed_idl_parse_cpi_event_data_parses_tuple_event_fields() {
     assert_eq!(parsed.fields[0].value, json!(9u64));
     assert_eq!(parsed.fields[1].name, "field_1");
     assert_eq!(parsed.fields[1].value, json!(7u64));
+    assert_eq!(parsed.account_names, vec!["event_authority"]);
 }
