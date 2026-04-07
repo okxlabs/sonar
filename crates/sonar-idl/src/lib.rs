@@ -8,7 +8,7 @@
 //! - **Parsing**: Binary deserialization of instruction args, account data,
 //!   and CPI events using IDL type definitions.
 //! - **Discriminator**: `sighash` for computing Anchor 8-byte discriminators.
-//! - **Value**: Internal JSON-like AST used by parser internals.
+//! - **Values**: Parsed fields are returned as ordered `serde_json::Value`.
 
 mod discriminator;
 mod models;
