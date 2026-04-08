@@ -1,4 +1,4 @@
-use super::IndexedIdl;
+use crate::indexed::IndexedIdl;
 
 fn hello_anchor_indexed_idl() -> IndexedIdl {
     serde_json::from_str(
@@ -27,4 +27,5 @@ fn hello_anchor_indexed_idl() -> IndexedIdl {
 mod account;
 mod decode;
 mod event;
+mod idl;
 mod instruction;

@@ -1,9 +1,9 @@
 use serde_json::{Value, json};
 
 use crate::discriminator::sighash;
-use crate::models::{Idl, IdlAccount, IdlAccountItem, IdlAccounts, IdlInstruction, IdlMetadata};
+use crate::idl::*;
+use crate::indexed::IndexedIdl;
 
-use super::super::IndexedIdl;
 use super::hello_anchor_indexed_idl;
 
 #[test]
@@ -463,6 +463,6 @@ fn indexed_idl_find_instruction_ignores_missing_discriminator() {
     )
     .unwrap();
 
-    let found = indexed.find_instruction_by_discriminator(&[1, 2, 3, 4]);
+    let found = indexed.find_instruction_by_discriminator(&[1, 2, 3, 4, 5, 6, 7, 8]);
     assert!(found.is_none());
 }

@@ -1,8 +1,8 @@
 use serde_json::json;
 
 use crate::discriminator::sighash;
+use crate::indexed::{IndexedIdl, is_cpi_event_data};
 
-use super::super::{IndexedIdl, is_cpi_event_data};
 use super::hello_anchor_indexed_idl;
 
 #[test]

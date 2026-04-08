@@ -3,11 +3,10 @@ use std::str::FromStr;
 use serde_json::{Value, json};
 use solana_pubkey::Pubkey;
 
-use crate::models::{DefinedType, IdlArrayType, IdlType};
+use crate::decode::{parse_array_type, parse_option_type, parse_simple_type, parse_vec_type};
+use crate::idl::{DefinedType, IdlArrayType, IdlType};
+use crate::indexed::IndexedIdl;
 
-use super::super::{
-    IndexedIdl, parse_array_type, parse_option_type, parse_simple_type, parse_vec_type,
-};
 use super::hello_anchor_indexed_idl;
 
 #[test]
