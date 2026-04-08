@@ -29,9 +29,20 @@ fn indexed_idl_parse_account_data_returns_none_for_unknown_discriminator() {
 }
 
 #[test]
-fn indexed_idl_parse_account_data_rejects_short_data() {
+fn indexed_idl_parse_account_data_returns_none_for_unmatched_short_data() {
     let indexed = hello_anchor_indexed_idl();
 
     let result = indexed.parse_account_data(&[0u8; 4]);
+    assert!(result.unwrap().is_none());
+}
+
+#[test]
+fn indexed_idl_parse_account_data_errors_when_matched_fields_are_truncated() {
+    let indexed = hello_anchor_indexed_idl();
+
+    // NewAccount has an 8-byte discriminator followed by a u64 field.
+    // Send just the discriminator with no field data.
+    let disc = sighash("account", "NewAccount");
+    let result = indexed.parse_account_data(&disc);
     assert!(result.is_err());
 }

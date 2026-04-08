@@ -2,10 +2,8 @@ use anyhow::{Result, anyhow};
 use serde_json::{Map, Number as JsonNumber, Value};
 use solana_pubkey::Pubkey;
 
-use crate::models::*;
-
-use super::IdlParsedField;
-use super::indexed::IndexedIdl;
+use crate::idl::*;
+use crate::indexed::{IdlParsedField, IndexedIdl};
 
 pub(super) fn parse_instruction_args(
     data: &[u8],
@@ -14,12 +12,10 @@ pub(super) fn parse_instruction_args(
     indexed: &IndexedIdl,
 ) -> Result<Vec<IdlParsedField>> {
     let mut fields = Vec::new();
-
     for arg in args {
         let value = parse_type(data, offset, &arg.type_, indexed)?;
         fields.push(IdlParsedField { name: arg.name.clone(), value });
     }
-
     Ok(fields)
 }
 
@@ -30,12 +26,10 @@ fn parse_named_fields_to_entries(
     indexed: &IndexedIdl,
 ) -> Result<Map<String, Value>> {
     let mut entries = Map::new();
-
     for field in fields {
         let value = parse_type(data, offset, &field.type_, indexed)?;
         entries.insert(field.name.clone(), value);
     }
-
     Ok(entries)
 }
 
@@ -46,11 +40,9 @@ fn parse_tuple_fields_to_values(
     indexed: &IndexedIdl,
 ) -> Result<Vec<Value>> {
     let mut values = Vec::new();
-
     for field_type in fields {
         values.push(parse_type(data, offset, field_type, indexed)?);
     }
-
     Ok(values)
 }
 
@@ -70,7 +62,7 @@ fn parse_idl_fields_value(
     }
 }
 
-pub(super) fn parse_idl_fields_as_parsed_fields(
+pub(crate) fn parse_idl_fields_as_parsed_fields(
     data: &[u8],
     offset: &mut usize,
     fields: &IdlFields,
@@ -93,7 +85,7 @@ pub(super) fn parse_idl_fields_as_parsed_fields(
     }
 }
 
-pub(super) fn raw_unparsed_value(context: &str, type_name: &str, raw_data: &[u8]) -> Value {
+pub(crate) fn raw_unparsed_value(context: &str, type_name: &str, raw_data: &[u8]) -> Value {
     let mut object = Map::new();
     object.insert("context".into(), Value::String(context.to_string()));
     object.insert("type_hint".into(), Value::String(type_name.to_string()));
@@ -116,7 +108,7 @@ fn parse_type(
     }
 }
 
-pub(super) fn parse_simple_type(data: &[u8], offset: &mut usize, type_name: &str) -> Result<Value> {
+pub(crate) fn parse_simple_type(data: &[u8], offset: &mut usize, type_name: &str) -> Result<Value> {
     let start = *offset;
 
     let (value, bytes_read) = match type_name {
@@ -282,7 +274,7 @@ pub(super) fn parse_simple_type(data: &[u8], offset: &mut usize, type_name: &str
     Ok(value)
 }
 
-pub(super) fn parse_vec_type(
+pub(crate) fn parse_vec_type(
     data: &[u8],
     offset: &mut usize,
     element_type: &IdlType,
@@ -309,7 +301,7 @@ pub(super) fn parse_vec_type(
     Ok(Value::Array(elements))
 }
 
-pub(super) fn parse_option_type(
+pub(crate) fn parse_option_type(
     data: &[u8],
     offset: &mut usize,
     inner_type: &IdlType,
@@ -324,7 +316,7 @@ pub(super) fn parse_option_type(
     if !is_some { Ok(Value::Null) } else { parse_type(data, offset, inner_type, indexed) }
 }
 
-pub(super) fn parse_array_type(
+pub(crate) fn parse_array_type(
     data: &[u8],
     offset: &mut usize,
     array_def: &IdlArrayType,
@@ -356,7 +348,7 @@ fn parse_defined_type(
     Ok(raw_unparsed_value("defined_type", defined.name(), &remaining[..bytes_read]))
 }
 
-pub(super) fn parse_type_definition(
+pub(crate) fn parse_type_definition(
     data: &[u8],
     offset: &mut usize,
     type_def: &IdlTypeDefinition,

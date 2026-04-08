@@ -1,8 +1,8 @@
 use serde_json::json;
 
 use crate::discriminator::sighash;
+use crate::indexed::{IndexedIdl, is_cpi_event_data};
 
-use super::super::{IndexedIdl, is_cpi_event_data};
 use super::hello_anchor_indexed_idl;
 
 #[test]
@@ -10,6 +10,10 @@ fn is_cpi_event_data_detects_emit_cpi() {
     let mut data = vec![0xe4, 0x45, 0xa5, 0x2e, 0x51, 0xcb, 0x9a, 0x1d];
     data.extend_from_slice(&[0; 8]);
     assert!(is_cpi_event_data(&data));
+
+    // Exactly the 8-byte emit prefix with no event discriminator is still valid.
+    let exact = vec![0xe4, 0x45, 0xa5, 0x2e, 0x51, 0xcb, 0x9a, 0x1d];
+    assert!(is_cpi_event_data(&exact));
 }
 
 #[test]

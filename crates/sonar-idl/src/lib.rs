@@ -23,14 +23,13 @@
 //! # Ok::<(), serde_json::Error>(())
 //! ```
 
+mod decode;
 mod discriminator;
-mod models;
-mod parser;
+mod idl;
+mod indexed;
 
-// ── Discriminator ──
+#[cfg(test)]
+mod tests;
 
 pub use discriminator::sighash;
-
-// ── Parsing ──
-
-pub use parser::{IdlParsedField, IdlParsedInstruction, IndexedIdl, is_cpi_event_data};
+pub use indexed::{IdlParsedField, IdlParsedInstruction, IndexedIdl, is_cpi_event_data};
