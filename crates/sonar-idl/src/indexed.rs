@@ -217,7 +217,7 @@ impl IndexedIdl {
         None
     }
 
-    pub(super) fn find_type_definition(&self, name: &str) -> Option<&IdlTypeDefinition> {
+    pub(crate) fn find_type_definition(&self, name: &str) -> Option<&IdlTypeDefinition> {
         let idx = self.types_by_name.get(name)?;
         self.idl.types.as_ref()?.get(*idx)
     }
@@ -243,7 +243,7 @@ impl<'de> Deserialize<'de> for IndexedIdl {
 
 /// Check if raw instruction data represents an Anchor CPI event.
 pub fn is_cpi_event_data(data: &[u8]) -> bool {
-    data.len() >= 16 && data[..8] == EMIT_CPI_DISCRIMINATOR
+    data.len() >= 8 && data[..8] == EMIT_CPI_DISCRIMINATOR
 }
 
 // ── Internal helpers ──
