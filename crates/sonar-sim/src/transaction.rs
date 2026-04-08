@@ -4,11 +4,53 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use bs58::decode::Error as Base58Error;
 use serde::Serialize;
+use solana_message::MessageHeader;
 use solana_message::VersionedMessage;
+use solana_message::compiled_instruction::CompiledInstruction;
 use solana_pubkey::Pubkey;
 use solana_transaction::versioned::{TransactionVersion, VersionedTransaction};
 
 use crate::error::{Result, SonarSimError};
+
+/// Internal extension trait for mutable access to the shared fields of
+/// `VersionedMessage`. Both `Legacy` and `V0` messages have identical
+/// `account_keys`, `instructions`, and `header` layouts.
+pub(crate) trait VersionedMessageExt {
+    fn account_keys(&self) -> &Vec<Pubkey>;
+    fn account_keys_mut(&mut self) -> &mut Vec<Pubkey>;
+    fn instructions_mut(&mut self) -> &mut Vec<CompiledInstruction>;
+    fn header_mut(&mut self) -> &mut MessageHeader;
+}
+
+impl VersionedMessageExt for VersionedMessage {
+    fn account_keys(&self) -> &Vec<Pubkey> {
+        match self {
+            VersionedMessage::Legacy(m) => &m.account_keys,
+            VersionedMessage::V0(m) => &m.account_keys,
+        }
+    }
+
+    fn account_keys_mut(&mut self) -> &mut Vec<Pubkey> {
+        match self {
+            VersionedMessage::Legacy(m) => &mut m.account_keys,
+            VersionedMessage::V0(m) => &mut m.account_keys,
+        }
+    }
+
+    fn instructions_mut(&mut self) -> &mut Vec<CompiledInstruction> {
+        match self {
+            VersionedMessage::Legacy(m) => &mut m.instructions,
+            VersionedMessage::V0(m) => &mut m.instructions,
+        }
+    }
+
+    fn header_mut(&mut self) -> &mut MessageHeader {
+        match self {
+            VersionedMessage::Legacy(m) => &mut m.header,
+            VersionedMessage::V0(m) => &mut m.header,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -180,70 +222,11 @@ pub fn apply_ix_account_patches(
             });
         }
 
-        // Find or insert the new pubkey in the static account keys
-        let account_keys = match &tx.message {
-            VersionedMessage::Legacy(m) => &m.account_keys,
-            VersionedMessage::V0(m) => &m.account_keys,
-        };
-        let new_index = if let Some(pos) = account_keys.iter().position(|k| *k == patch.new_pubkey)
-        {
-            // Key exists — ensure its writability matches what was requested.
-            ensure_account_writability(&mut tx.message, pos, patch.writable)?
-        } else {
-            let total = account_keys.len();
-            if total > u8::MAX as usize {
-                return Err(SonarSimError::Validation {
-                    reason: "Cannot add more account keys: would exceed u8 index limit".into(),
-                });
-            }
-            if patch.writable {
-                // Insert before the read-only non-signer section to keep the
-                // new key in the writable range.
-                let readonly_unsigned = tx.message.header().num_readonly_unsigned_accounts as usize;
-                let insert_pos = total - readonly_unsigned;
+        let new_index =
+            find_or_insert_account_key(&mut tx.message, &patch.new_pubkey, patch.writable)?;
 
-                match &mut tx.message {
-                    VersionedMessage::Legacy(m) => {
-                        m.account_keys.insert(insert_pos, patch.new_pubkey);
-                        shift_indices(&mut m.instructions, insert_pos)?;
-                    }
-                    VersionedMessage::V0(m) => {
-                        m.account_keys.insert(insert_pos, patch.new_pubkey);
-                        shift_indices(&mut m.instructions, insert_pos)?;
-                    }
-                }
-                insert_pos
-            } else {
-                // Append at end and widen the read-only section.
-                // In v0 messages this insertion happens before lookup-derived
-                // account indices, so all existing indices >= `total` must shift.
-                match &mut tx.message {
-                    VersionedMessage::Legacy(m) => {
-                        m.account_keys.push(patch.new_pubkey);
-                        m.header.num_readonly_unsigned_accounts += 1;
-                        shift_indices(&mut m.instructions, total)?;
-                    }
-                    VersionedMessage::V0(m) => {
-                        m.account_keys.push(patch.new_pubkey);
-                        m.header.num_readonly_unsigned_accounts += 1;
-                        shift_indices(&mut m.instructions, total)?;
-                    }
-                }
-                total
-            }
-        };
-
-        // Update the instruction's account index
-        match &mut tx.message {
-            VersionedMessage::Legacy(m) => {
-                m.instructions[patch.instruction_index].accounts[patch.account_position] =
-                    new_index as u8;
-            }
-            VersionedMessage::V0(m) => {
-                m.instructions[patch.instruction_index].accounts[patch.account_position] =
-                    new_index as u8;
-            }
-        }
+        tx.message.instructions_mut()[patch.instruction_index].accounts[patch.account_position] =
+            new_index as u8;
     }
 
     Ok(MessageAccountPlan::from_transaction(tx))
@@ -277,61 +260,10 @@ pub fn apply_ix_account_appends(
             });
         }
 
-        // Find or insert the new pubkey in the static account keys
-        let account_keys = match &tx.message {
-            VersionedMessage::Legacy(m) => &m.account_keys,
-            VersionedMessage::V0(m) => &m.account_keys,
-        };
-        let new_index = if let Some(pos) = account_keys.iter().position(|k| *k == append.new_pubkey)
-        {
-            ensure_account_writability(&mut tx.message, pos, append.writable)?
-        } else {
-            let total = account_keys.len();
-            if total > u8::MAX as usize {
-                return Err(SonarSimError::Validation {
-                    reason: "Cannot add more account keys: would exceed u8 index limit".into(),
-                });
-            }
-            if append.writable {
-                let readonly_unsigned = tx.message.header().num_readonly_unsigned_accounts as usize;
-                let insert_pos = total - readonly_unsigned;
-                match &mut tx.message {
-                    VersionedMessage::Legacy(m) => {
-                        m.account_keys.insert(insert_pos, append.new_pubkey);
-                        shift_indices(&mut m.instructions, insert_pos)?;
-                    }
-                    VersionedMessage::V0(m) => {
-                        m.account_keys.insert(insert_pos, append.new_pubkey);
-                        shift_indices(&mut m.instructions, insert_pos)?;
-                    }
-                }
-                insert_pos
-            } else {
-                match &mut tx.message {
-                    VersionedMessage::Legacy(m) => {
-                        m.account_keys.push(append.new_pubkey);
-                        m.header.num_readonly_unsigned_accounts += 1;
-                        shift_indices(&mut m.instructions, total)?;
-                    }
-                    VersionedMessage::V0(m) => {
-                        m.account_keys.push(append.new_pubkey);
-                        m.header.num_readonly_unsigned_accounts += 1;
-                        shift_indices(&mut m.instructions, total)?;
-                    }
-                }
-                total
-            }
-        };
+        let new_index =
+            find_or_insert_account_key(&mut tx.message, &append.new_pubkey, append.writable)?;
 
-        // Append the account index to the instruction's accounts list
-        match &mut tx.message {
-            VersionedMessage::Legacy(m) => {
-                m.instructions[append.instruction_index].accounts.push(new_index as u8);
-            }
-            VersionedMessage::V0(m) => {
-                m.instructions[append.instruction_index].accounts.push(new_index as u8);
-            }
-        }
+        tx.message.instructions_mut()[append.instruction_index].accounts.push(new_index as u8);
     }
 
     Ok(MessageAccountPlan::from_transaction(tx))
@@ -381,6 +313,48 @@ fn shift_indices(
     Ok(())
 }
 
+/// Find an existing account key, or insert a new one at the correct position.
+///
+/// Returns the index of the key in the static account keys list.
+///
+/// - If the key already exists, ensures its writability matches the `writable`
+///   parameter (promoting/demoting as needed) and returns its (possibly new)
+///   position.
+/// - If the key does not exist:
+///   - **Writable**: inserted just before the read-only non-signer section;
+///     existing indices >= the insertion point are shifted by +1.
+///   - **Read-only**: appended at the end and `num_readonly_unsigned_accounts`
+///     is incremented.
+fn find_or_insert_account_key(
+    message: &mut VersionedMessage,
+    pubkey: &Pubkey,
+    writable: bool,
+) -> Result<usize> {
+    if let Some(pos) = message.account_keys().iter().position(|k| *k == *pubkey) {
+        return ensure_account_writability(message, pos, writable);
+    }
+
+    let total = message.account_keys().len();
+    if total > u8::MAX as usize {
+        return Err(SonarSimError::Validation {
+            reason: "Cannot add more account keys: would exceed u8 index limit".into(),
+        });
+    }
+
+    if writable {
+        let readonly_unsigned = message.header().num_readonly_unsigned_accounts as usize;
+        let insert_pos = total - readonly_unsigned;
+        message.account_keys_mut().insert(insert_pos, *pubkey);
+        shift_indices(message.instructions_mut(), insert_pos)?;
+        Ok(insert_pos)
+    } else {
+        message.account_keys_mut().push(*pubkey);
+        message.header_mut().num_readonly_unsigned_accounts += 1;
+        shift_indices(message.instructions_mut(), total)?;
+        Ok(total)
+    }
+}
+
 /// Ensure an existing account key at `pos` has the requested writability.
 ///
 /// If the key is already at the correct writability level, returns `pos` unchanged.
@@ -426,20 +400,14 @@ fn ensure_account_writability(
         // Move from read-only to writable: swap with the first read-only non-signer
         // (at `readonly_start`) and shrink the read-only section by 1.
         swap_account_positions(message, pos, readonly_start);
-        match message {
-            VersionedMessage::Legacy(m) => m.header.num_readonly_unsigned_accounts -= 1,
-            VersionedMessage::V0(m) => m.header.num_readonly_unsigned_accounts -= 1,
-        }
+        message.header_mut().num_readonly_unsigned_accounts -= 1;
         Ok(readonly_start)
     } else {
         // Move from writable to read-only: swap with the last writable non-signer
         // (at `readonly_start - 1`) and grow the read-only section by 1.
         let last_writable = readonly_start - 1;
         swap_account_positions(message, pos, last_writable);
-        match message {
-            VersionedMessage::Legacy(m) => m.header.num_readonly_unsigned_accounts += 1,
-            VersionedMessage::V0(m) => m.header.num_readonly_unsigned_accounts += 1,
-        }
+        message.header_mut().num_readonly_unsigned_accounts += 1;
         Ok(last_writable)
     }
 }
@@ -450,16 +418,8 @@ fn swap_account_positions(message: &mut VersionedMessage, a: usize, b: usize) {
         return;
     }
     let (a_u8, b_u8) = (a as u8, b as u8);
-    match message {
-        VersionedMessage::Legacy(m) => {
-            m.account_keys.swap(a, b);
-            remap_indices(&mut m.instructions, a_u8, b_u8);
-        }
-        VersionedMessage::V0(m) => {
-            m.account_keys.swap(a, b);
-            remap_indices(&mut m.instructions, a_u8, b_u8);
-        }
-    }
+    message.account_keys_mut().swap(a, b);
+    remap_indices(message.instructions_mut(), a_u8, b_u8);
 }
 
 /// Swap all instruction references between indices `a` and `b`.
@@ -513,16 +473,8 @@ pub fn apply_ix_data_patches(
             });
         }
 
-        match &mut tx.message {
-            VersionedMessage::Legacy(m) => {
-                m.instructions[patch.instruction_index].data[patch.offset..end]
-                    .copy_from_slice(&patch.data);
-            }
-            VersionedMessage::V0(m) => {
-                m.instructions[patch.instruction_index].data[patch.offset..end]
-                    .copy_from_slice(&patch.data);
-            }
-        }
+        tx.message.instructions_mut()[patch.instruction_index].data[patch.offset..end]
+            .copy_from_slice(&patch.data);
     }
     Ok(())
 }
