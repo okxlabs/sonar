@@ -6,7 +6,7 @@ use crate::cli::{self, SimulateArgs, TransactionInputArgs};
 use crate::parsers::instruction::ParserRegistry;
 use crate::utils::progress::Progress;
 use crate::{core::account_file, core::transaction, output};
-use sonar_sim::{
+use sonar_sim::internals::{
     ExecutionOptions, PreparedSimulation, SimulationOptions, StateMutationOptions,
     apply_ix_account_appends, apply_ix_account_patches, apply_ix_data_patches,
     prepare_token_fundings,
@@ -26,9 +26,9 @@ fn parse_cli_args<T>(args: Vec<String>, parser: fn(&str) -> Result<T, String>) -
 /// the transaction summary so the renderer sees the updated state.
 fn apply_ix_mutations(
     parsed_tx: &mut transaction::ParsedTransaction,
-    ix_account_patches: &[sonar_sim::InstructionAccountPatch],
-    ix_account_appends: &[sonar_sim::InstructionAccountAppend],
-    ix_data_patches: &[sonar_sim::InstructionDataPatch],
+    ix_account_patches: &[sonar_sim::internals::InstructionAccountPatch],
+    ix_account_appends: &[sonar_sim::internals::InstructionAccountAppend],
+    ix_data_patches: &[sonar_sim::internals::InstructionDataPatch],
 ) -> Result<()> {
     if !ix_account_patches.is_empty() {
         parsed_tx.account_plan =
@@ -275,9 +275,9 @@ fn handle_bundle(
     rpc_url: &str,
     resolver_cache_location: Option<crate::core::cache::CacheLocation>,
     token_funding_requests: Vec<cli::TokenFunding>,
-    ix_account_patches: Vec<sonar_sim::InstructionAccountPatch>,
-    ix_account_appends: Vec<sonar_sim::InstructionAccountAppend>,
-    ix_data_patches: Vec<sonar_sim::InstructionDataPatch>,
+    ix_account_patches: Vec<sonar_sim::internals::InstructionAccountPatch>,
+    ix_account_appends: Vec<sonar_sim::internals::InstructionAccountAppend>,
+    ix_data_patches: Vec<sonar_sim::internals::InstructionDataPatch>,
     mut sim_opts: SimulationOptions,
     render_opts: &output::RenderOptions,
     parser_registry: &mut ParserRegistry,

@@ -1,13 +1,12 @@
 //! sonar-sim: Solana transaction simulation engine powered by LiteSVM.
 //!
-//! # Stable Public API
+//! # Public API
 //!
-//! All items below constitute the stable facade of this crate.
-//! Internal modules are `pub(crate)` and may change without notice;
-//! external consumers should only depend on the re-exports listed here.
+//! The stable API consists of the items exported at the top level.
+//! For advanced/low-level access, use [`internals`].
 
 pub mod error;
-pub mod rpc_json;
+pub mod internals;
 
 pub(crate) mod account_dependencies;
 pub(crate) mod account_fetcher;
@@ -16,62 +15,24 @@ pub(crate) mod balance_changes;
 pub(crate) mod executor;
 pub(crate) mod funding;
 pub(crate) mod known_programs;
+pub mod mutations;
+pub(crate) mod pipeline;
+pub(crate) mod rpc_json;
 pub(crate) mod rpc_provider;
+pub(crate) mod result;
 pub(crate) mod svm_backend;
 #[cfg(test)]
 pub(crate) mod test_utils;
 pub(crate) mod token_decode;
 pub(crate) mod transaction;
+pub mod traits;
 pub(crate) mod types;
 
-// ── Error types ──
+// ── Public API ──
 
 pub use error::{Result, SonarSimError};
-
-// ── Types ──
-
-pub use token_decode::TokenProgramKind;
-pub use types::{
-    AccountAppender, AccountDataPatch, AccountOverride, AccountSource, FetchEvent, FetchObserver,
-    FetchPolicy, InstructionAccountAppend, InstructionAccountPatch, InstructionDataPatch,
-    PreparedTokenFunding, ResolvedAccounts, ResolvedLookup, ReturnData, RpcDecision,
-    SimulationMetadata, SolFunding, TokenAmount, TokenFunding,
-};
-
-// ── Transaction parsing ──
-
-pub use transaction::{
-    AddressLookupPlan, LookupLocation, MessageAccountPlan, ParsedTransaction,
-    RawTransactionEncoding, apply_ix_account_appends, apply_ix_account_patches,
-    apply_ix_data_patches, build_lookup_locations, parse_raw_transaction,
-};
-
-// ── Account loading ──
-
-pub use account_fetcher::AccountFetcher;
-pub use account_loader::AccountLoader;
-
-// ── RPC provider trait + implementations ──
-
-pub use rpc_provider::{FakeAccountProvider, RpcAccountProvider, SolanaRpcProvider};
-pub use svm_backend::SvmBackend;
-
-// ── Simulation execution ──
-
-pub use executor::{
-    ExecutionOptions, ExecutionStatus, PreparedSimulation, SignatureVerification,
-    SimulationOptions, SimulationOptionsBuilder, SimulationResult, SimulationRunner,
-    StateMutationOptions, apply_account_closures,
-};
-pub use known_programs::{is_litesvm_builtin_program, is_native_or_sysvar};
-
-// ── Balance change computation ──
-
-pub use balance_changes::{
-    SolBalanceChange, TokenBalanceChange, compute_sol_changes, compute_token_changes,
-    extract_mint_decimals_combined,
-};
-
-// ── Funding ──
-
-pub use funding::prepare_token_fundings;
+pub use mutations::{Mutations, MutationsBuilder};
+pub use pipeline::Pipeline;
+pub use result::SimulationResult;
+pub use balance_changes::{SolBalanceChange, TokenBalanceChange};
+pub use traits::{AccountSource, FetchEvent, FetchObserver};

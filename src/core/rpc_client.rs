@@ -15,7 +15,7 @@ use solana_transaction_status_client_types::{
     EncodedConfirmedTransactionWithStatusMeta, TransactionStatus, UiTransactionEncoding,
 };
 
-use sonar_sim::rpc_json::{JsonRpcResponse, RpcAccountInfo, RpcResultValue};
+use sonar_sim::internals::rpc_json::{JsonRpcResponse, RpcAccountInfo, RpcResultValue};
 
 /// Lightweight Solana JSON-RPC client backed by `ureq`.
 pub struct RpcClient {

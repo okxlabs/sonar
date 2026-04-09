@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use solana_account::ReadableAccount;
 use solana_pubkey::Pubkey;
-use sonar_sim::{AccountLoader, ResolvedAccounts};
+use sonar_sim::internals::{AccountLoader, ResolvedAccounts};
 
 use crate::cli;
 use crate::core::cache::CacheLocation;
@@ -441,7 +441,7 @@ mod tests {
     use solana_account::{Account, AccountSharedData};
     use solana_pubkey::Pubkey;
     use solana_sdk_ids::system_program;
-    use sonar_sim::ResolvedAccounts;
+    use sonar_sim::internals::ResolvedAccounts;
     use std::collections::{HashMap, HashSet};
 
     fn executable_account() -> AccountSharedData {

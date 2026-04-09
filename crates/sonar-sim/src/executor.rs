@@ -403,7 +403,7 @@ impl<B: SvmBackend> SimulationRunner<B> {
     ///
     /// Takes pre/post account snapshots so that balance changes can be
     /// computed even when accounts are closed during execution.
-    pub fn execute(&mut self, tx: &VersionedTransaction) -> Result<SimulationResult> {
+    pub fn execute(&mut self, tx: &VersionedTransaction) -> Result<ExecutionResult> {
         let account_keys = self.collect_transaction_accounts(tx);
         let pre_accounts = self.snapshot_accounts(&account_keys);
 
@@ -412,13 +412,13 @@ impl<B: SvmBackend> SimulationRunner<B> {
         let post_accounts = self.snapshot_accounts(&account_keys);
 
         let simulation = match result {
-            TransactionResult::Ok(info) => SimulationResult {
+            TransactionResult::Ok(info) => ExecutionResult {
                 status: ExecutionStatus::Succeeded,
                 meta: convert_metadata(&info),
                 post_accounts,
                 pre_accounts,
             },
-            TransactionResult::Err(failure) => SimulationResult {
+            TransactionResult::Err(failure) => ExecutionResult {
                 status: ExecutionStatus::Failed(failure.err.to_string()),
                 meta: convert_metadata(&failure.meta),
                 post_accounts,
@@ -462,7 +462,7 @@ impl<B: SvmBackend> SimulationRunner<B> {
     pub fn execute_bundle(
         &mut self,
         txs: &[&VersionedTransaction],
-    ) -> Vec<Result<SimulationResult>> {
+    ) -> Vec<Result<ExecutionResult>> {
         let mut results = Vec::with_capacity(txs.len());
 
         for tx in txs {
@@ -507,7 +507,7 @@ impl<B: SvmBackend> SimulationRunner<B> {
 }
 
 #[derive(Debug, Clone)]
-pub struct SimulationResult {
+pub struct ExecutionResult {
     pub status: ExecutionStatus,
     pub meta: SimulationMetadata,
     pub post_accounts: HashMap<Pubkey, AccountSharedData>,
