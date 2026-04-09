@@ -14,7 +14,12 @@ use solana_message::VersionedMessage;
 use solana_message::inner_instruction::InnerInstructionsList;
 use solana_signature::Signature;
 use solana_transaction::versioned::{TransactionVersion, VersionedTransaction};
-use solana_transaction_status_client_types::UiTransactionEncoding;
+use solana_message::compiled_instruction::CompiledInstruction;
+use solana_message::inner_instruction::InnerInstruction;
+use solana_transaction_status_client_types::{
+    UiCompiledInstruction, UiInnerInstructions, UiInstruction, UiTransactionEncoding,
+};
+use solana_transaction_status_client_types::option_serializer::OptionSerializer;
 use std::str::FromStr;
 
 use crate::utils::progress::Progress;
@@ -136,11 +141,17 @@ pub fn encode_transaction_to_base64(tx: &VersionedTransaction) -> Result<String>
     Ok(BASE64_STANDARD.encode(serialized))
 }
 
+/// Result of fetching a transaction from RPC: raw tx base64 + optional inner instructions.
+pub struct FetchedTransaction {
+    pub raw_tx_base64: String,
+    pub inner_instructions: InnerInstructionsList,
+}
+
 pub fn fetch_transaction_from_rpc(
     rpc_url: &str,
     signature: &str,
     _progress: Option<&Progress>,
-) -> Result<String> {
+) -> Result<FetchedTransaction> {
     let parsed_sig =
         signature.parse().with_context(|| format!("Invalid signature format: {}", signature))?;
 
@@ -161,7 +172,79 @@ pub fn fetch_transaction_from_rpc(
         .transaction
         .decode()
         .ok_or_else(|| anyhow!("Failed to decode transaction from RPC response"))?;
-    encode_transaction_to_base64(&tx)
+    let raw_tx_base64 = encode_transaction_to_base64(&tx)?;
+
+    // Extract inner instructions from execution trace metadata
+    let inner_instructions = response
+        .transaction
+        .meta
+        .and_then(|meta| {
+            log::debug!(
+                "RPC meta.inner_instructions variant: {}",
+                match &meta.inner_instructions {
+                    OptionSerializer::Some(v) => format!("Some({} groups)", v.len()),
+                    OptionSerializer::None => "None".to_string(),
+                    OptionSerializer::Skip => "Skip".to_string(),
+                }
+            );
+            match meta.inner_instructions {
+                OptionSerializer::Some(ui_inner) => {
+                    let converted = convert_ui_inner_instructions(ui_inner);
+                    let total: usize = converted.iter().map(|v| v.len()).sum();
+                    log::debug!("Converted {} total inner instructions", total);
+                    Some(converted)
+                }
+                _ => None,
+            }
+        })
+        .unwrap_or_default();
+
+    Ok(FetchedTransaction { raw_tx_base64, inner_instructions })
+}
+
+/// Convert RPC UiInnerInstructions to the native InnerInstructionsList.
+///
+/// InnerInstructionsList is Vec<Vec<InnerInstruction>>, indexed by outer instruction index.
+/// UiInnerInstructions has an explicit `index` field for the outer instruction index.
+fn convert_ui_inner_instructions(
+    ui_inner: Vec<UiInnerInstructions>,
+) -> InnerInstructionsList {
+    // Find the max outer instruction index to size the list
+    let max_index = ui_inner.iter().map(|g| g.index as usize).max().unwrap_or(0);
+    let mut result: InnerInstructionsList = vec![Vec::new(); max_index + 1];
+
+    for group in ui_inner {
+        let idx = group.index as usize;
+        let inner_ixs: Vec<InnerInstruction> = group
+            .instructions
+            .into_iter()
+            .filter_map(|ui_ix| match ui_ix {
+                UiInstruction::Compiled(compiled) => {
+                    Some(convert_ui_compiled_to_inner(&compiled))
+                }
+                // Parsed instructions don't carry raw account indices;
+                // skip them (they are typically system/token program calls
+                // that sonar already parses from the outer message).
+                _ => None,
+            })
+            .collect();
+        if idx < result.len() {
+            result[idx] = inner_ixs;
+        }
+    }
+    result
+}
+
+fn convert_ui_compiled_to_inner(ui: &UiCompiledInstruction) -> InnerInstruction {
+    let data = bs58::decode(&ui.data).into_vec().unwrap_or_default();
+    InnerInstruction {
+        instruction: CompiledInstruction {
+            program_id_index: ui.program_id_index,
+            accounts: ui.accounts.clone(),
+            data,
+        },
+        stack_height: ui.stack_height.unwrap_or(0) as u8,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -169,11 +252,18 @@ pub fn fetch_transaction_from_rpc(
 // ---------------------------------------------------------------------------
 
 pub fn parse_raw_transaction(raw: &str) -> Result<ParsedTransaction> {
+    parse_raw_transaction_with_inner(raw, Vec::new())
+}
+
+pub fn parse_raw_transaction_with_inner(
+    raw: &str,
+    inner_instructions: InnerInstructionsList,
+) -> Result<ParsedTransaction> {
     let sim_parsed = sonar_sim::parse_raw_transaction(raw)?;
     let summary = TransactionSummary::from_transaction(
         &sim_parsed.transaction,
         &sim_parsed.account_plan,
-        Vec::new(),
+        inner_instructions,
     );
     Ok(ParsedTransaction {
         encoding: sim_parsed.encoding,
@@ -240,7 +330,11 @@ impl TxInputResolver {
                         },
                     )?;
 
-                let parsed_tx = parse_raw_transaction(&fetched).map_err(|fetched_parse_err| {
+                let parsed_tx = parse_raw_transaction_with_inner(
+                    &fetched.raw_tx_base64,
+                    fetched.inner_instructions,
+                )
+                .map_err(|fetched_parse_err| {
                     anyhow!(
                         "Failed to parse transaction input.\n- Raw parse failed: {raw_err}\n- Signature fetch succeeded but parsing fetched transaction failed: {fetched_parse_err}"
                     )
@@ -248,7 +342,7 @@ impl TxInputResolver {
 
                 Ok(ResolvedTxInput {
                     original_input: signature.to_string(),
-                    raw_tx_base64: fetched,
+                    raw_tx_base64: fetched.raw_tx_base64,
                     parsed_tx,
                     source: TxResolveSource::Rpc,
                 })
