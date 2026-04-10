@@ -518,8 +518,9 @@ fn decode_signature_refresh_cache_forces_rpc_fetch_and_fails_on_bad_rpc() {
 }
 
 #[test]
-fn idl_fetch_failure_exits_nonzero() {
-    // Unreachable RPC causes fetch to fail for all programs
+fn idl_fetch_partial_failure_exits_zero() {
+    // Unreachable RPC causes fetch to fail for all programs, but partial
+    // failures are tolerated — the command still exits 0 and logs a summary.
     let mut cmd = cargo_bin_cmd!("sonar");
     cmd.arg("idl")
         .arg("fetch")
@@ -530,39 +531,13 @@ fn idl_fetch_failure_exits_nonzero() {
         .arg("-o")
         .arg(std::env::temp_dir());
 
-    let assert = cmd.assert().failure();
+    let assert = cmd.assert().success();
     let output = assert.get_output();
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
 
-    assert!(stdout.trim().is_empty(), "stdout should be empty on failure, got: {stdout}");
+    assert!(stdout.trim().is_empty(), "stdout should be empty when nothing fetched, got: {stdout}");
     assert!(stderr.contains("Summary:"), "expected Summary in stderr, got: {stderr}");
-    assert!(
-        stderr.to_lowercase().contains("error"),
-        "expected error info in stderr, got: {stderr}"
-    );
-}
-
-#[test]
-fn idl_fetch_allow_partial_exits_zero_on_failure() {
-    let mut cmd = cargo_bin_cmd!("sonar");
-    cmd.arg("idl")
-        .arg("fetch")
-        .arg("11111111111111111111111111111111")
-        .arg("--rpc-url")
-        .arg("http://127.0.0.1:1")
-        .arg("--allow-partial")
-        .arg("-o")
-        .arg(std::env::temp_dir());
-
-    let assert = cmd.assert().success();
-    let output = assert.get_output();
-    let stderr = String::from_utf8_lossy(&output.stderr);
-
-    assert!(
-        stderr.contains("Summary:"),
-        "expected Summary in stderr when allow-partial, got: {stderr}"
-    );
 }
 
 #[test]
@@ -578,7 +553,7 @@ fn idl_fetch_success_paths_go_to_stdout() {
         .arg("-o")
         .arg(std::env::temp_dir());
 
-    let assert = cmd.assert().failure();
+    let assert = cmd.assert().success();
     let output = assert.get_output();
     let stdout = String::from_utf8_lossy(&output.stdout);
     // No successful fetches -> stdout empty

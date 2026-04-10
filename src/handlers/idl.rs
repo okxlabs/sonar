@@ -42,13 +42,13 @@ pub(crate) fn handle(args: IdlArgs, json: bool) -> Result<()> {
 fn handle_fetch(args: IdlFetchArgs, json: bool) -> Result<()> {
     let program_ids = parse_program_ids(&args.programs)?;
     let output_dir = resolve_output_dir(args.output_dir, None);
-    fetch_and_write_idls(program_ids, args.rpc.rpc_url, output_dir, args.allow_partial, json)
+    fetch_and_write_idls(program_ids, args.rpc.rpc_url, output_dir, json)
 }
 
 fn handle_sync(args: IdlSyncArgs, json: bool) -> Result<()> {
     let (program_ids, default_output_dir) = collect_program_ids_from_sync_path(&args.path)?;
     let output_dir = resolve_output_dir(args.output_dir, default_output_dir.as_deref());
-    fetch_and_write_idls(program_ids, args.rpc.rpc_url, output_dir, args.allow_partial, json)
+    fetch_and_write_idls(program_ids, args.rpc.rpc_url, output_dir, json)
 }
 
 fn handle_address(args: IdlAddressArgs, json: bool) -> Result<()> {
@@ -86,7 +86,6 @@ fn fetch_and_write_idls(
     program_ids: Vec<Pubkey>,
     rpc_url: String,
     output_dir: PathBuf,
-    allow_partial: bool,
     json: bool,
 ) -> Result<()> {
     fs::create_dir_all(&output_dir)
@@ -165,15 +164,6 @@ fn fetch_and_write_idls(
             not_found.len(),
             errors.len()
         );
-
-        if !allow_partial {
-            return Err(anyhow::anyhow!(
-                "IDL fetch/sync had failures ({} fetched, {} not found, {} error). Use --allow-partial to exit 0 when some programs fail.",
-                fetched,
-                not_found.len(),
-                errors.len()
-            ));
-        }
     }
 
     Ok(())
