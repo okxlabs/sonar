@@ -399,13 +399,30 @@ impl<B: SvmBackend> PreparedSimulation<B> {
 /// and remaining transactions were skipped.
 #[derive(Debug, Clone)]
 pub struct BundleResult<T> {
-    /// Results for transactions that were actually executed.
-    pub executed: Vec<T>,
-    /// Total number of transactions in the bundle input.
-    pub total: usize,
+    executed: Vec<T>,
+    total: usize,
 }
 
 impl<T> BundleResult<T> {
+    pub(crate) fn new(executed: Vec<T>, total: usize) -> Self {
+        Self { executed, total }
+    }
+
+    /// Results for transactions that were actually executed.
+    pub fn executed(&self) -> &[T] {
+        &self.executed
+    }
+
+    /// Consume self and return the executed results.
+    pub fn into_executed(self) -> Vec<T> {
+        self.executed
+    }
+
+    /// Total number of transactions in the bundle input.
+    pub fn total(&self) -> usize {
+        self.total
+    }
+
     /// How many transactions were never attempted due to a prior failure.
     pub fn skipped_count(&self) -> usize {
         self.total.saturating_sub(self.executed.len())
@@ -508,7 +525,7 @@ impl<B: SvmBackend> SimulationRunner<B> {
             }
         }
 
-        BundleResult { executed: results, total: txs.len() }
+        BundleResult::new(results, txs.len())
     }
 
     pub fn resolved_accounts(&self) -> &ResolvedAccounts {
@@ -640,8 +657,8 @@ mod tests {
 
         let results = runner.execute_bundle(&tx_refs);
 
-        assert_eq!(results.executed.len(), 2);
-        assert!(results.executed.iter().all(|r| r.is_ok()));
+        assert_eq!(results.executed().len(), 2);
+        assert!(results.executed().iter().all(|r| r.is_ok()));
         assert!(results.is_complete());
     }
 
@@ -666,9 +683,9 @@ mod tests {
 
         let results = runner.execute_bundle(&tx_refs);
 
-        assert_eq!(results.executed.len(), 1, "bundle should stop after first failure");
+        assert_eq!(results.executed().len(), 1, "bundle should stop after first failure");
         assert!(matches!(
-            results.executed[0].as_ref().map(|r| &r.status),
+            results.executed()[0].as_ref().map(|r| &r.status),
             Ok(&ExecutionStatus::Failed(_))
         ));
         assert_eq!(results.skipped_count(), 1);
@@ -694,13 +711,13 @@ mod tests {
             .into_runner();
 
         let results = runner.execute_bundle(&tx_refs);
-        assert_eq!(results.executed.len(), 2);
+        assert_eq!(results.executed().len(), 2);
         assert!(matches!(
-            results.executed[0].as_ref().map(|r| &r.status),
+            results.executed()[0].as_ref().map(|r| &r.status),
             Ok(&ExecutionStatus::Succeeded)
         ));
         assert!(matches!(
-            results.executed[1].as_ref().map(|r| &r.status),
+            results.executed()[1].as_ref().map(|r| &r.status),
             Ok(&ExecutionStatus::Succeeded)
         ));
         assert!(results.is_complete());

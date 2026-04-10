@@ -47,7 +47,7 @@ let bundle = Pipeline::new(rpc_url)
     .load_accounts()?
     .execute_bundle()?;        // BundleResult<Result<SimulationResult>>, fail-fast
 
-for result in &bundle.executed {
+for result in bundle.executed() {
     let sim = result.as_ref().unwrap();
     println!("success: {}", sim.success);
 }

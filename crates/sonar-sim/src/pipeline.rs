@@ -332,10 +332,14 @@ impl Pipeline {
         let bundle = runner.execute_bundle(&tx_refs);
 
         // Map inner ExecutionResults to SimulationResults
-        let mapped =
-            bundle.executed.into_iter().map(|r| r.map(SimulationResult::from_execution)).collect();
+        let total = bundle.total();
+        let mapped = bundle
+            .into_executed()
+            .into_iter()
+            .map(|r| r.map(SimulationResult::from_execution))
+            .collect();
 
-        Ok(BundleResult { executed: mapped, total: bundle.total })
+        Ok(BundleResult::new(mapped, total))
     }
 
     // ── Private helpers ──
@@ -442,12 +446,13 @@ mod tests {
     #[test]
     fn bundle_result_skipped_and_complete() {
         let br: crate::executor::BundleResult<std::result::Result<(), String>> =
-            crate::executor::BundleResult { executed: vec![], total: 5 };
+            crate::executor::BundleResult::new(vec![], 5);
         assert_eq!(br.skipped_count(), 5);
         assert!(!br.is_complete());
+        assert_eq!(br.total(), 5);
+        assert!(br.executed().is_empty());
 
-        let br_full =
-            crate::executor::BundleResult { executed: vec![Ok::<_, String>(())], total: 1 };
+        let br_full = crate::executor::BundleResult::new(vec![Ok::<_, String>(())], 1);
         assert_eq!(br_full.skipped_count(), 0);
         assert!(br_full.is_complete());
     }

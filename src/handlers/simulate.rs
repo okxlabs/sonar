@@ -381,8 +381,15 @@ fn handle_bundle(
 
     let tx_refs: Vec<_> = parsed_txs.iter().map(|p| &p.transaction).collect();
     let bundle_results = runner.execute_bundle(&tx_refs);
+    if bundle_results.skipped_count() > 0 {
+        log::warn!(
+            "Bundle: {}/{} transactions skipped due to prior failure",
+            bundle_results.skipped_count(),
+            bundle_results.total(),
+        );
+    }
     let simulations: Vec<_> = bundle_results
-        .executed
+        .into_executed()
         .into_iter()
         .enumerate()
         .map(|(index, result)| {
