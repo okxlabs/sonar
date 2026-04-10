@@ -24,7 +24,6 @@ pub(crate) mod svm_backend;
 #[cfg(test)]
 pub(crate) mod test_utils;
 pub(crate) mod token_decode;
-pub mod traits;
 pub(crate) mod transaction;
 pub(crate) mod types;
 
@@ -35,4 +34,4 @@ pub use error::{Result, SonarSimError};
 pub use mutations::{Mutations, MutationsBuilder};
 pub use pipeline::Pipeline;
 pub use result::SimulationResult;
-pub use traits::{AccountSource, FetchEvent, FetchObserver};
+pub use types::{AccountSource, FetchEvent, FetchObserver};
