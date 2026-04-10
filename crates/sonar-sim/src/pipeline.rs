@@ -8,17 +8,18 @@ use solana_transaction::versioned::VersionedTransaction;
 
 use crate::account_loader::AccountLoader;
 use crate::error::{Result, SonarSimError};
+use crate::executor::BundleResult;
 use crate::executor::{
-    ExecutionOptions, PreparedSimulation, SignatureVerification,
-    SimulationOptions, StateMutationOptions,
+    ExecutionOptions, PreparedSimulation, SignatureVerification, SimulationOptions,
+    StateMutationOptions,
 };
 use crate::funding::prepare_token_fundings;
 use crate::mutations::Mutations;
 use crate::result::SimulationResult;
 use crate::rpc_provider::RpcAccountProvider;
 use crate::transaction::{
-    ParsedTransaction, apply_ix_account_appends, apply_ix_account_patches,
-    apply_ix_data_patches, parse_raw_transaction,
+    ParsedTransaction, apply_ix_account_appends, apply_ix_account_patches, apply_ix_data_patches,
+    parse_raw_transaction,
 };
 use crate::types::{AccountSource, FetchObserver, FetchPolicy, ResolvedAccounts, RpcDecision};
 
@@ -85,10 +86,9 @@ impl std::fmt::Debug for Pipeline {
 }
 
 impl Pipeline {
-    /// Create a new pipeline with the given RPC URL.
-    pub fn new(rpc_url: String) -> Self {
+    fn default_state() -> Self {
         Self {
-            rpc_url: Some(rpc_url),
+            rpc_url: None,
             provider: None,
             source: None,
             observer: None,
@@ -103,22 +103,14 @@ impl Pipeline {
         }
     }
 
+    /// Create a new pipeline with the given RPC URL.
+    pub fn new(rpc_url: String) -> Self {
+        Self { rpc_url: Some(rpc_url), ..Self::default_state() }
+    }
+
     /// Create a pipeline with a custom RPC account provider (useful for testing).
     pub fn with_provider(provider: Arc<dyn RpcAccountProvider>) -> Self {
-        Self {
-            rpc_url: None,
-            provider: Some(provider),
-            source: None,
-            observer: None,
-            offline: false,
-            verify_signatures: false,
-            slot: None,
-            timestamp: None,
-            parsed: None,
-            loader: None,
-            resolved: None,
-            mutations: None,
-        }
+        Self { provider: Some(provider), ..Self::default_state() }
     }
 
     // ── Config methods ──
@@ -204,13 +196,9 @@ impl Pipeline {
         let mut loader = if let Some(provider) = self.provider.clone() {
             AccountLoader::with_provider(provider)
         } else {
-            AccountLoader::new(
-                self.rpc_url
-                    .clone()
-                    .ok_or(SonarSimError::Validation {
-                        reason: "Pipeline requires either an RPC URL or a custom provider".into(),
-                    })?,
-            )?
+            AccountLoader::new(self.rpc_url.clone().ok_or(SonarSimError::Validation {
+                reason: "Pipeline requires either an RPC URL or a custom provider".into(),
+            })?)?
         };
 
         if let Some(source) = &self.source {
@@ -226,8 +214,7 @@ impl Pipeline {
         let resolved = match parsed {
             ParsedState::Single(p) => loader.load_for_transaction(&p.transaction)?,
             ParsedState::Bundle(txs) => {
-                let refs: Vec<&VersionedTransaction> =
-                    txs.iter().map(|t| &t.transaction).collect();
+                let refs: Vec<&VersionedTransaction> = txs.iter().map(|t| &t.transaction).collect();
                 loader.load_for_transactions(&refs)?
             }
         };
@@ -273,7 +260,11 @@ impl Pipeline {
     }
 
     /// Execute a bundle of transactions sequentially.
-    pub fn execute_bundle(mut self) -> Result<Vec<SimulationResult>> {
+    ///
+    /// Returns a [`BundleResult`] containing results for all executed
+    /// transactions and the total count. Check [`BundleResult::skipped_count`]
+    /// to detect transactions that were never attempted due to a prior failure.
+    pub fn execute_bundle(mut self) -> Result<BundleResult<Result<SimulationResult>>> {
         let parsed_state = self.parsed.take().ok_or(SonarSimError::Validation {
             reason: "parse_bundle() must be called before execute_bundle()".into(),
         })?;
@@ -338,12 +329,13 @@ impl Pipeline {
         let mut runner = prepared.into_runner();
 
         let tx_refs: Vec<&VersionedTransaction> = txs.iter().collect();
-        let exec_results = runner.execute_bundle(&tx_refs);
+        let bundle = runner.execute_bundle(&tx_refs);
 
-        exec_results
-            .into_iter()
-            .map(|r| r.map(SimulationResult::from_execution))
-            .collect()
+        // Map inner ExecutionResults to SimulationResults
+        let mapped =
+            bundle.executed.into_iter().map(|r| r.map(SimulationResult::from_execution)).collect();
+
+        Ok(BundleResult { executed: mapped, total: bundle.total })
     }
 
     // ── Private helpers ──
@@ -417,8 +409,7 @@ mod tests {
 
     #[test]
     fn execute_before_load_returns_validation_error() {
-        let pipeline = Pipeline::new("http://localhost:8899".into())
-            .parse(TEST_TX_BASE64).unwrap();
+        let pipeline = Pipeline::new("http://localhost:8899".into()).parse(TEST_TX_BASE64).unwrap();
         let result = pipeline.execute();
         assert!(result.is_err());
         let err = result.unwrap_err();
@@ -436,24 +427,36 @@ mod tests {
 
     #[test]
     fn parse_stores_transaction() {
-        let pipeline = Pipeline::new("http://localhost:8899".into())
-            .parse(TEST_TX_BASE64).unwrap();
+        let pipeline = Pipeline::new("http://localhost:8899".into()).parse(TEST_TX_BASE64).unwrap();
         assert!(pipeline.parsed().is_some());
     }
 
     #[test]
     fn execute_bundle_on_single_returns_error() {
-        let pipeline = Pipeline::new("http://localhost:8899".into())
-            .parse(TEST_TX_BASE64).unwrap();
+        let pipeline = Pipeline::new("http://localhost:8899".into()).parse(TEST_TX_BASE64).unwrap();
         let result = pipeline.execute_bundle();
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), SonarSimError::Validation { .. }));
     }
 
     #[test]
+    fn bundle_result_skipped_and_complete() {
+        let br: crate::executor::BundleResult<std::result::Result<(), String>> =
+            crate::executor::BundleResult { executed: vec![], total: 5 };
+        assert_eq!(br.skipped_count(), 5);
+        assert!(!br.is_complete());
+
+        let br_full =
+            crate::executor::BundleResult { executed: vec![Ok::<_, String>(())], total: 1 };
+        assert_eq!(br_full.skipped_count(), 0);
+        assert!(br_full.is_complete());
+    }
+
+    #[test]
     fn execute_on_bundle_returns_error() {
         let pipeline = Pipeline::new("http://localhost:8899".into())
-            .parse_bundle(&[TEST_TX_BASE64, TEST_TX_BASE64]).unwrap();
+            .parse_bundle(&[TEST_TX_BASE64, TEST_TX_BASE64])
+            .unwrap();
         let result = pipeline.execute();
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), SonarSimError::Validation { .. }));
@@ -461,16 +464,14 @@ mod tests {
 
     #[test]
     fn parsed_returns_none_for_bundle() {
-        let pipeline = Pipeline::new("http://localhost:8899".into())
-            .parse_bundle(&[TEST_TX_BASE64]).unwrap();
+        let pipeline =
+            Pipeline::new("http://localhost:8899".into()).parse_bundle(&[TEST_TX_BASE64]).unwrap();
         assert!(pipeline.parsed().is_none());
     }
 
     #[test]
     fn resolved_returns_none_before_load() {
-        let pipeline = Pipeline::new("http://localhost:8899".into())
-            .parse(TEST_TX_BASE64).unwrap();
+        let pipeline = Pipeline::new("http://localhost:8899".into()).parse(TEST_TX_BASE64).unwrap();
         assert!(pipeline.resolved().is_none());
     }
-
 }

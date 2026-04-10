@@ -5,8 +5,8 @@
 use solana_pubkey::Pubkey;
 
 use crate::types::{
-    AccountDataPatch, AccountOverride, InstructionAccountAppend,
-    InstructionAccountPatch, InstructionDataPatch, SolFunding, TokenFunding,
+    AccountDataPatch, AccountOverride, InstructionAccountAppend, InstructionAccountPatch,
+    InstructionDataPatch, SolFunding, TokenFunding,
 };
 
 /// All mutations to apply before simulation execution.

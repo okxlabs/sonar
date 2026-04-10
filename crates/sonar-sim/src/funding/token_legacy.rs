@@ -1,12 +1,12 @@
 use solana_account::{Account, AccountSharedData};
 use solana_pubkey::Pubkey;
 use solana_rent::Rent;
+use spl_token::solana_program::program_option::COption;
 use spl_token::solana_program::program_pack::Pack;
-use spl_token::solana_program::{program_option::COption, pubkey::Pubkey as ProgramPubkey};
 use spl_token::state::{Account as SplAccount, AccountState};
 
 use crate::error::{Result, SonarSimError};
-use crate::token_decode::{TokenProgramKind, legacy_program_id};
+use crate::token_decode::{TokenProgramKind, legacy_program_id, to_program_pubkey};
 use crate::types::PreparedTokenFunding;
 
 pub(super) fn build_token_account(
@@ -17,8 +17,8 @@ pub(super) fn build_token_account(
 ) -> Result<AccountSharedData> {
     let mut data = vec![0u8; SplAccount::LEN];
     let state = SplAccount {
-        mint: ProgramPubkey::new_from_array(mint.to_bytes()),
-        owner: ProgramPubkey::new_from_array(owner.to_bytes()),
+        mint: to_program_pubkey(mint),
+        owner: to_program_pubkey(owner),
         amount: 0,
         delegate: COption::None,
         state: AccountState::Initialized,
@@ -40,7 +40,7 @@ pub(super) fn build_token_account(
 }
 
 pub(super) fn update_token_balance_in_account(
-    account: &mut Account,
+    account: &mut AccountSharedData,
     account_pubkey: &Pubkey,
     mint: &Pubkey,
     owner: &Pubkey,
@@ -81,7 +81,7 @@ mod tests {
         assert_eq!(account.lamports(), rent.minimum_balance(SplAccount::LEN));
 
         let parsed = SplAccount::unpack(&account.data()[..SplAccount::LEN]).unwrap();
-        assert_eq!(Pubkey::new_from_array(parsed.mint.to_bytes()), mint);
+        assert_eq!(crate::token_decode::to_pubkey(&parsed.mint), mint);
         assert_eq!(parsed.amount, 0);
     }
 
@@ -90,8 +90,7 @@ mod tests {
         let mint = Pubkey::new_unique();
         let token = Pubkey::new_unique();
         let owner = Pubkey::new_unique();
-        let mut account =
-            Account::from(build_token_account(&token, &mint, &owner, &Rent::default()).unwrap());
+        let mut account = build_token_account(&token, &mint, &owner, &Rent::default()).unwrap();
         let result =
             update_token_balance_in_account(&mut account, &token, &mint, &owner, 42_000_000, 6)
                 .unwrap();
@@ -99,7 +98,7 @@ mod tests {
         assert_eq!(result.decimals, 6);
         assert!((result.ui_amount - 42.0).abs() < f64::EPSILON);
 
-        let parsed = SplAccount::unpack(&account.data[..SplAccount::LEN]).unwrap();
+        let parsed = SplAccount::unpack(&account.data()[..SplAccount::LEN]).unwrap();
         assert_eq!(parsed.amount, 42_000_000);
     }
 
@@ -108,13 +107,13 @@ mod tests {
         let mint = Pubkey::new_unique();
         let token = Pubkey::new_unique();
         let owner = Pubkey::new_unique();
-        let mut account = Account {
+        let mut account = AccountSharedData::from(solana_account::Account {
             lamports: 0,
             data: vec![0u8; 165],
             owner: token2022_program_id(),
             executable: false,
             rent_epoch: 0,
-        };
+        });
         let err = update_token_balance_in_account(&mut account, &token, &mint, &owner, 100, 6)
             .unwrap_err();
         assert!(err.to_string().contains("not owned by"));

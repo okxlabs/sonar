@@ -42,10 +42,18 @@ let result = Pipeline::new(rpc_url)
 ### Bundle Simulation
 
 ```rust
-let results = Pipeline::new(rpc_url)
+let bundle = Pipeline::new(rpc_url)
     .parse_bundle(&[tx1, tx2, tx3])?
     .load_accounts()?
-    .execute_bundle()?;        // Vec<SimulationResult>, stops on first failure
+    .execute_bundle()?;        // BundleResult<Result<SimulationResult>>, fail-fast
+
+for result in &bundle.executed {
+    let sim = result.as_ref().unwrap();
+    println!("success: {}", sim.success);
+}
+if bundle.skipped_count() > 0 {
+    println!("{} transactions were skipped due to prior failure", bundle.skipped_count());
+}
 ```
 
 ### Configuration

@@ -37,8 +37,7 @@ impl SimulationResult {
     pub(crate) fn from_execution(exec: ExecutionResult) -> Self {
         // Compute balance changes from pre/post snapshots
         let sol_changes = compute_sol_changes(&exec.pre_accounts, &exec.post_accounts);
-        let mint_decimals =
-            extract_mint_decimals_combined(&exec.pre_accounts, &exec.post_accounts);
+        let mint_decimals = extract_mint_decimals_combined(&exec.pre_accounts, &exec.post_accounts);
         let token_changes =
             compute_token_changes(&exec.pre_accounts, &exec.post_accounts, &mint_decimals);
 
@@ -50,10 +49,7 @@ impl SimulationResult {
         let return_data = if exec.meta.return_data.data.is_empty() {
             None
         } else {
-            Some((
-                exec.meta.return_data.program_id.to_string(),
-                exec.meta.return_data.data,
-            ))
+            Some((exec.meta.return_data.program_id.to_string(), exec.meta.return_data.data))
         };
 
         Self {

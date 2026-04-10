@@ -382,6 +382,7 @@ fn handle_bundle(
     let tx_refs: Vec<_> = parsed_txs.iter().map(|p| &p.transaction).collect();
     let bundle_results = runner.execute_bundle(&tx_refs);
     let simulations: Vec<_> = bundle_results
+        .executed
         .into_iter()
         .enumerate()
         .map(|(index, result)| {

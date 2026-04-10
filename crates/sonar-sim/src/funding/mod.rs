@@ -7,7 +7,7 @@ pub use sol::apply_sol_fundings;
 
 use std::collections::HashMap;
 
-use solana_account::{Account, AccountSharedData, ReadableAccount};
+use solana_account::{AccountSharedData, ReadableAccount};
 use solana_pubkey::Pubkey;
 use solana_rent::Rent;
 
@@ -144,7 +144,7 @@ fn prepare_single_token_funding(
         })?;
 
     if let Some(account) = lookup_account(resolved, extras, &request.account) {
-        ensure_same_program(program_kind, account.owner(), "token account")?;
+        ensure_same_program(program_kind, account.owner(), "token account", request.account)?;
     }
 
     Ok(PreparedTokenFunding {
@@ -184,7 +184,7 @@ fn apply_single_token_funding<B: SvmBackend + ?Sized>(
             .accounts
             .get(&funding.mint)
             .ok_or(SonarSimError::AccountNotFound { pubkey: funding.mint })?;
-        let created = match kind {
+        match kind {
             TokenProgramKind::Legacy => token_legacy::build_token_account(
                 &funding.account,
                 &funding.mint,
@@ -198,8 +198,7 @@ fn apply_single_token_funding<B: SvmBackend + ?Sized>(
                 mint_account,
                 &rent,
             )?,
-        };
-        Account::from(created)
+        }
     };
 
     let _ = match kind {
@@ -232,7 +231,7 @@ fn read_rent_from_svm<B: SvmBackend + ?Sized>(svm: &B) -> Result<Rent> {
     let rent_account = svm.get_account(&rent_id).ok_or_else(|| SonarSimError::Svm {
         reason: "Rent sysvar account not found in SVM".into(),
     })?;
-    bincode::deserialize(&rent_account.data).map_err(|e| SonarSimError::Serialization {
+    bincode::deserialize(rent_account.data()).map_err(|e| SonarSimError::Serialization {
         reason: format!("Failed to deserialize Rent sysvar: {e}"),
     })
 }
@@ -300,8 +299,8 @@ mod tests {
     use litesvm::LiteSVM;
     use solana_account::{Account, AccountSharedData, ReadableAccount};
     use solana_pubkey::Pubkey;
+    use spl_token::solana_program::program_option::COption;
     use spl_token::solana_program::program_pack::Pack;
-    use spl_token::solana_program::{program_option::COption, pubkey::Pubkey as ProgramPubkey};
     use spl_token::state::{Account as SplAccount, AccountState, Mint as SplMint};
 
     use crate::token_decode::{legacy_program_id, raw_to_ui_amount};
@@ -570,14 +569,14 @@ mod tests {
 
         let created = svm.get_account(&token).expect("token account should be created");
         let parsed = SplAccount::unpack(&created.data[..SplAccount::LEN]).unwrap();
-        assert_eq!(Pubkey::new_from_array(parsed.owner.to_bytes()), owner);
+        assert_eq!(crate::token_decode::to_pubkey(&parsed.owner), owner);
         assert_eq!(parsed.amount, 1_000_000);
     }
 
     fn spl_token_account_and_mint(mint: &Pubkey, owner: &Pubkey) -> (Account, Account) {
         let token_state = SplAccount {
-            mint: ProgramPubkey::new_from_array(mint.to_bytes()),
-            owner: ProgramPubkey::new_from_array(owner.to_bytes()),
+            mint: crate::token_decode::to_program_pubkey(mint),
+            owner: crate::token_decode::to_program_pubkey(owner),
             amount: 0,
             delegate: COption::None,
             state: AccountState::Initialized,

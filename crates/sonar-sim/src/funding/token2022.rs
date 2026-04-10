@@ -1,13 +1,13 @@
 use solana_account::{Account, AccountSharedData, ReadableAccount};
 use solana_pubkey::Pubkey;
 use solana_rent::Rent;
-use spl_token::solana_program::{program_option::COption, pubkey::Pubkey as ProgramPubkey};
+use spl_token::solana_program::program_option::COption;
 use spl_token_2022::extension::{BaseStateWithExtensions, BaseStateWithExtensionsMut};
 use spl_token_2022::extension::{ExtensionType, StateWithExtensions, StateWithExtensionsMut};
 use spl_token_2022::state::{Account as Token2022Account, AccountState, Mint as Token2022Mint};
 
 use crate::error::{Result, SonarSimError};
-use crate::token_decode::{TokenProgramKind, token2022_program_id};
+use crate::token_decode::{TokenProgramKind, to_program_pubkey, token2022_program_id};
 use crate::types::PreparedTokenFunding;
 
 pub(super) fn build_token_account_with_extensions(
@@ -47,8 +47,8 @@ pub(super) fn build_token_account_with_extensions(
         })?;
 
     state.base = Token2022Account {
-        mint: ProgramPubkey::new_from_array(mint.to_bytes()),
-        owner: ProgramPubkey::new_from_array(owner.to_bytes()),
+        mint: to_program_pubkey(mint),
+        owner: to_program_pubkey(owner),
         amount: 0,
         delegate: COption::None,
         state: AccountState::Initialized,
@@ -79,7 +79,7 @@ pub(super) fn build_token_account_with_extensions(
 }
 
 pub(super) fn update_token_balance_in_account(
-    account: &mut Account,
+    account: &mut AccountSharedData,
     account_pubkey: &Pubkey,
     mint: &Pubkey,
     owner: &Pubkey,
@@ -112,7 +112,7 @@ mod tests {
     use spl_token_2022::state::{Account as Token2022Account, Mint as Token2022Mint};
 
     use super::*;
-    use crate::token_decode::token2022_program_id;
+    use crate::token_decode::{to_pubkey, token2022_program_id};
 
     fn mint_account_base_only() -> AccountSharedData {
         let mint = Token2022Mint {
@@ -218,23 +218,22 @@ mod tests {
         let token = Pubkey::new_unique();
         let owner = Pubkey::new_unique();
         let mint_account = mint_account_base_only();
-        let mut account = Account::from(
-            build_token_account_with_extensions(
-                &token,
-                &mint,
-                &owner,
-                &mint_account,
-                &Rent::default(),
-            )
-            .unwrap(),
-        );
+        let mut account = build_token_account_with_extensions(
+            &token,
+            &mint,
+            &owner,
+            &mint_account,
+            &Rent::default(),
+        )
+        .unwrap();
         let result =
             update_token_balance_in_account(&mut account, &token, &mint, &owner, 5_000_000, 6)
                 .unwrap();
         assert_eq!(result.amount_raw, 5_000_000);
         assert!((result.ui_amount - 5.0).abs() < f64::EPSILON);
 
-        let state = StateWithExtensions::<Token2022Account>::unpack(&account.data).expect("unpack");
+        let state =
+            StateWithExtensions::<Token2022Account>::unpack(account.data()).expect("unpack");
         assert_eq!(state.base.amount, 5_000_000);
     }
 
@@ -250,6 +249,6 @@ mod tests {
                 .unwrap();
         let state =
             StateWithExtensions::<Token2022Account>::unpack(account.data()).expect("unpack");
-        assert_eq!(Pubkey::new_from_array(state.base.owner.to_bytes()), owner);
+        assert_eq!(to_pubkey(&state.base.owner), owner);
     }
 }

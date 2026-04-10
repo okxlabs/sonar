@@ -165,7 +165,6 @@ mod tests {
     use solana_sdk_ids::system_program;
     use spl_token::solana_program::program_option::COption;
     use spl_token::solana_program::program_pack::Pack;
-    use spl_token::solana_program::pubkey::Pubkey as ProgramPubkey;
     use spl_token::state::{Account as SplTokenAccount, AccountState};
 
     fn create_shared_account_with_lamports(lamports: u64) -> AccountSharedData {
@@ -185,8 +184,8 @@ mod tests {
         lamports: u64,
     ) -> AccountSharedData {
         let state = SplTokenAccount {
-            mint: ProgramPubkey::new_from_array(mint.to_bytes()),
-            owner: ProgramPubkey::new_from_array(token_owner.to_bytes()),
+            mint: crate::token_decode::to_program_pubkey(mint),
+            owner: crate::token_decode::to_program_pubkey(token_owner),
             amount,
             delegate: COption::None,
             state: AccountState::Initialized,
@@ -199,7 +198,7 @@ mod tests {
         AccountSharedData::from(Account {
             lamports,
             data,
-            owner: Pubkey::new_from_array(spl_token::ID.to_bytes()),
+            owner: crate::token_decode::to_pubkey(&spl_token::ID),
             executable: false,
             rent_epoch: 0,
         })

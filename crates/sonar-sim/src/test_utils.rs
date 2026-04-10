@@ -15,7 +15,6 @@ use solana_transaction::Transaction;
 use solana_transaction::versioned::VersionedTransaction;
 use spl_token::solana_program::program_option::COption;
 use spl_token::solana_program::program_pack::Pack;
-use spl_token::solana_program::pubkey::Pubkey as ProgramPubkey;
 use spl_token::state::{Account as SplAccount, AccountState};
 
 use crate::svm_backend::SvmBackend;
@@ -43,8 +42,8 @@ pub(crate) fn create_transfer_tx(
 
 pub(crate) fn make_token_account_data(mint: &Pubkey, token_owner: &Pubkey, amount: u64) -> Vec<u8> {
     let state = SplAccount {
-        mint: ProgramPubkey::new_from_array(mint.to_bytes()),
-        owner: ProgramPubkey::new_from_array(token_owner.to_bytes()),
+        mint: crate::token_decode::to_program_pubkey(mint),
+        owner: crate::token_decode::to_program_pubkey(token_owner),
         amount,
         delegate: COption::None,
         state: AccountState::Initialized,
@@ -71,7 +70,7 @@ pub(crate) fn make_token_account_shared_with(
     AccountSharedData::from(Account {
         lamports: 1,
         data,
-        owner: spl_token::ID,
+        owner: crate::token_decode::to_pubkey(&spl_token::ID),
         executable: false,
         rent_epoch: 0,
     })
@@ -80,7 +79,7 @@ pub(crate) fn make_token_account_shared_with(
 /// In-memory SVM backend for testing executor pipeline functions
 /// without spinning up a real LiteSVM instance.
 pub(crate) struct MockSvm {
-    pub accounts: HashMap<Pubkey, Account>,
+    pub accounts: HashMap<Pubkey, AccountSharedData>,
     pub slot: u64,
     /// When set, `set_account` returns this error string.
     pub fail_set_account: Option<String>,
@@ -99,13 +98,17 @@ impl MockSvm {
     }
 
     pub fn with_account(mut self, pubkey: Pubkey, account: Account) -> Self {
-        self.accounts.insert(pubkey, account);
+        self.accounts.insert(pubkey, AccountSharedData::from(account));
         self
     }
 }
 
 impl SvmBackend for MockSvm {
-    fn set_account(&mut self, pubkey: Pubkey, account: Account) -> std::result::Result<(), String> {
+    fn set_account(
+        &mut self,
+        pubkey: Pubkey,
+        account: AccountSharedData,
+    ) -> std::result::Result<(), String> {
         if let Some(ref msg) = self.fail_set_account {
             return Err(msg.clone());
         }
@@ -113,7 +116,7 @@ impl SvmBackend for MockSvm {
         Ok(())
     }
 
-    fn get_account(&self, pubkey: &Pubkey) -> Option<Account> {
+    fn get_account(&self, pubkey: &Pubkey) -> Option<AccountSharedData> {
         self.accounts.get(pubkey).cloned()
     }
 

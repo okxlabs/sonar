@@ -301,22 +301,26 @@ fn expand_lookup_table(
     })?;
     let all_addresses = lookup_table.addresses.to_vec();
 
-    let writable_addresses = resolve_lookup_indexes(&all_addresses, &plan.writable_indexes)
-        .map_err(|e| SonarSimError::LookupTable {
-            table: Some(plan.account_key),
-            reason: format!(
-                "Failed to parse writable indexes for address lookup table `{}`: {e}",
-                plan.account_key
-            ),
-        })?;
-    let readonly_addresses = resolve_lookup_indexes(&all_addresses, &plan.readonly_indexes)
-        .map_err(|e| SonarSimError::LookupTable {
-            table: Some(plan.account_key),
-            reason: format!(
-                "Failed to parse readonly indexes for address lookup table `{}`: {e}",
-                plan.account_key
-            ),
-        })?;
+    let writable_addresses =
+        resolve_lookup_indexes(&all_addresses, &plan.writable_indexes, plan.account_key).map_err(
+            |e| SonarSimError::LookupTable {
+                table: Some(plan.account_key),
+                reason: format!(
+                    "Failed to parse writable indexes for address lookup table `{}`: {e}",
+                    plan.account_key
+                ),
+            },
+        )?;
+    let readonly_addresses =
+        resolve_lookup_indexes(&all_addresses, &plan.readonly_indexes, plan.account_key).map_err(
+            |e| SonarSimError::LookupTable {
+                table: Some(plan.account_key),
+                reason: format!(
+                    "Failed to parse readonly indexes for address lookup table `{}`: {e}",
+                    plan.account_key
+                ),
+            },
+        )?;
 
     Ok(ResolvedLookup {
         account_key: plan.account_key,
@@ -327,12 +331,16 @@ fn expand_lookup_table(
     })
 }
 
-fn resolve_lookup_indexes(addresses: &[Pubkey], indexes: &[u8]) -> Result<Vec<Pubkey>> {
+fn resolve_lookup_indexes(
+    addresses: &[Pubkey],
+    indexes: &[u8],
+    table_key: Pubkey,
+) -> Result<Vec<Pubkey>> {
     indexes
         .iter()
         .map(|idx| {
             addresses.get(*idx as usize).copied().ok_or_else(|| SonarSimError::LookupTable {
-                table: None,
+                table: Some(table_key),
                 reason: format!("Index {idx} out of address lookup table range"),
             })
         })
@@ -661,21 +669,28 @@ mod tests {
         let addr1 = Pubkey::new_unique();
         let addr2 = Pubkey::new_unique();
         let addresses = vec![addr0, addr1, addr2];
-        let result = resolve_lookup_indexes(&addresses, &[2, 0]).unwrap();
+        let table_key = Pubkey::new_unique();
+        let result = resolve_lookup_indexes(&addresses, &[2, 0], table_key).unwrap();
         assert_eq!(result, vec![addr2, addr0]);
     }
 
     #[test]
     fn resolve_lookup_indexes_out_of_bounds() {
         let addresses = vec![Pubkey::new_unique()];
-        let err = resolve_lookup_indexes(&addresses, &[5]).unwrap_err();
+        let table_key = Pubkey::new_unique();
+        let err = resolve_lookup_indexes(&addresses, &[5], table_key).unwrap_err();
         assert!(err.to_string().contains("out of"));
+        assert!(
+            matches!(err, SonarSimError::LookupTable { table: Some(t), .. } if t == table_key),
+            "error should include the table pubkey"
+        );
     }
 
     #[test]
     fn resolve_lookup_indexes_empty() {
         let addresses = vec![Pubkey::new_unique()];
-        let result = resolve_lookup_indexes(&addresses, &[]).unwrap();
+        let table_key = Pubkey::new_unique();
+        let result = resolve_lookup_indexes(&addresses, &[], table_key).unwrap();
         assert!(result.is_empty());
     }
 

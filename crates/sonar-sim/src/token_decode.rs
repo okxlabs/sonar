@@ -15,6 +15,24 @@ use spl_token::state::{Account as SplTokenAccount, Mint as SplMint};
 
 use crate::error::{Result, SonarSimError};
 
+// ── Pubkey conversion helpers ──
+//
+// SPL Token crates re-export `solana_program::pubkey::Pubkey` which is a
+// different type than `solana_pubkey::Pubkey` (same layout, different crate).
+// These helpers bridge the gap without the noisy `new_from_array(..to_bytes())`.
+
+/// Convert from SPL's `Pubkey` to `solana_pubkey::Pubkey`.
+#[inline]
+pub(crate) fn to_pubkey(p: &spl_token::solana_program::pubkey::Pubkey) -> Pubkey {
+    Pubkey::new_from_array(p.to_bytes())
+}
+
+/// Convert from `solana_pubkey::Pubkey` to SPL's `Pubkey`.
+#[inline]
+pub(crate) fn to_program_pubkey(p: &Pubkey) -> spl_token::solana_program::pubkey::Pubkey {
+    spl_token::solana_program::pubkey::Pubkey::new_from_array(p.to_bytes())
+}
+
 // ── Program identification ──
 
 /// Known SPL-compatible token programs.
@@ -57,11 +75,11 @@ impl fmt::Display for TokenProgramKind {
 }
 
 pub(crate) fn legacy_program_id() -> Pubkey {
-    Pubkey::new_from_array(spl_token::ID.to_bytes())
+    to_pubkey(&spl_token::ID)
 }
 
 pub(crate) fn token2022_program_id() -> Pubkey {
-    Pubkey::new_from_array(spl_token_2022::ID.to_bytes())
+    to_pubkey(&spl_token_2022::ID)
 }
 
 // ── Mint decimals ──
@@ -139,8 +157,8 @@ pub fn try_decode_token_account(
     }
     let parsed = SplTokenAccount::unpack(&data[..SplTokenAccount::LEN]).ok()?;
     Some(DecodedTokenAccount {
-        mint: Pubkey::new_from_array(parsed.mint.to_bytes()),
-        owner: Pubkey::new_from_array(parsed.owner.to_bytes()),
+        mint: to_pubkey(&parsed.mint),
+        owner: to_pubkey(&parsed.owner),
         amount: parsed.amount,
     })
 }
@@ -158,10 +176,11 @@ pub(crate) fn ensure_same_program(
     kind: TokenProgramKind,
     owner: &Pubkey,
     label: &str,
+    account: Pubkey,
 ) -> Result<()> {
     if owner != &kind.program_id() {
         return Err(SonarSimError::Token {
-            account: None,
+            account: Some(account),
             reason: format!("Provided {label} is not owned by {}", kind.program_name()),
         });
     }
