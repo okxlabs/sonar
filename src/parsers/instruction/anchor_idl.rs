@@ -7,7 +7,7 @@
 
 use anyhow::Result;
 use solana_pubkey::Pubkey;
-use sonar_idl::IdlParsedInstruction;
+use sonar_idl::{IdlInstructionFields, IdlParsedInstruction};
 
 use crate::core::transaction::InstructionSummary;
 use crate::parsers::instruction::{InstructionParser, ParsedField, ParsedInstruction};
@@ -19,11 +19,15 @@ pub use sonar_idl::IndexedIdl;
 // ── Adapter: IDL model → CLI model ──
 
 fn to_parsed_instruction(idl_parsed: IdlParsedInstruction) -> ParsedInstruction {
-    let fields = idl_parsed
-        .fields
-        .into_iter()
-        .map(|field| ParsedField::json(field.name, field.value))
-        .collect();
+    let fields = match idl_parsed.fields {
+        IdlInstructionFields::Parsed(fields) => {
+            fields.into_iter().map(|field| ParsedField::json(field.name, field.value)).collect()
+        }
+        IdlInstructionFields::Unparsed(raw_args_hex) => {
+            vec![ParsedField::text("__raw_hex__", raw_args_hex)]
+        }
+        IdlInstructionFields::Empty => Vec::new(),
+    };
 
     ParsedInstruction { name: idl_parsed.name, fields, account_names: idl_parsed.account_names }
 }

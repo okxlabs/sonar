@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::ops::Deref;
 
 use anyhow::Result;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -20,7 +21,7 @@ const CPI_EVENT_ACCOUNT_NAME: &str = "event_authority";
 #[derive(Debug, Clone, Serialize)]
 pub struct IdlParsedInstruction {
     pub name: String,
-    pub fields: Vec<IdlParsedField>,
+    pub fields: IdlInstructionFields,
     pub account_names: Vec<String>,
 }
 
@@ -29,6 +30,35 @@ pub struct IdlParsedInstruction {
 pub struct IdlParsedField {
     pub name: String,
     pub value: Value,
+}
+
+/// Field decode state for a matched IDL instruction.
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum IdlInstructionFields {
+    Parsed(Vec<IdlParsedField>),
+    Unparsed(String),
+    Empty,
+}
+
+impl IdlInstructionFields {
+    pub fn raw_args_hex(&self) -> Option<&str> {
+        match self {
+            Self::Unparsed(raw_args_hex) => Some(raw_args_hex),
+            _ => None,
+        }
+    }
+}
+
+impl Deref for IdlInstructionFields {
+    type Target = [IdlParsedField];
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            Self::Parsed(fields) => fields.as_slice(),
+            Self::Unparsed(_) | Self::Empty => &[],
+        }
+    }
 }
 
 // ── Indexed IDL ──
@@ -118,7 +148,17 @@ impl IndexedIdl {
         };
 
         let mut offset = idl_instruction.discriminator.as_ref().map_or(0, |d| d.len());
-        let fields = parse_instruction_args(data, &mut offset, &idl_instruction.args, self)?;
+        let args_offset = offset;
+        let fields = if idl_instruction.args.is_empty() {
+            IdlInstructionFields::Empty
+        } else {
+            match parse_instruction_args(data, &mut offset, &idl_instruction.args, self) {
+                Ok(fields) => IdlInstructionFields::Parsed(fields),
+                Err(_) => IdlInstructionFields::Unparsed(hex::encode(
+                    data.get(args_offset..).unwrap_or_default(),
+                )),
+            }
+        };
         let account_names = flatten_account_names(&idl_instruction.accounts);
 
         Ok(Some(IdlParsedInstruction { name: idl_instruction.name.clone(), fields, account_names }))
@@ -158,7 +198,14 @@ impl IndexedIdl {
 
         let mut offset = 8 + disc_len;
         let fields = match type_fields.as_ref() {
-            Some(fields) => parse_idl_fields_as_parsed_fields(data, &mut offset, fields, self)?,
+            Some(fields) => {
+                match parse_idl_fields_as_parsed_fields(data, &mut offset, fields, self) {
+                    Ok(fields) => IdlInstructionFields::Parsed(fields),
+                    Err(_) => IdlInstructionFields::Unparsed(hex::encode(
+                        data.get(8 + disc_len..).unwrap_or_default(),
+                    )),
+                }
+            }
             None => {
                 let mut raw_fields = Vec::new();
                 if offset < data.len() {
@@ -168,7 +215,11 @@ impl IndexedIdl {
                         value: raw_unparsed_value("event_data", &event_def.name, raw_data),
                     });
                 }
-                raw_fields
+                if raw_fields.is_empty() {
+                    IdlInstructionFields::Empty
+                } else {
+                    IdlInstructionFields::Parsed(raw_fields)
+                }
             }
         };
 

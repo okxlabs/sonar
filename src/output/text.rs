@@ -31,6 +31,8 @@ const INDENT_L2: &str = "    ";
 
 /// Subdued gray for metadata columns (index labels, permission flags, account names).
 const DIM_GRAY: colored::CustomColor = colored::CustomColor { r: 128, g: 128, b: 128 };
+/// Warm amber for fallback raw hex when structured instruction decoding fails.
+const RAW_HEX_AMBER: colored::CustomColor = colored::CustomColor { r: 214, g: 154, b: 74 };
 
 pub(super) fn render_text(
     report: &Report,
@@ -547,6 +549,7 @@ fn render_instruction_details_text(
 
         // Try to parse the instruction
         if let Some(parsed) = &ix.parsed {
+            let use_raw_hex_fallback = should_render_raw_instruction_hex(&parsed.fields);
             println!(
                 "#{} {} {}",
                 outer_number.to_string().custom_color((229, 192, 123)),
@@ -570,11 +573,19 @@ fn render_instruction_details_text(
                 );
             }
 
-            if show_ix_data {
+            if use_raw_hex_fallback {
+                render_instruction_data_text_with_color(
+                    &current_data_indent,
+                    &ix.data,
+                    Some(RAW_HEX_AMBER),
+                );
+            } else if show_ix_data {
                 render_instruction_data_text(&current_data_indent, &ix.data);
             }
 
-            render_parsed_fields(&parsed.fields, &current_data_indent);
+            if !use_raw_hex_fallback {
+                render_parsed_fields(&parsed.fields, &current_data_indent);
+            }
         } else {
             println!(
                 "#{} {}",
@@ -597,6 +608,8 @@ fn render_instruction_details_text(
                 };
 
                 if let Some(parsed_inner) = &inner_ix.parsed {
+                    let use_raw_hex_fallback =
+                        should_render_raw_instruction_hex(&parsed_inner.fields);
                     println!(
                         "{}{} {} {}",
                         INDENT_L1,
@@ -620,11 +633,19 @@ fn render_instruction_details_text(
                         );
                     }
 
-                    if show_ix_data {
+                    if use_raw_hex_fallback {
+                        render_instruction_data_text_with_color(
+                            &current_inner_data_indent,
+                            &inner_ix.data,
+                            Some(RAW_HEX_AMBER),
+                        );
+                    } else if show_ix_data {
                         render_instruction_data_text(&current_inner_data_indent, &inner_ix.data);
                     }
 
-                    render_parsed_fields(&parsed_inner.fields, &current_inner_data_indent);
+                    if !use_raw_hex_fallback {
+                        render_parsed_fields(&parsed_inner.fields, &current_inner_data_indent);
+                    }
                 } else {
                     println!(
                         "{}{} {}",
@@ -882,5 +903,37 @@ fn render_parsed_fields(fields: &[ParsedField], indent: &str) {
 }
 
 fn render_instruction_data_text(indent: &str, data: &[u8]) {
-    println!("{}0x{} {} bytes", indent, hex::encode(data), data.len());
+    render_instruction_data_text_with_color(indent, data, None);
+}
+
+fn render_instruction_data_text_with_color(
+    indent: &str,
+    data: &[u8],
+    color: Option<colored::CustomColor>,
+) {
+    let line = format!("{}0x{} {} bytes", indent, hex::encode(data), data.len());
+    match color {
+        Some(color) => println!("{}", line.custom_color(color)),
+        None => println!("{line}"),
+    }
+}
+
+fn should_render_raw_instruction_hex(fields: &[ParsedField]) -> bool {
+    matches!(
+        fields,
+        [ParsedField { name, value: ParsedFieldValue::Text(raw_hex) }]
+            if name == "__raw_hex__" && !raw_hex.is_empty()
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn should_render_raw_instruction_hex_for_unparsed_idl_fields() {
+        let fields = vec![ParsedField::text("__raw_hex__", "0025a16608ca3c00")];
+
+        assert!(should_render_raw_instruction_hex(&fields));
+    }
 }

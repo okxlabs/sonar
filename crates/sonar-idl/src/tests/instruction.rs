@@ -2,7 +2,7 @@ use serde_json::{Value, json};
 
 use crate::discriminator::sighash;
 use crate::idl::*;
-use crate::indexed::IndexedIdl;
+use crate::indexed::{IdlInstructionFields, IndexedIdl};
 
 use super::hello_anchor_indexed_idl;
 
@@ -212,7 +212,7 @@ fn indexed_idl_parse_instruction_multiple_primitive_args() {
 }
 
 #[test]
-fn indexed_idl_parse_instruction_errors_when_a_required_arg_is_missing() {
+fn indexed_idl_parse_instruction_marks_fields_unparsed_when_a_required_arg_is_missing() {
     let indexed: IndexedIdl = serde_json::from_str(
         r#"{
             "address": "11111111111111111111111111111111",
@@ -234,8 +234,13 @@ fn indexed_idl_parse_instruction_errors_when_a_required_arg_is_missing() {
     let mut data = vec![4, 5, 6, 7, 8, 9, 10, 11];
     data.extend_from_slice(&123u32.to_le_bytes());
 
-    let err = indexed.parse_instruction(&data).unwrap_err();
-    assert!(err.to_string().contains("Insufficient data"));
+    let parsed = indexed.parse_instruction(&data).unwrap().unwrap();
+    assert_eq!(parsed.name, "pair");
+    assert_eq!(parsed.account_names, Vec::<String>::new());
+    assert!(matches!(
+        parsed.fields,
+        IdlInstructionFields::Unparsed(raw_args_hex) if raw_args_hex == "7b000000"
+    ));
 }
 
 #[test]
@@ -274,7 +279,7 @@ fn indexed_idl_parse_instruction_with_defined_struct_arg() {
 }
 
 #[test]
-fn indexed_idl_parse_instruction_errors_when_a_defined_struct_field_is_missing() {
+fn indexed_idl_parse_instruction_marks_fields_unparsed_when_a_defined_struct_field_is_missing() {
     let indexed: IndexedIdl = serde_json::from_str(
         r#"{
             "address": "11111111111111111111111111111111",
@@ -302,8 +307,12 @@ fn indexed_idl_parse_instruction_errors_when_a_defined_struct_field_is_missing()
     let mut data = vec![10, 20, 30, 40, 50, 60, 70, 80];
     data.extend_from_slice(&100u32.to_le_bytes());
 
-    let err = indexed.parse_instruction(&data).unwrap_err();
-    assert!(err.to_string().contains("Insufficient data"));
+    let parsed = indexed.parse_instruction(&data).unwrap().unwrap();
+    assert_eq!(parsed.name, "create");
+    assert!(matches!(
+        parsed.fields,
+        IdlInstructionFields::Unparsed(raw_args_hex) if raw_args_hex == "64000000"
+    ));
 }
 
 #[test]

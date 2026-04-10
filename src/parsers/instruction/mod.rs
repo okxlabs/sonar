@@ -482,6 +482,76 @@ mod tests {
         std::fs::remove_file(existing_path).ok();
         std::fs::remove_dir_all(test_dir).ok();
     }
+
+    #[test]
+    fn parser_registry_marks_truncated_idl_args_as_raw_hex() {
+        let test_dir = std::env::temp_dir().join(format!(
+            "sonar-idl-unparsed-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock should be valid")
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&test_dir).expect("create temp idl dir");
+
+        let program_id = Pubkey::new_unique();
+        let idl_path = test_dir.join(format!("{program_id}.json"));
+        std::fs::write(
+            &idl_path,
+            format!(
+                r#"{{
+                    "address": "{program_id}",
+                    "metadata": {{ "name": "demo", "version": "0.1.0", "spec": "0.1.0" }},
+                    "instructions": [{{
+                        "name": "swap_toc",
+                        "discriminator": [187, 201, 212, 51, 16, 155, 236, 60],
+                        "accounts": [{{ "name": "payer", "writable": true, "signer": true }}],
+                        "args": [
+                            {{ "name": "amount_in", "type": "u64" }},
+                            {{ "name": "slippage_bps", "type": "u16" }}
+                        ]
+                    }}],
+                    "types": []
+                }}"#
+            ),
+        )
+        .expect("write temp idl");
+
+        let instruction = crate::core::transaction::InstructionSummary {
+            index: 7,
+            program: crate::core::transaction::AccountReferenceSummary {
+                index: 0,
+                pubkey: Some(program_id.to_string()),
+                signer: false,
+                writable: false,
+                source: crate::core::transaction::AccountSourceSummary::Static,
+            },
+            accounts: vec![crate::core::transaction::AccountReferenceSummary {
+                index: 1,
+                pubkey: Some(Pubkey::new_unique().to_string()),
+                signer: true,
+                writable: true,
+                source: crate::core::transaction::AccountSourceSummary::Static,
+            }],
+            data: vec![187, 201, 212, 51, 16, 155, 236, 60, 0, 37, 161, 102, 8, 202, 60, 0]
+                .into_boxed_slice(),
+        };
+
+        let mut registry = ParserRegistry::new(Some(test_dir.clone()));
+        let parsed = registry
+            .parse_instruction(&instruction, &program_id)
+            .expect("expected parser registry to preserve instruction metadata");
+
+        assert_eq!(parsed.name, "swap_toc");
+        assert_eq!(parsed.account_names, vec!["payer"]);
+        assert_eq!(parsed.fields.len(), 1);
+        assert_eq!(parsed.fields[0].name, "__raw_hex__");
+        assert_eq!(parsed.fields[0].value, "0025a16608ca3c00".to_string());
+
+        std::fs::remove_file(idl_path).ok();
+        std::fs::remove_dir_all(test_dir).ok();
+    }
 }
 
 mod system_program;
