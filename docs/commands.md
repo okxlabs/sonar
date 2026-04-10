@@ -57,7 +57,7 @@ sonar program-elf <BUFFER_ADDRESS> --rpc-url <RPC_URL> -o buffer.so
 
 ## IDL
 
-Manage Anchor IDLs (fetch/sync/address). By default, `idl fetch` and `idl sync` exit with a non-zero code if any program fails (not found or RPC error). stdout contains only successfully written file paths; failure details and a summary go to stderr. Use `--allow-partial` to exit 0 even when some programs fail.
+Manage Anchor IDLs (fetch/sync/address). `idl fetch` and `idl sync` always exit 0, even when some programs fail. stdout contains only successfully written file paths; failure details and a summary go to stderr. Use `--json` to get per-program status for programmatic consumption.
 
 ```bash
 # Fetch one IDL
@@ -65,9 +65,6 @@ sonar idl fetch <PROGRAM_ID> --rpc-url <RPC_URL>
 
 # Fetch multiple IDLs
 sonar idl fetch <PROGRAM_ID_1> <PROGRAM_ID_2> --rpc-url <RPC_URL> -o ./idls/
-
-# Allow partial success (exit 0 when some fail)
-sonar idl fetch <PROGRAM_ID_1> <PROGRAM_ID_2> --rpc-url <RPC_URL> --allow-partial
 
 # Sync using an existing IDL directory (scan `<PUBKEY>.json` names)
 sonar idl sync ./idls/ --rpc-url <RPC_URL>
