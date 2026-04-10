@@ -12,9 +12,9 @@ use crate::core::transaction::{AccountReferenceSummary, AccountSourceSummary, Pa
 use crate::parsers::instruction::{
     ParsedInstruction, ParserRegistry, anchor_idl::is_anchor_cpi_event,
 };
-use sonar_sim::{
-    AccountOverride, ExecutionStatus, PreparedTokenFunding, ResolvedAccounts, ResolvedLookup,
-    SimulationMetadata, SimulationResult, SolFunding, compute_sol_changes, compute_token_changes,
+use sonar_sim::internals::{
+    AccountOverride, ExecutionResult, ExecutionStatus, PreparedTokenFunding, ResolvedAccounts,
+    ResolvedLookup, SimulationMetadata, SolFunding, compute_sol_changes, compute_token_changes,
     extract_mint_decimals_combined,
 };
 
@@ -85,7 +85,7 @@ impl BundleReport {
     pub(super) fn from_sources(
         parsed_txs: &[ParsedTransaction],
         resolved: &ResolvedAccounts,
-        simulations: &[SimulationResult],
+        simulations: &[ExecutionResult],
         account_closures: &[Pubkey],
         overrides: &[AccountOverride],
         fundings: &[SolFunding],
@@ -161,7 +161,7 @@ impl Report {
     pub(super) fn from_sources(
         parsed: &ParsedTransaction,
         resolved: &ResolvedAccounts,
-        simulation: &SimulationResult,
+        simulation: &ExecutionResult,
         account_closures: &[Pubkey],
         overrides: &[AccountOverride],
         fundings: &[SolFunding],
@@ -227,7 +227,7 @@ impl Report {
 /// `execute()`, which already reflect any SOL fundings applied during
 /// executor preparation.
 fn compute_balance_changes_for_single_tx(
-    simulation: &SimulationResult,
+    simulation: &ExecutionResult,
     balance_opts: BalanceChangeOptions,
 ) -> (Vec<SolBalanceChangeSection>, Vec<TokenBalanceChangeSection>) {
     let mut sol_changes = Vec::new();
@@ -279,7 +279,7 @@ fn compute_balance_changes_for_single_tx(
 /// - post_accounts: latest state for each account (last occurrence across all txs)
 fn compute_bundle_overall_balance_changes(
     resolved: &ResolvedAccounts,
-    simulations: &[SimulationResult],
+    simulations: &[ExecutionResult],
     balance_opts: BalanceChangeOptions,
 ) -> (Vec<SolBalanceChangeSection>, Vec<TokenBalanceChangeSection>) {
     if !balance_opts.show_balance_change || simulations.is_empty() {
@@ -753,7 +753,7 @@ pub(super) struct SimulationSection {
 }
 
 impl SimulationSection {
-    fn from_result(result: &SimulationResult) -> Self {
+    fn from_result(result: &ExecutionResult) -> Self {
         let (status, post_account_count) = match &result.status {
             ExecutionStatus::Succeeded => {
                 (SimulationStatusReport::Succeeded, result.post_accounts.len())

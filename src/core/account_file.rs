@@ -13,7 +13,7 @@ use solana_sdk_ids::system_program;
 use solana_slot_hashes::SlotHashes;
 use solana_sysvar_id::SysvarId;
 
-use sonar_sim::ResolvedAccounts;
+use sonar_sim::internals::ResolvedAccounts;
 
 /// JSON structure for deserializing an account file (flat format).
 /// Supports the simple `{ "lamports": ..., "data": ... }` format.
@@ -148,13 +148,13 @@ pub(crate) fn dump_accounts_to_dir(
     let mut dumped_keys = HashSet::new();
 
     for (pubkey, account) in accounts {
-        if sonar_sim::is_native_or_sysvar(pubkey)
+        if sonar_sim::internals::is_native_or_sysvar(pubkey)
             && *pubkey != Clock::id()
             && *pubkey != SlotHashes::id()
         {
             continue;
         }
-        if sonar_sim::is_litesvm_builtin_program(pubkey) {
+        if sonar_sim::internals::is_litesvm_builtin_program(pubkey) {
             continue;
         }
 
@@ -171,8 +171,8 @@ pub(crate) fn dump_accounts_to_dir(
 
     for pubkey in required_keys {
         if dumped_keys.contains(&pubkey)
-            || sonar_sim::is_native_or_sysvar(&pubkey)
-            || sonar_sim::is_litesvm_builtin_program(&pubkey)
+            || sonar_sim::internals::is_native_or_sysvar(&pubkey)
+            || sonar_sim::internals::is_litesvm_builtin_program(&pubkey)
         {
             continue;
         }
@@ -221,7 +221,7 @@ mod tests {
     use std::path::PathBuf;
 
     use solana_account::AccountSharedData;
-    use sonar_sim::ResolvedLookup;
+    use sonar_sim::internals::ResolvedLookup;
 
     #[test]
     fn dump_accounts_writes_lookup_placeholders_for_missing_accounts() {

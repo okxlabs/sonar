@@ -4,7 +4,7 @@ use std::fmt;
 use litesvm::LiteSVM;
 use litesvm::types::{TransactionMetadata, TransactionResult};
 use log::{info, warn};
-use solana_account::{Account, AccountSharedData, ReadableAccount};
+use solana_account::{AccountSharedData, ReadableAccount, WritableAccount};
 use solana_clock::Clock;
 use solana_loader_v3_interface::state::UpgradeableLoaderState;
 use solana_pubkey::Pubkey;
@@ -171,8 +171,8 @@ pub fn load_accounts<B: SvmBackend + ?Sized>(
     let mut ordered: Vec<_> = resolved.accounts.iter().collect();
     ordered.sort_by_key(|(_, account)| account_priority(account));
     for (pubkey, account) in ordered {
-        svm.set_account(*pubkey, Account::from(account.clone())).map_err(|e| {
-            SonarSimError::Svm { reason: format!("Failed to set account {}: {}", pubkey, e) }
+        svm.set_account(*pubkey, account.clone()).map_err(|e| SonarSimError::Svm {
+            reason: format!("Failed to set account {}: {}", pubkey, e),
         })?;
     }
     Ok(())
@@ -193,7 +193,7 @@ pub fn apply_account_closures<B: SvmBackend + ?Sized>(
             continue;
         }
         info!("Closing account {} (setting to zero lamports)", pubkey);
-        svm.set_account(*pubkey, Account::default()).map_err(|e| SonarSimError::Svm {
+        svm.set_account(*pubkey, AccountSharedData::default()).map_err(|e| SonarSimError::Svm {
             reason: format!("Failed to close account `{}`: {}", pubkey, e),
         })?;
     }
@@ -239,14 +239,16 @@ pub fn apply_overrides<B: SvmBackend + ?Sized>(
                     }
                 }
                 info!("Loading custom account {} => {}", pubkey, source_path.display());
-                svm.set_account(*pubkey, account.clone()).map_err(|e| SonarSimError::Svm {
-                    reason: format!(
-                        "Failed to set override account `{}`, path: {}: {}",
-                        pubkey,
-                        source_path.display(),
-                        e
-                    ),
-                })?;
+                svm.set_account(*pubkey, AccountSharedData::from(account.clone())).map_err(
+                    |e| SonarSimError::Svm {
+                        reason: format!(
+                            "Failed to set override account `{}`, path: {}: {}",
+                            pubkey,
+                            source_path.display(),
+                            e
+                        ),
+                    },
+                )?;
             }
         }
     }
@@ -263,14 +265,14 @@ pub fn apply_data_patches<B: SvmBackend + ?Sized>(
             .get_account(&patch.pubkey)
             .ok_or(SonarSimError::AccountNotFound { pubkey: patch.pubkey })?;
         let end = patch.offset + patch.data.len();
-        if end > account.data.len() {
+        if end > account.data().len() {
             return Err(SonarSimError::AccountData {
                 pubkey: Some(patch.pubkey),
                 reason: format!(
                     "Patch range [{}..{}) exceeds account data length {} for {}",
                     patch.offset,
                     end,
-                    account.data.len(),
+                    account.data().len(),
                     patch.pubkey
                 ),
             });
@@ -282,7 +284,7 @@ pub fn apply_data_patches<B: SvmBackend + ?Sized>(
             end,
             patch.data.len()
         );
-        account.data[patch.offset..end].copy_from_slice(&patch.data);
+        account.data_as_mut_slice()[patch.offset..end].copy_from_slice(&patch.data);
         svm.set_account(patch.pubkey, account).map_err(|e| SonarSimError::Svm {
             reason: format!("Failed to set patched account `{}`: {}", patch.pubkey, e),
         })?;
@@ -299,10 +301,10 @@ pub fn apply_slot<B: SvmBackend + ?Sized>(svm: &mut B, slot: u64) {
 /// Override the Clock sysvar's `unix_timestamp` field.
 pub fn apply_timestamp<B: SvmBackend + ?Sized>(svm: &mut B, ts: i64) -> Result<()> {
     let clock_id = Clock::id();
-    let clock_account = svm.get_account(&clock_id).ok_or_else(|| SonarSimError::Svm {
+    let mut clock_account = svm.get_account(&clock_id).ok_or_else(|| SonarSimError::Svm {
         reason: "Clock sysvar account not found in SVM".into(),
     })?;
-    let mut clock: Clock = bincode::deserialize(&clock_account.data).map_err(|e| {
+    let mut clock: Clock = bincode::deserialize(clock_account.data()).map_err(|e| {
         SonarSimError::Serialization { reason: format!("Failed to deserialize Clock sysvar: {e}") }
     })?;
     info!("Overriding Clock unix_timestamp: {} -> {}", clock.unix_timestamp, ts);
@@ -310,8 +312,8 @@ pub fn apply_timestamp<B: SvmBackend + ?Sized>(svm: &mut B, ts: i64) -> Result<(
     let data = bincode::serialize(&clock).map_err(|e| SonarSimError::Serialization {
         reason: format!("Failed to serialize modified Clock sysvar: {e}"),
     })?;
-    let updated_account = Account { data, ..clock_account };
-    svm.set_account(clock_id, updated_account).map_err(|e| SonarSimError::Svm {
+    clock_account.set_data_from_slice(&data);
+    svm.set_account(clock_id, clock_account).map_err(|e| SonarSimError::Svm {
         reason: format!("Failed to set modified Clock sysvar: {e}"),
     })?;
     Ok(())
@@ -391,6 +393,47 @@ impl<B: SvmBackend> PreparedSimulation<B> {
     }
 }
 
+/// Result of a bundle execution with fail-fast semantics.
+///
+/// The `executed` vec may be shorter than `total` if a transaction failed
+/// and remaining transactions were skipped.
+#[derive(Debug, Clone)]
+pub struct BundleResult<T> {
+    executed: Vec<T>,
+    total: usize,
+}
+
+impl<T> BundleResult<T> {
+    pub(crate) fn new(executed: Vec<T>, total: usize) -> Self {
+        Self { executed, total }
+    }
+
+    /// Results for transactions that were actually executed.
+    pub fn executed(&self) -> &[T] {
+        &self.executed
+    }
+
+    /// Consume self and return the executed results.
+    pub fn into_executed(self) -> Vec<T> {
+        self.executed
+    }
+
+    /// Total number of transactions in the bundle input.
+    pub fn total(&self) -> usize {
+        self.total
+    }
+
+    /// How many transactions were never attempted due to a prior failure.
+    pub fn skipped_count(&self) -> usize {
+        self.total.saturating_sub(self.executed.len())
+    }
+
+    /// True if all transactions were attempted (even if some failed).
+    pub fn is_complete(&self) -> bool {
+        self.executed.len() == self.total
+    }
+}
+
 /// Mutable simulation engine that executes transactions on prepared state.
 pub struct SimulationRunner<B: SvmBackend = LiteSVM> {
     svm: B,
@@ -403,7 +446,7 @@ impl<B: SvmBackend> SimulationRunner<B> {
     ///
     /// Takes pre/post account snapshots so that balance changes can be
     /// computed even when accounts are closed during execution.
-    pub fn execute(&mut self, tx: &VersionedTransaction) -> Result<SimulationResult> {
+    pub fn execute(&mut self, tx: &VersionedTransaction) -> Result<ExecutionResult> {
         let account_keys = self.collect_transaction_accounts(tx);
         let pre_accounts = self.snapshot_accounts(&account_keys);
 
@@ -412,13 +455,13 @@ impl<B: SvmBackend> SimulationRunner<B> {
         let post_accounts = self.snapshot_accounts(&account_keys);
 
         let simulation = match result {
-            TransactionResult::Ok(info) => SimulationResult {
+            TransactionResult::Ok(info) => ExecutionResult {
                 status: ExecutionStatus::Succeeded,
                 meta: convert_metadata(&info),
                 post_accounts,
                 pre_accounts,
             },
-            TransactionResult::Err(failure) => SimulationResult {
+            TransactionResult::Err(failure) => ExecutionResult {
                 status: ExecutionStatus::Failed(failure.err.to_string()),
                 meta: convert_metadata(&failure.meta),
                 post_accounts,
@@ -452,17 +495,21 @@ impl<B: SvmBackend> SimulationRunner<B> {
         let mut snapshot = HashMap::new();
         for key in keys {
             if let Some(account) = self.svm.get_account(key) {
-                snapshot.insert(*key, account.into());
+                snapshot.insert(*key, account);
             }
         }
         snapshot
     }
 
     /// Execute multiple transactions sequentially as a bundle.
+    ///
+    /// Uses fail-fast semantics: stops executing remaining transactions after
+    /// the first failure. Use [`BundleResult::skipped_count`] to detect how
+    /// many transactions were never attempted.
     pub fn execute_bundle(
         &mut self,
         txs: &[&VersionedTransaction],
-    ) -> Vec<Result<SimulationResult>> {
+    ) -> BundleResult<Result<ExecutionResult>> {
         let mut results = Vec::with_capacity(txs.len());
 
         for tx in txs {
@@ -478,7 +525,7 @@ impl<B: SvmBackend> SimulationRunner<B> {
             }
         }
 
-        results
+        BundleResult::new(results, txs.len())
     }
 
     pub fn resolved_accounts(&self) -> &ResolvedAccounts {
@@ -507,7 +554,7 @@ impl<B: SvmBackend> SimulationRunner<B> {
 }
 
 #[derive(Debug, Clone)]
-pub struct SimulationResult {
+pub struct ExecutionResult {
     pub status: ExecutionStatus,
     pub meta: SimulationMetadata,
     pub post_accounts: HashMap<Pubkey, AccountSharedData>,
@@ -558,6 +605,7 @@ fn account_priority(account: &AccountSharedData) -> u8 {
 mod tests {
     use super::*;
     use crate::test_utils::MockSvm;
+    use solana_account::Account;
     use solana_hash::Hash;
     use solana_keypair::Keypair;
     use solana_message::Message;
@@ -609,8 +657,9 @@ mod tests {
 
         let results = runner.execute_bundle(&tx_refs);
 
-        assert_eq!(results.len(), 2);
-        assert!(results.iter().all(|r| r.is_ok()));
+        assert_eq!(results.executed().len(), 2);
+        assert!(results.executed().iter().all(|r| r.is_ok()));
+        assert!(results.is_complete());
     }
 
     #[test]
@@ -634,8 +683,13 @@ mod tests {
 
         let results = runner.execute_bundle(&tx_refs);
 
-        assert_eq!(results.len(), 1, "bundle should stop after first failure");
-        assert!(matches!(results[0].as_ref().map(|r| &r.status), Ok(&ExecutionStatus::Failed(_))));
+        assert_eq!(results.executed().len(), 1, "bundle should stop after first failure");
+        assert!(matches!(
+            results.executed()[0].as_ref().map(|r| &r.status),
+            Ok(&ExecutionStatus::Failed(_))
+        ));
+        assert_eq!(results.skipped_count(), 1);
+        assert!(!results.is_complete());
     }
 
     #[test]
@@ -657,9 +711,16 @@ mod tests {
             .into_runner();
 
         let results = runner.execute_bundle(&tx_refs);
-        assert_eq!(results.len(), 2);
-        assert!(matches!(results[0].as_ref().map(|r| &r.status), Ok(&ExecutionStatus::Succeeded)));
-        assert!(matches!(results[1].as_ref().map(|r| &r.status), Ok(&ExecutionStatus::Succeeded)));
+        assert_eq!(results.executed().len(), 2);
+        assert!(matches!(
+            results.executed()[0].as_ref().map(|r| &r.status),
+            Ok(&ExecutionStatus::Succeeded)
+        ));
+        assert!(matches!(
+            results.executed()[1].as_ref().map(|r| &r.status),
+            Ok(&ExecutionStatus::Succeeded)
+        ));
+        assert!(results.is_complete());
     }
 
     #[test]
@@ -949,7 +1010,7 @@ mod tests {
         apply_data_patches(&mut svm, &patches).expect("should apply");
 
         let loaded = svm.get_account(&key).unwrap();
-        assert_eq!(loaded.data, vec![0, 0xAA, 0xBB, 0, 0]);
+        assert_eq!(loaded.data(), &[0, 0xAA, 0xBB, 0, 0]);
     }
 
     #[test]
@@ -974,7 +1035,7 @@ mod tests {
         apply_timestamp(&mut svm, 1_700_000_000).unwrap();
 
         let updated = svm.get_account(&Clock::id()).unwrap();
-        let updated_clock: Clock = bincode::deserialize(&updated.data).unwrap();
+        let updated_clock: Clock = bincode::deserialize(updated.data()).unwrap();
         assert_eq!(updated_clock.unix_timestamp, 1_700_000_000);
     }
 
@@ -1081,6 +1142,6 @@ mod tests {
         apply_account_closures(&mut svm, &[key]).expect("should close");
         // MockSvm stores the zero-lamport account (doesn't auto-remove like LiteSVM)
         let closed = svm.get_account(&key).unwrap();
-        assert_eq!(closed.lamports, 0);
+        assert_eq!(closed.lamports(), 0);
     }
 }

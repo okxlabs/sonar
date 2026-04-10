@@ -8,7 +8,7 @@ use solana_pubkey::Pubkey;
 use solana_sdk_ids::bpf_loader_upgradeable;
 
 use crate::core::transaction::InstructionSummary;
-use sonar_sim::ResolvedAccounts;
+use sonar_sim::internals::ResolvedAccounts;
 
 /// Represents a parsed instruction with human-readable data and account names
 #[derive(Debug, Clone, Serialize)]
@@ -357,7 +357,7 @@ mod tests {
     use solana_account::{Account, AccountSharedData};
     use solana_pubkey::Pubkey;
     use solana_sdk_ids::{bpf_loader_upgradeable, system_program};
-    use sonar_sim::ResolvedAccounts;
+    use sonar_sim::internals::ResolvedAccounts;
     use std::collections::HashMap;
     use std::path::PathBuf;
 

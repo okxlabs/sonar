@@ -15,6 +15,24 @@ use spl_token::state::{Account as SplTokenAccount, Mint as SplMint};
 
 use crate::error::{Result, SonarSimError};
 
+// ── Pubkey conversion helpers ──
+//
+// SPL Token crates re-export `solana_program::pubkey::Pubkey` which is a
+// different type than `solana_pubkey::Pubkey` (same layout, different crate).
+// These helpers bridge the gap without the noisy `new_from_array(..to_bytes())`.
+
+/// Convert from SPL's `Pubkey` to `solana_pubkey::Pubkey`.
+#[inline]
+pub(crate) fn to_pubkey(p: &spl_token::solana_program::pubkey::Pubkey) -> Pubkey {
+    Pubkey::new_from_array(p.to_bytes())
+}
+
+/// Convert from `solana_pubkey::Pubkey` to SPL's `Pubkey`.
+#[inline]
+pub(crate) fn to_program_pubkey(p: &Pubkey) -> spl_token::solana_program::pubkey::Pubkey {
+    spl_token::solana_program::pubkey::Pubkey::new_from_array(p.to_bytes())
+}
+
 // ── Program identification ──
 
 /// Known SPL-compatible token programs.
@@ -57,11 +75,11 @@ impl fmt::Display for TokenProgramKind {
 }
 
 pub(crate) fn legacy_program_id() -> Pubkey {
-    Pubkey::new_from_array(spl_token::ID.to_bytes())
+    to_pubkey(&spl_token::ID)
 }
 
 pub(crate) fn token2022_program_id() -> Pubkey {
-    Pubkey::new_from_array(spl_token_2022::ID.to_bytes())
+    to_pubkey(&spl_token_2022::ID)
 }
 
 // ── Mint decimals ──
@@ -71,7 +89,7 @@ pub(crate) fn token2022_program_id() -> Pubkey {
 /// Returns an error when the account is not owned by a known token program
 /// or the data is malformed.  Both legacy and Token-2022 mints share the
 /// same base layout so a single unpack path handles both.
-pub(crate) fn read_mint_decimals(account: &impl ReadableAccount) -> Result<u8> {
+pub fn read_mint_decimals(account: &impl ReadableAccount) -> Result<u8> {
     if TokenProgramKind::from_owner(account.owner()).is_none() {
         return Err(SonarSimError::Token {
             account: None,
@@ -118,7 +136,7 @@ pub(crate) fn try_read_mint_decimals(data: &[u8], owner: &Pubkey) -> Option<u8> 
 
 /// Decoded fields from an SPL token account (works for both legacy and 2022).
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct DecodedTokenAccount {
+pub struct DecodedTokenAccount {
     pub mint: Pubkey,
     pub owner: Pubkey,
     pub amount: u64,
@@ -129,7 +147,7 @@ pub(crate) struct DecodedTokenAccount {
 /// Returns `None` when the owner is not a known token program or the data
 /// cannot be parsed.  The first 165 bytes are identical across legacy and
 /// Token-2022, so a single unpack path handles both.
-pub(crate) fn try_decode_token_account(
+pub fn try_decode_token_account(
     data: &[u8],
     program_owner: &Pubkey,
 ) -> Option<DecodedTokenAccount> {
@@ -139,8 +157,8 @@ pub(crate) fn try_decode_token_account(
     }
     let parsed = SplTokenAccount::unpack(&data[..SplTokenAccount::LEN]).ok()?;
     Some(DecodedTokenAccount {
-        mint: Pubkey::new_from_array(parsed.mint.to_bytes()),
-        owner: Pubkey::new_from_array(parsed.owner.to_bytes()),
+        mint: to_pubkey(&parsed.mint),
+        owner: to_pubkey(&parsed.owner),
         amount: parsed.amount,
     })
 }
@@ -158,10 +176,11 @@ pub(crate) fn ensure_same_program(
     kind: TokenProgramKind,
     owner: &Pubkey,
     label: &str,
+    account: Pubkey,
 ) -> Result<()> {
     if owner != &kind.program_id() {
         return Err(SonarSimError::Token {
-            account: None,
+            account: Some(account),
             reason: format!("Provided {label} is not owned by {}", kind.program_name()),
         });
     }

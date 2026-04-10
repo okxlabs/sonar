@@ -7,7 +7,7 @@ use solana_account::{AccountSharedData, ReadableAccount};
 use solana_pubkey::Pubkey;
 
 use crate::utils::progress::Progress;
-use sonar_sim::{RpcAccountProvider, SolanaRpcProvider};
+use sonar_sim::internals::{RpcAccountProvider, SolanaRpcProvider};
 
 const MAX_ACCOUNTS_PER_REQUEST: usize = 100;
 
@@ -228,7 +228,7 @@ mod tests {
     use solana_pubkey::Pubkey;
 
     use super::{IdlFetcher, MAX_ACCOUNTS_PER_REQUEST, get_idl_address, parse_idl_account_data};
-    use sonar_sim::FakeAccountProvider;
+    use sonar_sim::internals::FakeAccountProvider;
 
     fn dummy_fetcher() -> IdlFetcher {
         IdlFetcher::with_provider(Arc::new(FakeAccountProvider::empty()), None)

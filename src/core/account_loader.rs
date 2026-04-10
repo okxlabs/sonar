@@ -5,7 +5,7 @@ use log::debug;
 use solana_account::AccountSharedData;
 use solana_pubkey::Pubkey;
 
-use sonar_sim::AccountLoader;
+use sonar_sim::internals::AccountLoader;
 
 use crate::core::idl_fetcher::IdlFetcher;
 use crate::utils::progress::Progress;
@@ -21,7 +21,7 @@ impl LocalDirSource {
     }
 }
 
-impl sonar_sim::AccountSource for LocalDirSource {
+impl sonar_sim::internals::AccountSource for LocalDirSource {
     fn resolve(&self, pubkeys: &[Pubkey]) -> sonar_sim::Result<HashMap<Pubkey, AccountSharedData>> {
         let mut found = HashMap::new();
         for key in pubkeys {
@@ -48,9 +48,9 @@ impl sonar_sim::AccountSource for LocalDirSource {
 /// Policy that denies RPC for all unresolved accounts.
 pub struct OfflinePolicy;
 
-impl sonar_sim::FetchPolicy for OfflinePolicy {
-    fn decide_rpc(&self, _unresolved: &[Pubkey]) -> sonar_sim::RpcDecision {
-        sonar_sim::RpcDecision::Deny
+impl sonar_sim::internals::FetchPolicy for OfflinePolicy {
+    fn decide_rpc(&self, _unresolved: &[Pubkey]) -> sonar_sim::internals::RpcDecision {
+        sonar_sim::internals::RpcDecision::Deny
     }
 }
 
@@ -65,9 +65,9 @@ impl CliProgressObserver {
     }
 }
 
-impl sonar_sim::FetchObserver for CliProgressObserver {
-    fn on_event(&self, event: &sonar_sim::FetchEvent) {
-        if let sonar_sim::FetchEvent::RpcProgress { pubkey, current, total } = event {
+impl sonar_sim::internals::FetchObserver for CliProgressObserver {
+    fn on_event(&self, event: &sonar_sim::internals::FetchEvent) {
+        if let sonar_sim::internals::FetchEvent::RpcProgress { pubkey, current, total } = event {
             self.progress
                 .set_message(format!("loading account {} ({}/{})", pubkey, current, total));
         }
@@ -77,13 +77,14 @@ impl sonar_sim::FetchObserver for CliProgressObserver {
 /// Observer that reports unresolved accounts when RPC is skipped by policy.
 pub struct OfflineWarningObserver;
 
-impl sonar_sim::FetchObserver for OfflineWarningObserver {
-    fn on_event(&self, event: &sonar_sim::FetchEvent) {
-        if let sonar_sim::FetchEvent::RpcSkippedByPolicy { missing } = event {
+impl sonar_sim::internals::FetchObserver for OfflineWarningObserver {
+    fn on_event(&self, event: &sonar_sim::internals::FetchEvent) {
+        if let sonar_sim::internals::FetchEvent::RpcSkippedByPolicy { missing } = event {
             let non_native: Vec<_> = missing
                 .iter()
                 .filter(|k| {
-                    !sonar_sim::is_native_or_sysvar(k) && !sonar_sim::is_litesvm_builtin_program(k)
+                    !sonar_sim::internals::is_native_or_sysvar(k)
+                        && !sonar_sim::internals::is_litesvm_builtin_program(k)
                 })
                 .collect();
             if !non_native.is_empty() {
@@ -157,9 +158,9 @@ mod tests {
     use solana_sysvar_id::SysvarId;
     use solana_transaction::Transaction;
     use solana_transaction::versioned::VersionedTransaction;
-    use sonar_sim::ResolvedAccounts;
-    use sonar_sim::{AccountAppender, AccountSource};
-    use sonar_sim::{FakeAccountProvider, RpcAccountProvider};
+    use sonar_sim::internals::ResolvedAccounts;
+    use sonar_sim::internals::{AccountAppender, AccountSource};
+    use sonar_sim::internals::{FakeAccountProvider, RpcAccountProvider};
 
     fn system_account(lamports: u64) -> Account {
         Account {

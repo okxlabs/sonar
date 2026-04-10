@@ -2,7 +2,7 @@ use std::path::Path;
 
 use litesvm::LiteSVM;
 use litesvm::types::TransactionResult;
-use solana_account::Account;
+use solana_account::{Account, AccountSharedData};
 use solana_pubkey::Pubkey;
 use solana_transaction::versioned::VersionedTransaction;
 
@@ -10,9 +10,15 @@ use solana_transaction::versioned::VersionedTransaction;
 /// Minimal simulation backend abstraction.
 ///
 /// This decouples executor/funding logic from a concrete SVM implementation.
+/// The trait uses `AccountSharedData` throughout; the `Account` ↔ `AccountSharedData`
+/// conversion is isolated to the LiteSVM implementation below.
 pub trait SvmBackend {
-    fn set_account(&mut self, pubkey: Pubkey, account: Account) -> std::result::Result<(), String>;
-    fn get_account(&self, pubkey: &Pubkey) -> Option<Account>;
+    fn set_account(
+        &mut self,
+        pubkey: Pubkey,
+        account: AccountSharedData,
+    ) -> std::result::Result<(), String>;
+    fn get_account(&self, pubkey: &Pubkey) -> Option<AccountSharedData>;
     fn add_program_from_file(
         &mut self,
         program_id: Pubkey,
@@ -23,12 +29,17 @@ pub trait SvmBackend {
 }
 
 impl SvmBackend for LiteSVM {
-    fn set_account(&mut self, pubkey: Pubkey, account: Account) -> std::result::Result<(), String> {
+    fn set_account(
+        &mut self,
+        pubkey: Pubkey,
+        account: AccountSharedData,
+    ) -> std::result::Result<(), String> {
+        let account: Account = account.into();
         LiteSVM::set_account(self, pubkey, account).map_err(|e| e.to_string())
     }
 
-    fn get_account(&self, pubkey: &Pubkey) -> Option<Account> {
-        LiteSVM::get_account(self, pubkey)
+    fn get_account(&self, pubkey: &Pubkey) -> Option<AccountSharedData> {
+        LiteSVM::get_account(self, pubkey).map(|a| a.into())
     }
 
     fn add_program_from_file(

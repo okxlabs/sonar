@@ -12,8 +12,8 @@ use anyhow::Result;
 use solana_pubkey::Pubkey;
 
 use crate::{core::transaction::ParsedTransaction, parsers::instruction::ParserRegistry};
-use sonar_sim::{
-    AccountOverride, PreparedTokenFunding, ResolvedAccounts, SimulationResult, SolFunding,
+use sonar_sim::internals::{
+    AccountOverride, ExecutionResult, PreparedTokenFunding, ResolvedAccounts, SolFunding,
 };
 
 use report::{BundleReport, LookupResolver, Report, TransactionSection};
@@ -46,7 +46,7 @@ pub struct RenderOptions {
 pub fn render(
     parsed: &ParsedTransaction,
     resolved: &ResolvedAccounts,
-    simulation: &SimulationResult,
+    simulation: &ExecutionResult,
     account_closures: &[Pubkey],
     overrides: &[AccountOverride],
     fundings: &[SolFunding],
@@ -131,7 +131,7 @@ pub fn render_bundle(
     parsed_txs: &[ParsedTransaction],
     total_tx_count: usize,
     resolved: &ResolvedAccounts,
-    simulations: &[SimulationResult],
+    simulations: &[ExecutionResult],
     account_closures: &[Pubkey],
     overrides: &[AccountOverride],
     fundings: &[SolFunding],

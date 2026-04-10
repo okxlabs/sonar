@@ -1,8 +1,8 @@
-pub(crate) use sonar_sim::build_lookup_locations;
-pub use sonar_sim::{LookupLocation, MessageAccountPlan, RawTransactionEncoding};
+pub(crate) use sonar_sim::internals::build_lookup_locations;
+pub use sonar_sim::internals::{LookupLocation, MessageAccountPlan, RawTransactionEncoding};
 
 #[cfg(test)]
-use sonar_sim::AddressLookupPlan;
+use sonar_sim::internals::AddressLookupPlan;
 
 use crate::core::rpc_client::{GetTransactionConfig, RpcClient};
 use anyhow::{Context, Result, anyhow};
@@ -169,7 +169,7 @@ pub fn fetch_transaction_from_rpc(
 // ---------------------------------------------------------------------------
 
 pub fn parse_raw_transaction(raw: &str) -> Result<ParsedTransaction> {
-    let sim_parsed = sonar_sim::parse_raw_transaction(raw)?;
+    let sim_parsed = sonar_sim::internals::parse_raw_transaction(raw)?;
     let summary = TransactionSummary::from_transaction(
         &sim_parsed.transaction,
         &sim_parsed.account_plan,
