@@ -1,7 +1,6 @@
 use std::ops::Deref;
 
 use serde::Serialize;
-use solana_pubkey::Pubkey;
 use sonar_idl::IdlValue;
 
 /// Represents a parsed instruction with human-readable data and account names
@@ -95,24 +94,12 @@ impl Serialize for ParsedField {
 }
 
 impl ParsedField {
+    pub fn new(name: impl Into<String>, value: IdlValue) -> Self {
+        Self { name: name.into(), value }
+    }
+
     pub fn text(name: impl Into<String>, value: impl Into<String>) -> Self {
-        Self { name: name.into(), value: IdlValue::String(value.into()) }
-    }
-
-    pub fn number(name: impl Into<String>, value: u64) -> Self {
-        Self { name: name.into(), value: IdlValue::U64(value) }
-    }
-
-    pub fn signed_number(name: impl Into<String>, value: i64) -> Self {
-        Self { name: name.into(), value: IdlValue::I64(value) }
-    }
-
-    pub fn boolean(name: impl Into<String>, value: bool) -> Self {
-        Self { name: name.into(), value: IdlValue::Bool(value) }
-    }
-
-    pub fn pubkey(name: impl Into<String>, value: Pubkey) -> Self {
-        Self { name: name.into(), value: IdlValue::Pubkey(value) }
+        Self::new(name, IdlValue::String(value.into()))
     }
 }
 

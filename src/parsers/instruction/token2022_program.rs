@@ -1,5 +1,6 @@
 use anyhow::Result;
 use solana_pubkey::Pubkey;
+use sonar_idl::IdlValue;
 
 use super::{InstructionParser, ParsedField, ParsedInstruction};
 use crate::core::transaction::InstructionSummary;
@@ -358,7 +359,7 @@ fn dispatch_table_instruction(
                 );
                 Ok(ParsedInstruction {
                     name: def.name.to_string(),
-                    fields: vec![ParsedField::number("amount", amount)].into(),
+                    fields: vec![ParsedField::new("amount", IdlValue::U64(amount))].into(),
                     account_names,
                 })
             })
@@ -380,8 +381,8 @@ fn dispatch_table_instruction(
                 Ok(ParsedInstruction {
                     name: def.name.to_string(),
                     fields: vec![
-                        ParsedField::number("amount", amount),
-                        ParsedField::number("decimals", decimals as u64),
+                        ParsedField::new("amount", IdlValue::U64(amount)),
+                        ParsedField::new("decimals", IdlValue::U8(decimals)),
                     ]
                     .into(),
                     account_names,
@@ -452,8 +453,8 @@ fn parse_initialize_mint_instruction(
         Ok(ParsedInstruction {
             name: "InitializeMint".to_string(),
             fields: vec![
-                ParsedField::number("decimals", decimals as u64),
-                ParsedField::boolean("has_freeze_authority", has_freeze_authority),
+                ParsedField::new("decimals", IdlValue::U8(decimals)),
+                ParsedField::new("has_freeze_authority", IdlValue::Bool(has_freeze_authority)),
             ]
             .into(),
             account_names: vec!["mint".to_string(), "rent_sysvar".to_string()],
@@ -499,7 +500,7 @@ fn parse_initialize_multisig_instruction(
         }
         Ok(ParsedInstruction {
             name: "InitializeMultisig".to_string(),
-            fields: vec![ParsedField::number("m", m as u64)].into(),
+            fields: vec![ParsedField::new("m", IdlValue::U8(m))].into(),
             account_names,
         })
     })
@@ -536,7 +537,7 @@ fn parse_set_authority_instruction(
             name: "SetAuthority".to_string(),
             fields: vec![
                 ParsedField::text("authority_type", authority_type.to_string()),
-                ParsedField::boolean("cleared", cleared),
+                ParsedField::new("cleared", IdlValue::Bool(cleared)),
             ]
             .into(),
             account_names,
@@ -605,7 +606,7 @@ fn parse_initialize_multisig2_instruction(
         }
         Ok(ParsedInstruction {
             name: "InitializeMultisig2".to_string(),
-            fields: vec![ParsedField::number("m", m as u64)].into(),
+            fields: vec![ParsedField::new("m", IdlValue::U8(m))].into(),
             account_names,
         })
     })
@@ -629,8 +630,8 @@ fn parse_initialize_mint2_instruction(
         Ok(ParsedInstruction {
             name: "InitializeMint2".to_string(),
             fields: vec![
-                ParsedField::number("decimals", decimals as u64),
-                ParsedField::boolean("has_freeze_authority", has_freeze_authority),
+                ParsedField::new("decimals", IdlValue::U8(decimals)),
+                ParsedField::new("has_freeze_authority", IdlValue::Bool(has_freeze_authority)),
             ]
             .into(),
             account_names: vec!["mint".to_string()],
@@ -650,7 +651,7 @@ fn parse_amount_to_ui_amount_instruction(
         let amount = reader.read_u64()?;
         Ok(ParsedInstruction {
             name: "AmountToUiAmount".to_string(),
-            fields: vec![ParsedField::number("amount", amount)].into(),
+            fields: vec![ParsedField::new("amount", IdlValue::U64(amount))].into(),
             account_names: vec!["mint".to_string()],
         })
     })
@@ -744,8 +745,8 @@ fn parse_transfer_fee_initialize_instruction(
                     "withdraw_withheld_authority",
                     withdraw_authority.map_or_else(|| "none".to_string(), |pk| pk.to_string()),
                 ),
-                ParsedField::number("transfer_fee_basis_points", bps as u64),
-                ParsedField::number("maximum_fee", maximum_fee),
+                ParsedField::new("transfer_fee_basis_points", IdlValue::U16(bps)),
+                ParsedField::new("maximum_fee", IdlValue::U64(maximum_fee)),
             ]
             .into(),
             account_names: vec!["mint".to_string()],
@@ -775,9 +776,9 @@ fn parse_transfer_checked_with_fee_instruction(
         Ok(ParsedInstruction {
             name: "TransferCheckedWithFee".to_string(),
             fields: vec![
-                ParsedField::number("amount", amount),
-                ParsedField::number("decimals", decimals as u64),
-                ParsedField::number("fee", fee),
+                ParsedField::new("amount", IdlValue::U64(amount)),
+                ParsedField::new("decimals", IdlValue::U8(decimals)),
+                ParsedField::new("fee", IdlValue::U64(fee)),
             ]
             .into(),
             account_names,
@@ -830,7 +831,7 @@ fn parse_transfer_fee_withdraw_from_accounts_instruction(
 
     Ok(Some(ParsedInstruction {
         name: "WithdrawWithheldTokensFromAccounts".to_string(),
-        fields: vec![ParsedField::number("num_token_accounts", num_token_accounts as u64)]
+        fields: vec![ParsedField::new("num_token_accounts", IdlValue::U32(num_token_accounts as u32))]
             .into(),
         account_names,
     }))
@@ -879,7 +880,7 @@ fn parse_transfer_fee_set_fee_instruction(
                     "transfer_fee_basis_points",
                     transfer_fee_basis_points.to_string(),
                 ),
-                ParsedField::number("maximum_fee", maximum_fee),
+                ParsedField::new("maximum_fee", IdlValue::U64(maximum_fee)),
             ]
             .into(),
             account_names,

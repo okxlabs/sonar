@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use solana_pubkey::Pubkey;
+use sonar_idl::IdlValue;
 
 use super::{InstructionParser, ParsedField, ParsedInstruction};
 use crate::core::transaction::InstructionSummary;
@@ -84,7 +85,7 @@ fn parse_transfer_instruction(
         let lamports = reader.read_u64()?;
         Ok(ParsedInstruction {
             name: "Transfer".to_string(),
-            fields: vec![ParsedField::number("lamports", lamports)].into(),
+            fields: vec![ParsedField::new("lamports", IdlValue::U64(lamports))].into(),
             account_names: vec!["funding_account".to_string(), "recipient_account".to_string()],
         })
     })
@@ -106,9 +107,9 @@ fn parse_create_account_instruction(
         Ok(ParsedInstruction {
             name: "CreateAccount".to_string(),
             fields: vec![
-                ParsedField::number("lamports", lamports),
-                ParsedField::number("space", space),
-                ParsedField::pubkey("owner", owner),
+                ParsedField::new("lamports", IdlValue::U64(lamports)),
+                ParsedField::new("space", IdlValue::U64(space)),
+                ParsedField::new("owner", IdlValue::Pubkey(owner)),
             ]
             .into(),
             account_names: vec!["funding_account".to_string(), "new_account".to_string()],
@@ -129,7 +130,7 @@ fn parse_assign_instruction(
         let owner = reader.read_pubkey()?;
         Ok(ParsedInstruction {
             name: "Assign".to_string(),
-            fields: vec![ParsedField::pubkey("owner", owner)].into(),
+            fields: vec![ParsedField::new("owner", IdlValue::Pubkey(owner))].into(),
             account_names: vec!["assigned_account".to_string()],
         })
     })
@@ -153,11 +154,11 @@ fn parse_create_account_with_seed_instruction(
         Ok(ParsedInstruction {
             name: "CreateAccountWithSeed".to_string(),
             fields: vec![
-                ParsedField::pubkey("base", base),
+                ParsedField::new("base", IdlValue::Pubkey(base)),
                 ParsedField::text("seed", seed),
-                ParsedField::number("lamports", lamports),
-                ParsedField::number("space", space),
-                ParsedField::pubkey("owner", owner),
+                ParsedField::new("lamports", IdlValue::U64(lamports)),
+                ParsedField::new("space", IdlValue::U64(space)),
+                ParsedField::new("owner", IdlValue::Pubkey(owner)),
             ]
             .into(),
             account_names: vec![
@@ -198,7 +199,7 @@ fn parse_withdraw_nonce_account_instruction(
         let lamports = reader.read_u64()?;
         Ok(ParsedInstruction {
             name: "WithdrawNonceAccount".to_string(),
-            fields: vec![ParsedField::number("lamports", lamports)].into(),
+            fields: vec![ParsedField::new("lamports", IdlValue::U64(lamports))].into(),
             account_names: vec![
                 "nonce_account".to_string(),
                 "recipient_account".to_string(),
@@ -223,7 +224,7 @@ fn parse_initialize_nonce_account_instruction(
         let authorized = reader.read_pubkey()?;
         Ok(ParsedInstruction {
             name: "InitializeNonceAccount".to_string(),
-            fields: vec![ParsedField::pubkey("authorized", authorized)].into(),
+            fields: vec![ParsedField::new("authorized", IdlValue::Pubkey(authorized))].into(),
             account_names: vec![
                 "nonce_account".to_string(),
                 "recent_blockhashes_sysvar".to_string(),
@@ -246,7 +247,7 @@ fn parse_authorize_nonce_account_instruction(
         let authorized = reader.read_pubkey()?;
         Ok(ParsedInstruction {
             name: "AuthorizeNonceAccount".to_string(),
-            fields: vec![ParsedField::pubkey("new_authorized", authorized)].into(),
+            fields: vec![ParsedField::new("new_authorized", IdlValue::Pubkey(authorized))].into(),
             account_names: vec!["nonce_account".to_string(), "nonce_authority".to_string()],
         })
     })
@@ -265,7 +266,7 @@ fn parse_allocate_instruction(
         let space = reader.read_u64()?;
         Ok(ParsedInstruction {
             name: "Allocate".to_string(),
-            fields: vec![ParsedField::number("space", space)].into(),
+            fields: vec![ParsedField::new("space", IdlValue::U64(space))].into(),
             account_names: vec!["allocated_account".to_string()],
         })
     })
@@ -288,10 +289,10 @@ fn parse_allocate_with_seed_instruction(
         Ok(ParsedInstruction {
             name: "AllocateWithSeed".to_string(),
             fields: vec![
-                ParsedField::pubkey("base", base),
+                ParsedField::new("base", IdlValue::Pubkey(base)),
                 ParsedField::text("seed", seed),
-                ParsedField::number("space", space),
-                ParsedField::pubkey("owner", owner),
+                ParsedField::new("space", IdlValue::U64(space)),
+                ParsedField::new("owner", IdlValue::Pubkey(owner)),
             ]
             .into(),
             account_names: vec!["allocated_account".to_string(), "base_account".to_string()],
@@ -315,9 +316,9 @@ fn parse_assign_with_seed_instruction(
         Ok(ParsedInstruction {
             name: "AssignWithSeed".to_string(),
             fields: vec![
-                ParsedField::pubkey("base", base),
+                ParsedField::new("base", IdlValue::Pubkey(base)),
                 ParsedField::text("seed", seed),
-                ParsedField::pubkey("owner", owner),
+                ParsedField::new("owner", IdlValue::Pubkey(owner)),
             ]
             .into(),
             account_names: vec!["assigned_account".to_string(), "base_account".to_string()],
@@ -342,9 +343,9 @@ fn parse_transfer_with_seed_instruction(
         Ok(ParsedInstruction {
             name: "TransferWithSeed".to_string(),
             fields: vec![
-                ParsedField::number("lamports", lamports),
+                ParsedField::new("lamports", IdlValue::U64(lamports)),
                 ParsedField::text("from_seed", from_seed),
-                ParsedField::pubkey("from_owner", from_owner),
+                ParsedField::new("from_owner", IdlValue::Pubkey(from_owner)),
             ]
             .into(),
             account_names: vec![
@@ -384,9 +385,9 @@ fn parse_create_account_allow_prefund_instruction(
         Ok(ParsedInstruction {
             name: "CreateAccountAllowPrefund".to_string(),
             fields: vec![
-                ParsedField::number("lamports", lamports),
-                ParsedField::number("space", space),
-                ParsedField::pubkey("owner", owner),
+                ParsedField::new("lamports", IdlValue::U64(lamports)),
+                ParsedField::new("space", IdlValue::U64(space)),
+                ParsedField::new("owner", IdlValue::Pubkey(owner)),
             ]
             .into(),
             account_names: vec![
