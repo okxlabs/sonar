@@ -1,11 +1,12 @@
-use serde::ser::{SerializeMap, SerializeSeq};
-use serde::{Serialize, Serializer};
-
 /// Domain-native value type for decoded IDL data.
 ///
 /// Unlike `serde_json::Value`, this preserves the full range of Solana numeric
 /// types (u128/i128) without forcing stringification for values that exceed
 /// JSON's native integer range.
+///
+/// Serialization is not implemented on purpose — consumers decide how to
+/// render `IdlValue` (JSON, terminal, etc.) via [`to_json_value`](Self::to_json_value)
+/// or direct pattern matching.
 #[derive(Debug, Clone, PartialEq)]
 pub enum IdlValue {
     /// Unsigned integer (u8, u16, u32, u64, u128).
@@ -26,50 +27,13 @@ pub enum IdlValue {
     Null,
 }
 
-impl Serialize for IdlValue {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        match self {
-            Self::Uint(n) => match u64::try_from(*n) {
-                Ok(v) => serializer.serialize_u64(v),
-                Err(_) => serializer.serialize_str(&n.to_string()),
-            },
-            Self::Int(n) => match i64::try_from(*n) {
-                Ok(v) => serializer.serialize_i64(v),
-                Err(_) => serializer.serialize_str(&n.to_string()),
-            },
-            Self::Bool(b) => serializer.serialize_bool(*b),
-            Self::String(s) => serializer.serialize_str(s),
-            Self::Bytes(bytes) => {
-                let mut seq = serializer.serialize_seq(Some(bytes.len()))?;
-                for b in bytes {
-                    seq.serialize_element(b)?;
-                }
-                seq.end()
-            }
-            Self::Struct(fields) => {
-                let mut map = serializer.serialize_map(Some(fields.len()))?;
-                for (name, value) in fields {
-                    map.serialize_entry(name, value)?;
-                }
-                map.end()
-            }
-            Self::Array(values) => {
-                let mut seq = serializer.serialize_seq(Some(values.len()))?;
-                for v in values {
-                    seq.serialize_element(v)?;
-                }
-                seq.end()
-            }
-            Self::Null => serializer.serialize_none(),
-        }
-    }
-}
-
 impl IdlValue {
-    /// Convert to `serde_json::Value` for interop with code that still uses JSON.
+    /// Convert to `serde_json::Value` for interop with code that needs JSON.
+    ///
+    /// - `Uint` / `Int` emit as JSON numbers when the value fits in u64/i64,
+    ///   falling back to a string for values that exceed JSON's range.
+    /// - `Bytes` emits as a JSON array of numbers.
+    /// - `Struct` emits as a JSON object preserving field order.
     pub fn to_json_value(&self) -> serde_json::Value {
         match self {
             Self::Uint(n) => match u64::try_from(*n) {
@@ -86,7 +50,7 @@ impl IdlValue {
                 bytes.iter().map(|b| serde_json::Value::Number((*b as u64).into())).collect(),
             ),
             Self::Struct(fields) => {
-                let map: serde_json::Map<std::string::String, serde_json::Value> =
+                let map: serde_json::Map<String, serde_json::Value> =
                     fields.iter().map(|(k, v)| (k.clone(), v.to_json_value())).collect();
                 serde_json::Value::Object(map)
             }
@@ -103,38 +67,35 @@ mod tests {
     use super::*;
 
     #[test]
-    fn uint_within_u64_serializes_as_number() {
-        let v = IdlValue::Uint(42745410133);
-        let json = serde_json::to_string(&v).unwrap();
-        assert_eq!(json, "42745410133");
+    fn uint_within_u64_converts_to_json_number() {
+        let jv = IdlValue::Uint(42745410133).to_json_value();
+        assert_eq!(jv, serde_json::json!(42745410133u64));
     }
 
     #[test]
-    fn uint_exceeding_u64_serializes_as_string() {
-        let v = IdlValue::Uint(u128::MAX);
-        let json = serde_json::to_string(&v).unwrap();
-        assert_eq!(json, format!("\"{}\"", u128::MAX));
+    fn uint_exceeding_u64_converts_to_json_string() {
+        let jv = IdlValue::Uint(u128::MAX).to_json_value();
+        assert_eq!(jv, serde_json::Value::String(u128::MAX.to_string()));
     }
 
     #[test]
-    fn int_within_i64_serializes_as_number() {
-        let v = IdlValue::Int(-100);
-        let json = serde_json::to_string(&v).unwrap();
-        assert_eq!(json, "-100");
+    fn int_within_i64_converts_to_json_number() {
+        let jv = IdlValue::Int(-100).to_json_value();
+        assert_eq!(jv, serde_json::json!(-100));
     }
 
     #[test]
-    fn struct_serializes_as_ordered_object() {
+    fn struct_converts_to_json_object() {
         let v = IdlValue::Struct(vec![
             ("amount".into(), IdlValue::Uint(1000)),
             ("owner".into(), IdlValue::String("abc".into())),
         ]);
-        let json = serde_json::to_string(&v).unwrap();
-        assert_eq!(json, r#"{"amount":1000,"owner":"abc"}"#);
+        let jv = v.to_json_value();
+        assert_eq!(jv, serde_json::json!({"amount": 1000, "owner": "abc"}));
     }
 
     #[test]
-    fn to_json_value_roundtrips() {
+    fn to_json_value_nested() {
         let v = IdlValue::Struct(vec![
             ("x".into(), IdlValue::Uint(42)),
             ("y".into(), IdlValue::Null),

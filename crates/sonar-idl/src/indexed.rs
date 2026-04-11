@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::ops::Deref;
 
 use anyhow::Result;
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Deserializer};
 use crate::decode::{
     parse_idl_fields_as_parsed_fields, parse_instruction_args, parse_type_definition,
     raw_unparsed_value,
@@ -16,7 +16,7 @@ const CPI_EVENT_ACCOUNT_NAME: &str = "event_authority";
 // ── Output types ──
 
 /// A fully parsed IDL instruction with resolved argument fields.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone)]
 pub struct IdlParsedInstruction {
     pub name: String,
     pub fields: IdlInstructionFields,
@@ -24,7 +24,7 @@ pub struct IdlParsedInstruction {
 }
 
 /// A single parsed field from IDL binary data.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone)]
 pub struct IdlParsedField {
     pub name: String,
     pub value: crate::value::IdlValue,
@@ -32,25 +32,12 @@ pub struct IdlParsedField {
 
 /// Field decode state for a matched IDL instruction.
 ///
-/// Serializes transparently: `Parsed` emits the field array directly,
-/// `Unparsed` emits the raw hex string. This matches the `ParsedInstructionFields`
-/// serialization used by the CLI output layer.
+/// `Parsed` holds successfully decoded fields; `Unparsed` holds raw hex
+/// when decoding failed. Serialization is left to consumers.
 #[derive(Debug, Clone)]
 pub enum IdlInstructionFields {
     Parsed(Vec<IdlParsedField>),
     Unparsed(String),
-}
-
-impl Serialize for IdlInstructionFields {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        match self {
-            Self::Parsed(fields) => fields.serialize(serializer),
-            Self::Unparsed(raw_hex) => serializer.serialize_str(raw_hex),
-        }
-    }
 }
 
 impl IdlInstructionFields {
