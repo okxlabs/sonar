@@ -1,7 +1,7 @@
 use std::ops::Deref;
 
 use serde::Serialize;
-use serde_json::Value;
+use sonar_idl::IdlValue;
 
 /// Represents a parsed instruction with human-readable data and account names
 #[derive(Debug, Clone, Serialize)]
@@ -74,66 +74,21 @@ impl Serialize for ParsedInstructionFields {
 }
 
 /// Ordered parsed field entry
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone)]
 pub struct ParsedField {
     pub name: String,
-    pub value: ParsedFieldValue,
+    pub value: IdlValue,
 }
 
-impl ParsedField {
-    pub fn text(name: impl Into<String>, value: impl Into<String>) -> Self {
-        Self { name: name.into(), value: ParsedFieldValue::Text(value.into()) }
-    }
-
-    pub fn json(name: impl Into<String>, value: Value) -> Self {
-        Self { name: name.into(), value: ParsedFieldValue::Json(value) }
-    }
-}
-
-impl<N, V> From<(N, V)> for ParsedField
-where
-    N: Into<String>,
-    V: Into<String>,
-{
-    fn from((name, value): (N, V)) -> Self {
-        ParsedField::text(name, value)
-    }
-}
-
-/// Parsed field value, either plain text or structured JSON
-#[derive(Debug, Clone, Serialize, PartialEq)]
-#[serde(untagged)]
-pub enum ParsedFieldValue {
-    Text(String),
-    Json(Value),
-}
-
-impl From<String> for ParsedFieldValue {
-    fn from(value: String) -> Self {
-        ParsedFieldValue::Text(value)
-    }
-}
-
-impl From<&str> for ParsedFieldValue {
-    fn from(value: &str) -> Self {
-        ParsedFieldValue::Text(value.to_string())
-    }
-}
-
-impl PartialEq<&str> for ParsedFieldValue {
-    fn eq(&self, other: &&str) -> bool {
-        match self {
-            ParsedFieldValue::Text(text) => text == *other,
-            ParsedFieldValue::Json(_) => false,
-        }
-    }
-}
-
-impl PartialEq<String> for ParsedFieldValue {
-    fn eq(&self, other: &String) -> bool {
-        match self {
-            ParsedFieldValue::Text(text) => text == other,
-            ParsedFieldValue::Json(_) => false,
-        }
+impl Serialize for ParsedField {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeMap;
+        let mut map = serializer.serialize_map(Some(2))?;
+        map.serialize_entry("name", &self.name)?;
+        map.serialize_entry("value", &self.value.to_json_value())?;
+        map.end()
     }
 }

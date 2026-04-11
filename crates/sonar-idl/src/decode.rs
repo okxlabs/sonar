@@ -1,9 +1,9 @@
 use anyhow::{Result, anyhow};
-use serde_json::{Map, Number as JsonNumber, Value};
 use solana_pubkey::Pubkey;
 
 use crate::idl::*;
 use crate::indexed::{IdlParsedField, IndexedIdl};
+use crate::value::IdlValue;
 
 pub(super) fn parse_instruction_args(
     data: &[u8],
@@ -24,11 +24,11 @@ fn parse_named_fields_to_entries(
     offset: &mut usize,
     fields: &[IdlField],
     indexed: &IndexedIdl,
-) -> Result<Map<String, Value>> {
-    let mut entries = Map::new();
+) -> Result<Vec<(String, IdlValue)>> {
+    let mut entries = Vec::new();
     for field in fields {
         let value = parse_type(data, offset, &field.type_, indexed)?;
-        entries.insert(field.name.clone(), value);
+        entries.push((field.name.clone(), value));
     }
     Ok(entries)
 }
@@ -38,7 +38,7 @@ fn parse_tuple_fields_to_values(
     offset: &mut usize,
     fields: &[IdlType],
     indexed: &IndexedIdl,
-) -> Result<Vec<Value>> {
+) -> Result<Vec<IdlValue>> {
     let mut values = Vec::new();
     for field_type in fields {
         values.push(parse_type(data, offset, field_type, indexed)?);
@@ -51,13 +51,16 @@ fn parse_idl_fields_value(
     offset: &mut usize,
     fields: &IdlFields,
     indexed: &IndexedIdl,
-) -> Result<Value> {
+) -> Result<IdlValue> {
     match fields {
-        IdlFields::Named(named_fields) => {
-            Ok(Value::Object(parse_named_fields_to_entries(data, offset, named_fields, indexed)?))
-        }
+        IdlFields::Named(named_fields) => Ok(IdlValue::Struct(parse_named_fields_to_entries(
+            data,
+            offset,
+            named_fields,
+            indexed,
+        )?)),
         IdlFields::Tuple(tuple_fields) => {
-            Ok(Value::Array(parse_tuple_fields_to_values(data, offset, tuple_fields, indexed)?))
+            Ok(IdlValue::Array(parse_tuple_fields_to_values(data, offset, tuple_fields, indexed)?))
         }
     }
 }
@@ -85,12 +88,12 @@ pub(crate) fn parse_idl_fields_as_parsed_fields(
     }
 }
 
-pub(crate) fn raw_unparsed_value(context: &str, type_name: &str, raw_data: &[u8]) -> Value {
-    let mut object = Map::new();
-    object.insert("context".into(), Value::String(context.to_string()));
-    object.insert("type_hint".into(), Value::String(type_name.to_string()));
-    object.insert("raw_hex".into(), Value::String(hex::encode(raw_data)));
-    Value::Object(object)
+pub(crate) fn raw_unparsed_value(context: &str, type_name: &str, raw_data: &[u8]) -> IdlValue {
+    IdlValue::Struct(vec![
+        ("context".into(), IdlValue::String(context.to_string())),
+        ("type_hint".into(), IdlValue::String(type_name.to_string())),
+        ("raw_hex".into(), IdlValue::String(hex::encode(raw_data))),
+    ])
 }
 
 fn parse_type(
@@ -98,7 +101,7 @@ fn parse_type(
     offset: &mut usize,
     idl_type: &IdlType,
     indexed: &IndexedIdl,
-) -> Result<Value> {
+) -> Result<IdlValue> {
     match idl_type {
         IdlType::Simple(type_name) => parse_simple_type(data, offset, type_name),
         IdlType::Vec { vec } => parse_vec_type(data, offset, vec, indexed),
@@ -108,130 +111,144 @@ fn parse_type(
     }
 }
 
-pub(crate) fn parse_simple_type(data: &[u8], offset: &mut usize, type_name: &str) -> Result<Value> {
+pub(crate) fn parse_simple_type(
+    data: &[u8],
+    offset: &mut usize,
+    type_name: &str,
+) -> Result<IdlValue> {
     let start = *offset;
 
     let (value, bytes_read) = match type_name {
         "u8" => {
             check_data_len(data, start, 1)?;
-            (Value::Number(JsonNumber::from(u64::from(data[start]))), 1)
+            (IdlValue::U8(data[start]), 1)
         }
         "i8" => {
             check_data_len(data, start, 1)?;
-            (Value::Number(JsonNumber::from(data[start] as i8 as i64)), 1)
+            (IdlValue::I8(data[start] as i8), 1)
         }
         "u16" => {
             check_data_len(data, start, 2)?;
-            let value = u16::from_le_bytes([data[start], data[start + 1]]);
-            (Value::Number(JsonNumber::from(u64::from(value))), 2)
+            (IdlValue::U16(u16::from_le_bytes([data[start], data[start + 1]])), 2)
         }
         "i16" => {
             check_data_len(data, start, 2)?;
-            let value = i16::from_le_bytes([data[start], data[start + 1]]);
-            (Value::Number(JsonNumber::from(value as i64)), 2)
+            (IdlValue::I16(i16::from_le_bytes([data[start], data[start + 1]])), 2)
         }
         "u32" => {
             check_data_len(data, start, 4)?;
-            let value = u32::from_le_bytes([
-                data[start],
-                data[start + 1],
-                data[start + 2],
-                data[start + 3],
-            ]);
-            (Value::Number(JsonNumber::from(u64::from(value))), 4)
+            (
+                IdlValue::U32(u32::from_le_bytes([
+                    data[start],
+                    data[start + 1],
+                    data[start + 2],
+                    data[start + 3],
+                ])),
+                4,
+            )
         }
         "i32" => {
             check_data_len(data, start, 4)?;
-            let value = i32::from_le_bytes([
-                data[start],
-                data[start + 1],
-                data[start + 2],
-                data[start + 3],
-            ]);
-            (Value::Number(JsonNumber::from(value as i64)), 4)
+            (
+                IdlValue::I32(i32::from_le_bytes([
+                    data[start],
+                    data[start + 1],
+                    data[start + 2],
+                    data[start + 3],
+                ])),
+                4,
+            )
         }
         "u64" => {
             check_data_len(data, start, 8)?;
-            let value = u64::from_le_bytes([
-                data[start],
-                data[start + 1],
-                data[start + 2],
-                data[start + 3],
-                data[start + 4],
-                data[start + 5],
-                data[start + 6],
-                data[start + 7],
-            ]);
-            (Value::Number(JsonNumber::from(value)), 8)
+            (
+                IdlValue::U64(u64::from_le_bytes([
+                    data[start],
+                    data[start + 1],
+                    data[start + 2],
+                    data[start + 3],
+                    data[start + 4],
+                    data[start + 5],
+                    data[start + 6],
+                    data[start + 7],
+                ])),
+                8,
+            )
         }
         "i64" => {
             check_data_len(data, start, 8)?;
-            let value = i64::from_le_bytes([
-                data[start],
-                data[start + 1],
-                data[start + 2],
-                data[start + 3],
-                data[start + 4],
-                data[start + 5],
-                data[start + 6],
-                data[start + 7],
-            ]);
-            (Value::Number(JsonNumber::from(value)), 8)
+            (
+                IdlValue::I64(i64::from_le_bytes([
+                    data[start],
+                    data[start + 1],
+                    data[start + 2],
+                    data[start + 3],
+                    data[start + 4],
+                    data[start + 5],
+                    data[start + 6],
+                    data[start + 7],
+                ])),
+                8,
+            )
         }
         "u128" => {
             check_data_len(data, start, 16)?;
-            let value = u128::from_le_bytes([
-                data[start],
-                data[start + 1],
-                data[start + 2],
-                data[start + 3],
-                data[start + 4],
-                data[start + 5],
-                data[start + 6],
-                data[start + 7],
-                data[start + 8],
-                data[start + 9],
-                data[start + 10],
-                data[start + 11],
-                data[start + 12],
-                data[start + 13],
-                data[start + 14],
-                data[start + 15],
-            ]);
-            (Value::String(value.to_string()), 16)
+            (
+                IdlValue::U128(u128::from_le_bytes([
+                    data[start],
+                    data[start + 1],
+                    data[start + 2],
+                    data[start + 3],
+                    data[start + 4],
+                    data[start + 5],
+                    data[start + 6],
+                    data[start + 7],
+                    data[start + 8],
+                    data[start + 9],
+                    data[start + 10],
+                    data[start + 11],
+                    data[start + 12],
+                    data[start + 13],
+                    data[start + 14],
+                    data[start + 15],
+                ])),
+                16,
+            )
         }
         "i128" => {
             check_data_len(data, start, 16)?;
-            let value = i128::from_le_bytes([
-                data[start],
-                data[start + 1],
-                data[start + 2],
-                data[start + 3],
-                data[start + 4],
-                data[start + 5],
-                data[start + 6],
-                data[start + 7],
-                data[start + 8],
-                data[start + 9],
-                data[start + 10],
-                data[start + 11],
-                data[start + 12],
-                data[start + 13],
-                data[start + 14],
-                data[start + 15],
-            ]);
-            (Value::String(value.to_string()), 16)
+            (
+                IdlValue::I128(i128::from_le_bytes([
+                    data[start],
+                    data[start + 1],
+                    data[start + 2],
+                    data[start + 3],
+                    data[start + 4],
+                    data[start + 5],
+                    data[start + 6],
+                    data[start + 7],
+                    data[start + 8],
+                    data[start + 9],
+                    data[start + 10],
+                    data[start + 11],
+                    data[start + 12],
+                    data[start + 13],
+                    data[start + 14],
+                    data[start + 15],
+                ])),
+                16,
+            )
         }
         "pubkey" | "publicKey" => {
             check_data_len(data, start, 32)?;
             let pubkey = Pubkey::try_from(&data[start..start + 32])
                 .map_err(|_| anyhow!("Invalid pubkey data"))?;
-            (Value::String(pubkey.to_string()), 32)
+            (IdlValue::Pubkey(pubkey), 32)
         }
         "bool" => {
             check_data_len(data, start, 1)?;
             let value = data[start] != 0;
-            (Value::Bool(value), 1)
+            (IdlValue::Bool(value), 1)
         }
         "string" => {
             check_data_len(data, start, 4)?;
@@ -245,7 +262,7 @@ pub(crate) fn parse_simple_type(data: &[u8], offset: &mut usize, type_name: &str
             check_data_len(data, content_start, length)?;
             let string_data = &data[content_start..content_start + length];
             let value = String::from_utf8_lossy(string_data).to_string();
-            (Value::String(value), 4 + length)
+            (IdlValue::String(value), 4 + length)
         }
         "bytes" => {
             check_data_len(data, start, 4)?;
@@ -257,11 +274,8 @@ pub(crate) fn parse_simple_type(data: &[u8], offset: &mut usize, type_name: &str
             ]) as usize;
             let content_start = start + 4;
             check_data_len(data, content_start, length)?;
-            let mut array = Vec::with_capacity(length);
-            for byte in &data[content_start..content_start + length] {
-                array.push(Value::Number(JsonNumber::from(u64::from(*byte))));
-            }
-            (Value::Array(array), 4 + length)
+            let bytes = data[content_start..content_start + length].to_vec();
+            (IdlValue::Bytes(bytes), 4 + length)
         }
         _ => {
             let remaining = &data[start..];
@@ -279,7 +293,7 @@ pub(crate) fn parse_vec_type(
     offset: &mut usize,
     element_type: &IdlType,
     indexed: &IndexedIdl,
-) -> Result<Value> {
+) -> Result<IdlValue> {
     let start = *offset;
     check_data_len(data, start, 4)?;
 
@@ -298,7 +312,7 @@ pub(crate) fn parse_vec_type(
         elements.push(element);
     }
 
-    Ok(Value::Array(elements))
+    Ok(IdlValue::Array(elements))
 }
 
 pub(crate) fn parse_option_type(
@@ -306,14 +320,14 @@ pub(crate) fn parse_option_type(
     offset: &mut usize,
     inner_type: &IdlType,
     indexed: &IndexedIdl,
-) -> Result<Value> {
+) -> Result<IdlValue> {
     let start = *offset;
     check_data_len(data, start, 1)?;
 
     let is_some = data[start] != 0;
     *offset += 1;
 
-    if !is_some { Ok(Value::Null) } else { parse_type(data, offset, inner_type, indexed) }
+    if !is_some { Ok(IdlValue::Null) } else { parse_type(data, offset, inner_type, indexed) }
 }
 
 pub(crate) fn parse_array_type(
@@ -321,14 +335,14 @@ pub(crate) fn parse_array_type(
     offset: &mut usize,
     array_def: &IdlArrayType,
     indexed: &IndexedIdl,
-) -> Result<Value> {
+) -> Result<IdlValue> {
     let mut elements = Vec::with_capacity(array_def.length);
     for _ in 0..array_def.length {
         let element = parse_type(data, offset, &array_def.element_type, indexed)?;
         elements.push(element);
     }
 
-    Ok(Value::Array(elements))
+    Ok(IdlValue::Array(elements))
 }
 
 fn parse_defined_type(
@@ -336,7 +350,7 @@ fn parse_defined_type(
     offset: &mut usize,
     defined: &DefinedType,
     indexed: &IndexedIdl,
-) -> Result<Value> {
+) -> Result<IdlValue> {
     if let Some(type_def) = indexed.find_type_definition(defined.name()) {
         return parse_type_definition(data, offset, type_def, indexed);
     }
@@ -353,7 +367,7 @@ pub(crate) fn parse_type_definition(
     offset: &mut usize,
     type_def: &IdlTypeDefinition,
     indexed: &IndexedIdl,
-) -> Result<Value> {
+) -> Result<IdlValue> {
     match &type_def.type_.kind {
         IdlTypeDefinitionKind::Struct => {
             if let Some(fields) = &type_def.type_.fields {
@@ -370,12 +384,10 @@ pub(crate) fn parse_type_definition(
                     let variant = &variants[variant_index];
                     let payload = match variant.fields.as_ref() {
                         Some(fields) => parse_idl_fields_value(data, offset, fields, indexed)?,
-                        None => Value::Null,
+                        None => IdlValue::Null,
                     };
 
-                    let mut object = Map::new();
-                    object.insert(variant.name.clone(), payload);
-                    return Ok(Value::Object(object));
+                    return Ok(IdlValue::Struct(vec![(variant.name.clone(), payload)]));
                 }
             }
         }

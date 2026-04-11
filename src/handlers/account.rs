@@ -211,7 +211,7 @@ fn decode_account_output(
 
     match indexed.parse_account_data(&account.data)? {
         Some((type_name, parsed_value)) => Ok((
-            wrap_account_data_output(account, &parsed_value),
+            wrap_account_data_output(account, &parsed_value.to_json_value()),
             format!("Anchor ({})", type_name),
             None,
         )),

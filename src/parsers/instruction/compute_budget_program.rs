@@ -1,5 +1,6 @@
 use anyhow::Result;
 use solana_pubkey::Pubkey;
+use sonar_idl::IdlValue;
 
 use super::{InstructionParser, ParsedField, ParsedInstruction};
 use crate::core::transaction::InstructionSummary;
@@ -74,7 +75,8 @@ fn parse_u32_instruction(
         let value = reader.read_u32()?;
         Ok(ParsedInstruction {
             name: name.to_string(),
-            fields: vec![ParsedField::text(field_name, value.to_string())].into(),
+            fields: vec![ParsedField { name: field_name.into(), value: IdlValue::U32(value) }]
+                .into(),
             account_names: vec![],
         })
     })
@@ -93,7 +95,8 @@ fn parse_u64_instruction(
         let value = reader.read_u64()?;
         Ok(ParsedInstruction {
             name: name.to_string(),
-            fields: vec![ParsedField::text(field_name, value.to_string())].into(),
+            fields: vec![ParsedField { name: field_name.into(), value: IdlValue::U64(value) }]
+                .into(),
             account_names: vec![],
         })
     })

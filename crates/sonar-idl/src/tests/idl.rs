@@ -1,5 +1,6 @@
 use crate::idl::*;
 use crate::indexed::IndexedIdl;
+use crate::value::IdlValue;
 
 #[test]
 fn idl_type_serde_roundtrip() {
@@ -136,7 +137,7 @@ fn parse_current_idl_format() {
     assert_eq!(parsed.name, "initialize");
     assert_eq!(parsed.fields.len(), 1);
     assert_eq!(parsed.fields[0].name, "data");
-    assert_eq!(parsed.fields[0].value, serde_json::json!(42u64));
+    assert_eq!(parsed.fields[0].value, IdlValue::U64(42));
 }
 
 #[test]
@@ -191,7 +192,7 @@ fn current_idl_event_gets_auto_discriminator() {
     assert_eq!(parsed.name, "TransferEvent");
     assert_eq!(parsed.fields.len(), 1);
     assert_eq!(parsed.fields[0].name, "amount");
-    assert_eq!(parsed.fields[0].value, serde_json::json!(7u64));
+    assert_eq!(parsed.fields[0].value, IdlValue::U64(7));
     assert!(is_cpi_event_data(&data));
 }
 
@@ -224,9 +225,9 @@ fn current_idl_event_fields_support_tuple_types() {
     assert_eq!(parsed.name, "PairEvent");
     assert_eq!(parsed.fields.len(), 2);
     assert_eq!(parsed.fields[0].name, "field_0");
-    assert_eq!(parsed.fields[0].value, serde_json::json!(9u64));
+    assert_eq!(parsed.fields[0].value, IdlValue::U32(9));
     assert_eq!(parsed.fields[1].name, "field_1");
-    assert_eq!(parsed.fields[1].value, serde_json::json!(7u64));
+    assert_eq!(parsed.fields[1].value, IdlValue::U16(7));
 }
 
 #[test]
@@ -271,7 +272,7 @@ fn parse_legacy_idl_and_into_indexed_idl() {
     assert_eq!(parsed.name, "doSomething");
     assert_eq!(parsed.fields.len(), 1);
     assert_eq!(parsed.fields[0].name, "amount");
-    assert_eq!(parsed.fields[0].value, serde_json::json!(123u64));
+    assert_eq!(parsed.fields[0].value, IdlValue::U64(123));
 }
 
 #[test]
@@ -294,7 +295,7 @@ fn legacy_idl_accounts_merge_into_types() {
 
     let (type_name, value) = indexed.parse_account_data(&data).unwrap().expect("should parse");
     assert_eq!(type_name, "AcctA");
-    assert_eq!(value, serde_json::json!([]));
+    assert_eq!(value, IdlValue::Array(vec![]));
 }
 
 #[test]
@@ -321,5 +322,5 @@ fn legacy_event_gets_auto_discriminator() {
     assert_eq!(parsed.name, "TransferEvent");
     assert_eq!(parsed.fields.len(), 1);
     assert_eq!(parsed.fields[0].name, "amount");
-    assert_eq!(parsed.fields[0].value, serde_json::json!(7u64));
+    assert_eq!(parsed.fields[0].value, IdlValue::U64(7));
 }

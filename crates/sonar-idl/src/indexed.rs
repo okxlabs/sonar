@@ -1,16 +1,14 @@
 use std::collections::HashMap;
 use std::ops::Deref;
 
-use anyhow::Result;
-use serde::{Deserialize, Deserializer, Serialize};
-use serde_json::Value;
-
 use crate::decode::{
     parse_idl_fields_as_parsed_fields, parse_instruction_args, parse_type_definition,
     raw_unparsed_value,
 };
 use crate::discriminator::sighash;
 use crate::idl::*;
+use anyhow::Result;
+use serde::{Deserialize, Deserializer};
 
 const EMIT_CPI_DISCRIMINATOR: [u8; 8] = [0xe4, 0x45, 0xa5, 0x2e, 0x51, 0xcb, 0x9a, 0x1d];
 const CPI_EVENT_ACCOUNT_NAME: &str = "event_authority";
@@ -18,7 +16,7 @@ const CPI_EVENT_ACCOUNT_NAME: &str = "event_authority";
 // ── Output types ──
 
 /// A fully parsed IDL instruction with resolved argument fields.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone)]
 pub struct IdlParsedInstruction {
     pub name: String,
     pub fields: IdlInstructionFields,
@@ -26,33 +24,20 @@ pub struct IdlParsedInstruction {
 }
 
 /// A single parsed field from IDL binary data.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone)]
 pub struct IdlParsedField {
     pub name: String,
-    pub value: Value,
+    pub value: crate::value::IdlValue,
 }
 
 /// Field decode state for a matched IDL instruction.
 ///
-/// Serializes transparently: `Parsed` emits the field array directly,
-/// `Unparsed` emits the raw hex string. This matches the `ParsedInstructionFields`
-/// serialization used by the CLI output layer.
+/// `Parsed` holds successfully decoded fields; `Unparsed` holds raw hex
+/// when decoding failed. Serialization is left to consumers.
 #[derive(Debug, Clone)]
 pub enum IdlInstructionFields {
     Parsed(Vec<IdlParsedField>),
     Unparsed(String),
-}
-
-impl Serialize for IdlInstructionFields {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        match self {
-            Self::Parsed(fields) => fields.serialize(serializer),
-            Self::Unparsed(raw_hex) => serializer.serialize_str(raw_hex),
-        }
-    }
 }
 
 impl IdlInstructionFields {
@@ -197,7 +182,10 @@ impl IndexedIdl {
         Ok(Some(IdlParsedInstruction { name: idl_instruction.name.clone(), fields, account_names }))
     }
 
-    pub fn parse_account_data(&self, account_data: &[u8]) -> Result<Option<(String, Value)>> {
+    pub fn parse_account_data(
+        &self,
+        account_data: &[u8],
+    ) -> Result<Option<(String, crate::value::IdlValue)>> {
         let Some((type_def, disc_len)) = self.find_account_type_by_discriminator(account_data)
         else {
             return Ok(None);
