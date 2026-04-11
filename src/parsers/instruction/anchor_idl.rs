@@ -26,7 +26,6 @@ fn to_parsed_instruction(idl_parsed: IdlParsedInstruction) -> ParsedInstruction 
         IdlInstructionFields::Unparsed(raw_args_hex) => {
             vec![ParsedField::text("__raw_hex__", raw_args_hex)]
         }
-        IdlInstructionFields::Empty => Vec::new(),
     };
 
     ParsedInstruction { name: idl_parsed.name, fields, account_names: idl_parsed.account_names }

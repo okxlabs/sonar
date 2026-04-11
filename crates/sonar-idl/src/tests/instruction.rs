@@ -475,3 +475,28 @@ fn indexed_idl_find_instruction_ignores_missing_discriminator() {
     let found = indexed.find_instruction_by_discriminator(&[1, 2, 3, 4, 5, 6, 7, 8]);
     assert!(found.is_none());
 }
+
+#[test]
+fn indexed_idl_parse_instruction_returns_empty_fields_for_zero_arg_instruction() {
+    let indexed: IndexedIdl = serde_json::from_str(
+        r#"{
+            "address": "11111111111111111111111111111111",
+            "metadata": { "name": "t", "version": "0.1.0", "spec": "0.1.0" },
+            "instructions": [{
+                "name": "ping",
+                "discriminator": [9,9,9,9,9,9,9,9],
+                "accounts": [{ "name": "payer", "writable": true, "signer": true }],
+                "args": []
+            }],
+            "types": []
+        }"#,
+    )
+    .unwrap();
+
+    let data = vec![9, 9, 9, 9, 9, 9, 9, 9];
+
+    let parsed = indexed.parse_instruction(&data).unwrap().unwrap();
+    assert_eq!(parsed.name, "ping");
+    assert!(matches!(parsed.fields, IdlInstructionFields::Parsed(ref fields) if fields.is_empty()));
+    assert_eq!(parsed.account_names, vec!["payer"]);
+}

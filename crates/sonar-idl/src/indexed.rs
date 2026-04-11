@@ -38,7 +38,6 @@ pub struct IdlParsedField {
 pub enum IdlInstructionFields {
     Parsed(Vec<IdlParsedField>),
     Unparsed(String),
-    Empty,
 }
 
 impl IdlInstructionFields {
@@ -56,7 +55,7 @@ impl Deref for IdlInstructionFields {
     fn deref(&self) -> &Self::Target {
         match self {
             Self::Parsed(fields) => fields.as_slice(),
-            Self::Unparsed(_) | Self::Empty => &[],
+            Self::Unparsed(_) => &[],
         }
     }
 }
@@ -150,7 +149,7 @@ impl IndexedIdl {
         let mut offset = idl_instruction.discriminator.as_ref().map_or(0, |d| d.len());
         let args_offset = offset;
         let fields = if idl_instruction.args.is_empty() {
-            IdlInstructionFields::Empty
+            IdlInstructionFields::Parsed(Vec::new())
         } else {
             match parse_instruction_args(data, &mut offset, &idl_instruction.args, self) {
                 Ok(fields) => IdlInstructionFields::Parsed(fields),
@@ -215,11 +214,7 @@ impl IndexedIdl {
                         value: raw_unparsed_value("event_data", &event_def.name, raw_data),
                     });
                 }
-                if raw_fields.is_empty() {
-                    IdlInstructionFields::Empty
-                } else {
-                    IdlInstructionFields::Parsed(raw_fields)
-                }
+                IdlInstructionFields::Parsed(raw_fields)
             }
         };
 
