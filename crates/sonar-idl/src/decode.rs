@@ -2,14 +2,14 @@ use anyhow::{Result, anyhow};
 use solana_pubkey::Pubkey;
 
 use crate::idl::*;
-use crate::indexed::IdlParsedField;
+use crate::indexed::{IdlParsedField, IndexedIdl};
 use crate::value::IdlValue;
 
 pub(super) fn parse_instruction_args(
     data: &[u8],
     offset: &mut usize,
     args: &[IdlArg],
-    indexed: &crate::indexed::IndexedIdl,
+    indexed: &IndexedIdl,
 ) -> Result<Vec<IdlParsedField>> {
     let mut fields = Vec::new();
     for arg in args {
@@ -23,7 +23,7 @@ fn parse_named_fields_to_entries(
     data: &[u8],
     offset: &mut usize,
     fields: &[IdlField],
-    indexed: &crate::indexed::IndexedIdl,
+    indexed: &IndexedIdl,
 ) -> Result<Vec<(String, IdlValue)>> {
     let mut entries = Vec::new();
     for field in fields {
@@ -37,7 +37,7 @@ fn parse_tuple_fields_to_values(
     data: &[u8],
     offset: &mut usize,
     fields: &[IdlType],
-    indexed: &crate::indexed::IndexedIdl,
+    indexed: &IndexedIdl,
 ) -> Result<Vec<IdlValue>> {
     let mut values = Vec::new();
     for field_type in fields {
@@ -50,7 +50,7 @@ fn parse_idl_fields_value(
     data: &[u8],
     offset: &mut usize,
     fields: &IdlFields,
-    indexed: &crate::indexed::IndexedIdl,
+    indexed: &IndexedIdl,
 ) -> Result<IdlValue> {
     match fields {
         IdlFields::Named(named_fields) => Ok(IdlValue::Struct(parse_named_fields_to_entries(
@@ -69,7 +69,7 @@ pub(crate) fn parse_idl_fields_as_parsed_fields(
     data: &[u8],
     offset: &mut usize,
     fields: &IdlFields,
-    indexed: &crate::indexed::IndexedIdl,
+    indexed: &IndexedIdl,
 ) -> Result<Vec<IdlParsedField>> {
     match fields {
         IdlFields::Named(named_fields) => {
@@ -100,7 +100,7 @@ fn parse_type(
     data: &[u8],
     offset: &mut usize,
     idl_type: &IdlType,
-    indexed: &crate::indexed::IndexedIdl,
+    indexed: &IndexedIdl,
 ) -> Result<IdlValue> {
     match idl_type {
         IdlType::Simple(type_name) => parse_simple_type(data, offset, type_name),
@@ -292,7 +292,7 @@ pub(crate) fn parse_vec_type(
     data: &[u8],
     offset: &mut usize,
     element_type: &IdlType,
-    indexed: &crate::indexed::IndexedIdl,
+    indexed: &IndexedIdl,
 ) -> Result<IdlValue> {
     let start = *offset;
     check_data_len(data, start, 4)?;
@@ -319,7 +319,7 @@ pub(crate) fn parse_option_type(
     data: &[u8],
     offset: &mut usize,
     inner_type: &IdlType,
-    indexed: &crate::indexed::IndexedIdl,
+    indexed: &IndexedIdl,
 ) -> Result<IdlValue> {
     let start = *offset;
     check_data_len(data, start, 1)?;
@@ -334,7 +334,7 @@ pub(crate) fn parse_array_type(
     data: &[u8],
     offset: &mut usize,
     array_def: &IdlArrayType,
-    indexed: &crate::indexed::IndexedIdl,
+    indexed: &IndexedIdl,
 ) -> Result<IdlValue> {
     let mut elements = Vec::with_capacity(array_def.length);
     for _ in 0..array_def.length {
@@ -349,7 +349,7 @@ fn parse_defined_type(
     data: &[u8],
     offset: &mut usize,
     defined: &DefinedType,
-    indexed: &crate::indexed::IndexedIdl,
+    indexed: &IndexedIdl,
 ) -> Result<IdlValue> {
     if let Some(type_def) = indexed.find_type_definition(defined.name()) {
         return parse_type_definition(data, offset, type_def, indexed);
@@ -366,7 +366,7 @@ pub(crate) fn parse_type_definition(
     data: &[u8],
     offset: &mut usize,
     type_def: &IdlTypeDefinition,
-    indexed: &crate::indexed::IndexedIdl,
+    indexed: &IndexedIdl,
 ) -> Result<IdlValue> {
     match &type_def.type_.kind {
         IdlTypeDefinitionKind::Struct => {

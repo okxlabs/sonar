@@ -24,10 +24,7 @@ fn to_parsed_instruction(idl_parsed: IdlParsedInstruction) -> ParsedInstruction 
     let fields = match idl_parsed.fields {
         IdlInstructionFields::Parsed(fields) => fields
             .into_iter()
-            .map(|field| ParsedField {
-                name: field.name,
-                value: idl_value_to_field_value(field.value),
-            })
+            .map(|field| ParsedField { name: field.name, value: field.value.into() })
             .collect::<Vec<_>>()
             .into(),
         IdlInstructionFields::Unparsed(raw_args_hex) => {
@@ -38,30 +35,31 @@ fn to_parsed_instruction(idl_parsed: IdlParsedInstruction) -> ParsedInstruction 
     ParsedInstruction { name: idl_parsed.name, fields, account_names: idl_parsed.account_names }
 }
 
-/// Convert an `IdlValue` to `ParsedFieldValue` directly — no JSON intermediate.
-pub(crate) fn idl_value_to_field_value(value: IdlValue) -> ParsedFieldValue {
-    match value {
-        IdlValue::U8(n) => ParsedFieldValue::U8(n),
-        IdlValue::U16(n) => ParsedFieldValue::U16(n),
-        IdlValue::U32(n) => ParsedFieldValue::U32(n),
-        IdlValue::U64(n) => ParsedFieldValue::U64(n),
-        IdlValue::U128(n) => ParsedFieldValue::U128(n),
-        IdlValue::I8(n) => ParsedFieldValue::I8(n),
-        IdlValue::I16(n) => ParsedFieldValue::I16(n),
-        IdlValue::I32(n) => ParsedFieldValue::I32(n),
-        IdlValue::I64(n) => ParsedFieldValue::I64(n),
-        IdlValue::I128(n) => ParsedFieldValue::I128(n),
-        IdlValue::Bool(b) => ParsedFieldValue::Bool(b),
-        IdlValue::Pubkey(p) => ParsedFieldValue::Pubkey(p),
-        IdlValue::String(s) => ParsedFieldValue::Text(s),
-        IdlValue::Bytes(b) => ParsedFieldValue::Bytes(b),
-        IdlValue::Struct(fields) => ParsedFieldValue::Struct(
-            fields.into_iter().map(|(k, v)| (k, idl_value_to_field_value(v))).collect(),
-        ),
-        IdlValue::Array(values) => {
-            ParsedFieldValue::Array(values.into_iter().map(idl_value_to_field_value).collect())
+impl From<IdlValue> for ParsedFieldValue {
+    fn from(value: IdlValue) -> Self {
+        match value {
+            IdlValue::U8(n) => Self::U8(n),
+            IdlValue::U16(n) => Self::U16(n),
+            IdlValue::U32(n) => Self::U32(n),
+            IdlValue::U64(n) => Self::U64(n),
+            IdlValue::U128(n) => Self::U128(n),
+            IdlValue::I8(n) => Self::I8(n),
+            IdlValue::I16(n) => Self::I16(n),
+            IdlValue::I32(n) => Self::I32(n),
+            IdlValue::I64(n) => Self::I64(n),
+            IdlValue::I128(n) => Self::I128(n),
+            IdlValue::Bool(b) => Self::Bool(b),
+            IdlValue::Pubkey(p) => Self::Pubkey(p),
+            IdlValue::String(s) => Self::Text(s),
+            IdlValue::Bytes(b) => Self::Bytes(b),
+            IdlValue::Struct(fields) => {
+                Self::Struct(fields.into_iter().map(|(k, v)| (k, v.into())).collect())
+            }
+            IdlValue::Array(values) => {
+                Self::Array(values.into_iter().map(Into::into).collect())
+            }
+            IdlValue::Null => Self::Null,
         }
-        IdlValue::Null => ParsedFieldValue::Null,
     }
 }
 

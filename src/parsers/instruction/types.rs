@@ -1,6 +1,5 @@
 use std::ops::Deref;
 
-use serde::ser::{SerializeMap, SerializeSeq};
 use serde::Serialize;
 use solana_pubkey::Pubkey;
 
@@ -142,51 +141,19 @@ pub enum ParsedFieldValue {
 
 /// Serialize for `--json` output.
 ///
-/// - u8–u64, i8–i64: JSON numbers.
-/// - u128/i128: always JSON strings (stable schema).
-/// - Pubkey: base58 string.
-/// - Struct: ordered JSON object.
+/// Delegates to [`to_json_value`](Self::to_json_value) for most variants.
+/// Overrides u128/i128 to always emit as strings for stable JSON schema.
 impl Serialize for ParsedFieldValue {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
         match self {
-            Self::U8(n) => serializer.serialize_u64(*n as u64),
-            Self::U16(n) => serializer.serialize_u64(*n as u64),
-            Self::U32(n) => serializer.serialize_u64(*n as u64),
-            Self::U64(n) => serializer.serialize_u64(*n),
+            // u128/i128: always string in JSON for schema stability
             Self::U128(n) => serializer.serialize_str(&n.to_string()),
-            Self::I8(n) => serializer.serialize_i64(*n as i64),
-            Self::I16(n) => serializer.serialize_i64(*n as i64),
-            Self::I32(n) => serializer.serialize_i64(*n as i64),
-            Self::I64(n) => serializer.serialize_i64(*n),
             Self::I128(n) => serializer.serialize_str(&n.to_string()),
-            Self::Bool(b) => serializer.serialize_bool(*b),
-            Self::Pubkey(p) => serializer.serialize_str(&p.to_string()),
-            Self::Text(s) => serializer.serialize_str(s),
-            Self::Bytes(bytes) => {
-                let mut seq = serializer.serialize_seq(Some(bytes.len()))?;
-                for b in bytes {
-                    seq.serialize_element(b)?;
-                }
-                seq.end()
-            }
-            Self::Struct(fields) => {
-                let mut map = serializer.serialize_map(Some(fields.len()))?;
-                for (name, value) in fields {
-                    map.serialize_entry(name, value)?;
-                }
-                map.end()
-            }
-            Self::Array(values) => {
-                let mut seq = serializer.serialize_seq(Some(values.len()))?;
-                for v in values {
-                    seq.serialize_element(v)?;
-                }
-                seq.end()
-            }
-            Self::Null => serializer.serialize_none(),
+            // Everything else: delegate to the JSON value representation
+            _ => self.to_json_value().serialize(serializer),
         }
     }
 }
@@ -194,9 +161,8 @@ impl Serialize for ParsedFieldValue {
 impl ParsedFieldValue {
     /// Convert to `serde_json::Value` for terminal pretty-printing.
     ///
-    /// Unlike `Serialize` (which always emits u128/i128 as strings),
-    /// this emits them as numbers when the value fits — because terminal
-    /// display is cosmetic and doesn't need schema stability.
+    /// All integer types emit as JSON numbers (u128/i128 as numbers when
+    /// they fit in u64/i64, strings when they overflow).
     pub fn to_json_value(&self) -> serde_json::Value {
         use serde_json::Value;
         match self {

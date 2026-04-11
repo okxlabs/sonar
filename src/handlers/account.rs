@@ -211,8 +211,8 @@ fn decode_account_output(
 
     match indexed.parse_account_data(&account.data)? {
         Some((type_name, parsed_value)) => {
-            let field_value =
-                crate::parsers::instruction::anchor_idl::idl_value_to_field_value(parsed_value);
+            let field_value: crate::parsers::instruction::ParsedFieldValue =
+                parsed_value.into();
             Ok((
                 wrap_account_data_output(account, &field_value.to_json_value()),
                 format!("Anchor ({})", type_name),
