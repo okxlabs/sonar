@@ -75,8 +75,7 @@ pub struct StateMutationOptions {
 /// - [`ExecutionOptions`]: VM-level knobs (signature verification, slot/time override).
 /// - [`StateMutationOptions`]: pre-simulation account mutations (replace, fund, patch).
 ///
-/// Construct via `Default`, struct literal, or the builder returned by
-/// [`SimulationOptions::builder`].
+/// Construct via `Default` or struct literal.
 #[derive(Debug, Clone, Default)]
 pub struct SimulationOptions {
     pub execution: ExecutionOptions,
@@ -696,12 +695,16 @@ mod tests {
         let accounts = HashMap::new();
         let resolved = ResolvedAccounts { accounts, lookups: vec![] };
 
-        let opts = SimulationOptions::builder()
-            .sol_fundings(vec![SolFunding {
-                pubkey: payer.pubkey(),
-                amount_lamports: 10_000_000_000,
-            }])
-            .build();
+        let opts = SimulationOptions {
+            mutations: StateMutationOptions {
+                sol_fundings: vec![SolFunding {
+                    pubkey: payer.pubkey(),
+                    amount_lamports: 10_000_000_000,
+                }],
+                ..Default::default()
+            },
+            ..Default::default()
+        };
 
         let mut runner = PreparedSimulation::prepare(resolved, opts)
             .expect("prepare should succeed")
