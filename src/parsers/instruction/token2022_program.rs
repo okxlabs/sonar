@@ -358,7 +358,7 @@ fn dispatch_table_instruction(
                 );
                 Ok(ParsedInstruction {
                     name: def.name.to_string(),
-                    fields: vec![ParsedField::text("amount", amount.to_string())].into(),
+                    fields: vec![ParsedField::number("amount", amount)].into(),
                     account_names,
                 })
             })
@@ -380,8 +380,8 @@ fn dispatch_table_instruction(
                 Ok(ParsedInstruction {
                     name: def.name.to_string(),
                     fields: vec![
-                        ParsedField::text("amount", amount.to_string()),
-                        ParsedField::text("decimals", decimals.to_string()),
+                        ParsedField::number("amount", amount),
+                        ParsedField::number("decimals", decimals as u64),
                     ]
                     .into(),
                     account_names,
@@ -452,8 +452,8 @@ fn parse_initialize_mint_instruction(
         Ok(ParsedInstruction {
             name: "InitializeMint".to_string(),
             fields: vec![
-                ParsedField::text("decimals", decimals.to_string()),
-                ParsedField::text("has_freeze_authority", has_freeze_authority.to_string()),
+                ParsedField::number("decimals", decimals as u64),
+                ParsedField::boolean("has_freeze_authority", has_freeze_authority),
             ]
             .into(),
             account_names: vec!["mint".to_string(), "rent_sysvar".to_string()],
@@ -499,7 +499,7 @@ fn parse_initialize_multisig_instruction(
         }
         Ok(ParsedInstruction {
             name: "InitializeMultisig".to_string(),
-            fields: vec![ParsedField::text("m", m.to_string())].into(),
+            fields: vec![ParsedField::number("m", m as u64)].into(),
             account_names,
         })
     })
@@ -535,8 +535,8 @@ fn parse_set_authority_instruction(
         Ok(ParsedInstruction {
             name: "SetAuthority".to_string(),
             fields: vec![
-                ParsedField::text("authority_type", authority_type.to_string()),
-                ParsedField::text("cleared", cleared.to_string()),
+                ParsedField::text("authority_type", authority_type),
+                ParsedField::boolean("cleared", cleared),
             ]
             .into(),
             account_names,
@@ -605,7 +605,7 @@ fn parse_initialize_multisig2_instruction(
         }
         Ok(ParsedInstruction {
             name: "InitializeMultisig2".to_string(),
-            fields: vec![ParsedField::text("m", m.to_string())].into(),
+            fields: vec![ParsedField::number("m", m as u64)].into(),
             account_names,
         })
     })
@@ -629,8 +629,8 @@ fn parse_initialize_mint2_instruction(
         Ok(ParsedInstruction {
             name: "InitializeMint2".to_string(),
             fields: vec![
-                ParsedField::text("decimals", decimals.to_string()),
-                ParsedField::text("has_freeze_authority", has_freeze_authority.to_string()),
+                ParsedField::number("decimals", decimals as u64),
+                ParsedField::boolean("has_freeze_authority", has_freeze_authority),
             ]
             .into(),
             account_names: vec!["mint".to_string()],
@@ -650,7 +650,7 @@ fn parse_amount_to_ui_amount_instruction(
         let amount = reader.read_u64()?;
         Ok(ParsedInstruction {
             name: "AmountToUiAmount".to_string(),
-            fields: vec![ParsedField::text("amount", amount.to_string())].into(),
+            fields: vec![ParsedField::number("amount", amount)].into(),
             account_names: vec!["mint".to_string()],
         })
     })
@@ -744,8 +744,8 @@ fn parse_transfer_fee_initialize_instruction(
                     "withdraw_withheld_authority",
                     withdraw_authority.map_or_else(|| "none".to_string(), |pk| pk.to_string()),
                 ),
-                ParsedField::text("transfer_fee_basis_points", bps.to_string()),
-                ParsedField::text("maximum_fee", maximum_fee.to_string()),
+                ParsedField::number("transfer_fee_basis_points", bps as u64),
+                ParsedField::number("maximum_fee", maximum_fee),
             ]
             .into(),
             account_names: vec!["mint".to_string()],
@@ -775,9 +775,9 @@ fn parse_transfer_checked_with_fee_instruction(
         Ok(ParsedInstruction {
             name: "TransferCheckedWithFee".to_string(),
             fields: vec![
-                ParsedField::text("amount", amount.to_string()),
-                ParsedField::text("decimals", decimals.to_string()),
-                ParsedField::text("fee", fee.to_string()),
+                ParsedField::number("amount", amount),
+                ParsedField::number("decimals", decimals as u64),
+                ParsedField::number("fee", fee),
             ]
             .into(),
             account_names,
@@ -830,7 +830,7 @@ fn parse_transfer_fee_withdraw_from_accounts_instruction(
 
     Ok(Some(ParsedInstruction {
         name: "WithdrawWithheldTokensFromAccounts".to_string(),
-        fields: vec![ParsedField::text("num_token_accounts", num_token_accounts.to_string())]
+        fields: vec![ParsedField::number("num_token_accounts", num_token_accounts as u64)]
             .into(),
         account_names,
     }))
@@ -879,7 +879,7 @@ fn parse_transfer_fee_set_fee_instruction(
                     "transfer_fee_basis_points",
                     transfer_fee_basis_points.to_string(),
                 ),
-                ParsedField::text("maximum_fee", maximum_fee.to_string()),
+                ParsedField::number("maximum_fee", maximum_fee),
             ]
             .into(),
             account_names,

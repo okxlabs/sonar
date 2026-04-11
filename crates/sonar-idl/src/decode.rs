@@ -198,7 +198,12 @@ pub(crate) fn parse_simple_type(data: &[u8], offset: &mut usize, type_name: &str
                 data[start + 14],
                 data[start + 15],
             ]);
-            (Value::String(value.to_string()), 16)
+            // Emit as number when the value fits in u64; fall back to string
+            // only for values that exceed JSON's safe integer range.
+            (match u64::try_from(value) {
+                Ok(n) => Value::Number(JsonNumber::from(n)),
+                Err(_) => Value::String(value.to_string()),
+            }, 16)
         }
         "i128" => {
             check_data_len(data, start, 16)?;
@@ -220,7 +225,10 @@ pub(crate) fn parse_simple_type(data: &[u8], offset: &mut usize, type_name: &str
                 data[start + 14],
                 data[start + 15],
             ]);
-            (Value::String(value.to_string()), 16)
+            (match i64::try_from(value) {
+                Ok(n) => Value::Number(JsonNumber::from(n)),
+                Err(_) => Value::String(value.to_string()),
+            }, 16)
         }
         "pubkey" | "publicKey" => {
             check_data_len(data, start, 32)?;

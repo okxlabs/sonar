@@ -88,6 +88,18 @@ impl ParsedField {
     pub fn json(name: impl Into<String>, value: Value) -> Self {
         Self { name: name.into(), value: ParsedFieldValue::Json(value) }
     }
+
+    pub fn number(name: impl Into<String>, value: u64) -> Self {
+        Self::json(name, Value::Number(serde_json::Number::from(value)))
+    }
+
+    pub fn signed_number(name: impl Into<String>, value: i64) -> Self {
+        Self::json(name, Value::Number(serde_json::Number::from(value)))
+    }
+
+    pub fn boolean(name: impl Into<String>, value: bool) -> Self {
+        Self::json(name, Value::Bool(value))
+    }
 }
 
 impl<N, V> From<(N, V)> for ParsedField
@@ -124,7 +136,10 @@ impl PartialEq<&str> for ParsedFieldValue {
     fn eq(&self, other: &&str) -> bool {
         match self {
             ParsedFieldValue::Text(text) => text == *other,
-            ParsedFieldValue::Json(_) => false,
+            ParsedFieldValue::Json(Value::String(s)) => s == *other,
+            ParsedFieldValue::Json(Value::Number(n)) => n.to_string() == *other,
+            ParsedFieldValue::Json(Value::Bool(b)) => b.to_string() == *other,
+            _ => false,
         }
     }
 }
@@ -133,7 +148,10 @@ impl PartialEq<String> for ParsedFieldValue {
     fn eq(&self, other: &String) -> bool {
         match self {
             ParsedFieldValue::Text(text) => text == other,
-            ParsedFieldValue::Json(_) => false,
+            ParsedFieldValue::Json(Value::String(s)) => s == other,
+            ParsedFieldValue::Json(Value::Number(n)) => n.to_string() == *other,
+            ParsedFieldValue::Json(Value::Bool(b)) => b.to_string() == *other,
+            _ => false,
         }
     }
 }

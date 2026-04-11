@@ -84,7 +84,7 @@ fn parse_transfer_instruction(
         let lamports = reader.read_u64()?;
         Ok(ParsedInstruction {
             name: "Transfer".to_string(),
-            fields: vec![ParsedField::text("lamports", lamports.to_string())].into(),
+            fields: vec![ParsedField::number("lamports", lamports)].into(),
             account_names: vec!["funding_account".to_string(), "recipient_account".to_string()],
         })
     })
@@ -106,8 +106,8 @@ fn parse_create_account_instruction(
         Ok(ParsedInstruction {
             name: "CreateAccount".to_string(),
             fields: vec![
-                ParsedField::text("lamports", lamports.to_string()),
-                ParsedField::text("space", space.to_string()),
+                ParsedField::number("lamports", lamports),
+                ParsedField::number("space", space),
                 ParsedField::text("owner", owner.to_string()),
             ]
             .into(),
@@ -155,8 +155,8 @@ fn parse_create_account_with_seed_instruction(
             fields: vec![
                 ParsedField::text("base", base.to_string()),
                 ParsedField::text("seed", seed),
-                ParsedField::text("lamports", lamports.to_string()),
-                ParsedField::text("space", space.to_string()),
+                ParsedField::number("lamports", lamports),
+                ParsedField::number("space", space),
                 ParsedField::text("owner", owner.to_string()),
             ]
             .into(),
@@ -198,7 +198,7 @@ fn parse_withdraw_nonce_account_instruction(
         let lamports = reader.read_u64()?;
         Ok(ParsedInstruction {
             name: "WithdrawNonceAccount".to_string(),
-            fields: vec![ParsedField::text("lamports", lamports.to_string())].into(),
+            fields: vec![ParsedField::number("lamports", lamports)].into(),
             account_names: vec![
                 "nonce_account".to_string(),
                 "recipient_account".to_string(),
@@ -265,7 +265,7 @@ fn parse_allocate_instruction(
         let space = reader.read_u64()?;
         Ok(ParsedInstruction {
             name: "Allocate".to_string(),
-            fields: vec![ParsedField::text("space", space.to_string())].into(),
+            fields: vec![ParsedField::number("space", space)].into(),
             account_names: vec!["allocated_account".to_string()],
         })
     })
@@ -290,7 +290,7 @@ fn parse_allocate_with_seed_instruction(
             fields: vec![
                 ParsedField::text("base", base.to_string()),
                 ParsedField::text("seed", seed),
-                ParsedField::text("space", space.to_string()),
+                ParsedField::number("space", space),
                 ParsedField::text("owner", owner.to_string()),
             ]
             .into(),
@@ -342,7 +342,7 @@ fn parse_transfer_with_seed_instruction(
         Ok(ParsedInstruction {
             name: "TransferWithSeed".to_string(),
             fields: vec![
-                ParsedField::text("lamports", lamports.to_string()),
+                ParsedField::number("lamports", lamports),
                 ParsedField::text("from_seed", from_seed),
                 ParsedField::text("from_owner", from_owner.to_string()),
             ]
@@ -384,8 +384,8 @@ fn parse_create_account_allow_prefund_instruction(
         Ok(ParsedInstruction {
             name: "CreateAccountAllowPrefund".to_string(),
             fields: vec![
-                ParsedField::text("lamports", lamports.to_string()),
-                ParsedField::text("space", space.to_string()),
+                ParsedField::number("lamports", lamports),
+                ParsedField::number("space", space),
                 ParsedField::text("owner", owner.to_string()),
             ]
             .into(),
