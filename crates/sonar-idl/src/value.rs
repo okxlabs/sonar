@@ -1,4 +1,3 @@
-use serde::Serialize;
 use solana_pubkey::Pubkey;
 
 /// Domain-native value type for decoded Solana instruction/account data.
@@ -31,17 +30,6 @@ pub enum IdlValue {
     Array(Vec<IdlValue>),
     /// None / null (Option::None).
     Null,
-}
-
-/// Serialize as JSON. All integer types (including u128/i128) emit as
-/// unquoted JSON numbers via `serde_json`'s `arbitrary_precision` feature.
-impl Serialize for IdlValue {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        self.to_json_value().serialize(serializer)
-    }
 }
 
 impl IdlValue {

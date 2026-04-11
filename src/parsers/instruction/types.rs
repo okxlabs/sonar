@@ -75,10 +75,23 @@ impl Serialize for ParsedInstructionFields {
 }
 
 /// Ordered parsed field entry
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone)]
 pub struct ParsedField {
     pub name: String,
     pub value: IdlValue,
+}
+
+impl Serialize for ParsedField {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeMap;
+        let mut map = serializer.serialize_map(Some(2))?;
+        map.serialize_entry("name", &self.name)?;
+        map.serialize_entry("value", &self.value.to_json_value())?;
+        map.end()
+    }
 }
 
 impl ParsedField {
