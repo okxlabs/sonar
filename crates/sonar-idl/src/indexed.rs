@@ -33,14 +33,39 @@ pub struct IdlParsedField {
 }
 
 /// Field decode state for a matched IDL instruction.
-#[derive(Debug, Clone, Serialize)]
-#[serde(tag = "status", rename_all = "snake_case")]
+///
+/// Serializes transparently: `Parsed` emits the field array directly,
+/// `Unparsed` emits the raw hex string. This matches the `ParsedInstructionFields`
+/// serialization used by the CLI output layer.
+#[derive(Debug, Clone)]
 pub enum IdlInstructionFields {
     Parsed(Vec<IdlParsedField>),
     Unparsed(String),
 }
 
+impl Serialize for IdlInstructionFields {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match self {
+            Self::Parsed(fields) => fields.serialize(serializer),
+            Self::Unparsed(raw_hex) => serializer.serialize_str(raw_hex),
+        }
+    }
+}
+
 impl IdlInstructionFields {
+    /// Returns the parsed fields if decoding succeeded, or `None` for the unparsed variant.
+    ///
+    /// Prefer this over `Deref` when you need to distinguish "no args" from "failed to decode".
+    pub fn parsed_fields(&self) -> Option<&[IdlParsedField]> {
+        match self {
+            Self::Parsed(fields) => Some(fields),
+            Self::Unparsed(_) => None,
+        }
+    }
+
     pub fn raw_args_hex(&self) -> Option<&str> {
         match self {
             Self::Unparsed(raw_args_hex) => Some(raw_args_hex),
@@ -49,6 +74,9 @@ impl IdlInstructionFields {
     }
 }
 
+/// **Caution:** Returns an empty slice for `Unparsed`, which is indistinguishable from a
+/// zero-arg instruction. Use [`IdlInstructionFields::parsed_fields`] when you need to
+/// differentiate between "no arguments" and "failed to decode".
 impl Deref for IdlInstructionFields {
     type Target = [IdlParsedField];
 
@@ -153,9 +181,15 @@ impl IndexedIdl {
         } else {
             match parse_instruction_args(data, &mut offset, &idl_instruction.args, self) {
                 Ok(fields) => IdlInstructionFields::Parsed(fields),
-                Err(_) => IdlInstructionFields::Unparsed(hex::encode(
-                    data.get(args_offset..).unwrap_or_default(),
-                )),
+                Err(err) => {
+                    log::warn!(
+                        "IDL arg decode failed for instruction '{}': {err:#}",
+                        idl_instruction.name
+                    );
+                    IdlInstructionFields::Unparsed(hex::encode(
+                        data.get(args_offset..).unwrap_or_default(),
+                    ))
+                }
             }
         };
         let account_names = flatten_account_names(&idl_instruction.accounts);
@@ -200,9 +234,15 @@ impl IndexedIdl {
             Some(fields) => {
                 match parse_idl_fields_as_parsed_fields(data, &mut offset, fields, self) {
                     Ok(fields) => IdlInstructionFields::Parsed(fields),
-                    Err(_) => IdlInstructionFields::Unparsed(hex::encode(
-                        data.get(8 + disc_len..).unwrap_or_default(),
-                    )),
+                    Err(err) => {
+                        log::warn!(
+                            "IDL field decode failed for event '{}': {err:#}",
+                            event_def.name
+                        );
+                        IdlInstructionFields::Unparsed(hex::encode(
+                            data.get(8 + disc_len..).unwrap_or_default(),
+                        ))
+                    }
                 }
             }
             None => {

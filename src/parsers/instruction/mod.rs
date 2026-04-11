@@ -28,12 +28,27 @@ pub enum ParsedInstructionFields {
     RawHex(String),
 }
 
+impl ParsedInstructionFields {
+    /// Returns the parsed fields if decoding succeeded, or `None` for the raw hex variant.
+    ///
+    /// Prefer this over `Deref` when you need to distinguish "no fields" from "failed to decode".
+    pub fn parsed_fields(&self) -> Option<&[ParsedField]> {
+        match self {
+            Self::Parsed(fields) => Some(fields),
+            Self::RawHex(_) => None,
+        }
+    }
+}
+
 impl From<Vec<ParsedField>> for ParsedInstructionFields {
     fn from(fields: Vec<ParsedField>) -> Self {
         Self::Parsed(fields)
     }
 }
 
+/// **Caution:** Returns an empty slice for `RawHex`, which is indistinguishable from a
+/// zero-field instruction. Use [`ParsedInstructionFields::parsed_fields`] when you need to
+/// differentiate between "no fields" and "failed to decode".
 impl Deref for ParsedInstructionFields {
     type Target = [ParsedField];
 
