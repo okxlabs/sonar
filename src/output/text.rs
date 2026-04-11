@@ -9,7 +9,7 @@ use solana_pubkey::Pubkey;
 use unicode_width::UnicodeWidthStr;
 
 use crate::parsers::{
-    instruction::{ParsedFieldValue, ParsedInstructionFields, ParserRegistry},
+    instruction::{ParsedInstructionFields, ParserRegistry},
     log_parser::{LogEntry, LogEntryWithDepth, parse_logs_by_instruction},
 };
 use sonar_sim::internals::ResolvedAccounts;
@@ -263,23 +263,17 @@ fn render_summary_header(
 }
 
 fn extract_compute_unit_limit(transaction: &TransactionSection) -> Option<u64> {
+    use crate::parsers::instruction::ParsedFieldValue;
     for ix in &transaction.instructions {
         if let Some(parsed) = &ix.parsed {
             if parsed.name == "SetComputeUnitLimit" {
                 for field in &parsed.fields {
                     if field.name == "units" {
-                        match &field.value {
-                            ParsedFieldValue::Text(text) => {
-                                if let Ok(units) = text.parse::<u64>() {
-                                    return Some(units);
-                                }
-                            }
-                            ParsedFieldValue::Json(json) => {
-                                if let Value::Number(num) = json {
-                                    return num.as_u64();
-                                }
-                            }
-                        }
+                        return match &field.value {
+                            ParsedFieldValue::U32(n) => Some(*n as u64),
+                            ParsedFieldValue::U64(n) => Some(*n),
+                            _ => None,
+                        };
                     }
                 }
             }
@@ -876,13 +870,7 @@ fn render_parsed_fields(fields: &ParsedInstructionFields, indent: &str, w: &mut 
 
     let map: serde_json::Map<String, Value> = fields
         .iter()
-        .map(|f| {
-            let v = match &f.value {
-                ParsedFieldValue::Text(s) => Value::String(s.clone()),
-                ParsedFieldValue::Json(j) => j.clone(),
-            };
-            (f.name.clone(), v)
-        })
+        .map(|f| (f.name.clone(), f.value.to_json_value()))
         .collect();
     let pretty = serde_json::to_string_pretty(&map).unwrap_or_else(|_| "{}".to_string());
 

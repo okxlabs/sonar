@@ -74,7 +74,7 @@ fn parse_u32_instruction(
         let value = reader.read_u32()?;
         Ok(ParsedInstruction {
             name: name.to_string(),
-            fields: vec![ParsedField::text(field_name, value.to_string())].into(),
+            fields: vec![ParsedField::number(field_name, value as u64)].into(),
             account_names: vec![],
         })
     })
@@ -93,7 +93,7 @@ fn parse_u64_instruction(
         let value = reader.read_u64()?;
         Ok(ParsedInstruction {
             name: name.to_string(),
-            fields: vec![ParsedField::text(field_name, value.to_string())].into(),
+            fields: vec![ParsedField::number(field_name, value)].into(),
             account_names: vec![],
         })
     })

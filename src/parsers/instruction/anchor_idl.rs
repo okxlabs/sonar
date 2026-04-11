@@ -6,13 +6,12 @@
 //! provides the `AnchorIdlParser` that implements `InstructionParser`.
 
 use anyhow::Result;
-use serde_json::Value;
 use solana_pubkey::Pubkey;
 use sonar_idl::{IdlInstructionFields, IdlParsedInstruction, IdlValue};
 
 use crate::core::transaction::InstructionSummary;
 use crate::parsers::instruction::{
-    InstructionParser, ParsedField, ParsedInstruction, ParsedInstructionFields,
+    InstructionParser, ParsedField, ParsedFieldValue, ParsedInstruction, ParsedInstructionFields,
 };
 
 // ── Re-exports from sonar-idl ──
@@ -25,7 +24,10 @@ fn to_parsed_instruction(idl_parsed: IdlParsedInstruction) -> ParsedInstruction 
     let fields = match idl_parsed.fields {
         IdlInstructionFields::Parsed(fields) => fields
             .into_iter()
-            .map(|field| ParsedField::json(field.name, idl_value_to_json(field.value)))
+            .map(|field| ParsedField {
+                name: field.name,
+                value: idl_value_to_field_value(field.value),
+            })
             .collect::<Vec<_>>()
             .into(),
         IdlInstructionFields::Unparsed(raw_args_hex) => {
@@ -36,39 +38,30 @@ fn to_parsed_instruction(idl_parsed: IdlParsedInstruction) -> ParsedInstruction 
     ParsedInstruction { name: idl_parsed.name, fields, account_names: idl_parsed.account_names }
 }
 
-/// Convert an `IdlValue` to `serde_json::Value` for the CLI output layer.
-///
-/// - Integer types up to 64-bit emit as JSON numbers.
-/// - `U128`/`I128` always emit as strings for stable JSON schema.
-/// - `Pubkey` emits as a base58 string.
-/// - `Struct` emits as a JSON object preserving field order.
-pub(crate) fn idl_value_to_json(value: IdlValue) -> Value {
+/// Convert an `IdlValue` to `ParsedFieldValue` directly — no JSON intermediate.
+pub(crate) fn idl_value_to_field_value(value: IdlValue) -> ParsedFieldValue {
     match value {
-        IdlValue::U8(n) => Value::Number(u64::from(n).into()),
-        IdlValue::U16(n) => Value::Number(u64::from(n).into()),
-        IdlValue::U32(n) => Value::Number(u64::from(n).into()),
-        IdlValue::U64(n) => Value::Number(n.into()),
-        IdlValue::U128(n) => Value::String(n.to_string()),
-        IdlValue::I8(n) => Value::Number(i64::from(n).into()),
-        IdlValue::I16(n) => Value::Number(i64::from(n).into()),
-        IdlValue::I32(n) => Value::Number(i64::from(n).into()),
-        IdlValue::I64(n) => Value::Number(n.into()),
-        IdlValue::I128(n) => Value::String(n.to_string()),
-        IdlValue::Bool(b) => Value::Bool(b),
-        IdlValue::Pubkey(p) => Value::String(p.to_string()),
-        IdlValue::String(s) => Value::String(s),
-        IdlValue::Bytes(bytes) => {
-            Value::Array(bytes.into_iter().map(|b| Value::Number(u64::from(b).into())).collect())
-        }
-        IdlValue::Struct(fields) => {
-            let map: serde_json::Map<String, Value> =
-                fields.into_iter().map(|(k, v)| (k, idl_value_to_json(v))).collect();
-            Value::Object(map)
-        }
+        IdlValue::U8(n) => ParsedFieldValue::U8(n),
+        IdlValue::U16(n) => ParsedFieldValue::U16(n),
+        IdlValue::U32(n) => ParsedFieldValue::U32(n),
+        IdlValue::U64(n) => ParsedFieldValue::U64(n),
+        IdlValue::U128(n) => ParsedFieldValue::U128(n),
+        IdlValue::I8(n) => ParsedFieldValue::I8(n),
+        IdlValue::I16(n) => ParsedFieldValue::I16(n),
+        IdlValue::I32(n) => ParsedFieldValue::I32(n),
+        IdlValue::I64(n) => ParsedFieldValue::I64(n),
+        IdlValue::I128(n) => ParsedFieldValue::I128(n),
+        IdlValue::Bool(b) => ParsedFieldValue::Bool(b),
+        IdlValue::Pubkey(p) => ParsedFieldValue::Pubkey(p),
+        IdlValue::String(s) => ParsedFieldValue::Text(s),
+        IdlValue::Bytes(b) => ParsedFieldValue::Bytes(b),
+        IdlValue::Struct(fields) => ParsedFieldValue::Struct(
+            fields.into_iter().map(|(k, v)| (k, idl_value_to_field_value(v))).collect(),
+        ),
         IdlValue::Array(values) => {
-            Value::Array(values.into_iter().map(idl_value_to_json).collect())
+            ParsedFieldValue::Array(values.into_iter().map(idl_value_to_field_value).collect())
         }
-        IdlValue::Null => Value::Null,
+        IdlValue::Null => ParsedFieldValue::Null,
     }
 }
 

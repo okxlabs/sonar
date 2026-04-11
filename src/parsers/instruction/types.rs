@@ -1,7 +1,8 @@
 use std::ops::Deref;
 
+use serde::ser::{SerializeMap, SerializeSeq};
 use serde::Serialize;
-use serde_json::Value;
+use solana_pubkey::Pubkey;
 
 /// Represents a parsed instruction with human-readable data and account names
 #[derive(Debug, Clone, Serialize)]
@@ -85,8 +86,20 @@ impl ParsedField {
         Self { name: name.into(), value: ParsedFieldValue::Text(value.into()) }
     }
 
-    pub fn json(name: impl Into<String>, value: Value) -> Self {
-        Self { name: name.into(), value: ParsedFieldValue::Json(value) }
+    pub fn number(name: impl Into<String>, value: u64) -> Self {
+        Self { name: name.into(), value: ParsedFieldValue::U64(value) }
+    }
+
+    pub fn signed_number(name: impl Into<String>, value: i64) -> Self {
+        Self { name: name.into(), value: ParsedFieldValue::I64(value) }
+    }
+
+    pub fn boolean(name: impl Into<String>, value: bool) -> Self {
+        Self { name: name.into(), value: ParsedFieldValue::Bool(value) }
+    }
+
+    pub fn pubkey(name: impl Into<String>, value: Pubkey) -> Self {
+        Self { name: name.into(), value: ParsedFieldValue::Pubkey(value) }
     }
 }
 
@@ -100,12 +113,126 @@ where
     }
 }
 
-/// Parsed field value, either plain text or structured JSON
-#[derive(Debug, Clone, Serialize, PartialEq)]
-#[serde(untagged)]
+/// Domain-native parsed field value mirroring the IDL/Solana type system.
+///
+/// Each variant preserves the exact type and bit width from the source,
+/// giving consumers full context for serialization and display decisions.
+#[derive(Debug, Clone, PartialEq)]
 pub enum ParsedFieldValue {
+    U8(u8),
+    U16(u16),
+    U32(u32),
+    U64(u64),
+    U128(u128),
+    I8(i8),
+    I16(i16),
+    I32(i32),
+    I64(i64),
+    I128(i128),
+    Bool(bool),
+    Pubkey(Pubkey),
     Text(String),
-    Json(Value),
+    Bytes(Vec<u8>),
+    /// Ordered named fields (struct, nested object).
+    Struct(Vec<(String, ParsedFieldValue)>),
+    /// Ordered values (vec, array).
+    Array(Vec<ParsedFieldValue>),
+    Null,
+}
+
+/// Serialize for `--json` output.
+///
+/// - u8–u64, i8–i64: JSON numbers.
+/// - u128/i128: always JSON strings (stable schema).
+/// - Pubkey: base58 string.
+/// - Struct: ordered JSON object.
+impl Serialize for ParsedFieldValue {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match self {
+            Self::U8(n) => serializer.serialize_u64(*n as u64),
+            Self::U16(n) => serializer.serialize_u64(*n as u64),
+            Self::U32(n) => serializer.serialize_u64(*n as u64),
+            Self::U64(n) => serializer.serialize_u64(*n),
+            Self::U128(n) => serializer.serialize_str(&n.to_string()),
+            Self::I8(n) => serializer.serialize_i64(*n as i64),
+            Self::I16(n) => serializer.serialize_i64(*n as i64),
+            Self::I32(n) => serializer.serialize_i64(*n as i64),
+            Self::I64(n) => serializer.serialize_i64(*n),
+            Self::I128(n) => serializer.serialize_str(&n.to_string()),
+            Self::Bool(b) => serializer.serialize_bool(*b),
+            Self::Pubkey(p) => serializer.serialize_str(&p.to_string()),
+            Self::Text(s) => serializer.serialize_str(s),
+            Self::Bytes(bytes) => {
+                let mut seq = serializer.serialize_seq(Some(bytes.len()))?;
+                for b in bytes {
+                    seq.serialize_element(b)?;
+                }
+                seq.end()
+            }
+            Self::Struct(fields) => {
+                let mut map = serializer.serialize_map(Some(fields.len()))?;
+                for (name, value) in fields {
+                    map.serialize_entry(name, value)?;
+                }
+                map.end()
+            }
+            Self::Array(values) => {
+                let mut seq = serializer.serialize_seq(Some(values.len()))?;
+                for v in values {
+                    seq.serialize_element(v)?;
+                }
+                seq.end()
+            }
+            Self::Null => serializer.serialize_none(),
+        }
+    }
+}
+
+impl ParsedFieldValue {
+    /// Convert to `serde_json::Value` for terminal pretty-printing.
+    ///
+    /// Unlike `Serialize` (which always emits u128/i128 as strings),
+    /// this emits them as numbers when the value fits — because terminal
+    /// display is cosmetic and doesn't need schema stability.
+    pub fn to_json_value(&self) -> serde_json::Value {
+        use serde_json::Value;
+        match self {
+            Self::U8(n) => Value::Number((*n as u64).into()),
+            Self::U16(n) => Value::Number((*n as u64).into()),
+            Self::U32(n) => Value::Number((*n as u64).into()),
+            Self::U64(n) => Value::Number((*n).into()),
+            Self::U128(n) => match u64::try_from(*n) {
+                Ok(v) => Value::Number(v.into()),
+                Err(_) => Value::String(n.to_string()),
+            },
+            Self::I8(n) => Value::Number((*n as i64).into()),
+            Self::I16(n) => Value::Number((*n as i64).into()),
+            Self::I32(n) => Value::Number((*n as i64).into()),
+            Self::I64(n) => Value::Number((*n).into()),
+            Self::I128(n) => match i64::try_from(*n) {
+                Ok(v) => Value::Number(v.into()),
+                Err(_) => Value::String(n.to_string()),
+            },
+            Self::Bool(b) => Value::Bool(*b),
+            Self::Pubkey(p) => Value::String(p.to_string()),
+            Self::Text(s) => Value::String(s.clone()),
+            Self::Bytes(bytes) => {
+                Value::Array(bytes.iter().map(|b| Value::Number((*b as u64).into())).collect())
+            }
+            Self::Struct(fields) => {
+                let map: serde_json::Map<String, Value> =
+                    fields.iter().map(|(k, v)| (k.clone(), v.to_json_value())).collect();
+                Value::Object(map)
+            }
+            Self::Array(values) => {
+                Value::Array(values.iter().map(|v| v.to_json_value()).collect())
+            }
+            Self::Null => Value::Null,
+        }
+    }
 }
 
 impl From<String> for ParsedFieldValue {
@@ -123,17 +250,26 @@ impl From<&str> for ParsedFieldValue {
 impl PartialEq<&str> for ParsedFieldValue {
     fn eq(&self, other: &&str) -> bool {
         match self {
-            ParsedFieldValue::Text(text) => text == *other,
-            ParsedFieldValue::Json(_) => false,
+            Self::Text(s) => s == *other,
+            Self::U8(n) => n.to_string() == *other,
+            Self::U16(n) => n.to_string() == *other,
+            Self::U32(n) => n.to_string() == *other,
+            Self::U64(n) => n.to_string() == *other,
+            Self::U128(n) => n.to_string() == *other,
+            Self::I8(n) => n.to_string() == *other,
+            Self::I16(n) => n.to_string() == *other,
+            Self::I32(n) => n.to_string() == *other,
+            Self::I64(n) => n.to_string() == *other,
+            Self::I128(n) => n.to_string() == *other,
+            Self::Bool(b) => b.to_string() == *other,
+            Self::Pubkey(p) => p.to_string() == *other,
+            _ => false,
         }
     }
 }
 
 impl PartialEq<String> for ParsedFieldValue {
     fn eq(&self, other: &String) -> bool {
-        match self {
-            ParsedFieldValue::Text(text) => text == other,
-            ParsedFieldValue::Json(_) => false,
-        }
+        self == &other.as_str()
     }
 }
