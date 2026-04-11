@@ -321,7 +321,7 @@ fn indexed_idl_parse_instruction_marks_fields_unparsed_when_a_defined_struct_fie
 }
 
 #[test]
-fn indexed_idl_parse_instruction_preserves_named_field_order_in_serde_json_value() {
+fn indexed_idl_parse_instruction_preserves_named_field_order() {
     let indexed: IndexedIdl = serde_json::from_str(
         r#"{
             "address": "11111111111111111111111111111111",
@@ -352,9 +352,13 @@ fn indexed_idl_parse_instruction_preserves_named_field_order_in_serde_json_value
 
     let parsed = indexed.parse_instruction(&data).unwrap().unwrap();
 
+    // Verify field order is preserved (zeta before alpha, matching IDL definition)
     assert_eq!(
-        serde_json::to_string(&parsed.fields[0].value).unwrap(),
-        r#"{"zeta":100,"alpha":200}"#
+        parsed.fields[0].value,
+        IdlValue::Struct(vec![
+            ("zeta".into(), IdlValue::Uint(100)),
+            ("alpha".into(), IdlValue::Uint(200)),
+        ])
     );
 }
 

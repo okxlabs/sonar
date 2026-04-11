@@ -6,8 +6,9 @@
 //! provides the `AnchorIdlParser` that implements `InstructionParser`.
 
 use anyhow::Result;
+use serde_json::Value;
 use solana_pubkey::Pubkey;
-use sonar_idl::{IdlInstructionFields, IdlParsedInstruction};
+use sonar_idl::{IdlInstructionFields, IdlParsedInstruction, IdlValue};
 
 use crate::core::transaction::InstructionSummary;
 use crate::parsers::instruction::{
@@ -24,7 +25,7 @@ fn to_parsed_instruction(idl_parsed: IdlParsedInstruction) -> ParsedInstruction 
     let fields = match idl_parsed.fields {
         IdlInstructionFields::Parsed(fields) => fields
             .into_iter()
-            .map(|field| ParsedField::json(field.name, field.value.to_json_value()))
+            .map(|field| ParsedField::json(field.name, idl_value_to_json(field.value)))
             .collect::<Vec<_>>()
             .into(),
         IdlInstructionFields::Unparsed(raw_args_hex) => {
@@ -33,6 +34,39 @@ fn to_parsed_instruction(idl_parsed: IdlParsedInstruction) -> ParsedInstruction 
     };
 
     ParsedInstruction { name: idl_parsed.name, fields, account_names: idl_parsed.account_names }
+}
+
+/// Convert an `IdlValue` to `serde_json::Value` for the CLI output layer.
+///
+/// - `Uint`/`Int` emit as JSON numbers when the value fits in u64/i64,
+///   falling back to a string for values that exceed JSON's range.
+/// - `Bytes` emits as a JSON array of numbers.
+/// - `Struct` emits as a JSON object preserving field order.
+pub(crate) fn idl_value_to_json(value: IdlValue) -> Value {
+    match value {
+        IdlValue::Uint(n) => match u64::try_from(n) {
+            Ok(v) => Value::Number(v.into()),
+            Err(_) => Value::String(n.to_string()),
+        },
+        IdlValue::Int(n) => match i64::try_from(n) {
+            Ok(v) => Value::Number(v.into()),
+            Err(_) => Value::String(n.to_string()),
+        },
+        IdlValue::Bool(b) => Value::Bool(b),
+        IdlValue::String(s) => Value::String(s),
+        IdlValue::Bytes(bytes) => {
+            Value::Array(bytes.into_iter().map(|b| Value::Number((b as u64).into())).collect())
+        }
+        IdlValue::Struct(fields) => {
+            let map: serde_json::Map<String, Value> =
+                fields.into_iter().map(|(k, v)| (k, idl_value_to_json(v))).collect();
+            Value::Object(map)
+        }
+        IdlValue::Array(values) => {
+            Value::Array(values.into_iter().map(idl_value_to_json).collect())
+        }
+        IdlValue::Null => Value::Null,
+    }
 }
 
 // ── AnchorIdlParser ──

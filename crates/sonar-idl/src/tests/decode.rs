@@ -192,14 +192,19 @@ fn parse_simple_type_unknown_falls_back_to_raw() {
 }
 
 #[test]
-fn parse_simple_type_unknown_preserves_fallback_key_order_in_serde_json_value() {
+fn parse_simple_type_unknown_preserves_fallback_key_order() {
     let data = [1, 2, 3, 4];
     let mut offset = 0;
     let val = parse_simple_type(&data, &mut offset, "unknown_type").unwrap();
 
+    // Verify field order is preserved (context, type_hint, raw_hex)
     assert_eq!(
-        serde_json::to_string(&val).unwrap(),
-        r#"{"context":"simple_type","type_hint":"unknown_type","raw_hex":"01020304"}"#
+        val,
+        IdlValue::Struct(vec![
+            ("context".into(), IdlValue::String("simple_type".into())),
+            ("type_hint".into(), IdlValue::String("unknown_type".into())),
+            ("raw_hex".into(), IdlValue::String("01020304".into())),
+        ])
     );
 }
 
