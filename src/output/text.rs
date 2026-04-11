@@ -10,7 +10,7 @@ use solana_pubkey::Pubkey;
 use unicode_width::UnicodeWidthStr;
 
 use crate::parsers::{
-    instruction::{ParsedField, ParsedFieldValue, ParserRegistry},
+    instruction::{ParsedField, ParsedFieldValue, ParsedInstructionFields, ParserRegistry},
     log_parser::{LogEntry, LogEntryWithDepth, parse_logs_by_instruction},
 };
 use sonar_sim::internals::ResolvedAccounts;
@@ -889,10 +889,10 @@ impl Serialize for OrderedFields<'_> {
     }
 }
 
-fn render_parsed_fields(fields: &[ParsedField], indent: &str) {
-    if fields.is_empty() {
+fn render_parsed_fields(fields: &ParsedInstructionFields, indent: &str) {
+    let ParsedInstructionFields::Parsed(fields) = fields else {
         return;
-    }
+    };
 
     let ordered = OrderedFields(fields);
     let pretty = serde_json::to_string_pretty(&ordered).unwrap_or_else(|_| "{}".to_string());
@@ -918,12 +918,8 @@ fn render_instruction_data_text_with_color(
     }
 }
 
-fn should_render_raw_instruction_hex(fields: &[ParsedField]) -> bool {
-    matches!(
-        fields,
-        [ParsedField { name, value: ParsedFieldValue::Text(raw_hex) }]
-            if name == "__raw_hex__" && !raw_hex.is_empty()
-    )
+fn should_render_raw_instruction_hex(fields: &ParsedInstructionFields) -> bool {
+    matches!(fields, ParsedInstructionFields::RawHex(raw_hex) if !raw_hex.is_empty())
 }
 
 #[cfg(test)]
@@ -932,7 +928,7 @@ mod tests {
 
     #[test]
     fn should_render_raw_instruction_hex_for_unparsed_idl_fields() {
-        let fields = vec![ParsedField::text("__raw_hex__", "0025a16608ca3c00")];
+        let fields = ParsedInstructionFields::RawHex("0025a16608ca3c00".to_string());
 
         assert!(should_render_raw_instruction_hex(&fields));
     }

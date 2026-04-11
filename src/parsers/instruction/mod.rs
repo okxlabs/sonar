@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::ops::Deref;
 
 use anyhow::{Context, Result};
 use serde::Serialize;
@@ -15,10 +16,54 @@ use sonar_sim::internals::ResolvedAccounts;
 pub struct ParsedInstruction {
     /// The instruction name (e.g., "Transfer", "CreateAccount")
     pub name: String,
-    /// Vector of parsed fields preserving order
-    pub fields: Vec<ParsedField>,
+    /// Parsed field state preserving either structured fields or raw hex fallback
+    pub fields: ParsedInstructionFields,
     /// Human-readable names for each account in the instruction
     pub account_names: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub enum ParsedInstructionFields {
+    Parsed(Vec<ParsedField>),
+    RawHex(String),
+}
+
+impl From<Vec<ParsedField>> for ParsedInstructionFields {
+    fn from(fields: Vec<ParsedField>) -> Self {
+        Self::Parsed(fields)
+    }
+}
+
+impl Deref for ParsedInstructionFields {
+    type Target = [ParsedField];
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            Self::Parsed(fields) => fields.as_slice(),
+            Self::RawHex(_) => &[],
+        }
+    }
+}
+
+impl<'a> IntoIterator for &'a ParsedInstructionFields {
+    type Item = &'a ParsedField;
+    type IntoIter = std::slice::Iter<'a, ParsedField>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.deref().iter()
+    }
+}
+
+impl Serialize for ParsedInstructionFields {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match self {
+            Self::Parsed(fields) => fields.serialize(serializer),
+            Self::RawHex(raw_hex) => serializer.serialize_str(raw_hex),
+        }
+    }
 }
 
 /// Ordered parsed field entry
@@ -545,9 +590,10 @@ mod tests {
 
         assert_eq!(parsed.name, "swap_toc");
         assert_eq!(parsed.account_names, vec!["payer"]);
-        assert_eq!(parsed.fields.len(), 1);
-        assert_eq!(parsed.fields[0].name, "__raw_hex__");
-        assert_eq!(parsed.fields[0].value, "0025a16608ca3c00".to_string());
+        assert!(matches!(
+            parsed.fields,
+            ParsedInstructionFields::RawHex(raw_hex) if raw_hex == "0025a16608ca3c00"
+        ));
 
         std::fs::remove_file(idl_path).ok();
         std::fs::remove_dir_all(test_dir).ok();

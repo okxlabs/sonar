@@ -84,7 +84,7 @@ fn parse_transfer_instruction(
         let lamports = reader.read_u64()?;
         Ok(ParsedInstruction {
             name: "Transfer".to_string(),
-            fields: vec![ParsedField::text("lamports", lamports.to_string())],
+            fields: vec![ParsedField::text("lamports", lamports.to_string())].into(),
             account_names: vec!["funding_account".to_string(), "recipient_account".to_string()],
         })
     })
@@ -109,7 +109,8 @@ fn parse_create_account_instruction(
                 ParsedField::text("lamports", lamports.to_string()),
                 ParsedField::text("space", space.to_string()),
                 ParsedField::text("owner", owner.to_string()),
-            ],
+            ]
+            .into(),
             account_names: vec!["funding_account".to_string(), "new_account".to_string()],
         })
     })
@@ -128,7 +129,7 @@ fn parse_assign_instruction(
         let owner = reader.read_pubkey()?;
         Ok(ParsedInstruction {
             name: "Assign".to_string(),
-            fields: vec![ParsedField::text("owner", owner.to_string())],
+            fields: vec![ParsedField::text("owner", owner.to_string())].into(),
             account_names: vec!["assigned_account".to_string()],
         })
     })
@@ -157,7 +158,8 @@ fn parse_create_account_with_seed_instruction(
                 ParsedField::text("lamports", lamports.to_string()),
                 ParsedField::text("space", space.to_string()),
                 ParsedField::text("owner", owner.to_string()),
-            ],
+            ]
+            .into(),
             account_names: vec![
                 "funding_account".to_string(),
                 "created_account".to_string(),
@@ -174,7 +176,7 @@ fn parse_advance_nonce_account_instruction(
     // AdvanceNonceAccount has no instruction data
     Ok(Some(ParsedInstruction {
         name: "AdvanceNonceAccount".to_string(),
-        fields: vec![],
+        fields: vec![].into(),
         account_names: vec![
             "nonce_account".to_string(),
             "recent_blockhashes_sysvar".to_string(),
@@ -196,7 +198,7 @@ fn parse_withdraw_nonce_account_instruction(
         let lamports = reader.read_u64()?;
         Ok(ParsedInstruction {
             name: "WithdrawNonceAccount".to_string(),
-            fields: vec![ParsedField::text("lamports", lamports.to_string())],
+            fields: vec![ParsedField::text("lamports", lamports.to_string())].into(),
             account_names: vec![
                 "nonce_account".to_string(),
                 "recipient_account".to_string(),
@@ -221,7 +223,7 @@ fn parse_initialize_nonce_account_instruction(
         let authorized = reader.read_pubkey()?;
         Ok(ParsedInstruction {
             name: "InitializeNonceAccount".to_string(),
-            fields: vec![ParsedField::text("authorized", authorized.to_string())],
+            fields: vec![ParsedField::text("authorized", authorized.to_string())].into(),
             account_names: vec![
                 "nonce_account".to_string(),
                 "recent_blockhashes_sysvar".to_string(),
@@ -244,7 +246,7 @@ fn parse_authorize_nonce_account_instruction(
         let authorized = reader.read_pubkey()?;
         Ok(ParsedInstruction {
             name: "AuthorizeNonceAccount".to_string(),
-            fields: vec![ParsedField::text("new_authorized", authorized.to_string())],
+            fields: vec![ParsedField::text("new_authorized", authorized.to_string())].into(),
             account_names: vec!["nonce_account".to_string(), "nonce_authority".to_string()],
         })
     })
@@ -263,7 +265,7 @@ fn parse_allocate_instruction(
         let space = reader.read_u64()?;
         Ok(ParsedInstruction {
             name: "Allocate".to_string(),
-            fields: vec![ParsedField::text("space", space.to_string())],
+            fields: vec![ParsedField::text("space", space.to_string())].into(),
             account_names: vec!["allocated_account".to_string()],
         })
     })
@@ -290,7 +292,8 @@ fn parse_allocate_with_seed_instruction(
                 ParsedField::text("seed", seed),
                 ParsedField::text("space", space.to_string()),
                 ParsedField::text("owner", owner.to_string()),
-            ],
+            ]
+            .into(),
             account_names: vec!["allocated_account".to_string(), "base_account".to_string()],
         })
     })
@@ -315,7 +318,8 @@ fn parse_assign_with_seed_instruction(
                 ParsedField::text("base", base.to_string()),
                 ParsedField::text("seed", seed),
                 ParsedField::text("owner", owner.to_string()),
-            ],
+            ]
+            .into(),
             account_names: vec!["assigned_account".to_string(), "base_account".to_string()],
         })
     })
@@ -341,7 +345,8 @@ fn parse_transfer_with_seed_instruction(
                 ParsedField::text("lamports", lamports.to_string()),
                 ParsedField::text("from_seed", from_seed),
                 ParsedField::text("from_owner", from_owner.to_string()),
-            ],
+            ]
+            .into(),
             account_names: vec![
                 "funding_account".to_string(),
                 "base_account".to_string(),
@@ -358,7 +363,7 @@ fn parse_upgrade_nonce_account_instruction(
     // UpgradeNonceAccount has no instruction data
     Ok(Some(ParsedInstruction {
         name: "UpgradeNonceAccount".to_string(),
-        fields: vec![],
+        fields: vec![].into(),
         account_names: vec!["nonce_account".to_string()],
     }))
 }
@@ -382,7 +387,8 @@ fn parse_create_account_allow_prefund_instruction(
                 ParsedField::text("lamports", lamports.to_string()),
                 ParsedField::text("space", space.to_string()),
                 ParsedField::text("owner", owner.to_string()),
-            ],
+            ]
+            .into(),
             account_names: vec![
                 "new_account".to_string(),
                 "(optional) funding_account".to_string(),
