@@ -55,14 +55,15 @@ pub(super) fn render_text(
         render_instruction_details_text(&report.transaction, resolved, show_ix_data, w);
     }
 
+    let tw = terminal_width();
     if !report.sol_balance_changes.is_empty() {
         write_section_title(w, "SOL Balance Changes");
-        render_sol_balance_changes(&report.sol_balance_changes, "", w);
+        render_sol_balance_changes(&report.sol_balance_changes, "", tw, w);
     }
 
     if !report.token_balance_changes.is_empty() {
         write_section_title(w, "Token Balance Changes");
-        render_token_balance_changes(&report.token_balance_changes, "", w);
+        render_token_balance_changes(&report.token_balance_changes, "", tw, w);
     }
 
     let _ = writeln!(w);
@@ -104,14 +105,15 @@ pub(super) fn render_bundle_text(
         }
     }
 
+    let tw = terminal_width();
     if !bundle.sol_balance_changes.is_empty() {
         write_section_title(w, "SOL Balance Changes");
-        render_sol_balance_changes(&bundle.sol_balance_changes, INDENT_L1, w);
+        render_sol_balance_changes(&bundle.sol_balance_changes, INDENT_L1, tw, w);
     }
 
     if !bundle.token_balance_changes.is_empty() {
         write_section_title(w, "Token Balance Changes");
-        render_token_balance_changes(&bundle.token_balance_changes, INDENT_L1, w);
+        render_token_balance_changes(&bundle.token_balance_changes, INDENT_L1, tw, w);
     }
 
     let _ = writeln!(w);
@@ -418,6 +420,7 @@ fn render_log_entry(entry_with_depth: &LogEntryWithDepth, w: &mut impl Write) {
 pub(super) fn render_sol_balance_changes(
     sol_changes: &[SolBalanceChangeSection],
     indent: &str,
+    max_width: Option<usize>,
     w: &mut impl Write,
 ) {
     use super::table::{Align, Cell, TableWriter};
@@ -425,8 +428,8 @@ pub(super) fn render_sol_balance_changes(
     let prefix = format!("{}{}", indent, INDENT_L1);
     let mut table =
         TableWriter::new(&prefix).column(Align::Left).column(Align::Left).column(Align::Left);
-    if let Some(w) = terminal_width() {
-        table = table.max_width(w);
+    if let Some(mw) = max_width {
+        table = table.max_width(mw);
     }
 
     for c in sol_changes {
@@ -453,6 +456,7 @@ pub(super) fn render_sol_balance_changes(
 pub(super) fn render_token_balance_changes(
     token_changes: &[TokenBalanceChangeSection],
     indent: &str,
+    max_width: Option<usize>,
     w: &mut impl Write,
 ) {
     use super::table::{Align, Cell, TableWriter};
@@ -464,8 +468,8 @@ pub(super) fn render_token_balance_changes(
         .column(Align::Left)
         .column(Align::Left)
         .column(Align::Left);
-    if let Some(w) = terminal_width() {
-        table = table.max_width(w);
+    if let Some(mw) = max_width {
+        table = table.max_width(mw);
     }
 
     for c in token_changes {
