@@ -3,15 +3,13 @@ use std::str::FromStr;
 
 use anyhow::Result;
 use colored::Colorize;
-use serde::Serialize;
-use serde::ser::SerializeMap;
 use serde_json::Value;
 use solana_account::ReadableAccount;
 use solana_pubkey::Pubkey;
 use unicode_width::UnicodeWidthStr;
 
 use crate::parsers::{
-    instruction::{ParsedField, ParsedFieldValue, ParsedInstructionFields, ParserRegistry},
+    instruction::{ParsedFieldValue, ParsedInstructionFields, ParserRegistry},
     log_parser::{LogEntry, LogEntryWithDepth, parse_logs_by_instruction},
 };
 use sonar_sim::internals::ResolvedAccounts;
@@ -867,28 +865,26 @@ fn render_account_index_label(index: usize, width: usize) -> String {
 // Instruction data / parsed fields
 // ---------------------------------------------------------------------------
 
-struct OrderedFields<'a>(&'a [ParsedField]);
-
-impl Serialize for OrderedFields<'_> {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        let mut map = serializer.serialize_map(Some(self.0.len()))?;
-        for field in self.0 {
-            map.serialize_entry(&field.name, &field.value)?;
-        }
-        map.end()
-    }
-}
-
 fn render_parsed_fields(fields: &ParsedInstructionFields, indent: &str, w: &mut impl Write) {
     let ParsedInstructionFields::Parsed(fields) = fields else {
         return;
     };
 
-    let ordered = OrderedFields(fields);
-    let pretty = serde_json::to_string_pretty(&ordered).unwrap_or_else(|_| "{}".to_string());
+    if fields.is_empty() {
+        return;
+    }
+
+    let map: serde_json::Map<String, Value> = fields
+        .iter()
+        .map(|f| {
+            let v = match &f.value {
+                ParsedFieldValue::Text(s) => Value::String(s.clone()),
+                ParsedFieldValue::Json(j) => j.clone(),
+            };
+            (f.name.clone(), v)
+        })
+        .collect();
+    let pretty = serde_json::to_string_pretty(&map).unwrap_or_else(|_| "{}".to_string());
 
     for line in pretty.lines() {
         let _ = writeln!(w, "{}", format!("{}{}", indent, line).custom_color(COLOR_BLUE));
