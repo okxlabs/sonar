@@ -210,15 +210,11 @@ fn decode_account_output(
         .with_context(|| "Failed to parse IDL JSON")?;
 
     match indexed.parse_account_data(&account.data)? {
-        Some((type_name, parsed_value)) => {
-            let field_value: crate::parsers::instruction::ParsedFieldValue =
-                parsed_value.into();
-            Ok((
-                wrap_account_data_output(account, &field_value.to_json_value()),
-                format!("Anchor ({})", type_name),
-                None,
-            ))
-        }
+        Some((type_name, parsed_value)) => Ok((
+            wrap_account_data_output(account, &parsed_value.to_json_value()),
+            format!("Anchor ({})", type_name),
+            None,
+        )),
         None => {
             let json = if account.data.len() >= 8 {
                 serde_json::json!({

@@ -7,11 +7,11 @@
 
 use anyhow::Result;
 use solana_pubkey::Pubkey;
-use sonar_idl::{IdlInstructionFields, IdlParsedInstruction, IdlValue};
+use sonar_idl::{IdlInstructionFields, IdlParsedInstruction};
 
 use crate::core::transaction::InstructionSummary;
 use crate::parsers::instruction::{
-    InstructionParser, ParsedField, ParsedFieldValue, ParsedInstruction, ParsedInstructionFields,
+    InstructionParser, ParsedField, ParsedInstruction, ParsedInstructionFields,
 };
 
 // ── Re-exports from sonar-idl ──
@@ -24,7 +24,7 @@ fn to_parsed_instruction(idl_parsed: IdlParsedInstruction) -> ParsedInstruction 
     let fields = match idl_parsed.fields {
         IdlInstructionFields::Parsed(fields) => fields
             .into_iter()
-            .map(|field| ParsedField { name: field.name, value: field.value.into() })
+            .map(|field| ParsedField { name: field.name, value: field.value })
             .collect::<Vec<_>>()
             .into(),
         IdlInstructionFields::Unparsed(raw_args_hex) => {
@@ -33,34 +33,6 @@ fn to_parsed_instruction(idl_parsed: IdlParsedInstruction) -> ParsedInstruction 
     };
 
     ParsedInstruction { name: idl_parsed.name, fields, account_names: idl_parsed.account_names }
-}
-
-impl From<IdlValue> for ParsedFieldValue {
-    fn from(value: IdlValue) -> Self {
-        match value {
-            IdlValue::U8(n) => Self::U8(n),
-            IdlValue::U16(n) => Self::U16(n),
-            IdlValue::U32(n) => Self::U32(n),
-            IdlValue::U64(n) => Self::U64(n),
-            IdlValue::U128(n) => Self::U128(n),
-            IdlValue::I8(n) => Self::I8(n),
-            IdlValue::I16(n) => Self::I16(n),
-            IdlValue::I32(n) => Self::I32(n),
-            IdlValue::I64(n) => Self::I64(n),
-            IdlValue::I128(n) => Self::I128(n),
-            IdlValue::Bool(b) => Self::Bool(b),
-            IdlValue::Pubkey(p) => Self::Pubkey(p),
-            IdlValue::String(s) => Self::Text(s),
-            IdlValue::Bytes(b) => Self::Bytes(b),
-            IdlValue::Struct(fields) => {
-                Self::Struct(fields.into_iter().map(|(k, v)| (k, v.into())).collect())
-            }
-            IdlValue::Array(values) => {
-                Self::Array(values.into_iter().map(Into::into).collect())
-            }
-            IdlValue::Null => Self::Null,
-        }
-    }
 }
 
 // ── AnchorIdlParser ──

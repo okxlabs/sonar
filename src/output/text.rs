@@ -263,15 +263,15 @@ fn render_summary_header(
 }
 
 fn extract_compute_unit_limit(transaction: &TransactionSection) -> Option<u64> {
-    use crate::parsers::instruction::ParsedFieldValue;
+    use sonar_idl::IdlValue;
     for ix in &transaction.instructions {
         if let Some(parsed) = &ix.parsed {
             if parsed.name == "SetComputeUnitLimit" {
                 for field in &parsed.fields {
                     if field.name == "units" {
                         return match &field.value {
-                            ParsedFieldValue::U32(n) => Some(*n as u64),
-                            ParsedFieldValue::U64(n) => Some(*n),
+                            IdlValue::U32(n) => Some(*n as u64),
+                            IdlValue::U64(n) => Some(*n),
                             _ => None,
                         };
                     }
