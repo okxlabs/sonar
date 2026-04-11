@@ -93,22 +93,3 @@ impl Serialize for ParsedField {
     }
 }
 
-impl ParsedField {
-    pub fn new(name: impl Into<String>, value: IdlValue) -> Self {
-        Self { name: name.into(), value }
-    }
-
-    pub fn text(name: impl Into<String>, value: impl Into<String>) -> Self {
-        Self::new(name, IdlValue::String(value.into()))
-    }
-}
-
-impl<N, V> From<(N, V)> for ParsedField
-where
-    N: Into<String>,
-    V: Into<String>,
-{
-    fn from((name, value): (N, V)) -> Self {
-        ParsedField::text(name, value)
-    }
-}

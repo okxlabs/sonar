@@ -1,6 +1,7 @@
 use anyhow::Result;
 use hex::encode as hex_encode;
 use solana_pubkey::Pubkey;
+use sonar_idl::IdlValue;
 
 use super::{InstructionParser, ParsedField, ParsedInstruction};
 use crate::core::transaction::InstructionSummary;
@@ -32,10 +33,10 @@ impl InstructionParser for MemoProgramParser {
 
 fn parse_memo_fields(data: &[u8]) -> Vec<ParsedField> {
     match std::str::from_utf8(data) {
-        Ok(memo) => vec![ParsedField::text("memo", memo)],
+        Ok(memo) => vec![ParsedField { name: "memo".into(), value: IdlValue::String(memo.into()) }],
         Err(_) => vec![
-            ParsedField::text("memo", String::from_utf8_lossy(data).into_owned()),
-            ParsedField::text("memo_hex", hex_encode(data)),
+            ParsedField { name: "memo".into(), value: IdlValue::String(String::from_utf8_lossy(data).into_owned().into()) },
+            ParsedField { name: "memo_hex".into(), value: IdlValue::String(hex_encode(data).into()) },
         ],
     }
 }
