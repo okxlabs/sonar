@@ -634,19 +634,7 @@ impl InnerInstructionSection {
             // Check for CPI event first
             if is_anchor_cpi_event(&temp_summary) {
                 // Try to parse as CPI event
-                let cpi_result = parser_registry.parse_cpi_event(
-                    &temp_summary,
-                    &program_id,
-                    message,
-                    &parsed.account_plan,
-                    &lookup_locations,
-                );
-                log::debug!(
-                    "CPI event parse result for {}: {:?}",
-                    program_id,
-                    cpi_result.is_some()
-                );
-                cpi_result
+                parser_registry.parse_cpi_event(&temp_summary, &program_id)
             } else {
                 parse_inner_instruction_as_regular(
                     inner_ix,

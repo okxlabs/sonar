@@ -765,22 +765,12 @@ fn parse_transfer_checked_with_fee_instruction(
         let decimals = reader.read_u8()?;
         let fee = reader.read_u64()?;
 
-        let mut account_names = Vec::new();
-        if !instruction.accounts.is_empty() {
-            account_names.push("source".to_string());
-        }
-        if instruction.accounts.len() > 1 {
-            account_names.push("mint".to_string());
-        }
-        if instruction.accounts.len() > 2 {
-            account_names.push("destination".to_string());
-        }
+        let mut account_names =
+            vec!["source".to_string(), "mint".to_string(), "destination".to_string()];
         if instruction.accounts.len() > 3 {
             account_names.push("authority".to_string());
         }
-        for i in 4..instruction.accounts.len() {
-            account_names.push(format!("additional_signer_{}", i - 3));
-        }
+        append_additional_signer_accounts(&mut account_names, 4, instruction.accounts.len());
 
         Ok(ParsedInstruction {
             name: "TransferCheckedWithFee".to_string(),
@@ -802,19 +792,11 @@ fn parse_transfer_fee_withdraw_from_mint_instruction(
         return Ok(None);
     }
 
-    let mut account_names = Vec::new();
-    if !instruction.accounts.is_empty() {
-        account_names.push("mint".to_string());
-    }
-    if instruction.accounts.len() >= 2 {
-        account_names.push("destination".to_string());
-    }
+    let mut account_names = vec!["mint".to_string(), "destination".to_string()];
     if instruction.accounts.len() >= 3 {
         account_names.push("authority".to_string());
     }
-    for i in 3..instruction.accounts.len() {
-        account_names.push(format!("additional_signer_{}", i - 2));
-    }
+    append_additional_signer_accounts(&mut account_names, 3, instruction.accounts.len());
 
     Ok(Some(ParsedInstruction {
         name: "WithdrawWithheldTokensFromMint".to_string(),
@@ -884,16 +866,11 @@ fn parse_transfer_fee_set_fee_instruction(
         let transfer_fee_basis_points = reader.read_u16()?;
         let maximum_fee = reader.read_u64()?;
 
-        let mut account_names = Vec::new();
-        if !instruction.accounts.is_empty() {
-            account_names.push("mint".to_string());
-        }
+        let mut account_names = vec!["mint".to_string()];
         if instruction.accounts.len() >= 2 {
             account_names.push("authority".to_string());
         }
-        for i in 2..instruction.accounts.len() {
-            account_names.push(format!("additional_signer_{}", i - 1));
-        }
+        append_additional_signer_accounts(&mut account_names, 2, instruction.accounts.len());
 
         Ok(ParsedInstruction {
             name: "SetTransferFee".to_string(),
@@ -926,22 +903,10 @@ fn parse_reallocate_instruction(
         }
     }
 
-    let mut account_names = Vec::new();
-    if !instruction.accounts.is_empty() {
-        account_names.push("account".to_string());
-    }
-    if instruction.accounts.len() >= 2 {
-        account_names.push("payer".to_string());
-    }
-    if instruction.accounts.len() >= 3 {
-        account_names.push("system_program".to_string());
-    }
-    if instruction.accounts.len() >= 4 {
-        account_names.push("owner_or_delegate".to_string());
-    }
-    for i in 4..instruction.accounts.len() {
-        account_names.push(format!("additional_signer_{}", i - 3));
-    }
+    let named = ["account", "payer", "system_program", "owner_or_delegate"];
+    let mut account_names: Vec<String> =
+        named.iter().take(instruction.accounts.len()).map(|s| s.to_string()).collect();
+    append_additional_signer_accounts(&mut account_names, 4, instruction.accounts.len());
 
     Ok(Some(ParsedInstruction {
         name: "Reallocate".to_string(),
@@ -998,9 +963,7 @@ fn parse_withdraw_excess_lamports_instruction(
 
     let mut account_names =
         vec!["source".to_string(), "destination".to_string(), "authority".to_string()];
-    for i in 3..instruction.accounts.len() {
-        account_names.push(format!("additional_signer_{}", i - 2));
-    }
+    append_additional_signer_accounts(&mut account_names, 3, instruction.accounts.len());
 
     Ok(Some(ParsedInstruction {
         name: "WithdrawExcessLamports".to_string(),
