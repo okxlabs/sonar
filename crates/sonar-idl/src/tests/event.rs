@@ -1,7 +1,7 @@
 use serde_json::json;
 
 use crate::discriminator::sighash;
-use crate::indexed::{IndexedIdl, is_cpi_event_data};
+use crate::indexed::{IdlInstructionFields, IndexedIdl, is_cpi_event_data};
 
 use super::hello_anchor_indexed_idl;
 
@@ -67,6 +67,43 @@ fn indexed_idl_parse_cpi_event_data_parses_event_fields() {
     assert_eq!(parsed.fields[0].name, "amount");
     assert_eq!(parsed.fields[0].value, json!(500u64));
     assert_eq!(parsed.account_names, vec!["event_authority"]);
+}
+
+#[test]
+fn indexed_idl_parse_cpi_event_data_marks_fields_unparsed_on_decode_failure() {
+    let event_disc = sighash("event", "SwapComplete");
+
+    let indexed: IndexedIdl = serde_json::from_str(&format!(
+        r#"{{
+            "address": "11111111111111111111111111111111",
+            "metadata": {{ "name": "ev", "version": "0.1.0", "spec": "0.1.0" }},
+            "instructions": [],
+            "events": [{{
+                "name": "SwapComplete",
+                "discriminator": {:?},
+                "fields": [
+                    {{ "name": "amount_in", "type": "u64" }},
+                    {{ "name": "amount_out", "type": "u64" }}
+                ]
+            }}]
+        }}"#,
+        event_disc.to_vec()
+    ))
+    .unwrap();
+
+    // Build data with emit CPI prefix + event discriminator + only one u64 (truncated).
+    let mut data = vec![0xe4, 0x45, 0xa5, 0x2e, 0x51, 0xcb, 0x9a, 0x1d];
+    data.extend_from_slice(&event_disc);
+    data.extend_from_slice(&42u64.to_le_bytes());
+    // Missing second u64 — decode should fail gracefully.
+
+    let parsed = indexed.parse_cpi_event_data(&data).unwrap().unwrap();
+    assert_eq!(parsed.name, "SwapComplete");
+    assert_eq!(parsed.account_names, vec!["event_authority"]);
+    assert!(matches!(
+        parsed.fields,
+        IdlInstructionFields::Unparsed(ref hex) if hex == &hex::encode(&42u64.to_le_bytes())
+    ));
 }
 
 #[test]

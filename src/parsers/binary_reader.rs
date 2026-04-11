@@ -270,7 +270,11 @@ mod tests {
         let data = [0u8; 4];
         let result = try_parse(&data, |reader| {
             let _ = reader.read_u32()?;
-            Ok(ParsedInstruction { name: "Test".into(), fields: vec![], account_names: vec![] })
+            Ok(ParsedInstruction {
+                name: "Test".into(),
+                fields: vec![].into(),
+                account_names: vec![],
+            })
         })
         .unwrap();
         assert!(result.is_some());
@@ -282,7 +286,11 @@ mod tests {
         let data = [0u8; 1]; // too short for u32
         let result = try_parse(&data, |reader| {
             let _ = reader.read_u32()?;
-            Ok(ParsedInstruction { name: "Test".into(), fields: vec![], account_names: vec![] })
+            Ok(ParsedInstruction {
+                name: "Test".into(),
+                fields: vec![].into(),
+                account_names: vec![],
+            })
         })
         .unwrap();
         assert!(result.is_none());

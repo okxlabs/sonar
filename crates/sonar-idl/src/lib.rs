@@ -32,4 +32,6 @@ mod indexed;
 mod tests;
 
 pub use discriminator::sighash;
-pub use indexed::{IdlParsedField, IdlParsedInstruction, IndexedIdl, is_cpi_event_data};
+pub use indexed::{
+    IdlInstructionFields, IdlParsedField, IdlParsedInstruction, IndexedIdl, is_cpi_event_data,
+};

@@ -61,7 +61,7 @@ fn parse_create_instruction(
 
     Ok(Some(ParsedInstruction {
         name: instruction_name.to_string(),
-        fields: vec![],
+        fields: vec![].into(),
         account_names,
     }))
 }
@@ -84,7 +84,11 @@ fn parse_recover_nested_instruction(
     ];
     append_extra_account_names(&mut account_names, instruction.accounts.len(), 7);
 
-    Ok(Some(ParsedInstruction { name: "RecoverNested".to_string(), fields: vec![], account_names }))
+    Ok(Some(ParsedInstruction {
+        name: "RecoverNested".to_string(),
+        fields: vec![].into(),
+        account_names,
+    }))
 }
 
 fn append_extra_account_names(

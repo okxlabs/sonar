@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::ops::Deref;
 
 use anyhow::{Context, Result};
 use serde::Serialize;
@@ -15,10 +16,69 @@ use sonar_sim::internals::ResolvedAccounts;
 pub struct ParsedInstruction {
     /// The instruction name (e.g., "Transfer", "CreateAccount")
     pub name: String,
-    /// Vector of parsed fields preserving order
-    pub fields: Vec<ParsedField>,
+    /// Parsed field state preserving either structured fields or raw hex fallback
+    pub fields: ParsedInstructionFields,
     /// Human-readable names for each account in the instruction
     pub account_names: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub enum ParsedInstructionFields {
+    Parsed(Vec<ParsedField>),
+    RawHex(String),
+}
+
+impl ParsedInstructionFields {
+    /// Returns the parsed fields if decoding succeeded, or `None` for the raw hex variant.
+    ///
+    /// Prefer this over `Deref` when you need to distinguish "no fields" from "failed to decode".
+    pub fn parsed_fields(&self) -> Option<&[ParsedField]> {
+        match self {
+            Self::Parsed(fields) => Some(fields),
+            Self::RawHex(_) => None,
+        }
+    }
+}
+
+impl From<Vec<ParsedField>> for ParsedInstructionFields {
+    fn from(fields: Vec<ParsedField>) -> Self {
+        Self::Parsed(fields)
+    }
+}
+
+/// **Caution:** Returns an empty slice for `RawHex`, which is indistinguishable from a
+/// zero-field instruction. Use [`ParsedInstructionFields::parsed_fields`] when you need to
+/// differentiate between "no fields" and "failed to decode".
+impl Deref for ParsedInstructionFields {
+    type Target = [ParsedField];
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            Self::Parsed(fields) => fields.as_slice(),
+            Self::RawHex(_) => &[],
+        }
+    }
+}
+
+impl<'a> IntoIterator for &'a ParsedInstructionFields {
+    type Item = &'a ParsedField;
+    type IntoIter = std::slice::Iter<'a, ParsedField>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.deref().iter()
+    }
+}
+
+impl Serialize for ParsedInstructionFields {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match self {
+            Self::Parsed(fields) => fields.serialize(serializer),
+            Self::RawHex(raw_hex) => serializer.serialize_str(raw_hex),
+        }
+    }
 }
 
 /// Ordered parsed field entry
@@ -480,6 +540,77 @@ mod tests {
         assert_eq!(fetchable_programs, vec![fetchable]);
 
         std::fs::remove_file(existing_path).ok();
+        std::fs::remove_dir_all(test_dir).ok();
+    }
+
+    #[test]
+    fn parser_registry_marks_truncated_idl_args_as_raw_hex() {
+        let test_dir = std::env::temp_dir().join(format!(
+            "sonar-idl-unparsed-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock should be valid")
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&test_dir).expect("create temp idl dir");
+
+        let program_id = Pubkey::new_unique();
+        let idl_path = test_dir.join(format!("{program_id}.json"));
+        std::fs::write(
+            &idl_path,
+            format!(
+                r#"{{
+                    "address": "{program_id}",
+                    "metadata": {{ "name": "demo", "version": "0.1.0", "spec": "0.1.0" }},
+                    "instructions": [{{
+                        "name": "swap_toc",
+                        "discriminator": [187, 201, 212, 51, 16, 155, 236, 60],
+                        "accounts": [{{ "name": "payer", "writable": true, "signer": true }}],
+                        "args": [
+                            {{ "name": "amount_in", "type": "u64" }},
+                            {{ "name": "slippage_bps", "type": "u16" }}
+                        ]
+                    }}],
+                    "types": []
+                }}"#
+            ),
+        )
+        .expect("write temp idl");
+
+        let instruction = crate::core::transaction::InstructionSummary {
+            index: 7,
+            program: crate::core::transaction::AccountReferenceSummary {
+                index: 0,
+                pubkey: Some(program_id.to_string()),
+                signer: false,
+                writable: false,
+                source: crate::core::transaction::AccountSourceSummary::Static,
+            },
+            accounts: vec![crate::core::transaction::AccountReferenceSummary {
+                index: 1,
+                pubkey: Some(Pubkey::new_unique().to_string()),
+                signer: true,
+                writable: true,
+                source: crate::core::transaction::AccountSourceSummary::Static,
+            }],
+            data: vec![187, 201, 212, 51, 16, 155, 236, 60, 0, 37, 161, 102, 8, 202, 60, 0]
+                .into_boxed_slice(),
+        };
+
+        let mut registry = ParserRegistry::new(Some(test_dir.clone()));
+        let parsed = registry
+            .parse_instruction(&instruction, &program_id)
+            .expect("expected parser registry to preserve instruction metadata");
+
+        assert_eq!(parsed.name, "swap_toc");
+        assert_eq!(parsed.account_names, vec!["payer"]);
+        assert!(matches!(
+            parsed.fields,
+            ParsedInstructionFields::RawHex(raw_hex) if raw_hex == "0025a16608ca3c00"
+        ));
+
+        std::fs::remove_file(idl_path).ok();
         std::fs::remove_dir_all(test_dir).ok();
     }
 }

@@ -358,7 +358,7 @@ fn dispatch_table_instruction(
                 );
                 Ok(ParsedInstruction {
                     name: def.name.to_string(),
-                    fields: vec![ParsedField::text("amount", amount.to_string())],
+                    fields: vec![ParsedField::text("amount", amount.to_string())].into(),
                     account_names,
                 })
             })
@@ -382,7 +382,8 @@ fn dispatch_table_instruction(
                     fields: vec![
                         ParsedField::text("amount", amount.to_string()),
                         ParsedField::text("decimals", decimals.to_string()),
-                    ],
+                    ]
+                    .into(),
                     account_names,
                 })
             })
@@ -400,7 +401,7 @@ fn dispatch_table_instruction(
             );
             Ok(Some(ParsedInstruction {
                 name: def.name.to_string(),
-                fields: vec![],
+                fields: vec![].into(),
                 account_names,
             }))
         }
@@ -410,7 +411,7 @@ fn dispatch_table_instruction(
             }
             Ok(Some(ParsedInstruction {
                 name: def.name.to_string(),
-                fields: vec![],
+                fields: vec![].into(),
                 account_names: def.account_names.iter().map(|s| s.to_string()).collect(),
             }))
         }
@@ -453,7 +454,8 @@ fn parse_initialize_mint_instruction(
             fields: vec![
                 ParsedField::text("decimals", decimals.to_string()),
                 ParsedField::text("has_freeze_authority", has_freeze_authority.to_string()),
-            ],
+            ]
+            .into(),
             account_names: vec!["mint".to_string(), "rent_sysvar".to_string()],
         })
     })
@@ -470,7 +472,7 @@ fn parse_initialize_account_instruction(
 
     Ok(Some(ParsedInstruction {
         name: "InitializeAccount".to_string(),
-        fields: vec![],
+        fields: vec![].into(),
         account_names: vec![
             "account".to_string(),
             "mint".to_string(),
@@ -497,7 +499,7 @@ fn parse_initialize_multisig_instruction(
         }
         Ok(ParsedInstruction {
             name: "InitializeMultisig".to_string(),
-            fields: vec![ParsedField::text("m", m.to_string())],
+            fields: vec![ParsedField::text("m", m.to_string())].into(),
             account_names,
         })
     })
@@ -535,7 +537,8 @@ fn parse_set_authority_instruction(
             fields: vec![
                 ParsedField::text("authority_type", authority_type.to_string()),
                 ParsedField::text("cleared", cleared.to_string()),
-            ],
+            ]
+            .into(),
             account_names,
         })
     })
@@ -553,7 +556,7 @@ fn parse_initialize_account2_instruction(
         let owner_pubkey = reader.read_pubkey_as_string()?;
         Ok(ParsedInstruction {
             name: "InitializeAccount2".to_string(),
-            fields: vec![ParsedField::text("owner", owner_pubkey)],
+            fields: vec![ParsedField::text("owner", owner_pubkey)].into(),
             account_names: vec![
                 "account".to_string(),
                 "mint".to_string(),
@@ -579,7 +582,7 @@ fn parse_initialize_account3_instruction(
         }
         Ok(ParsedInstruction {
             name: "InitializeAccount3".to_string(),
-            fields: vec![ParsedField::text("owner", owner_pubkey)],
+            fields: vec![ParsedField::text("owner", owner_pubkey)].into(),
             account_names,
         })
     })
@@ -602,7 +605,7 @@ fn parse_initialize_multisig2_instruction(
         }
         Ok(ParsedInstruction {
             name: "InitializeMultisig2".to_string(),
-            fields: vec![ParsedField::text("m", m.to_string())],
+            fields: vec![ParsedField::text("m", m.to_string())].into(),
             account_names,
         })
     })
@@ -628,7 +631,8 @@ fn parse_initialize_mint2_instruction(
             fields: vec![
                 ParsedField::text("decimals", decimals.to_string()),
                 ParsedField::text("has_freeze_authority", has_freeze_authority.to_string()),
-            ],
+            ]
+            .into(),
             account_names: vec!["mint".to_string()],
         })
     })
@@ -646,7 +650,7 @@ fn parse_amount_to_ui_amount_instruction(
         let amount = reader.read_u64()?;
         Ok(ParsedInstruction {
             name: "AmountToUiAmount".to_string(),
-            fields: vec![ParsedField::text("amount", amount.to_string())],
+            fields: vec![ParsedField::text("amount", amount.to_string())].into(),
             account_names: vec!["mint".to_string()],
         })
     })
@@ -669,7 +673,7 @@ fn parse_ui_amount_to_amount_instruction(
 
     Ok(Some(ParsedInstruction {
         name: "UiAmountToAmount".to_string(),
-        fields: vec![ParsedField::text("ui_amount", ui_amount)],
+        fields: vec![ParsedField::text("ui_amount", ui_amount)].into(),
         account_names: vec!["mint".to_string()],
     }))
 }
@@ -687,7 +691,7 @@ fn parse_initialize_mint_close_authority_instruction(
             close_authority.map_or_else(|| "none".to_string(), |pk| pk.to_string());
         Ok(ParsedInstruction {
             name: "InitializeMintCloseAuthority".to_string(),
-            fields: vec![ParsedField::text("close_authority", close_authority_value)],
+            fields: vec![ParsedField::text("close_authority", close_authority_value)].into(),
             account_names: vec!["mint".to_string()],
         })
     })
@@ -711,7 +715,7 @@ fn parse_transfer_fee_extension_instruction(
         5 => parse_transfer_fee_set_fee_instruction(payload, instruction),
         unknown => Ok(Some(ParsedInstruction {
             name: format!("TransferFeeExtension({unknown})"),
-            fields: vec![ParsedField::text("raw_extension_data", hex::encode(payload))],
+            fields: vec![ParsedField::text("raw_extension_data", hex::encode(payload))].into(),
             account_names: generate_generic_account_names(instruction.accounts.len()),
         })),
     }
@@ -742,7 +746,8 @@ fn parse_transfer_fee_initialize_instruction(
                 ),
                 ParsedField::text("transfer_fee_basis_points", bps.to_string()),
                 ParsedField::text("maximum_fee", maximum_fee.to_string()),
-            ],
+            ]
+            .into(),
             account_names: vec!["mint".to_string()],
         })
     })
@@ -783,7 +788,8 @@ fn parse_transfer_checked_with_fee_instruction(
                 ParsedField::text("amount", amount.to_string()),
                 ParsedField::text("decimals", decimals.to_string()),
                 ParsedField::text("fee", fee.to_string()),
-            ],
+            ]
+            .into(),
             account_names,
         })
     })
@@ -812,7 +818,7 @@ fn parse_transfer_fee_withdraw_from_mint_instruction(
 
     Ok(Some(ParsedInstruction {
         name: "WithdrawWithheldTokensFromMint".to_string(),
-        fields: vec![],
+        fields: vec![].into(),
         account_names,
     }))
 }
@@ -842,7 +848,8 @@ fn parse_transfer_fee_withdraw_from_accounts_instruction(
 
     Ok(Some(ParsedInstruction {
         name: "WithdrawWithheldTokensFromAccounts".to_string(),
-        fields: vec![ParsedField::text("num_token_accounts", num_token_accounts.to_string())],
+        fields: vec![ParsedField::text("num_token_accounts", num_token_accounts.to_string())]
+            .into(),
         account_names,
     }))
 }
@@ -861,7 +868,7 @@ fn parse_transfer_fee_harvest_to_mint_instruction(
 
     Ok(Some(ParsedInstruction {
         name: "HarvestWithheldTokensToMint".to_string(),
-        fields: vec![],
+        fields: vec![].into(),
         account_names,
     }))
 }
@@ -896,7 +903,8 @@ fn parse_transfer_fee_set_fee_instruction(
                     transfer_fee_basis_points.to_string(),
                 ),
                 ParsedField::text("maximum_fee", maximum_fee.to_string()),
-            ],
+            ]
+            .into(),
             account_names,
         })
     })
@@ -940,7 +948,8 @@ fn parse_reallocate_instruction(
         fields: vec![ParsedField::text(
             "extension_types",
             if extension_types.is_empty() { "none".to_string() } else { extension_types.join(",") },
-        )],
+        )]
+        .into(),
         account_names,
     }))
 }
@@ -954,7 +963,7 @@ fn parse_create_native_mint_instruction(
 
     Ok(Some(ParsedInstruction {
         name: "CreateNativeMint".to_string(),
-        fields: vec![],
+        fields: vec![].into(),
         account_names: vec![
             "funding_account".to_string(),
             "native_mint".to_string(),
@@ -974,7 +983,7 @@ fn parse_initialize_permanent_delegate_instruction(
         let delegate = reader.read_pubkey_as_string()?;
         Ok(ParsedInstruction {
             name: "InitializePermanentDelegate".to_string(),
-            fields: vec![ParsedField::text("delegate", delegate)],
+            fields: vec![ParsedField::text("delegate", delegate)].into(),
             account_names: vec!["mint".to_string()],
         })
     })
@@ -995,7 +1004,7 @@ fn parse_withdraw_excess_lamports_instruction(
 
     Ok(Some(ParsedInstruction {
         name: "WithdrawExcessLamports".to_string(),
-        fields: vec![],
+        fields: vec![].into(),
         account_names,
     }))
 }
@@ -1012,7 +1021,7 @@ fn parse_extension_prefix_instruction(
 
     Ok(Some(ParsedInstruction {
         name: name.to_string(),
-        fields,
+        fields: fields.into(),
         account_names: generate_generic_account_names(instruction.accounts.len()),
     }))
 }

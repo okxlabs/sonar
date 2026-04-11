@@ -22,7 +22,11 @@ impl InstructionParser for MemoProgramParser {
         let account_names =
             (0..instruction.accounts.len()).map(|index| format!("signer_{}", index)).collect();
 
-        Ok(Some(ParsedInstruction { name: "Memo".to_string(), fields: memo_fields, account_names }))
+        Ok(Some(ParsedInstruction {
+            name: "Memo".to_string(),
+            fields: memo_fields.into(),
+            account_names,
+        }))
     }
 }
 

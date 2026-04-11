@@ -56,7 +56,7 @@ fn parse_unused_instruction(data: &[u8]) -> Result<Option<ParsedInstruction>> {
 
     Ok(Some(ParsedInstruction {
         name: "Unused".to_string(),
-        fields: vec![],
+        fields: vec![].into(),
         account_names: vec![],
     }))
 }
@@ -74,7 +74,7 @@ fn parse_u32_instruction(
         let value = reader.read_u32()?;
         Ok(ParsedInstruction {
             name: name.to_string(),
-            fields: vec![ParsedField::text(field_name, value.to_string())],
+            fields: vec![ParsedField::text(field_name, value.to_string())].into(),
             account_names: vec![],
         })
     })
@@ -93,7 +93,7 @@ fn parse_u64_instruction(
         let value = reader.read_u64()?;
         Ok(ParsedInstruction {
             name: name.to_string(),
-            fields: vec![ParsedField::text(field_name, value.to_string())],
+            fields: vec![ParsedField::text(field_name, value.to_string())].into(),
             account_names: vec![],
         })
     })

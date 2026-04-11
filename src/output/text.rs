@@ -10,7 +10,7 @@ use solana_pubkey::Pubkey;
 use unicode_width::UnicodeWidthStr;
 
 use crate::parsers::{
-    instruction::{ParsedField, ParsedFieldValue, ParserRegistry},
+    instruction::{ParsedField, ParsedFieldValue, ParsedInstructionFields, ParserRegistry},
     log_parser::{LogEntry, LogEntryWithDepth, parse_logs_by_instruction},
 };
 use sonar_sim::internals::ResolvedAccounts;
@@ -31,6 +31,8 @@ const INDENT_L2: &str = "    ";
 
 /// Subdued gray for metadata columns (index labels, permission flags, account names).
 const DIM_GRAY: colored::CustomColor = colored::CustomColor { r: 128, g: 128, b: 128 };
+/// Warm amber for fallback raw hex when structured instruction decoding fails.
+const RAW_HEX_AMBER: colored::CustomColor = colored::CustomColor { r: 214, g: 154, b: 74 };
 
 pub(super) fn render_text(
     report: &Report,
@@ -570,11 +572,12 @@ fn render_instruction_details_text(
                 );
             }
 
-            if show_ix_data {
-                render_instruction_data_text(&current_data_indent, &ix.data);
-            }
-
-            render_parsed_fields(&parsed.fields, &current_data_indent);
+            render_instruction_data_and_fields(
+                &parsed.fields,
+                &current_data_indent,
+                &ix.data,
+                show_ix_data,
+            );
         } else {
             println!(
                 "#{} {}",
@@ -620,11 +623,12 @@ fn render_instruction_details_text(
                         );
                     }
 
-                    if show_ix_data {
-                        render_instruction_data_text(&current_inner_data_indent, &inner_ix.data);
-                    }
-
-                    render_parsed_fields(&parsed_inner.fields, &current_inner_data_indent);
+                    render_instruction_data_and_fields(
+                        &parsed_inner.fields,
+                        &current_inner_data_indent,
+                        &inner_ix.data,
+                        show_ix_data,
+                    );
                 } else {
                     println!(
                         "{}{} {}",
@@ -868,10 +872,10 @@ impl Serialize for OrderedFields<'_> {
     }
 }
 
-fn render_parsed_fields(fields: &[ParsedField], indent: &str) {
-    if fields.is_empty() {
+fn render_parsed_fields(fields: &ParsedInstructionFields, indent: &str) {
+    let ParsedInstructionFields::Parsed(fields) = fields else {
         return;
-    }
+    };
 
     let ordered = OrderedFields(fields);
     let pretty = serde_json::to_string_pretty(&ordered).unwrap_or_else(|_| "{}".to_string());
@@ -881,6 +885,42 @@ fn render_parsed_fields(fields: &[ParsedField], indent: &str) {
     }
 }
 
+/// Render instruction data hex and/or parsed fields, choosing the raw-hex-amber
+/// fallback when structured decoding failed.
+fn render_instruction_data_and_fields(
+    fields: &ParsedInstructionFields,
+    indent: &str,
+    data: &[u8],
+    show_ix_data: bool,
+) {
+    // Non-empty RawHex means IDL matched but arg decoding failed — show amber hex.
+    if let ParsedInstructionFields::RawHex(raw_hex) = fields {
+        if !raw_hex.is_empty() {
+            let line = format!("{}0x{} {} bytes", indent, hex::encode(data), data.len());
+            println!("{}", line.custom_color(RAW_HEX_AMBER));
+            return;
+        }
+    }
+
+    if show_ix_data {
+        render_instruction_data_text(indent, data);
+    }
+    render_parsed_fields(fields, indent);
+}
+
 fn render_instruction_data_text(indent: &str, data: &[u8]) {
     println!("{}0x{} {} bytes", indent, hex::encode(data), data.len());
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn render_instruction_data_and_fields_uses_raw_hex_for_unparsed() {
+        // Verify the function returns early (no panic) for the RawHex variant.
+        // Stdout output is not captured here, but this exercises the code path.
+        let fields = ParsedInstructionFields::RawHex("0025a16608ca3c00".to_string());
+        render_instruction_data_and_fields(&fields, "  ", &[0, 37, 161, 102], false);
+    }
 }

@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::ops::Deref;
 
 use anyhow::Result;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -20,7 +21,7 @@ const CPI_EVENT_ACCOUNT_NAME: &str = "event_authority";
 #[derive(Debug, Clone, Serialize)]
 pub struct IdlParsedInstruction {
     pub name: String,
-    pub fields: Vec<IdlParsedField>,
+    pub fields: IdlInstructionFields,
     pub account_names: Vec<String>,
 }
 
@@ -29,6 +30,62 @@ pub struct IdlParsedInstruction {
 pub struct IdlParsedField {
     pub name: String,
     pub value: Value,
+}
+
+/// Field decode state for a matched IDL instruction.
+///
+/// Serializes transparently: `Parsed` emits the field array directly,
+/// `Unparsed` emits the raw hex string. This matches the `ParsedInstructionFields`
+/// serialization used by the CLI output layer.
+#[derive(Debug, Clone)]
+pub enum IdlInstructionFields {
+    Parsed(Vec<IdlParsedField>),
+    Unparsed(String),
+}
+
+impl Serialize for IdlInstructionFields {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match self {
+            Self::Parsed(fields) => fields.serialize(serializer),
+            Self::Unparsed(raw_hex) => serializer.serialize_str(raw_hex),
+        }
+    }
+}
+
+impl IdlInstructionFields {
+    /// Returns the parsed fields if decoding succeeded, or `None` for the unparsed variant.
+    ///
+    /// Prefer this over `Deref` when you need to distinguish "no args" from "failed to decode".
+    pub fn parsed_fields(&self) -> Option<&[IdlParsedField]> {
+        match self {
+            Self::Parsed(fields) => Some(fields),
+            Self::Unparsed(_) => None,
+        }
+    }
+
+    pub fn raw_args_hex(&self) -> Option<&str> {
+        match self {
+            Self::Unparsed(raw_args_hex) => Some(raw_args_hex),
+            _ => None,
+        }
+    }
+}
+
+/// **Caution:** Returns an empty slice for `Unparsed`, which is indistinguishable from a
+/// zero-arg instruction. Use [`IdlInstructionFields::parsed_fields`] when you need to
+/// differentiate between "no arguments" and "failed to decode".
+impl Deref for IdlInstructionFields {
+    type Target = [IdlParsedField];
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            Self::Parsed(fields) => fields.as_slice(),
+            Self::Unparsed(_) => &[],
+        }
+    }
 }
 
 // ── Indexed IDL ──
@@ -118,7 +175,23 @@ impl IndexedIdl {
         };
 
         let mut offset = idl_instruction.discriminator.as_ref().map_or(0, |d| d.len());
-        let fields = parse_instruction_args(data, &mut offset, &idl_instruction.args, self)?;
+        let args_offset = offset;
+        let fields = if idl_instruction.args.is_empty() {
+            IdlInstructionFields::Parsed(Vec::new())
+        } else {
+            match parse_instruction_args(data, &mut offset, &idl_instruction.args, self) {
+                Ok(fields) => IdlInstructionFields::Parsed(fields),
+                Err(err) => {
+                    log::warn!(
+                        "IDL arg decode failed for instruction '{}': {err:#}",
+                        idl_instruction.name
+                    );
+                    IdlInstructionFields::Unparsed(hex::encode(
+                        data.get(args_offset..).unwrap_or_default(),
+                    ))
+                }
+            }
+        };
         let account_names = flatten_account_names(&idl_instruction.accounts);
 
         Ok(Some(IdlParsedInstruction { name: idl_instruction.name.clone(), fields, account_names }))
@@ -158,7 +231,20 @@ impl IndexedIdl {
 
         let mut offset = 8 + disc_len;
         let fields = match type_fields.as_ref() {
-            Some(fields) => parse_idl_fields_as_parsed_fields(data, &mut offset, fields, self)?,
+            Some(fields) => {
+                match parse_idl_fields_as_parsed_fields(data, &mut offset, fields, self) {
+                    Ok(fields) => IdlInstructionFields::Parsed(fields),
+                    Err(err) => {
+                        log::warn!(
+                            "IDL field decode failed for event '{}': {err:#}",
+                            event_def.name
+                        );
+                        IdlInstructionFields::Unparsed(hex::encode(
+                            data.get(8 + disc_len..).unwrap_or_default(),
+                        ))
+                    }
+                }
+            }
             None => {
                 let mut raw_fields = Vec::new();
                 if offset < data.len() {
@@ -168,7 +254,7 @@ impl IndexedIdl {
                         value: raw_unparsed_value("event_data", &event_def.name, raw_data),
                     });
                 }
-                raw_fields
+                IdlInstructionFields::Parsed(raw_fields)
             }
         };
 
