@@ -92,4 +92,3 @@ impl Serialize for ParsedField {
         map.end()
     }
 }
-

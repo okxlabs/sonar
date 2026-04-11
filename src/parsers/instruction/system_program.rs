@@ -85,7 +85,8 @@ fn parse_transfer_instruction(
         let lamports = reader.read_u64()?;
         Ok(ParsedInstruction {
             name: "Transfer".to_string(),
-            fields: vec![ParsedField { name: "lamports".into(), value: IdlValue::U64(lamports) }].into(),
+            fields: vec![ParsedField { name: "lamports".into(), value: IdlValue::U64(lamports) }]
+                .into(),
             account_names: vec!["funding_account".to_string(), "recipient_account".to_string()],
         })
     })
@@ -130,7 +131,8 @@ fn parse_assign_instruction(
         let owner = reader.read_pubkey()?;
         Ok(ParsedInstruction {
             name: "Assign".to_string(),
-            fields: vec![ParsedField { name: "owner".into(), value: IdlValue::Pubkey(owner) }].into(),
+            fields: vec![ParsedField { name: "owner".into(), value: IdlValue::Pubkey(owner) }]
+                .into(),
             account_names: vec!["assigned_account".to_string()],
         })
     })
@@ -199,7 +201,8 @@ fn parse_withdraw_nonce_account_instruction(
         let lamports = reader.read_u64()?;
         Ok(ParsedInstruction {
             name: "WithdrawNonceAccount".to_string(),
-            fields: vec![ParsedField { name: "lamports".into(), value: IdlValue::U64(lamports) }].into(),
+            fields: vec![ParsedField { name: "lamports".into(), value: IdlValue::U64(lamports) }]
+                .into(),
             account_names: vec![
                 "nonce_account".to_string(),
                 "recipient_account".to_string(),
@@ -224,7 +227,11 @@ fn parse_initialize_nonce_account_instruction(
         let authorized = reader.read_pubkey()?;
         Ok(ParsedInstruction {
             name: "InitializeNonceAccount".to_string(),
-            fields: vec![ParsedField { name: "authorized".into(), value: IdlValue::Pubkey(authorized) }].into(),
+            fields: vec![ParsedField {
+                name: "authorized".into(),
+                value: IdlValue::Pubkey(authorized),
+            }]
+            .into(),
             account_names: vec![
                 "nonce_account".to_string(),
                 "recent_blockhashes_sysvar".to_string(),
@@ -247,7 +254,11 @@ fn parse_authorize_nonce_account_instruction(
         let authorized = reader.read_pubkey()?;
         Ok(ParsedInstruction {
             name: "AuthorizeNonceAccount".to_string(),
-            fields: vec![ParsedField { name: "new_authorized".into(), value: IdlValue::Pubkey(authorized) }].into(),
+            fields: vec![ParsedField {
+                name: "new_authorized".into(),
+                value: IdlValue::Pubkey(authorized),
+            }]
+            .into(),
             account_names: vec!["nonce_account".to_string(), "nonce_authority".to_string()],
         })
     })

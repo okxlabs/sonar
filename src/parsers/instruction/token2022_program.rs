@@ -359,7 +359,11 @@ fn dispatch_table_instruction(
                 );
                 Ok(ParsedInstruction {
                     name: def.name.to_string(),
-                    fields: vec![ParsedField { name: "amount".into(), value: IdlValue::U64(amount) }].into(),
+                    fields: vec![ParsedField {
+                        name: "amount".into(),
+                        value: IdlValue::U64(amount),
+                    }]
+                    .into(),
                     account_names,
                 })
             })
@@ -454,7 +458,10 @@ fn parse_initialize_mint_instruction(
             name: "InitializeMint".to_string(),
             fields: vec![
                 ParsedField { name: "decimals".into(), value: IdlValue::U8(decimals) },
-                ParsedField { name: "has_freeze_authority".into(), value: IdlValue::Bool(has_freeze_authority) },
+                ParsedField {
+                    name: "has_freeze_authority".into(),
+                    value: IdlValue::Bool(has_freeze_authority),
+                },
             ]
             .into(),
             account_names: vec!["mint".to_string(), "rent_sysvar".to_string()],
@@ -536,7 +543,10 @@ fn parse_set_authority_instruction(
         Ok(ParsedInstruction {
             name: "SetAuthority".to_string(),
             fields: vec![
-                ParsedField { name: "authority_type".into(), value: IdlValue::String(authority_type.to_string().into()) },
+                ParsedField {
+                    name: "authority_type".into(),
+                    value: IdlValue::String(authority_type.to_string().into()),
+                },
                 ParsedField { name: "cleared".into(), value: IdlValue::Bool(cleared) },
             ]
             .into(),
@@ -557,7 +567,11 @@ fn parse_initialize_account2_instruction(
         let owner_pubkey = reader.read_pubkey_as_string()?;
         Ok(ParsedInstruction {
             name: "InitializeAccount2".to_string(),
-            fields: vec![ParsedField { name: "owner".into(), value: IdlValue::String(owner_pubkey.into()) }].into(),
+            fields: vec![ParsedField {
+                name: "owner".into(),
+                value: IdlValue::String(owner_pubkey.into()),
+            }]
+            .into(),
             account_names: vec![
                 "account".to_string(),
                 "mint".to_string(),
@@ -583,7 +597,11 @@ fn parse_initialize_account3_instruction(
         }
         Ok(ParsedInstruction {
             name: "InitializeAccount3".to_string(),
-            fields: vec![ParsedField { name: "owner".into(), value: IdlValue::String(owner_pubkey.into()) }].into(),
+            fields: vec![ParsedField {
+                name: "owner".into(),
+                value: IdlValue::String(owner_pubkey.into()),
+            }]
+            .into(),
             account_names,
         })
     })
@@ -631,7 +649,10 @@ fn parse_initialize_mint2_instruction(
             name: "InitializeMint2".to_string(),
             fields: vec![
                 ParsedField { name: "decimals".into(), value: IdlValue::U8(decimals) },
-                ParsedField { name: "has_freeze_authority".into(), value: IdlValue::Bool(has_freeze_authority) },
+                ParsedField {
+                    name: "has_freeze_authority".into(),
+                    value: IdlValue::Bool(has_freeze_authority),
+                },
             ]
             .into(),
             account_names: vec!["mint".to_string()],
@@ -651,7 +672,8 @@ fn parse_amount_to_ui_amount_instruction(
         let amount = reader.read_u64()?;
         Ok(ParsedInstruction {
             name: "AmountToUiAmount".to_string(),
-            fields: vec![ParsedField { name: "amount".into(), value: IdlValue::U64(amount) }].into(),
+            fields: vec![ParsedField { name: "amount".into(), value: IdlValue::U64(amount) }]
+                .into(),
             account_names: vec!["mint".to_string()],
         })
     })
@@ -674,7 +696,11 @@ fn parse_ui_amount_to_amount_instruction(
 
     Ok(Some(ParsedInstruction {
         name: "UiAmountToAmount".to_string(),
-        fields: vec![ParsedField { name: "ui_amount".into(), value: IdlValue::String(ui_amount.into()) }].into(),
+        fields: vec![ParsedField {
+            name: "ui_amount".into(),
+            value: IdlValue::String(ui_amount.into()),
+        }]
+        .into(),
         account_names: vec!["mint".to_string()],
     }))
 }
@@ -692,7 +718,11 @@ fn parse_initialize_mint_close_authority_instruction(
             close_authority.map_or_else(|| "none".to_string(), |pk| pk.to_string());
         Ok(ParsedInstruction {
             name: "InitializeMintCloseAuthority".to_string(),
-            fields: vec![ParsedField { name: "close_authority".into(), value: IdlValue::String(close_authority_value.into()) }].into(),
+            fields: vec![ParsedField {
+                name: "close_authority".into(),
+                value: IdlValue::String(close_authority_value.into()),
+            }]
+            .into(),
             account_names: vec!["mint".to_string()],
         })
     })
@@ -716,7 +746,11 @@ fn parse_transfer_fee_extension_instruction(
         5 => parse_transfer_fee_set_fee_instruction(payload, instruction),
         unknown => Ok(Some(ParsedInstruction {
             name: format!("TransferFeeExtension({unknown})"),
-            fields: vec![ParsedField { name: "raw_extension_data".into(), value: IdlValue::String(hex::encode(payload).into()) }].into(),
+            fields: vec![ParsedField {
+                name: "raw_extension_data".into(),
+                value: IdlValue::String(hex::encode(payload).into()),
+            }]
+            .into(),
             account_names: generate_generic_account_names(instruction.accounts.len()),
         })),
     }
@@ -739,11 +773,19 @@ fn parse_transfer_fee_initialize_instruction(
             fields: vec![
                 ParsedField {
                     name: "transfer_fee_config_authority".into(),
-                    value: IdlValue::String(config_authority.map_or_else(|| "none".to_string(), |pk| pk.to_string()).into()),
+                    value: IdlValue::String(
+                        config_authority
+                            .map_or_else(|| "none".to_string(), |pk| pk.to_string())
+                            .into(),
+                    ),
                 },
                 ParsedField {
                     name: "withdraw_withheld_authority".into(),
-                    value: IdlValue::String(withdraw_authority.map_or_else(|| "none".to_string(), |pk| pk.to_string()).into()),
+                    value: IdlValue::String(
+                        withdraw_authority
+                            .map_or_else(|| "none".to_string(), |pk| pk.to_string())
+                            .into(),
+                    ),
                 },
                 ParsedField { name: "transfer_fee_basis_points".into(), value: IdlValue::U16(bps) },
                 ParsedField { name: "maximum_fee".into(), value: IdlValue::U64(maximum_fee) },
@@ -831,8 +873,11 @@ fn parse_transfer_fee_withdraw_from_accounts_instruction(
 
     Ok(Some(ParsedInstruction {
         name: "WithdrawWithheldTokensFromAccounts".to_string(),
-        fields: vec![ParsedField { name: "num_token_accounts".into(), value: IdlValue::U32(num_token_accounts as u32) }]
-            .into(),
+        fields: vec![ParsedField {
+            name: "num_token_accounts".into(),
+            value: IdlValue::U32(num_token_accounts as u32),
+        }]
+        .into(),
         account_names,
     }))
 }
@@ -913,7 +958,14 @@ fn parse_reallocate_instruction(
         name: "Reallocate".to_string(),
         fields: vec![ParsedField {
             name: "extension_types".into(),
-            value: IdlValue::String(if extension_types.is_empty() { "none".to_string() } else { extension_types.join(",") }.into()),
+            value: IdlValue::String(
+                if extension_types.is_empty() {
+                    "none".to_string()
+                } else {
+                    extension_types.join(",")
+                }
+                .into(),
+            ),
         }]
         .into(),
         account_names,
@@ -949,7 +1001,11 @@ fn parse_initialize_permanent_delegate_instruction(
         let delegate = reader.read_pubkey_as_string()?;
         Ok(ParsedInstruction {
             name: "InitializePermanentDelegate".to_string(),
-            fields: vec![ParsedField { name: "delegate".into(), value: IdlValue::String(delegate.into()) }].into(),
+            fields: vec![ParsedField {
+                name: "delegate".into(),
+                value: IdlValue::String(delegate.into()),
+            }]
+            .into(),
             account_names: vec!["mint".to_string()],
         })
     })
@@ -980,7 +1036,10 @@ fn parse_extension_prefix_instruction(
 ) -> Result<Option<ParsedInstruction>> {
     let mut fields = Vec::new();
     if !data.is_empty() {
-        fields.push(ParsedField { name: "raw_extension_data".into(), value: IdlValue::String(hex::encode(data).into()) });
+        fields.push(ParsedField {
+            name: "raw_extension_data".into(),
+            value: IdlValue::String(hex::encode(data).into()),
+        });
     }
 
     Ok(Some(ParsedInstruction {

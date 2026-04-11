@@ -35,8 +35,14 @@ fn parse_memo_fields(data: &[u8]) -> Vec<ParsedField> {
     match std::str::from_utf8(data) {
         Ok(memo) => vec![ParsedField { name: "memo".into(), value: IdlValue::String(memo.into()) }],
         Err(_) => vec![
-            ParsedField { name: "memo".into(), value: IdlValue::String(String::from_utf8_lossy(data).into_owned().into()) },
-            ParsedField { name: "memo_hex".into(), value: IdlValue::String(hex_encode(data).into()) },
+            ParsedField {
+                name: "memo".into(),
+                value: IdlValue::String(String::from_utf8_lossy(data).into_owned().into()),
+            },
+            ParsedField {
+                name: "memo_hex".into(),
+                value: IdlValue::String(hex_encode(data).into()),
+            },
         ],
     }
 }

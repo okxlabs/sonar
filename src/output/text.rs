@@ -868,10 +868,8 @@ fn render_parsed_fields(fields: &ParsedInstructionFields, indent: &str, w: &mut 
         return;
     }
 
-    let map: serde_json::Map<String, Value> = fields
-        .iter()
-        .map(|f| (f.name.clone(), f.value.to_json_value()))
-        .collect();
+    let map: serde_json::Map<String, Value> =
+        fields.iter().map(|f| (f.name.clone(), f.value.to_json_value())).collect();
     let pretty = serde_json::to_string_pretty(&map).unwrap_or_else(|_| "{}".to_string());
 
     for line in pretty.lines() {

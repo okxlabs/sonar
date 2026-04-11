@@ -61,9 +61,7 @@ impl IdlValue {
                     fields.iter().map(|(k, v)| (k.clone(), v.to_json_value())).collect();
                 Value::Object(map)
             }
-            Self::Array(values) => {
-                Value::Array(values.iter().map(|v| v.to_json_value()).collect())
-            }
+            Self::Array(values) => Value::Array(values.iter().map(|v| v.to_json_value()).collect()),
             Self::Null => Value::Null,
         }
     }
