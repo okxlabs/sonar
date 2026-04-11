@@ -1,0 +1,11 @@
+---
+source: src/output/snapshot_tests.rs
+expression: output
+---
+#1 TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA instruction
+  > Program log: Instruction: Transfer
+    > Invoking 11111111111111111111111111111111
+    > Program consumed: 500 of 180000 compute units
+    > Program returned success
+  > Program consumed: 4200 of 200000 compute units
+  > Program returned success

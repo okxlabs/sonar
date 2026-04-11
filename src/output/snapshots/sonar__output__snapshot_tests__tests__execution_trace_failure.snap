@@ -1,0 +1,7 @@
+---
+source: src/output/snapshot_tests.rs
+expression: output
+---
+#1 11111111111111111111111111111111 instruction
+  > Program log: Attempting transfer
+  > Program failed: insufficient funds

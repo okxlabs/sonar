@@ -62,5 +62,6 @@ chrono = { version = "0.4.43", default-features = false, features = ["std", "clo
 
 [dev-dependencies]
 assert_cmd = "2.0"
+insta = "1.42"
 serde_json = "1.0"
 tempfile = "3.26.0"

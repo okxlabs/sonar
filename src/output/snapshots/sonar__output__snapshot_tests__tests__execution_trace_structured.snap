@@ -1,0 +1,12 @@
+---
+source: src/output/snapshot_tests.rs
+expression: output
+---
+#1 ComputeBudget111111111111111111111111111 instruction
+  > Program consumed: 300 of 200000 compute units
+  > Program returned success
+
+#2 11111111111111111111111111111111 instruction
+  > Program log: Transfer 1 SOL
+  > Program consumed: 2100 of 199700 compute units
+  > Program returned success

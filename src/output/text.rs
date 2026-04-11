@@ -317,7 +317,7 @@ fn render_execution_trace_section(
     }
 }
 
-fn render_logs_structured(logs: &[String], w: &mut impl Write) {
+pub(super) fn render_logs_structured(logs: &[String], w: &mut impl Write) {
     let instruction_logs = parse_logs_by_instruction(logs);
 
     for (idx, inst_logs) in instruction_logs.iter().enumerate() {
@@ -415,7 +415,7 @@ fn render_log_entry(entry_with_depth: &LogEntryWithDepth, w: &mut impl Write) {
 // Balance change tables
 // ---------------------------------------------------------------------------
 
-fn render_sol_balance_changes(
+pub(super) fn render_sol_balance_changes(
     sol_changes: &[SolBalanceChangeSection],
     indent: &str,
     w: &mut impl Write,
@@ -450,7 +450,7 @@ fn render_sol_balance_changes(
     );
 }
 
-fn render_token_balance_changes(
+pub(super) fn render_token_balance_changes(
     token_changes: &[TokenBalanceChangeSection],
     indent: &str,
     w: &mut impl Write,

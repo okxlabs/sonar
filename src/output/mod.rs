@@ -2,6 +2,8 @@ mod account_text;
 mod fmt;
 mod json;
 mod report;
+#[cfg(test)]
+mod snapshot_tests;
 mod table;
 pub(crate) mod terminal;
 mod text;

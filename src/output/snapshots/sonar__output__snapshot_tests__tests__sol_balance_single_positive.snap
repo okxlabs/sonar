@@ -1,0 +1,7 @@
+---
+source: src/output/snapshot_tests.rs
+expression: output
+---
+  So11111111111111111111111111111111111111112  +1.500000000  1.000000000 → 2.500000000
+
+  account  ±Δ(SOL)  before → after | (+) increase  (-) decrease
