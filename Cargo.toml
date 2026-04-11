@@ -22,7 +22,7 @@ clap_complete = "4"
 env_logger = "0.11"
 log = "0.4"
 serde = { version = "1.0", features = ["derive"] }
-serde_json = { version = "1.0", features = ["preserve_order"] }
+serde_json = { version = "1.0", features = ["preserve_order", "arbitrary_precision"] }
 solana-account = "3.0"
 solana-clock = "3.0"
 solana-epoch-schedule = "3.0"

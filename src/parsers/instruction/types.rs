@@ -139,49 +139,37 @@ pub enum ParsedFieldValue {
     Null,
 }
 
-/// Serialize for `--json` output.
+/// Serialize for `--json` output. Delegates entirely to `to_json_value()`.
 ///
-/// Delegates to [`to_json_value`](Self::to_json_value) for most variants.
-/// Overrides u128/i128 to always emit as strings for stable JSON schema.
+/// With `arbitrary_precision`, u128/i128 emit as unquoted JSON numbers
+/// regardless of magnitude — no special-casing needed.
 impl Serialize for ParsedFieldValue {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
-        match self {
-            // u128/i128: always string in JSON for schema stability
-            Self::U128(n) => serializer.serialize_str(&n.to_string()),
-            Self::I128(n) => serializer.serialize_str(&n.to_string()),
-            // Everything else: delegate to the JSON value representation
-            _ => self.to_json_value().serialize(serializer),
-        }
+        self.to_json_value().serialize(serializer)
     }
 }
 
 impl ParsedFieldValue {
-    /// Convert to `serde_json::Value` for terminal pretty-printing.
+    /// Convert to `serde_json::Value`.
     ///
-    /// All integer types emit as JSON numbers (u128/i128 as numbers when
-    /// they fit in u64/i64, strings when they overflow).
+    /// All integer types (including u128/i128) emit as JSON numbers via
+    /// `serde_json`'s `arbitrary_precision` feature.
     pub fn to_json_value(&self) -> serde_json::Value {
-        use serde_json::Value;
+        use serde_json::{Number, Value};
         match self {
             Self::U8(n) => Value::Number((*n as u64).into()),
             Self::U16(n) => Value::Number((*n as u64).into()),
             Self::U32(n) => Value::Number((*n as u64).into()),
             Self::U64(n) => Value::Number((*n).into()),
-            Self::U128(n) => match u64::try_from(*n) {
-                Ok(v) => Value::Number(v.into()),
-                Err(_) => Value::String(n.to_string()),
-            },
+            Self::U128(n) => Value::Number(Number::from_u128(*n).unwrap()),
             Self::I8(n) => Value::Number((*n as i64).into()),
             Self::I16(n) => Value::Number((*n as i64).into()),
             Self::I32(n) => Value::Number((*n as i64).into()),
             Self::I64(n) => Value::Number((*n).into()),
-            Self::I128(n) => match i64::try_from(*n) {
-                Ok(v) => Value::Number(v.into()),
-                Err(_) => Value::String(n.to_string()),
-            },
+            Self::I128(n) => Value::Number(Number::from_i128(*n).unwrap()),
             Self::Bool(b) => Value::Bool(*b),
             Self::Pubkey(p) => Value::String(p.to_string()),
             Self::Text(s) => Value::String(s.clone()),
