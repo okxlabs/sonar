@@ -76,6 +76,7 @@ pub(crate) fn handle(args: AccountArgs, json: bool) -> Result<()> {
             &account_type,
             &output,
             metadata_output.as_ref(),
+            &mut std::io::stdout().lock(),
         )?;
     }
 

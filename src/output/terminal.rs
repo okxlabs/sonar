@@ -1,15 +1,18 @@
+use std::io::Write;
+
 use colored::Colorize;
 use unicode_width::UnicodeWidthStr;
 
-/// Get effective terminal width for text rendering.
-/// Falls back to 80 when width detection is unavailable.
-fn terminal_width() -> usize {
-    terminal_size::terminal_size().map(|(width, _)| (width.0 as usize).clamp(60, 120)).unwrap_or(80)
+/// Detect the real terminal width, returning `None` when stdout is not a TTY
+/// (piped, redirected, or captured).  Clamped to 60–120.
+pub(crate) fn terminal_width() -> Option<usize> {
+    terminal_size::terminal_size().map(|(width, _)| (width.0 as usize).clamp(60, 120))
 }
 
 /// Header content width with one-space side margins.
+/// Falls back to 80 when width detection is unavailable.
 fn header_content_width() -> usize {
-    terminal_width().saturating_sub(2).max(1)
+    terminal_width().unwrap_or(80).saturating_sub(2).max(1)
 }
 
 fn build_section_title_block(title: &str, width: usize) -> String {
@@ -27,9 +30,9 @@ fn build_section_title_block(title: &str, width: usize) -> String {
     )
 }
 
-/// Render a section title with centered text flanked by `-` lines.
-pub(crate) fn render_section_title(title: &str) {
-    print!("{}", build_section_title_block(title, header_content_width()));
+/// Write a section title with centered text flanked by `─` lines.
+pub(crate) fn write_section_title(w: &mut impl Write, title: &str) {
+    let _ = write!(w, "{}", build_section_title_block(title, header_content_width()));
 }
 
 #[cfg(test)]
