@@ -13,12 +13,11 @@ use crate::parsers::instruction::{
     ParsedInstruction, ParserRegistry, anchor_idl::is_anchor_cpi_event,
 };
 use sonar_sim::internals::{
-    AccountOverride, ExecutionResult, ExecutionStatus, PreparedTokenFunding, ResolvedAccounts,
-    ResolvedLookup, SimulationMetadata, SolFunding, compute_sol_changes, compute_token_changes,
-    extract_mint_decimals_combined,
+    AccountOverride, ExecutionResult, ExecutionStatus, ResolvedAccounts, ResolvedLookup,
+    SimulationMetadata, compute_sol_changes, compute_token_changes, extract_mint_decimals_combined,
 };
 
-use super::BalanceChangeOptions;
+use super::{BalanceChangeOptions, SimulationContext};
 
 #[derive(Serialize)]
 pub(super) struct Report {
@@ -81,15 +80,11 @@ pub(super) struct BundleTransactionReport {
 }
 
 impl BundleReport {
-    #[allow(clippy::too_many_arguments)]
     pub(super) fn from_sources(
         parsed_txs: &[ParsedTransaction],
         resolved: &ResolvedAccounts,
         simulations: &[ExecutionResult],
-        account_closures: &[Pubkey],
-        overrides: &[AccountOverride],
-        fundings: &[SolFunding],
-        token_fundings: &[PreparedTokenFunding],
+        ctx: &SimulationContext,
         parser_registry: &mut ParserRegistry,
         verify_signatures: bool,
         balance_opts: BalanceChangeOptions,
@@ -114,10 +109,11 @@ impl BundleReport {
             })
             .collect();
 
-        let account_closures = closures_to_sections(account_closures);
-        let overrides = overrides.iter().map(override_to_section).collect();
+        let account_closures = closures_to_sections(ctx.account_closures);
+        let overrides = ctx.overrides.iter().map(override_to_section).collect();
 
-        let fundings = fundings
+        let fundings = ctx
+            .fundings
             .iter()
             .map(|entry| SolFundingSection {
                 pubkey: entry.pubkey.to_string(),
@@ -125,7 +121,8 @@ impl BundleReport {
             })
             .collect();
 
-        let token_fundings = token_fundings
+        let token_fundings = ctx
+            .token_fundings
             .iter()
             .map(|entry| TokenSolFundingSection {
                 account: entry.account.to_string(),
@@ -136,7 +133,6 @@ impl BundleReport {
             })
             .collect();
 
-        // Compute overall bundle balance changes (first tx pre -> last successful tx post)
         let (sol_balance_changes, token_balance_changes) =
             if balance_opts.show_balance_change && !simulations.is_empty() {
                 compute_bundle_overall_balance_changes(resolved, simulations, balance_opts)
@@ -157,15 +153,11 @@ impl BundleReport {
 }
 
 impl Report {
-    #[allow(clippy::too_many_arguments)]
     pub(super) fn from_sources(
         parsed: &ParsedTransaction,
         resolved: &ResolvedAccounts,
         simulation: &ExecutionResult,
-        account_closures: &[Pubkey],
-        overrides: &[AccountOverride],
-        fundings: &[SolFunding],
-        token_fundings: &[PreparedTokenFunding],
+        ctx: &SimulationContext,
         parser_registry: &mut ParserRegistry,
         verify_signatures: bool,
         balance_opts: BalanceChangeOptions,
@@ -179,8 +171,8 @@ impl Report {
             verify_signatures,
         );
         let simulation_section = SimulationSection::from_result(simulation);
-        let account_closures = closures_to_sections(account_closures);
-        let overrides = overrides.iter().map(override_to_section).collect();
+        let account_closures = closures_to_sections(ctx.account_closures);
+        let overrides = ctx.overrides.iter().map(override_to_section).collect();
         let (sol_balance_changes, token_balance_changes) =
             if matches!(simulation.status, ExecutionStatus::Succeeded)
                 && balance_opts.show_balance_change
@@ -190,14 +182,16 @@ impl Report {
                 (Vec::new(), Vec::new())
             };
 
-        let fundings = fundings
+        let fundings = ctx
+            .fundings
             .iter()
             .map(|entry| SolFundingSection {
                 pubkey: entry.pubkey.to_string(),
                 amount_lamports: entry.amount_lamports,
             })
             .collect();
-        let token_fundings = token_fundings
+        let token_fundings = ctx
+            .token_fundings
             .iter()
             .map(|entry| TokenSolFundingSection {
                 account: entry.account.to_string(),
