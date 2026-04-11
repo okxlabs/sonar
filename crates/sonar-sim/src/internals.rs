@@ -36,8 +36,8 @@ pub use crate::types::{ReturnData, SimulationMetadata};
 
 pub use crate::executor::{
     BundleResult, ExecutionOptions, ExecutionResult, ExecutionStatus, PreparedSimulation,
-    SignatureVerification, SimulationOptions, SimulationOptionsBuilder, SimulationRunner,
-    StateMutationOptions, apply_account_closures,
+    SignatureVerification, SimulationOptions, SimulationRunner, StateMutationOptions,
+    apply_account_closures,
 };
 
 // ── Balance changes ──

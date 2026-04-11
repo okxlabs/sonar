@@ -89,7 +89,7 @@ impl BundleReport {
         verify_signatures: bool,
         balance_opts: BalanceChangeOptions,
     ) -> Self {
-        let resolver = LookupResolver::new(resolved.lookup_details());
+        let resolver = LookupResolver::new(&resolved.lookups);
 
         let transactions = parsed_txs
             .iter()
@@ -162,7 +162,7 @@ impl Report {
         verify_signatures: bool,
         balance_opts: BalanceChangeOptions,
     ) -> Self {
-        let resolver = LookupResolver::new(resolved.lookup_details());
+        let resolver = LookupResolver::new(&resolved.lookups);
         let transaction = TransactionSection::from_sources(
             parsed,
             resolved,

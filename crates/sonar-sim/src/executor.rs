@@ -83,64 +83,6 @@ pub struct SimulationOptions {
     pub mutations: StateMutationOptions,
 }
 
-/// Incremental builder for [`SimulationOptions`].
-#[derive(Debug, Clone, Default)]
-pub struct SimulationOptionsBuilder {
-    opts: SimulationOptions,
-}
-
-impl SimulationOptions {
-    pub fn builder() -> SimulationOptionsBuilder {
-        SimulationOptionsBuilder::default()
-    }
-}
-
-impl SimulationOptionsBuilder {
-    pub fn signature_verification(mut self, verification: SignatureVerification) -> Self {
-        self.opts.execution.signature_verification = verification;
-        self
-    }
-
-    pub fn slot(mut self, slot: u64) -> Self {
-        self.opts.execution.slot = Some(slot);
-        self
-    }
-
-    pub fn timestamp(mut self, ts: i64) -> Self {
-        self.opts.execution.timestamp = Some(ts);
-        self
-    }
-
-    pub fn account_closures(mut self, account_closures: Vec<Pubkey>) -> Self {
-        self.opts.mutations.account_closures = account_closures;
-        self
-    }
-
-    pub fn overrides(mut self, overrides: Vec<AccountOverride>) -> Self {
-        self.opts.mutations.overrides = overrides;
-        self
-    }
-
-    pub fn sol_fundings(mut self, sol_fundings: Vec<SolFunding>) -> Self {
-        self.opts.mutations.sol_fundings = sol_fundings;
-        self
-    }
-
-    pub fn token_fundings(mut self, token_fundings: Vec<PreparedTokenFunding>) -> Self {
-        self.opts.mutations.token_fundings = token_fundings;
-        self
-    }
-
-    pub fn data_patches(mut self, data_patches: Vec<AccountDataPatch>) -> Self {
-        self.opts.mutations.data_patches = data_patches;
-        self
-    }
-
-    pub fn build(self) -> SimulationOptions {
-        self.opts
-    }
-}
-
 impl StateMutationOptions {
     /// Apply all pre-simulation account mutations in deterministic order.
     pub fn apply<B: SvmBackend + ?Sized>(

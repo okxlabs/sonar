@@ -5,7 +5,6 @@ use std::time::Duration;
 use anyhow::{Context, Result, anyhow};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
-use serde::Deserialize;
 use solana_account::Account;
 use solana_commitment_config::{CommitmentConfig, CommitmentLevel};
 use solana_pubkey::Pubkey;
@@ -21,11 +20,6 @@ use sonar_sim::internals::rpc_json::{JsonRpcResponse, RpcAccountInfo, RpcResultV
 pub struct RpcClient {
     agent: ureq::Agent,
     rpc_url: String,
-}
-
-#[derive(Deserialize)]
-pub struct RpcResponse<T> {
-    pub value: T,
 }
 
 // ---------------------------------------------------------------------------
@@ -121,7 +115,7 @@ impl RpcClient {
         &self,
         pubkey: &Pubkey,
         commitment: CommitmentConfig,
-    ) -> Result<RpcResponse<Option<Account>>> {
+    ) -> Result<RpcResultValue<Option<Account>>> {
         let result: RpcResultValue<Option<RpcAccountInfo>> = self.call(
             "getAccountInfo",
             serde_json::json!([
@@ -131,7 +125,7 @@ impl RpcClient {
         )?;
         let value =
             result.value.map(|info| info.into_account().map_err(|e| anyhow!("{e}"))).transpose()?;
-        Ok(RpcResponse { value })
+        Ok(RpcResultValue { value })
     }
 
     pub fn send_transaction_with_config(
@@ -157,7 +151,7 @@ impl RpcClient {
     pub fn get_signature_statuses(
         &self,
         signatures: &[Signature],
-    ) -> Result<RpcResponse<Vec<Option<TransactionStatus>>>> {
+    ) -> Result<RpcResultValue<Vec<Option<TransactionStatus>>>> {
         self.call(
             "getSignatureStatuses",
             serde_json::json!([signatures.iter().map(|s| s.to_string()).collect::<Vec<_>>()]),

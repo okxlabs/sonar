@@ -96,7 +96,7 @@ pub fn render_transaction_only(
     show_ix_data: bool,
     bundle_info: Option<(usize, usize)>,
 ) -> Result<()> {
-    let resolver = LookupResolver::new(resolved.lookup_details());
+    let resolver = LookupResolver::new(&resolved.lookups);
     let transaction =
         TransactionSection::from_sources(parsed, resolved, &resolver, parser_registry, false);
     if json {
@@ -123,7 +123,7 @@ pub fn render_decode_bundle_json(
     resolved: &ResolvedAccounts,
     parser_registry: &mut ParserRegistry,
 ) -> Result<()> {
-    let resolver = LookupResolver::new(resolved.lookup_details());
+    let resolver = LookupResolver::new(&resolved.lookups);
     let sections: Vec<TransactionSection> = parsed_txs
         .iter()
         .map(|parsed| {
