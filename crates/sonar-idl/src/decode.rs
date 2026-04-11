@@ -53,9 +53,12 @@ fn parse_idl_fields_value(
     indexed: &crate::indexed::IndexedIdl,
 ) -> Result<IdlValue> {
     match fields {
-        IdlFields::Named(named_fields) => {
-            Ok(IdlValue::Struct(parse_named_fields_to_entries(data, offset, named_fields, indexed)?))
-        }
+        IdlFields::Named(named_fields) => Ok(IdlValue::Struct(parse_named_fields_to_entries(
+            data,
+            offset,
+            named_fields,
+            indexed,
+        )?)),
         IdlFields::Tuple(tuple_fields) => {
             Ok(IdlValue::Array(parse_tuple_fields_to_values(data, offset, tuple_fields, indexed)?))
         }
@@ -118,119 +121,129 @@ pub(crate) fn parse_simple_type(
     let (value, bytes_read) = match type_name {
         "u8" => {
             check_data_len(data, start, 1)?;
-            (IdlValue::Uint(u128::from(data[start])), 1)
+            (IdlValue::U8(data[start]), 1)
         }
         "i8" => {
             check_data_len(data, start, 1)?;
-            (IdlValue::Int(i128::from(data[start] as i8)), 1)
+            (IdlValue::I8(data[start] as i8), 1)
         }
         "u16" => {
             check_data_len(data, start, 2)?;
-            let value = u16::from_le_bytes([data[start], data[start + 1]]);
-            (IdlValue::Uint(u128::from(value)), 2)
+            (IdlValue::U16(u16::from_le_bytes([data[start], data[start + 1]])), 2)
         }
         "i16" => {
             check_data_len(data, start, 2)?;
-            let value = i16::from_le_bytes([data[start], data[start + 1]]);
-            (IdlValue::Int(i128::from(value)), 2)
+            (IdlValue::I16(i16::from_le_bytes([data[start], data[start + 1]])), 2)
         }
         "u32" => {
             check_data_len(data, start, 4)?;
-            let value = u32::from_le_bytes([
-                data[start],
-                data[start + 1],
-                data[start + 2],
-                data[start + 3],
-            ]);
-            (IdlValue::Uint(u128::from(value)), 4)
+            (
+                IdlValue::U32(u32::from_le_bytes([
+                    data[start],
+                    data[start + 1],
+                    data[start + 2],
+                    data[start + 3],
+                ])),
+                4,
+            )
         }
         "i32" => {
             check_data_len(data, start, 4)?;
-            let value = i32::from_le_bytes([
-                data[start],
-                data[start + 1],
-                data[start + 2],
-                data[start + 3],
-            ]);
-            (IdlValue::Int(i128::from(value)), 4)
+            (
+                IdlValue::I32(i32::from_le_bytes([
+                    data[start],
+                    data[start + 1],
+                    data[start + 2],
+                    data[start + 3],
+                ])),
+                4,
+            )
         }
         "u64" => {
             check_data_len(data, start, 8)?;
-            let value = u64::from_le_bytes([
-                data[start],
-                data[start + 1],
-                data[start + 2],
-                data[start + 3],
-                data[start + 4],
-                data[start + 5],
-                data[start + 6],
-                data[start + 7],
-            ]);
-            (IdlValue::Uint(u128::from(value)), 8)
+            (
+                IdlValue::U64(u64::from_le_bytes([
+                    data[start],
+                    data[start + 1],
+                    data[start + 2],
+                    data[start + 3],
+                    data[start + 4],
+                    data[start + 5],
+                    data[start + 6],
+                    data[start + 7],
+                ])),
+                8,
+            )
         }
         "i64" => {
             check_data_len(data, start, 8)?;
-            let value = i64::from_le_bytes([
-                data[start],
-                data[start + 1],
-                data[start + 2],
-                data[start + 3],
-                data[start + 4],
-                data[start + 5],
-                data[start + 6],
-                data[start + 7],
-            ]);
-            (IdlValue::Int(i128::from(value)), 8)
+            (
+                IdlValue::I64(i64::from_le_bytes([
+                    data[start],
+                    data[start + 1],
+                    data[start + 2],
+                    data[start + 3],
+                    data[start + 4],
+                    data[start + 5],
+                    data[start + 6],
+                    data[start + 7],
+                ])),
+                8,
+            )
         }
         "u128" => {
             check_data_len(data, start, 16)?;
-            let value = u128::from_le_bytes([
-                data[start],
-                data[start + 1],
-                data[start + 2],
-                data[start + 3],
-                data[start + 4],
-                data[start + 5],
-                data[start + 6],
-                data[start + 7],
-                data[start + 8],
-                data[start + 9],
-                data[start + 10],
-                data[start + 11],
-                data[start + 12],
-                data[start + 13],
-                data[start + 14],
-                data[start + 15],
-            ]);
-            (IdlValue::Uint(value), 16)
+            (
+                IdlValue::U128(u128::from_le_bytes([
+                    data[start],
+                    data[start + 1],
+                    data[start + 2],
+                    data[start + 3],
+                    data[start + 4],
+                    data[start + 5],
+                    data[start + 6],
+                    data[start + 7],
+                    data[start + 8],
+                    data[start + 9],
+                    data[start + 10],
+                    data[start + 11],
+                    data[start + 12],
+                    data[start + 13],
+                    data[start + 14],
+                    data[start + 15],
+                ])),
+                16,
+            )
         }
         "i128" => {
             check_data_len(data, start, 16)?;
-            let value = i128::from_le_bytes([
-                data[start],
-                data[start + 1],
-                data[start + 2],
-                data[start + 3],
-                data[start + 4],
-                data[start + 5],
-                data[start + 6],
-                data[start + 7],
-                data[start + 8],
-                data[start + 9],
-                data[start + 10],
-                data[start + 11],
-                data[start + 12],
-                data[start + 13],
-                data[start + 14],
-                data[start + 15],
-            ]);
-            (IdlValue::Int(value), 16)
+            (
+                IdlValue::I128(i128::from_le_bytes([
+                    data[start],
+                    data[start + 1],
+                    data[start + 2],
+                    data[start + 3],
+                    data[start + 4],
+                    data[start + 5],
+                    data[start + 6],
+                    data[start + 7],
+                    data[start + 8],
+                    data[start + 9],
+                    data[start + 10],
+                    data[start + 11],
+                    data[start + 12],
+                    data[start + 13],
+                    data[start + 14],
+                    data[start + 15],
+                ])),
+                16,
+            )
         }
         "pubkey" | "publicKey" => {
             check_data_len(data, start, 32)?;
             let pubkey = Pubkey::try_from(&data[start..start + 32])
                 .map_err(|_| anyhow!("Invalid pubkey data"))?;
-            (IdlValue::String(pubkey.to_string()), 32)
+            (IdlValue::Pubkey(pubkey), 32)
         }
         "bool" => {
             check_data_len(data, start, 1)?;

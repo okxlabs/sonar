@@ -14,7 +14,7 @@ fn parse_simple_u8() {
     let data = [42u8];
     let mut offset = 0;
     let val = parse_simple_type(&data, &mut offset, "u8").unwrap();
-    assert_eq!(val, IdlValue::Uint(42));
+    assert_eq!(val, IdlValue::U8(42));
     assert_eq!(offset, 1);
 }
 
@@ -23,7 +23,7 @@ fn parse_simple_i8() {
     let data = [(-5i8) as u8];
     let mut offset = 0;
     let val = parse_simple_type(&data, &mut offset, "i8").unwrap();
-    assert_eq!(val, IdlValue::Int(-5));
+    assert_eq!(val, IdlValue::I8(-5));
     assert_eq!(offset, 1);
 }
 
@@ -32,7 +32,7 @@ fn parse_simple_u16() {
     let data = 1000u16.to_le_bytes();
     let mut offset = 0;
     let val = parse_simple_type(&data, &mut offset, "u16").unwrap();
-    assert_eq!(val, IdlValue::Uint(1000));
+    assert_eq!(val, IdlValue::U16(1000));
     assert_eq!(offset, 2);
 }
 
@@ -41,7 +41,7 @@ fn parse_simple_i16() {
     let data = (-300i16).to_le_bytes();
     let mut offset = 0;
     let val = parse_simple_type(&data, &mut offset, "i16").unwrap();
-    assert_eq!(val, IdlValue::Int(-300));
+    assert_eq!(val, IdlValue::I16(-300));
     assert_eq!(offset, 2);
 }
 
@@ -50,7 +50,7 @@ fn parse_simple_u32() {
     let data = 70000u32.to_le_bytes();
     let mut offset = 0;
     let val = parse_simple_type(&data, &mut offset, "u32").unwrap();
-    assert_eq!(val, IdlValue::Uint(70000));
+    assert_eq!(val, IdlValue::U32(70000));
     assert_eq!(offset, 4);
 }
 
@@ -59,7 +59,7 @@ fn parse_simple_i32() {
     let data = (-70000i32).to_le_bytes();
     let mut offset = 0;
     let val = parse_simple_type(&data, &mut offset, "i32").unwrap();
-    assert_eq!(val, IdlValue::Int(-70000));
+    assert_eq!(val, IdlValue::I32(-70000));
     assert_eq!(offset, 4);
 }
 
@@ -68,7 +68,7 @@ fn parse_simple_u64() {
     let data = u64::MAX.to_le_bytes();
     let mut offset = 0;
     let val = parse_simple_type(&data, &mut offset, "u64").unwrap();
-    assert_eq!(val, IdlValue::Uint(u64::MAX as u128));
+    assert_eq!(val, IdlValue::U64(u64::MAX));
     assert_eq!(offset, 8);
 }
 
@@ -77,7 +77,7 @@ fn parse_simple_i64() {
     let data = i64::MIN.to_le_bytes();
     let mut offset = 0;
     let val = parse_simple_type(&data, &mut offset, "i64").unwrap();
-    assert_eq!(val, IdlValue::Int(i64::MIN as i128));
+    assert_eq!(val, IdlValue::I64(i64::MIN));
     assert_eq!(offset, 8);
 }
 
@@ -87,7 +87,7 @@ fn parse_simple_u128() {
     let data = value_in.to_le_bytes();
     let mut offset = 0;
     let val = parse_simple_type(&data, &mut offset, "u128").unwrap();
-    assert_eq!(val, IdlValue::Uint(value_in));
+    assert_eq!(val, IdlValue::U128(value_in));
     assert_eq!(offset, 16);
 }
 
@@ -97,7 +97,7 @@ fn parse_simple_i128() {
     let data = value_in.to_le_bytes();
     let mut offset = 0;
     let val = parse_simple_type(&data, &mut offset, "i128").unwrap();
-    assert_eq!(val, IdlValue::Int(value_in));
+    assert_eq!(val, IdlValue::I128(value_in));
     assert_eq!(offset, 16);
 }
 
@@ -125,7 +125,7 @@ fn parse_simple_pubkey() {
     let data = pubkey.to_bytes();
     let mut offset = 0;
     let val = parse_simple_type(&data, &mut offset, "pubkey").unwrap();
-    assert_eq!(val, IdlValue::String(pubkey.to_string()));
+    assert_eq!(val, IdlValue::Pubkey(pubkey));
     assert_eq!(offset, 32);
 }
 
@@ -218,7 +218,7 @@ fn parse_vec_type_u32_elements() {
     let indexed = hello_anchor_indexed_idl();
     let element_type = IdlType::Simple("u32".into());
     let val = parse_vec_type(&data, &mut offset, &element_type, &indexed).unwrap();
-    assert_eq!(val, IdlValue::Array(vec![IdlValue::Uint(10), IdlValue::Uint(20), IdlValue::Uint(30)]));
+    assert_eq!(val, IdlValue::Array(vec![IdlValue::U32(10), IdlValue::U32(20), IdlValue::U32(30)]));
     assert_eq!(offset, 16);
 }
 
@@ -276,7 +276,7 @@ fn parse_option_type_some() {
     let indexed = hello_anchor_indexed_idl();
     let inner = IdlType::Simple("u16".into());
     let val = parse_option_type(&data, &mut offset, &inner, &indexed).unwrap();
-    assert_eq!(val, IdlValue::Uint(500));
+    assert_eq!(val, IdlValue::U16(500));
     assert_eq!(offset, 3);
 }
 
@@ -309,7 +309,7 @@ fn parse_array_type_fixed_3_u8() {
     let array_def =
         IdlArrayType { element_type: Box::new(IdlType::Simple("u8".into())), length: 3 };
     let val = parse_array_type(&data, &mut offset, &array_def, &indexed).unwrap();
-    assert_eq!(val, IdlValue::Array(vec![IdlValue::Uint(10), IdlValue::Uint(20), IdlValue::Uint(30)]));
+    assert_eq!(val, IdlValue::Array(vec![IdlValue::U8(10), IdlValue::U8(20), IdlValue::U8(30)]));
     assert_eq!(offset, 3);
 }
 
@@ -359,8 +359,8 @@ fn parse_instruction_with_defined_tuple_struct_arg_supports_nested_types() {
     assert_eq!(
         parsed.fields[0].value,
         IdlValue::Array(vec![
-            IdlValue::Uint(777),
-            IdlValue::Struct(vec![("amount".into(), IdlValue::Uint(42))]),
+            IdlValue::U32(777),
+            IdlValue::Struct(vec![("amount".into(), IdlValue::U16(42))]),
         ])
     );
 }
@@ -409,8 +409,8 @@ fn parse_enum_with_struct_variant() {
         IdlValue::Struct(vec![(
             "Transfer".into(),
             IdlValue::Struct(vec![
-                ("amount".into(), IdlValue::Uint(5000)),
-                ("fee".into(), IdlValue::Uint(100)),
+                ("amount".into(), IdlValue::U64(5000)),
+                ("fee".into(), IdlValue::U16(100)),
             ]),
         )])
     );
@@ -453,7 +453,7 @@ fn parse_enum_with_tuple_variant() {
         *val,
         IdlValue::Struct(vec![(
             "SetPair".into(),
-            IdlValue::Array(vec![IdlValue::Uint(111), IdlValue::Uint(222)]),
+            IdlValue::Array(vec![IdlValue::U32(111), IdlValue::U32(222)]),
         )])
     );
 }

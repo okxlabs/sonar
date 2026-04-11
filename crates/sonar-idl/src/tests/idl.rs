@@ -137,7 +137,7 @@ fn parse_current_idl_format() {
     assert_eq!(parsed.name, "initialize");
     assert_eq!(parsed.fields.len(), 1);
     assert_eq!(parsed.fields[0].name, "data");
-    assert_eq!(parsed.fields[0].value, IdlValue::Uint(42));
+    assert_eq!(parsed.fields[0].value, IdlValue::U64(42));
 }
 
 #[test]
@@ -192,7 +192,7 @@ fn current_idl_event_gets_auto_discriminator() {
     assert_eq!(parsed.name, "TransferEvent");
     assert_eq!(parsed.fields.len(), 1);
     assert_eq!(parsed.fields[0].name, "amount");
-    assert_eq!(parsed.fields[0].value, IdlValue::Uint(7));
+    assert_eq!(parsed.fields[0].value, IdlValue::U64(7));
     assert!(is_cpi_event_data(&data));
 }
 
@@ -225,9 +225,9 @@ fn current_idl_event_fields_support_tuple_types() {
     assert_eq!(parsed.name, "PairEvent");
     assert_eq!(parsed.fields.len(), 2);
     assert_eq!(parsed.fields[0].name, "field_0");
-    assert_eq!(parsed.fields[0].value, IdlValue::Uint(9));
+    assert_eq!(parsed.fields[0].value, IdlValue::U32(9));
     assert_eq!(parsed.fields[1].name, "field_1");
-    assert_eq!(parsed.fields[1].value, IdlValue::Uint(7));
+    assert_eq!(parsed.fields[1].value, IdlValue::U16(7));
 }
 
 #[test]
@@ -272,7 +272,7 @@ fn parse_legacy_idl_and_into_indexed_idl() {
     assert_eq!(parsed.name, "doSomething");
     assert_eq!(parsed.fields.len(), 1);
     assert_eq!(parsed.fields[0].name, "amount");
-    assert_eq!(parsed.fields[0].value, IdlValue::Uint(123));
+    assert_eq!(parsed.fields[0].value, IdlValue::U64(123));
 }
 
 #[test]
@@ -322,5 +322,5 @@ fn legacy_event_gets_auto_discriminator() {
     assert_eq!(parsed.name, "TransferEvent");
     assert_eq!(parsed.fields.len(), 1);
     assert_eq!(parsed.fields[0].name, "amount");
-    assert_eq!(parsed.fields[0].value, IdlValue::Uint(7));
+    assert_eq!(parsed.fields[0].value, IdlValue::U64(7));
 }

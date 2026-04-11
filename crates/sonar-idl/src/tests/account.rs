@@ -15,7 +15,7 @@ fn indexed_idl_parses_account_data_matches_struct_by_discriminator() {
     let (type_name, value) = result.expect("should match NewAccount");
 
     assert_eq!(type_name, "NewAccount");
-    assert_eq!(value, IdlValue::Struct(vec![("data".into(), IdlValue::Uint(99))]));
+    assert_eq!(value, IdlValue::Struct(vec![("data".into(), IdlValue::U64(99))]));
 }
 
 #[test]

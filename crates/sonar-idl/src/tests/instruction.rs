@@ -138,7 +138,7 @@ fn indexed_idl_parse_instruction_matches_discriminator_and_reads_u64_arg() {
     assert_eq!(parsed.name, "initialize");
     assert_eq!(parsed.fields.len(), 1);
     assert_eq!(parsed.fields[0].name, "data");
-    assert_eq!(parsed.fields[0].value, IdlValue::Uint(42));
+    assert_eq!(parsed.fields[0].value, IdlValue::U64(42));
 }
 
 #[test]
@@ -204,9 +204,9 @@ fn indexed_idl_parse_instruction_multiple_primitive_args() {
     data.extend_from_slice(string);
 
     let parsed = indexed.parse_instruction(&data).unwrap().unwrap();
-    assert_eq!(parsed.fields[0].value, IdlValue::Uint(42));
+    assert_eq!(parsed.fields[0].value, IdlValue::U8(42));
     assert_eq!(parsed.fields[1].value, IdlValue::Bool(true));
-    assert_eq!(parsed.fields[2].value, IdlValue::Int(-5));
+    assert_eq!(parsed.fields[2].value, IdlValue::I16(-5));
     assert_eq!(parsed.fields[3].value, IdlValue::String("hello".into()));
 }
 
@@ -276,10 +276,7 @@ fn indexed_idl_parse_instruction_with_defined_struct_arg() {
     assert_eq!(parsed.fields[0].name, "params");
     assert_eq!(
         parsed.fields[0].value,
-        IdlValue::Struct(vec![
-            ("x".into(), IdlValue::Uint(100)),
-            ("y".into(), IdlValue::Uint(200)),
-        ])
+        IdlValue::Struct(vec![("x".into(), IdlValue::U32(100)), ("y".into(), IdlValue::U32(200)),])
     );
 }
 
@@ -356,8 +353,8 @@ fn indexed_idl_parse_instruction_preserves_named_field_order() {
     assert_eq!(
         parsed.fields[0].value,
         IdlValue::Struct(vec![
-            ("zeta".into(), IdlValue::Uint(100)),
-            ("alpha".into(), IdlValue::Uint(200)),
+            ("zeta".into(), IdlValue::U32(100)),
+            ("alpha".into(), IdlValue::U32(200)),
         ])
     );
 }
@@ -390,17 +387,11 @@ fn indexed_idl_parse_instruction_with_enum_arg() {
 
     let mut data = vec![1, 1, 1, 1, 1, 1, 1, 1, 0];
     let parsed = indexed.parse_instruction(&data).unwrap().unwrap();
-    assert_eq!(
-        parsed.fields[0].value,
-        IdlValue::Struct(vec![("Start".into(), IdlValue::Null)])
-    );
+    assert_eq!(parsed.fields[0].value, IdlValue::Struct(vec![("Start".into(), IdlValue::Null)]));
 
     data[8] = 1;
     let parsed = indexed.parse_instruction(&data).unwrap().unwrap();
-    assert_eq!(
-        parsed.fields[0].value,
-        IdlValue::Struct(vec![("Stop".into(), IdlValue::Null)])
-    );
+    assert_eq!(parsed.fields[0].value, IdlValue::Struct(vec![("Stop".into(), IdlValue::Null)]));
 }
 
 #[test]
@@ -429,7 +420,7 @@ fn indexed_idl_parse_instruction_with_vec_arg() {
     let parsed = indexed.parse_instruction(&data).unwrap().unwrap();
     assert_eq!(
         parsed.fields[0].value,
-        IdlValue::Array(vec![IdlValue::Uint(10), IdlValue::Uint(20), IdlValue::Uint(30)])
+        IdlValue::Array(vec![IdlValue::U16(10), IdlValue::U16(20), IdlValue::U16(30)])
     );
 }
 
@@ -453,7 +444,7 @@ fn indexed_idl_parse_instruction_with_option_arg() {
     let mut data = vec![3, 3, 3, 3, 3, 3, 3, 3, 1];
     data.extend_from_slice(&777u32.to_le_bytes());
     let parsed = indexed.parse_instruction(&data).unwrap().unwrap();
-    assert_eq!(parsed.fields[0].value, IdlValue::Uint(777));
+    assert_eq!(parsed.fields[0].value, IdlValue::U32(777));
 
     let data_none = vec![3, 3, 3, 3, 3, 3, 3, 3, 0];
     let parsed = indexed.parse_instruction(&data_none).unwrap().unwrap();

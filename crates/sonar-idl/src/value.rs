@@ -1,22 +1,29 @@
+use solana_pubkey::Pubkey;
+
 /// Domain-native value type for decoded IDL data.
 ///
-/// Unlike `serde_json::Value`, this preserves the full range of Solana numeric
-/// types (u128/i128) without forcing stringification for values that exceed
-/// JSON's native integer range.
+/// Each variant mirrors the corresponding IDL/Solana type exactly,
+/// preserving bit width, signedness, and semantic identity (e.g.
+/// `Pubkey` vs `String`). Consumers use this information to decide
+/// how to serialize, display, or validate values.
 ///
-/// Neither `Serialize` nor JSON conversion is implemented here — consumers
-/// decide how to render `IdlValue` via their own conversion logic.
+/// Neither `Serialize` nor JSON conversion is implemented here —
+/// that decision belongs to consumers.
 #[derive(Debug, Clone, PartialEq)]
 pub enum IdlValue {
-    /// Unsigned integer (u8, u16, u32, u64, u128).
-    Uint(u128),
-    /// Signed integer (i8, i16, i32, i64, i128).
-    Int(i128),
-    /// Boolean.
+    U8(u8),
+    U16(u16),
+    U32(u32),
+    U64(u64),
+    U128(u128),
+    I8(i8),
+    I16(i16),
+    I32(i32),
+    I64(i64),
+    I128(i128),
     Bool(bool),
-    /// UTF-8 string (pubkeys, seeds, string fields).
+    Pubkey(Pubkey),
     String(String),
-    /// Byte array (`bytes` type in Anchor IDL).
     Bytes(Vec<u8>),
     /// Ordered named fields (struct, enum variant payload).
     Struct(Vec<(String, IdlValue)>),

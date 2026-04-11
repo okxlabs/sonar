@@ -38,24 +38,27 @@ fn to_parsed_instruction(idl_parsed: IdlParsedInstruction) -> ParsedInstruction 
 
 /// Convert an `IdlValue` to `serde_json::Value` for the CLI output layer.
 ///
-/// - `Uint`/`Int` emit as JSON numbers when the value fits in u64/i64,
-///   falling back to a string for values that exceed JSON's range.
-/// - `Bytes` emits as a JSON array of numbers.
+/// - Integer types up to 64-bit emit as JSON numbers.
+/// - `U128`/`I128` always emit as strings for stable JSON schema.
+/// - `Pubkey` emits as a base58 string.
 /// - `Struct` emits as a JSON object preserving field order.
 pub(crate) fn idl_value_to_json(value: IdlValue) -> Value {
     match value {
-        IdlValue::Uint(n) => match u64::try_from(n) {
-            Ok(v) => Value::Number(v.into()),
-            Err(_) => Value::String(n.to_string()),
-        },
-        IdlValue::Int(n) => match i64::try_from(n) {
-            Ok(v) => Value::Number(v.into()),
-            Err(_) => Value::String(n.to_string()),
-        },
+        IdlValue::U8(n) => Value::Number(u64::from(n).into()),
+        IdlValue::U16(n) => Value::Number(u64::from(n).into()),
+        IdlValue::U32(n) => Value::Number(u64::from(n).into()),
+        IdlValue::U64(n) => Value::Number(n.into()),
+        IdlValue::U128(n) => Value::String(n.to_string()),
+        IdlValue::I8(n) => Value::Number(i64::from(n).into()),
+        IdlValue::I16(n) => Value::Number(i64::from(n).into()),
+        IdlValue::I32(n) => Value::Number(i64::from(n).into()),
+        IdlValue::I64(n) => Value::Number(n.into()),
+        IdlValue::I128(n) => Value::String(n.to_string()),
         IdlValue::Bool(b) => Value::Bool(b),
+        IdlValue::Pubkey(p) => Value::String(p.to_string()),
         IdlValue::String(s) => Value::String(s),
         IdlValue::Bytes(bytes) => {
-            Value::Array(bytes.into_iter().map(|b| Value::Number((b as u64).into())).collect())
+            Value::Array(bytes.into_iter().map(|b| Value::Number(u64::from(b).into())).collect())
         }
         IdlValue::Struct(fields) => {
             let map: serde_json::Map<String, Value> =
