@@ -7,7 +7,7 @@
 //! - **Parsing**: `IndexedIdl` normalizes and indexes IDL definitions
 //!   before decoding instruction args, account data, and CPI events.
 //! - **Discriminator**: `sighash` for computing Anchor 8-byte discriminators.
-//! - **Values**: Parsed fields are returned as ordered `serde_json::Value`.
+//! - **Values**: Parsed fields use the domain-native `IdlValue` enum.
 //!
 //! ```rust
 //! use sonar_idl::IndexedIdl;
@@ -27,6 +27,7 @@ mod decode;
 mod discriminator;
 mod idl;
 mod indexed;
+mod value;
 
 #[cfg(test)]
 mod tests;
@@ -35,3 +36,4 @@ pub use discriminator::sighash;
 pub use indexed::{
     IdlInstructionFields, IdlParsedField, IdlParsedInstruction, IndexedIdl, is_cpi_event_data,
 };
+pub use value::IdlValue;

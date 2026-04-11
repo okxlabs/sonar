@@ -1,8 +1,7 @@
-use serde_json::{Value, json};
-
 use crate::discriminator::sighash;
 use crate::idl::*;
 use crate::indexed::{IdlInstructionFields, IndexedIdl};
+use crate::value::IdlValue;
 
 use super::hello_anchor_indexed_idl;
 
@@ -139,7 +138,7 @@ fn indexed_idl_parse_instruction_matches_discriminator_and_reads_u64_arg() {
     assert_eq!(parsed.name, "initialize");
     assert_eq!(parsed.fields.len(), 1);
     assert_eq!(parsed.fields[0].name, "data");
-    assert_eq!(parsed.fields[0].value, json!(42u64));
+    assert_eq!(parsed.fields[0].value, IdlValue::Uint(42));
 }
 
 #[test]
@@ -205,10 +204,10 @@ fn indexed_idl_parse_instruction_multiple_primitive_args() {
     data.extend_from_slice(string);
 
     let parsed = indexed.parse_instruction(&data).unwrap().unwrap();
-    assert_eq!(parsed.fields[0].value, json!(42u64));
-    assert_eq!(parsed.fields[1].value, json!(true));
-    assert_eq!(parsed.fields[2].value, json!(-5i64));
-    assert_eq!(parsed.fields[3].value, json!("hello"));
+    assert_eq!(parsed.fields[0].value, IdlValue::Uint(42));
+    assert_eq!(parsed.fields[1].value, IdlValue::Bool(true));
+    assert_eq!(parsed.fields[2].value, IdlValue::Int(-5));
+    assert_eq!(parsed.fields[3].value, IdlValue::String("hello".into()));
 }
 
 #[test]
@@ -275,7 +274,13 @@ fn indexed_idl_parse_instruction_with_defined_struct_arg() {
 
     let parsed = indexed.parse_instruction(&data).unwrap().unwrap();
     assert_eq!(parsed.fields[0].name, "params");
-    assert_eq!(parsed.fields[0].value, json!({ "x": 100u64, "y": 200u64 }));
+    assert_eq!(
+        parsed.fields[0].value,
+        IdlValue::Struct(vec![
+            ("x".into(), IdlValue::Uint(100)),
+            ("y".into(), IdlValue::Uint(200)),
+        ])
+    );
 }
 
 #[test]
@@ -346,9 +351,11 @@ fn indexed_idl_parse_instruction_preserves_named_field_order_in_serde_json_value
     data.extend_from_slice(&200u32.to_le_bytes());
 
     let parsed = indexed.parse_instruction(&data).unwrap().unwrap();
-    let json = serde_json::to_value(&parsed.fields[0].value).unwrap();
 
-    assert_eq!(serde_json::to_string(&json).unwrap(), r#"{"zeta":100,"alpha":200}"#);
+    assert_eq!(
+        serde_json::to_string(&parsed.fields[0].value).unwrap(),
+        r#"{"zeta":100,"alpha":200}"#
+    );
 }
 
 #[test]
@@ -379,11 +386,17 @@ fn indexed_idl_parse_instruction_with_enum_arg() {
 
     let mut data = vec![1, 1, 1, 1, 1, 1, 1, 1, 0];
     let parsed = indexed.parse_instruction(&data).unwrap().unwrap();
-    assert_eq!(parsed.fields[0].value, json!({ "Start": null }));
+    assert_eq!(
+        parsed.fields[0].value,
+        IdlValue::Struct(vec![("Start".into(), IdlValue::Null)])
+    );
 
     data[8] = 1;
     let parsed = indexed.parse_instruction(&data).unwrap().unwrap();
-    assert_eq!(parsed.fields[0].value, json!({ "Stop": null }));
+    assert_eq!(
+        parsed.fields[0].value,
+        IdlValue::Struct(vec![("Stop".into(), IdlValue::Null)])
+    );
 }
 
 #[test]
@@ -410,7 +423,10 @@ fn indexed_idl_parse_instruction_with_vec_arg() {
     data.extend_from_slice(&30u16.to_le_bytes());
 
     let parsed = indexed.parse_instruction(&data).unwrap().unwrap();
-    assert_eq!(parsed.fields[0].value, json!([10u64, 20u64, 30u64]));
+    assert_eq!(
+        parsed.fields[0].value,
+        IdlValue::Array(vec![IdlValue::Uint(10), IdlValue::Uint(20), IdlValue::Uint(30)])
+    );
 }
 
 #[test]
@@ -433,11 +449,11 @@ fn indexed_idl_parse_instruction_with_option_arg() {
     let mut data = vec![3, 3, 3, 3, 3, 3, 3, 3, 1];
     data.extend_from_slice(&777u32.to_le_bytes());
     let parsed = indexed.parse_instruction(&data).unwrap().unwrap();
-    assert_eq!(parsed.fields[0].value, json!(777u64));
+    assert_eq!(parsed.fields[0].value, IdlValue::Uint(777));
 
     let data_none = vec![3, 3, 3, 3, 3, 3, 3, 3, 0];
     let parsed = indexed.parse_instruction(&data_none).unwrap().unwrap();
-    assert_eq!(parsed.fields[0].value, Value::Null);
+    assert_eq!(parsed.fields[0].value, IdlValue::Null);
 }
 
 #[test]

@@ -3,8 +3,6 @@ use std::ops::Deref;
 
 use anyhow::Result;
 use serde::{Deserialize, Deserializer, Serialize};
-use serde_json::Value;
-
 use crate::decode::{
     parse_idl_fields_as_parsed_fields, parse_instruction_args, parse_type_definition,
     raw_unparsed_value,
@@ -29,7 +27,7 @@ pub struct IdlParsedInstruction {
 #[derive(Debug, Clone, Serialize)]
 pub struct IdlParsedField {
     pub name: String,
-    pub value: Value,
+    pub value: crate::value::IdlValue,
 }
 
 /// Field decode state for a matched IDL instruction.
@@ -197,7 +195,10 @@ impl IndexedIdl {
         Ok(Some(IdlParsedInstruction { name: idl_instruction.name.clone(), fields, account_names }))
     }
 
-    pub fn parse_account_data(&self, account_data: &[u8]) -> Result<Option<(String, Value)>> {
+    pub fn parse_account_data(
+        &self,
+        account_data: &[u8],
+    ) -> Result<Option<(String, crate::value::IdlValue)>> {
         let Some((type_def, disc_len)) = self.find_account_type_by_discriminator(account_data)
         else {
             return Ok(None);

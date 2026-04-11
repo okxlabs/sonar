@@ -24,7 +24,7 @@ fn to_parsed_instruction(idl_parsed: IdlParsedInstruction) -> ParsedInstruction 
     let fields = match idl_parsed.fields {
         IdlInstructionFields::Parsed(fields) => fields
             .into_iter()
-            .map(|field| ParsedField::json(field.name, field.value))
+            .map(|field| ParsedField::json(field.name, field.value.to_json_value()))
             .collect::<Vec<_>>()
             .into(),
         IdlInstructionFields::Unparsed(raw_args_hex) => {

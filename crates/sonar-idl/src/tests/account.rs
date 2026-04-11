@@ -1,6 +1,5 @@
-use serde_json::json;
-
 use crate::discriminator::sighash;
+use crate::value::IdlValue;
 
 use super::hello_anchor_indexed_idl;
 
@@ -16,7 +15,7 @@ fn indexed_idl_parses_account_data_matches_struct_by_discriminator() {
     let (type_name, value) = result.expect("should match NewAccount");
 
     assert_eq!(type_name, "NewAccount");
-    assert_eq!(value, json!({ "data": 99u64 }));
+    assert_eq!(value, IdlValue::Struct(vec![("data".into(), IdlValue::Uint(99))]));
 }
 
 #[test]

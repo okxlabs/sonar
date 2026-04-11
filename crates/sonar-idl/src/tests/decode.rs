@@ -1,11 +1,11 @@
 use std::str::FromStr;
 
-use serde_json::{Value, json};
 use solana_pubkey::Pubkey;
 
 use crate::decode::{parse_array_type, parse_option_type, parse_simple_type, parse_vec_type};
 use crate::idl::{DefinedType, IdlArrayType, IdlType};
 use crate::indexed::IndexedIdl;
+use crate::value::IdlValue;
 
 use super::hello_anchor_indexed_idl;
 
@@ -14,7 +14,7 @@ fn parse_simple_u8() {
     let data = [42u8];
     let mut offset = 0;
     let val = parse_simple_type(&data, &mut offset, "u8").unwrap();
-    assert_eq!(val, json!(42u64));
+    assert_eq!(val, IdlValue::Uint(42));
     assert_eq!(offset, 1);
 }
 
@@ -23,7 +23,7 @@ fn parse_simple_i8() {
     let data = [(-5i8) as u8];
     let mut offset = 0;
     let val = parse_simple_type(&data, &mut offset, "i8").unwrap();
-    assert_eq!(val, json!(-5i64));
+    assert_eq!(val, IdlValue::Int(-5));
     assert_eq!(offset, 1);
 }
 
@@ -32,7 +32,7 @@ fn parse_simple_u16() {
     let data = 1000u16.to_le_bytes();
     let mut offset = 0;
     let val = parse_simple_type(&data, &mut offset, "u16").unwrap();
-    assert_eq!(val, json!(1000u64));
+    assert_eq!(val, IdlValue::Uint(1000));
     assert_eq!(offset, 2);
 }
 
@@ -41,7 +41,7 @@ fn parse_simple_i16() {
     let data = (-300i16).to_le_bytes();
     let mut offset = 0;
     let val = parse_simple_type(&data, &mut offset, "i16").unwrap();
-    assert_eq!(val, json!(-300i64));
+    assert_eq!(val, IdlValue::Int(-300));
     assert_eq!(offset, 2);
 }
 
@@ -50,7 +50,7 @@ fn parse_simple_u32() {
     let data = 70000u32.to_le_bytes();
     let mut offset = 0;
     let val = parse_simple_type(&data, &mut offset, "u32").unwrap();
-    assert_eq!(val, json!(70000u64));
+    assert_eq!(val, IdlValue::Uint(70000));
     assert_eq!(offset, 4);
 }
 
@@ -59,7 +59,7 @@ fn parse_simple_i32() {
     let data = (-70000i32).to_le_bytes();
     let mut offset = 0;
     let val = parse_simple_type(&data, &mut offset, "i32").unwrap();
-    assert_eq!(val, json!(-70000i64));
+    assert_eq!(val, IdlValue::Int(-70000));
     assert_eq!(offset, 4);
 }
 
@@ -68,7 +68,7 @@ fn parse_simple_u64() {
     let data = u64::MAX.to_le_bytes();
     let mut offset = 0;
     let val = parse_simple_type(&data, &mut offset, "u64").unwrap();
-    assert_eq!(val, json!(u64::MAX));
+    assert_eq!(val, IdlValue::Uint(u64::MAX as u128));
     assert_eq!(offset, 8);
 }
 
@@ -77,7 +77,7 @@ fn parse_simple_i64() {
     let data = i64::MIN.to_le_bytes();
     let mut offset = 0;
     let val = parse_simple_type(&data, &mut offset, "i64").unwrap();
-    assert_eq!(val, json!(i64::MIN));
+    assert_eq!(val, IdlValue::Int(i64::MIN as i128));
     assert_eq!(offset, 8);
 }
 
@@ -87,7 +87,7 @@ fn parse_simple_u128() {
     let data = value_in.to_le_bytes();
     let mut offset = 0;
     let val = parse_simple_type(&data, &mut offset, "u128").unwrap();
-    assert_eq!(val, json!(value_in.to_string()));
+    assert_eq!(val, IdlValue::Uint(value_in));
     assert_eq!(offset, 16);
 }
 
@@ -97,7 +97,7 @@ fn parse_simple_i128() {
     let data = value_in.to_le_bytes();
     let mut offset = 0;
     let val = parse_simple_type(&data, &mut offset, "i128").unwrap();
-    assert_eq!(val, json!(value_in.to_string()));
+    assert_eq!(val, IdlValue::Int(value_in));
     assert_eq!(offset, 16);
 }
 
@@ -106,7 +106,7 @@ fn parse_simple_bool_true() {
     let data = [1u8];
     let mut offset = 0;
     let val = parse_simple_type(&data, &mut offset, "bool").unwrap();
-    assert_eq!(val, json!(true));
+    assert_eq!(val, IdlValue::Bool(true));
     assert_eq!(offset, 1);
 }
 
@@ -115,7 +115,7 @@ fn parse_simple_bool_false() {
     let data = [0u8];
     let mut offset = 0;
     let val = parse_simple_type(&data, &mut offset, "bool").unwrap();
-    assert_eq!(val, json!(false));
+    assert_eq!(val, IdlValue::Bool(false));
     assert_eq!(offset, 1);
 }
 
@@ -125,7 +125,7 @@ fn parse_simple_pubkey() {
     let data = pubkey.to_bytes();
     let mut offset = 0;
     let val = parse_simple_type(&data, &mut offset, "pubkey").unwrap();
-    assert_eq!(val, json!(pubkey.to_string()));
+    assert_eq!(val, IdlValue::String(pubkey.to_string()));
     assert_eq!(offset, 32);
 }
 
@@ -136,7 +136,7 @@ fn parse_simple_string() {
     data.extend_from_slice(string);
     let mut offset = 0;
     let val = parse_simple_type(&data, &mut offset, "string").unwrap();
-    assert_eq!(val, json!("hello"));
+    assert_eq!(val, IdlValue::String("hello".into()));
     assert_eq!(offset, 9);
 }
 
@@ -147,7 +147,7 @@ fn parse_simple_bytes() {
     data.extend_from_slice(&payload);
     let mut offset = 0;
     let val = parse_simple_type(&data, &mut offset, "bytes").unwrap();
-    assert_eq!(val, json!([0xAAu64, 0xBBu64, 0xCCu64]));
+    assert_eq!(val, IdlValue::Bytes(vec![0xAA, 0xBB, 0xCC]));
     assert_eq!(offset, 7);
 }
 
@@ -181,13 +181,13 @@ fn parse_simple_type_unknown_falls_back_to_raw() {
     let data = [1, 2, 3, 4];
     let mut offset = 0;
     let val = parse_simple_type(&data, &mut offset, "unknown_type").unwrap();
-    if let Value::Object(entries) = &val {
-        let keys: Vec<&str> = entries.keys().map(|key| key.as_str()).collect();
+    if let IdlValue::Struct(entries) = &val {
+        let keys: Vec<&str> = entries.iter().map(|(k, _)| k.as_str()).collect();
         assert!(keys.contains(&"context"));
         assert!(keys.contains(&"type_hint"));
         assert!(keys.contains(&"raw_hex"));
     } else {
-        panic!("expected Object for unknown type, got {:?}", val);
+        panic!("expected Struct for unknown type, got {:?}", val);
     }
 }
 
@@ -196,10 +196,9 @@ fn parse_simple_type_unknown_preserves_fallback_key_order_in_serde_json_value() 
     let data = [1, 2, 3, 4];
     let mut offset = 0;
     let val = parse_simple_type(&data, &mut offset, "unknown_type").unwrap();
-    let json = serde_json::to_value(&val).unwrap();
 
     assert_eq!(
-        serde_json::to_string(&json).unwrap(),
+        serde_json::to_string(&val).unwrap(),
         r#"{"context":"simple_type","type_hint":"unknown_type","raw_hex":"01020304"}"#
     );
 }
@@ -214,7 +213,7 @@ fn parse_vec_type_u32_elements() {
     let indexed = hello_anchor_indexed_idl();
     let element_type = IdlType::Simple("u32".into());
     let val = parse_vec_type(&data, &mut offset, &element_type, &indexed).unwrap();
-    assert_eq!(val, json!([10u64, 20u64, 30u64]));
+    assert_eq!(val, IdlValue::Array(vec![IdlValue::Uint(10), IdlValue::Uint(20), IdlValue::Uint(30)]));
     assert_eq!(offset, 16);
 }
 
@@ -225,7 +224,7 @@ fn parse_vec_type_empty() {
     let indexed = hello_anchor_indexed_idl();
     let element_type = IdlType::Simple("u8".into());
     let val = parse_vec_type(&data, &mut offset, &element_type, &indexed).unwrap();
-    assert_eq!(val, json!([]));
+    assert_eq!(val, IdlValue::Array(vec![]));
     assert_eq!(offset, 4);
 }
 
@@ -260,7 +259,7 @@ fn parse_vec_type_stops_when_element_parser_makes_no_progress() {
 
     let val = parse_vec_type(&data, &mut offset, &element_type, &indexed).unwrap();
 
-    assert_eq!(val, json!([]));
+    assert_eq!(val, IdlValue::Array(vec![]));
     assert_eq!(offset, 4);
 }
 
@@ -272,7 +271,7 @@ fn parse_option_type_some() {
     let indexed = hello_anchor_indexed_idl();
     let inner = IdlType::Simple("u16".into());
     let val = parse_option_type(&data, &mut offset, &inner, &indexed).unwrap();
-    assert_eq!(val, json!(500u64));
+    assert_eq!(val, IdlValue::Uint(500));
     assert_eq!(offset, 3);
 }
 
@@ -283,7 +282,7 @@ fn parse_option_type_none() {
     let indexed = hello_anchor_indexed_idl();
     let inner = IdlType::Simple("u16".into());
     let val = parse_option_type(&data, &mut offset, &inner, &indexed).unwrap();
-    assert_eq!(val, Value::Null);
+    assert_eq!(val, IdlValue::Null);
     assert_eq!(offset, 1);
 }
 
@@ -305,7 +304,7 @@ fn parse_array_type_fixed_3_u8() {
     let array_def =
         IdlArrayType { element_type: Box::new(IdlType::Simple("u8".into())), length: 3 };
     let val = parse_array_type(&data, &mut offset, &array_def, &indexed).unwrap();
-    assert_eq!(val, json!([10u64, 20u64, 30u64]));
+    assert_eq!(val, IdlValue::Array(vec![IdlValue::Uint(10), IdlValue::Uint(20), IdlValue::Uint(30)]));
     assert_eq!(offset, 3);
 }
 
@@ -352,7 +351,13 @@ fn parse_instruction_with_defined_tuple_struct_arg_supports_nested_types() {
 
     assert_eq!(parsed.fields.len(), 1);
     assert_eq!(parsed.fields[0].name, "payload");
-    assert_eq!(parsed.fields[0].value, json!([777u64, { "amount": 42u64 }]));
+    assert_eq!(
+        parsed.fields[0].value,
+        IdlValue::Array(vec![
+            IdlValue::Uint(777),
+            IdlValue::Struct(vec![("amount".into(), IdlValue::Uint(42))]),
+        ])
+    );
 }
 
 #[test]
@@ -394,7 +399,16 @@ fn parse_enum_with_struct_variant() {
 
     let parsed = indexed.parse_instruction(&data).unwrap().unwrap();
     let val = &parsed.fields[0].value;
-    assert_eq!(*val, json!({ "Transfer": { "amount": 5000u64, "fee": 100u64 } }));
+    assert_eq!(
+        *val,
+        IdlValue::Struct(vec![(
+            "Transfer".into(),
+            IdlValue::Struct(vec![
+                ("amount".into(), IdlValue::Uint(5000)),
+                ("fee".into(), IdlValue::Uint(100)),
+            ]),
+        )])
+    );
 }
 
 #[test]
@@ -430,7 +444,13 @@ fn parse_enum_with_tuple_variant() {
 
     let parsed = indexed.parse_instruction(&data).unwrap().unwrap();
     let val = &parsed.fields[0].value;
-    assert_eq!(*val, json!({ "SetPair": [111u64, 222u64] }));
+    assert_eq!(
+        *val,
+        IdlValue::Struct(vec![(
+            "SetPair".into(),
+            IdlValue::Array(vec![IdlValue::Uint(111), IdlValue::Uint(222)]),
+        )])
+    );
 }
 
 #[test]
@@ -460,8 +480,8 @@ fn parse_enum_out_of_range_variant_index_falls_through() {
     data.push(99);
 
     let parsed = indexed.parse_instruction(&data).unwrap().unwrap();
-    if let Value::Object(entries) = &parsed.fields[0].value {
-        let keys: Vec<&str> = entries.keys().map(|key| key.as_str()).collect();
+    if let IdlValue::Struct(entries) = &parsed.fields[0].value {
+        let keys: Vec<&str> = entries.iter().map(|(k, _)| k.as_str()).collect();
         assert!(keys.contains(&"raw_hex"));
     } else {
         panic!("expected raw fallback for out-of-range variant");
