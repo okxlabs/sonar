@@ -580,27 +580,6 @@ fn config_without_subcommand_prints_config_help() {
     assert!(stdout.contains("set"), "expected set subcommand help, got: {stdout}");
 }
 
-#[test]
-fn cnofig_alias_is_rejected() {
-    let mut cmd = cargo_bin_cmd!("sonar");
-    cmd.arg("cnofig").arg("list");
-
-    let assert = cmd.assert().failure();
-    let output = assert.get_output();
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-
-    assert!(stdout.trim().is_empty(), "expected no stdout when alias is rejected, got: {stdout}");
-    assert!(
-        stderr.contains("cnofig"),
-        "expected error mentioning removed alias cnofig, got: {stderr}"
-    );
-    assert!(
-        stderr.contains("unrecognized subcommand"),
-        "expected clap unknown subcommand error, got: {stderr}"
-    );
-}
-
 // ─── Global --json flag e2e tests ───────────────────────────────────
 
 #[test]

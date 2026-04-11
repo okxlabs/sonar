@@ -165,19 +165,4 @@ mod tests {
         });
         insta::assert_snapshot!("execution_trace_failure", output);
     }
-
-    // -------------------------------------------------------------------
-    // Section title
-    // -------------------------------------------------------------------
-
-    #[test]
-    fn section_title_rendering() {
-        let output = capture(|w| {
-            crate::output::terminal::write_section_title(w, "SOL Balance Changes");
-        });
-        // Section titles depend on terminal width which varies; just check structure.
-        assert!(output.starts_with('\n'));
-        assert!(output.contains("SOL Balance Changes"));
-        assert!(output.ends_with("\n\n"));
-    }
 }

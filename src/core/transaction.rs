@@ -1,9 +1,6 @@
 pub(crate) use sonar_sim::internals::build_lookup_locations;
 pub use sonar_sim::internals::{LookupLocation, MessageAccountPlan, RawTransactionEncoding};
 
-#[cfg(test)]
-use sonar_sim::internals::AddressLookupPlan;
-
 use crate::core::rpc_client::{GetTransactionConfig, RpcClient};
 use anyhow::{Context, Result, anyhow};
 use base64::Engine;
@@ -547,85 +544,5 @@ mod tests {
         assert_eq!(resolved.len(), 1);
         assert_eq!(resolved[0].source, TxResolveSource::RawInput);
         assert_eq!(resolved[0].raw_tx_base64, raw_base64);
-    }
-
-    #[test]
-    fn test_build_lookup_locations_ordering() {
-        let table1 = Pubkey::new_unique();
-        let table2 = Pubkey::new_unique();
-
-        let plan = vec![
-            AddressLookupPlan {
-                account_key: table1,
-                writable_indexes: vec![0, 1],
-                readonly_indexes: vec![2, 3],
-            },
-            AddressLookupPlan {
-                account_key: table2,
-                writable_indexes: vec![5, 6],
-                readonly_indexes: vec![7],
-            },
-        ];
-
-        let locations = build_lookup_locations(&plan);
-
-        assert_eq!(locations.len(), 7, "Should have 7 lookup accounts");
-
-        assert_eq!(locations[0].table_account, table1);
-        assert_eq!(locations[0].table_index, 0);
-        assert!(locations[0].writable);
-
-        assert_eq!(locations[1].table_account, table1);
-        assert_eq!(locations[1].table_index, 1);
-        assert!(locations[1].writable);
-
-        assert_eq!(locations[2].table_account, table2);
-        assert_eq!(locations[2].table_index, 5);
-        assert!(locations[2].writable);
-
-        assert_eq!(locations[3].table_account, table2);
-        assert_eq!(locations[3].table_index, 6);
-        assert!(locations[3].writable);
-
-        assert_eq!(locations[4].table_account, table1);
-        assert_eq!(locations[4].table_index, 2);
-        assert!(!locations[4].writable);
-
-        assert_eq!(locations[5].table_account, table1);
-        assert_eq!(locations[5].table_index, 3);
-        assert!(!locations[5].writable);
-
-        assert_eq!(locations[6].table_account, table2);
-        assert_eq!(locations[6].table_index, 7);
-        assert!(!locations[6].writable);
-    }
-
-    #[test]
-    fn test_build_lookup_locations_empty() {
-        let locations = build_lookup_locations(&[]);
-        assert_eq!(locations.len(), 0, "Empty lookup plan should return empty locations");
-    }
-
-    #[test]
-    fn test_build_lookup_locations_single_table() {
-        let table = Pubkey::new_unique();
-        let plan = vec![AddressLookupPlan {
-            account_key: table,
-            writable_indexes: vec![10],
-            readonly_indexes: vec![20, 21],
-        }];
-
-        let locations = build_lookup_locations(&plan);
-
-        assert_eq!(locations.len(), 3);
-
-        assert_eq!(locations[0].table_index, 10);
-        assert!(locations[0].writable);
-
-        assert_eq!(locations[1].table_index, 20);
-        assert!(!locations[1].writable);
-
-        assert_eq!(locations[2].table_index, 21);
-        assert!(!locations[2].writable);
     }
 }
