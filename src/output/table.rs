@@ -184,10 +184,7 @@ mod tests {
     #[test]
     fn max_width_truncates_widest_column() {
         colored::control::set_override(false);
-        let mut table = TableWriter::new("")
-            .column(Align::Left)
-            .column(Align::Left)
-            .max_width(25);
+        let mut table = TableWriter::new("").column(Align::Left).column(Align::Left).max_width(25);
         // col0: 20 chars, col1: 5 chars → total 20+2+5 = 27, overflow = 2
         table.row(vec![Cell::plain("a]234567890123456789"), Cell::plain("hello")]);
 

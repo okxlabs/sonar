@@ -16,11 +16,11 @@ use crate::parsers::{
 };
 use sonar_sim::internals::ResolvedAccounts;
 
-use super::fmt::{format_with_commas, truncate_display, truncate_sig};
 use super::LogDisplayOptions;
+use super::fmt::{format_with_commas, truncate_display, truncate_sig};
 use super::report::{
-    BundleReport, InstructionAccountEntry, Report, SimulationSection,
-    SimulationStatusReport, SolBalanceChangeSection, TokenBalanceChangeSection, TransactionSection,
+    BundleReport, InstructionAccountEntry, Report, SimulationSection, SimulationStatusReport,
+    SolBalanceChangeSection, TokenBalanceChangeSection, TransactionSection,
 };
 use super::terminal::{terminal_width, write_section_title};
 use super::theme::{COLOR_BLUE, COLOR_GOLD, COLOR_GREEN, COLOR_RED, DIM_GRAY, RAW_HEX_AMBER};
@@ -154,11 +154,7 @@ pub(super) fn render_transaction_section_text(
 // Bundle summary
 // ---------------------------------------------------------------------------
 
-fn render_bundle_summary_header(
-    bundle: &BundleReport,
-    total_count: usize,
-    w: &mut impl Write,
-) {
+fn render_bundle_summary_header(bundle: &BundleReport, total_count: usize, w: &mut impl Write) {
     let succeeded = bundle
         .transactions
         .iter()
@@ -406,8 +402,13 @@ fn render_log_entry(entry_with_depth: &LogEntryWithDepth, w: &mut impl Write) {
         }
         LogEntry::Other(msg) => {
             if !msg.is_empty() {
-                let _ =
-                    writeln!(w, "{}{} {}", indent, ">".custom_color(DIM_GRAY), msg.custom_color(DIM_GRAY));
+                let _ = writeln!(
+                    w,
+                    "{}{} {}",
+                    indent,
+                    ">".custom_color(DIM_GRAY),
+                    msg.custom_color(DIM_GRAY)
+                );
             }
         }
     }
@@ -753,7 +754,8 @@ fn render_account_entry_text(
         }
         None => String::new(),
     };
-    let _ = writeln!(w, "{}{} {} {}{}", INDENT_L1, index_label, pubkey_display, marker, lookup_suffix);
+    let _ =
+        writeln!(w, "{}{} {} {}{}", INDENT_L1, index_label, pubkey_display, marker, lookup_suffix);
     index + 1
 }
 
@@ -777,7 +779,11 @@ fn render_instruction_account_text(
     let source_marker = render_account_marker(account.signer, account.writable, executable);
     let index_label = render_account_index_label(account.index, layout.index_width);
     let pubkey_display = format!("{:<width$}", account.pubkey, width = layout.pubkey_width);
-    let _ = writeln!(w, "{}{} {} {}{}", indent, index_label, pubkey_display, source_marker, name_suffix);
+    let _ = writeln!(
+        w,
+        "{}{} {} {}{}",
+        indent, index_label, pubkey_display, source_marker, name_suffix
+    );
 }
 
 fn render_account_marker(signer: bool, writable: bool, executable: bool) -> String {

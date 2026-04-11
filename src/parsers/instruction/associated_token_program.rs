@@ -57,7 +57,12 @@ fn parse_create_instruction(
         "system_program".to_string(),
         "token_program".to_string(),
     ];
-    append_extra_account_names(&mut account_names, instruction.accounts.len(), 6);
+    super::append_extra_account_names(
+        &mut account_names,
+        instruction.accounts.len(),
+        6,
+        "additional_account_",
+    );
 
     Ok(Some(ParsedInstruction {
         name: instruction_name.to_string(),
@@ -82,26 +87,18 @@ fn parse_recover_nested_instruction(
         "wallet".to_string(),
         "token_program".to_string(),
     ];
-    append_extra_account_names(&mut account_names, instruction.accounts.len(), 7);
+    super::append_extra_account_names(
+        &mut account_names,
+        instruction.accounts.len(),
+        7,
+        "additional_account_",
+    );
 
     Ok(Some(ParsedInstruction {
         name: "RecoverNested".to_string(),
         fields: vec![].into(),
         account_names,
     }))
-}
-
-fn append_extra_account_names(
-    account_names: &mut Vec<String>,
-    total_accounts: usize,
-    accounted_accounts: usize,
-) {
-    super::append_extra_account_names(
-        account_names,
-        total_accounts,
-        accounted_accounts,
-        "additional_account_",
-    );
 }
 
 #[cfg(test)]
