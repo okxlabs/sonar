@@ -253,14 +253,17 @@ pub(crate) fn handle(args: SimulateArgs, json: bool) -> Result<()> {
     );
 
     progress.finish();
+    let ctx = output::SimulationContext {
+        account_closures: runner.account_closures(),
+        overrides: runner.overrides(),
+        fundings: runner.sol_fundings(),
+        token_fundings: runner.token_fundings(),
+    };
     output::render(
         &parsed_tx,
         runner.resolved_accounts(),
         &simulation,
-        runner.account_closures(),
-        runner.overrides(),
-        runner.sol_fundings(),
-        runner.token_fundings(),
+        &ctx,
         &mut parser_registry,
         &render_opts,
     )?;
@@ -417,15 +420,18 @@ fn handle_bundle(
         .collect();
 
     progress.finish();
+    let ctx = output::SimulationContext {
+        account_closures: runner.account_closures(),
+        overrides: runner.overrides(),
+        fundings: runner.sol_fundings(),
+        token_fundings: runner.token_fundings(),
+    };
     output::render_bundle(
         &updated_txs,
         total_tx_count,
         runner.resolved_accounts(),
         &simulations,
-        runner.account_closures(),
-        runner.overrides(),
-        runner.sol_fundings(),
-        runner.token_fundings(),
+        &ctx,
         parser_registry,
         render_opts,
     )?;

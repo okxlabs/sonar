@@ -1,3 +1,4 @@
+use std::io::Write;
 use std::str::FromStr;
 
 use anyhow::Result;
@@ -15,12 +16,14 @@ use crate::parsers::{
 };
 use sonar_sim::internals::ResolvedAccounts;
 
+use super::fmt::{format_with_commas, truncate_display, truncate_sig};
 use super::LogDisplayOptions;
 use super::report::{
-    BundleReport, BundleTransactionReport, InstructionAccountEntry, Report, SimulationSection,
+    BundleReport, InstructionAccountEntry, Report, SimulationSection,
     SimulationStatusReport, SolBalanceChangeSection, TokenBalanceChangeSection, TransactionSection,
 };
-use super::terminal::render_section_title;
+use super::terminal::{terminal_width, write_section_title};
+use super::theme::{COLOR_BLUE, COLOR_GOLD, COLOR_GREEN, COLOR_RED, DIM_GRAY, RAW_HEX_AMBER};
 
 /// Single indentation unit (2 spaces).
 const INDENT: &str = "  ";
@@ -29,11 +32,6 @@ const INDENT_L1: &str = INDENT;
 /// Indentation for inner items (level 2 = 4 spaces).
 const INDENT_L2: &str = "    ";
 
-/// Subdued gray for metadata columns (index labels, permission flags, account names).
-const DIM_GRAY: colored::CustomColor = colored::CustomColor { r: 128, g: 128, b: 128 };
-/// Warm amber for fallback raw hex when structured instruction decoding fails.
-const RAW_HEX_AMBER: colored::CustomColor = colored::CustomColor { r: 214, g: 154, b: 74 };
-
 pub(super) fn render_text(
     report: &Report,
     resolved: &ResolvedAccounts,
@@ -41,39 +39,34 @@ pub(super) fn render_text(
     show_ix_data: bool,
     show_ix_detail: bool,
     log_opts: LogDisplayOptions,
+    w: &mut impl Write,
 ) -> Result<()> {
-    // Summary header (status + CU)
-    render_summary_header(&report.simulation, &report.transaction);
+    render_summary_header(&report.simulation, &report.transaction, w);
 
-    // Execution Trace (also show when failed without runtime logs)
     if !report.simulation.logs.is_empty()
         || matches!(&report.simulation.status, SimulationStatusReport::Failed { .. })
     {
-        render_section_title("Execution Trace");
-        render_execution_trace_section(&report.simulation, log_opts);
+        write_section_title(w, "Execution Trace");
+        render_execution_trace_section(&report.simulation, log_opts, w);
     }
 
-    // Instruction Details
     if show_ix_detail {
-        render_section_title("Instruction Details");
-        render_instruction_details_text(&report.transaction, resolved, show_ix_data);
+        write_section_title(w, "Instruction Details");
+        render_instruction_details_text(&report.transaction, resolved, show_ix_data, w);
     }
 
-    // SOL Balance Changes
     if !report.sol_balance_changes.is_empty() {
-        render_section_title("SOL Balance Changes");
-        render_sol_balance_changes(&report.sol_balance_changes, "");
+        write_section_title(w, "SOL Balance Changes");
+        render_sol_balance_changes(&report.sol_balance_changes, "", w);
     }
 
-    // Token Balance Changes
     if !report.token_balance_changes.is_empty() {
-        render_section_title("Token Balance Changes");
-        render_token_balance_changes(&report.token_balance_changes, "");
+        write_section_title(w, "Token Balance Changes");
+        render_token_balance_changes(&report.token_balance_changes, "", w);
     }
 
-    // Final empty line
-    println!();
-
+    let _ = writeln!(w);
+    w.flush()?;
     Ok(())
 }
 
@@ -84,11 +77,10 @@ pub(super) fn render_bundle_text(
     show_ix_data: bool,
     show_ix_detail: bool,
     log_opts: LogDisplayOptions,
+    w: &mut impl Write,
 ) -> Result<()> {
-    // Bundle summary header (status + per-TX overview)
-    render_bundle_summary_header(bundle, total_count);
+    render_bundle_summary_header(bundle, total_count, w);
 
-    // Execution Trace (per-TX): render TX with logs, or failed TX without logs.
     let has_logs_or_failed = bundle.transactions.iter().any(|t| {
         !t.simulation.logs.is_empty()
             || matches!(&t.simulation.status, SimulationStatusReport::Failed { .. })
@@ -100,33 +92,30 @@ pub(super) fn render_bundle_text(
             if !should_render {
                 continue;
             }
-            render_section_title(&format!("Execution Trace: TX {}/{}", i + 1, total_count));
-            render_bundle_transaction_trace(tx_report, log_opts);
+            write_section_title(w, &format!("Execution Trace: TX {}/{}", i + 1, total_count));
+            render_execution_trace_section(&tx_report.simulation, log_opts, w);
         }
     }
 
-    // Instruction Details (per-TX)
     if show_ix_detail {
         for (i, tx_report) in bundle.transactions.iter().enumerate() {
-            render_section_title(&format!("Instruction Details: TX {}/{}", i + 1, total_count));
-            render_bundle_transaction_ix_detail(tx_report, resolved, show_ix_data);
+            write_section_title(w, &format!("Instruction Details: TX {}/{}", i + 1, total_count));
+            render_instruction_details_text(&tx_report.transaction, resolved, show_ix_data, w);
         }
     }
 
-    // SOL Balance Changes
     if !bundle.sol_balance_changes.is_empty() {
-        render_section_title("SOL Balance Changes");
-        render_sol_balance_changes(&bundle.sol_balance_changes, INDENT_L1);
+        write_section_title(w, "SOL Balance Changes");
+        render_sol_balance_changes(&bundle.sol_balance_changes, INDENT_L1, w);
     }
 
-    // Token Balance Changes
     if !bundle.token_balance_changes.is_empty() {
-        render_section_title("Token Balance Changes");
-        render_token_balance_changes(&bundle.token_balance_changes, INDENT_L1);
+        write_section_title(w, "Token Balance Changes");
+        render_token_balance_changes(&bundle.token_balance_changes, INDENT_L1, w);
     }
 
-    println!();
-
+    let _ = writeln!(w);
+    w.flush()?;
     Ok(())
 }
 
@@ -136,33 +125,38 @@ pub(super) fn render_transaction_section_text(
     _parser_registry: &mut ParserRegistry,
     show_ix_data: bool,
     bundle_info: Option<(usize, usize)>,
-) {
-    // Build TX suffix for bundle mode, e.g. ": TX 1/3"
+    w: &mut impl Write,
+) -> Result<()> {
     let tx_suffix = match bundle_info {
         Some((index, total)) => format!(": TX {}/{}", index, total),
         None => String::new(),
     };
 
-    render_section_title(&format!("Decoded Instructions{}", tx_suffix));
-    render_instruction_details_text(transaction, resolved, show_ix_data);
+    write_section_title(w, &format!("Decoded Instructions{}", tx_suffix));
+    render_instruction_details_text(transaction, resolved, show_ix_data, w);
 
-    // Address Lookup Tables (only if present)
     if !transaction.lookups.is_empty() {
-        render_section_title(&format!("Address Lookup Tables{}", tx_suffix));
-        render_lookup_tables_text(transaction);
+        write_section_title(w, &format!("Address Lookup Tables{}", tx_suffix));
+        render_lookup_tables_text(transaction, w);
     }
 
-    // Account list at the end
-    render_section_title(&format!("Account List{}", tx_suffix));
-    render_account_list_text(transaction, resolved);
+    write_section_title(w, &format!("Account List{}", tx_suffix));
+    render_account_list_text(transaction, resolved, w);
 
-    // Final empty line for consistent CLI output termination.
-    println!();
+    let _ = writeln!(w);
+    w.flush()?;
+    Ok(())
 }
 
-/// Render the bundle summary header showing overall status and per-transaction compact rows.
-fn render_bundle_summary_header(bundle: &BundleReport, total_count: usize) {
-    // Determine overall bundle status
+// ---------------------------------------------------------------------------
+// Bundle summary
+// ---------------------------------------------------------------------------
+
+fn render_bundle_summary_header(
+    bundle: &BundleReport,
+    total_count: usize,
+    w: &mut impl Write,
+) {
     let succeeded = bundle
         .transactions
         .iter()
@@ -182,7 +176,6 @@ fn render_bundle_summary_header(bundle: &BundleReport, total_count: usize) {
         "~  PARTIAL".to_string()
     };
 
-    // Total CU consumed across all transactions
     let total_cu: u64 =
         bundle.transactions.iter().map(|t| t.simulation.compute_units_consumed).sum();
 
@@ -193,12 +186,11 @@ fn render_bundle_summary_header(bundle: &BundleReport, total_count: usize) {
         total_count,
         format_with_commas(total_cu)
     );
-    render_section_title(&summary_text);
+    write_section_title(w, &summary_text);
 
     let tx_col_width = total_count.to_string().len().max(2);
     const CU_COL_WIDTH: usize = 12;
 
-    // Per-transaction compact rows
     for (i, tx_report) in bundle.transactions.iter().enumerate() {
         let idx = i + 1;
         let status_icon = match &tx_report.simulation.status {
@@ -216,7 +208,8 @@ fn render_bundle_summary_header(bundle: &BundleReport, total_count: usize) {
             .map(|s| truncate_sig(s, 6))
             .unwrap_or_else(|| "<no-sig>".to_string());
 
-        println!(
+        let _ = writeln!(
+            w,
             "{}TX {:>tx_w$}/{:<tx_w$}  {}  CU: {:>cu_w$} / {:>cu_w$} ({:>3}%)  {}",
             INDENT_L1,
             idx,
@@ -231,9 +224,9 @@ fn render_bundle_summary_header(bundle: &BundleReport, total_count: usize) {
         );
     }
 
-    // Render skipped transactions
     for i in bundle.transactions.len()..total_count {
-        println!(
+        let _ = writeln!(
+            w,
             "{}TX {:>tx_w$}/{:<tx_w$}  »  SKIPPED",
             INDENT_L1,
             i + 1,
@@ -243,30 +236,20 @@ fn render_bundle_summary_header(bundle: &BundleReport, total_count: usize) {
     }
 }
 
-fn render_bundle_transaction_trace(
-    tx_report: &BundleTransactionReport,
-    log_opts: LogDisplayOptions,
-) {
-    render_execution_trace_section(&tx_report.simulation, log_opts);
-}
+// ---------------------------------------------------------------------------
+// Single-TX summary
+// ---------------------------------------------------------------------------
 
-fn render_bundle_transaction_ix_detail(
-    tx_report: &BundleTransactionReport,
-    resolved: &ResolvedAccounts,
-    show_ix_data: bool,
+fn render_summary_header(
+    simulation: &SimulationSection,
+    transaction: &TransactionSection,
+    w: &mut impl Write,
 ) {
-    render_instruction_details_text(&tx_report.transaction, resolved, show_ix_data);
-}
-
-/// Render the summary header showing status and compute units (displayed first).
-fn render_summary_header(simulation: &SimulationSection, transaction: &TransactionSection) {
-    // For failed transactions, don't print the error reason
     let status_str = match &simulation.status {
         SimulationStatusReport::Succeeded => "✓ SUCCESS".to_string(),
         SimulationStatusReport::Failed { .. } => "✗ FAILED".to_string(),
     };
 
-    // Try to extract compute unit limit from SetComputeUnitLimit instruction
     let cu_limit = extract_compute_unit_limit(transaction).unwrap_or(200_000);
     let cu_used = simulation.compute_units_consumed;
     let percentage =
@@ -280,10 +263,9 @@ fn render_summary_header(simulation: &SimulationSection, transaction: &Transacti
         percentage,
         transaction.size_bytes
     );
-    render_section_title(&result_text);
+    write_section_title(w, &result_text);
 }
 
-/// Extract compute unit limit from SetComputeUnitLimit instruction if present.
 fn extract_compute_unit_limit(transaction: &TransactionSection) -> Option<u64> {
     for ix in &transaction.instructions {
         if let Some(parsed) = &ix.parsed {
@@ -310,253 +292,250 @@ fn extract_compute_unit_limit(transaction: &TransactionSection) -> Option<u64> {
     None
 }
 
-/// Format a number with comma separators for readability.
-fn format_with_commas(n: u64) -> String {
-    let s = n.to_string();
-    let mut result = String::new();
-    for (i, c) in s.chars().rev().enumerate() {
-        if i > 0 && i % 3 == 0 {
-            result.push(',');
-        }
-        result.push(c);
-    }
-    result.chars().rev().collect()
-}
+// ---------------------------------------------------------------------------
+// Execution trace / logs
+// ---------------------------------------------------------------------------
 
-/// Render execution trace section with centered header.
-fn render_execution_trace_section(simulation: &SimulationSection, log_opts: LogDisplayOptions) {
+fn render_execution_trace_section(
+    simulation: &SimulationSection,
+    log_opts: LogDisplayOptions,
+    w: &mut impl Write,
+) {
     if simulation.logs.is_empty() {
-        render_no_trace_hint(simulation, INDENT_L1);
+        if let SimulationStatusReport::Failed { error } = &simulation.status {
+            let _ = writeln!(w, "{}↳ Failed before program invocation: {}", INDENT_L1, error);
+        }
         return;
     }
 
     if log_opts.raw_log {
         for line in &simulation.logs {
-            println!("{}", line);
+            let _ = writeln!(w, "{}", line);
         }
     } else {
-        render_logs_structured(&simulation.logs);
+        render_logs_structured(&simulation.logs, w);
     }
 }
 
-fn render_no_trace_hint(simulation: &SimulationSection, indent: &str) {
-    if let SimulationStatusReport::Failed { error } = &simulation.status {
-        println!("{}↳ Failed before program invocation: {}", indent, error);
-    }
-}
+fn render_logs_structured(logs: &[String], w: &mut impl Write) {
+    let instruction_logs = parse_logs_by_instruction(logs);
 
-fn render_sol_balance_changes(sol_changes: &[SolBalanceChangeSection], indent: &str) {
-    let rows: Vec<_> = sol_changes
-        .iter()
-        .map(|c| {
-            let sol_before = c.before as f64 / 1_000_000_000.0;
-            let sol_after = c.after as f64 / 1_000_000_000.0;
-            let sign = if c.change >= 0 { "+" } else { "" };
-            let col_delta = format!("{}{:.9}", sign, c.change_sol);
-            let col_before = format!("{:.9}", sol_before);
-            let col_after = format!("{:.9}", sol_after);
-            let color = if c.change >= 0 { (152, 195, 121) } else { (224, 108, 117) };
-            (c.account.as_str(), col_delta, col_before, col_after, color)
-        })
-        .collect();
-
-    let w_account = rows.iter().map(|r| r.0.len()).max().unwrap_or(0);
-    let w_delta = rows.iter().map(|r| r.1.len()).max().unwrap_or(0);
-    let w_before = rows.iter().map(|r| r.2.len()).max().unwrap_or(0);
-
-    for (col_account, col_delta, col_before, col_after, color) in &rows {
-        println!(
-            "{}{}{:<wa$}  {}  {}",
-            indent,
-            INDENT_L1,
-            col_account,
-            format!("{:<width$}", col_delta, width = w_delta).custom_color(*color),
-            format!("{:<wb$} → {}", col_before, col_after, wb = w_before)
-                .custom_color((171, 178, 191)),
-            wa = w_account,
+    for (idx, inst_logs) in instruction_logs.iter().enumerate() {
+        if idx > 0 {
+            let _ = writeln!(w);
+        }
+        let program_name = get_program_display_name(&inst_logs.program);
+        let _ = writeln!(
+            w,
+            "{} {} instruction",
+            format!("#{}", inst_logs.instruction_index + 1).bold(),
+            program_name.bold()
         );
+
+        for entry_with_depth in &inst_logs.entries {
+            render_log_entry(entry_with_depth, w);
+        }
+    }
+}
+
+fn get_program_display_name(pubkey: &str) -> &str {
+    pubkey
+}
+
+fn render_log_entry(entry_with_depth: &LogEntryWithDepth, w: &mut impl Write) {
+    let depth = entry_with_depth.depth as usize;
+    let indent = INDENT.repeat(depth);
+
+    match &entry_with_depth.entry {
+        LogEntry::Invoke { program, depth: invoke_depth } => {
+            if *invoke_depth > 1 {
+                let program_name = get_program_display_name(program);
+                let _ = writeln!(w, "{}{} {}", indent, "> Invoking".cyan(), program_name.cyan());
+            }
+        }
+        LogEntry::Log { message } => {
+            let _ = writeln!(
+                w,
+                "{}{} {}",
+                indent,
+                ">".custom_color(DIM_GRAY),
+                format!("Program log: {}", message).custom_color(DIM_GRAY)
+            );
+        }
+        LogEntry::Data { data } => {
+            let _ = writeln!(
+                w,
+                "{}{} {}",
+                indent,
+                ">".custom_color(DIM_GRAY),
+                format!("Program data: {}", truncate_display(data, 60)).custom_color(DIM_GRAY)
+            );
+        }
+        LogEntry::Consumed { _program: _, used, total } => {
+            let _ = writeln!(
+                w,
+                "{}{} {}",
+                indent,
+                ">".custom_color(DIM_GRAY),
+                format!("Program consumed: {} of {} compute units", used, total)
+                    .custom_color(DIM_GRAY)
+            );
+        }
+        LogEntry::Success { _program: _ } => {
+            let _ = writeln!(w, "{}{} {}", indent, ">".green(), "Program returned success".green());
+        }
+        LogEntry::Failed { _program: _, error } => {
+            let _ = writeln!(
+                w,
+                "{}{} {}",
+                indent,
+                ">".red(),
+                format!("Program failed: {}", error).red()
+            );
+        }
+        LogEntry::Return { _program: _, data } => {
+            let _ = writeln!(
+                w,
+                "{}{} {}",
+                indent,
+                ">".custom_color(DIM_GRAY),
+                format!("Program return: {}", truncate_display(data, 60)).custom_color(DIM_GRAY)
+            );
+        }
+        LogEntry::Other(msg) => {
+            if !msg.is_empty() {
+                let _ =
+                    writeln!(w, "{}{} {}", indent, ">".custom_color(DIM_GRAY), msg.custom_color(DIM_GRAY));
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Balance change tables
+// ---------------------------------------------------------------------------
+
+fn render_sol_balance_changes(
+    sol_changes: &[SolBalanceChangeSection],
+    indent: &str,
+    w: &mut impl Write,
+) {
+    use super::table::{Align, Cell, TableWriter};
+
+    let prefix = format!("{}{}", indent, INDENT_L1);
+    let mut table =
+        TableWriter::new(&prefix).column(Align::Left).column(Align::Left).column(Align::Left);
+    if let Some(w) = terminal_width() {
+        table = table.max_width(w);
     }
 
-    println!(
+    for c in sol_changes {
+        let sol_before = c.before as f64 / 1_000_000_000.0;
+        let sol_after = c.after as f64 / 1_000_000_000.0;
+        let sign = if c.change >= 0 { "+" } else { "" };
+        let color = if c.change >= 0 { COLOR_GREEN } else { COLOR_RED };
+
+        table.row(vec![
+            Cell::plain(&c.account),
+            Cell::colored(&format!("{}{:.9}", sign, c.change_sol), color),
+            Cell::colored(&format!("{:.9} → {:.9}", sol_before, sol_after), COLOR_BLUE),
+        ]);
+    }
+
+    table.print(w);
+    let _ = writeln!(
+        w,
         "\n{}",
         "  account  ±Δ(SOL)  before → after | (+) increase  (-) decrease".custom_color(DIM_GRAY)
     );
 }
 
-fn render_token_balance_changes(token_changes: &[TokenBalanceChangeSection], indent: &str) {
-    let rows: Vec<_> = token_changes
-        .iter()
-        .map(|c| {
-            let divisor = 10f64.powi(c.decimals as i32);
-            let ui_before = c.before as f64 / divisor;
-            let ui_after = c.after as f64 / divisor;
-            let prec = c.decimals as usize;
-            let sign = if c.change >= 0 { "+" } else { "" };
-            let col_before = format!("{:.prec$}", ui_before, prec = prec);
-            let col_after = format!("{:.prec$}", ui_after, prec = prec);
-            let col_delta = format!("{}{:.prec$}", sign, c.ui_change, prec = prec);
-            let color = if c.change >= 0 { (152, 195, 121) } else { (224, 108, 117) };
-            (
-                c.token_account.as_str(),
-                c.owner.as_str(),
-                col_before,
-                col_after,
-                col_delta,
-                c.mint.as_str(),
-                color,
-            )
-        })
-        .collect();
+fn render_token_balance_changes(
+    token_changes: &[TokenBalanceChangeSection],
+    indent: &str,
+    w: &mut impl Write,
+) {
+    use super::table::{Align, Cell, TableWriter};
 
-    let w_ta = rows.iter().map(|r| r.0.len()).max().unwrap_or(0);
-    let w_owner = rows.iter().map(|r| r.1.len()).max().unwrap_or(0);
-    let w_before = rows.iter().map(|r| r.2.len()).max().unwrap_or(0);
-    let w_after = rows.iter().map(|r| r.3.len()).max().unwrap_or(0);
-    let w_delta = rows.iter().map(|r| r.4.len()).max().unwrap_or(0);
-
-    for (col_ta, col_owner, col_before, col_after, col_delta, col_mint, color) in &rows {
-        println!(
-            "{}{}{:<wt$}  {:<wo$}  {}  {}  {}",
-            indent,
-            INDENT_L1,
-            col_ta,
-            col_owner,
-            format!("{:<wd$}", col_delta, wd = w_delta).custom_color(*color),
-            format!("{:<wb$} → {:<wa$}", col_before, col_after, wb = w_before, wa = w_after)
-                .custom_color((171, 178, 191)),
-            col_mint,
-            wt = w_ta,
-            wo = w_owner,
-        );
+    let prefix = format!("{}{}", indent, INDENT_L1);
+    let mut table = TableWriter::new(&prefix)
+        .column(Align::Left)
+        .column(Align::Left)
+        .column(Align::Left)
+        .column(Align::Left)
+        .column(Align::Left);
+    if let Some(w) = terminal_width() {
+        table = table.max_width(w);
     }
 
-    println!(
+    for c in token_changes {
+        let divisor = 10f64.powi(c.decimals as i32);
+        let ui_before = c.before as f64 / divisor;
+        let ui_after = c.after as f64 / divisor;
+        let prec = c.decimals as usize;
+        let sign = if c.change >= 0 { "+" } else { "" };
+        let color = if c.change >= 0 { COLOR_GREEN } else { COLOR_RED };
+
+        table.row(vec![
+            Cell::plain(&c.token_account),
+            Cell::plain(&c.owner),
+            Cell::colored(&format!("{}{:.prec$}", sign, c.ui_change, prec = prec), color),
+            Cell::colored(
+                &format!("{:.prec$} → {:.prec$}", ui_before, ui_after, prec = prec),
+                COLOR_BLUE,
+            ),
+            Cell::plain(&c.mint),
+        ]);
+    }
+
+    table.print(w);
+    let _ = writeln!(
+        w,
         "\n{}",
         "  token-account  owner  ±Δ(amount)  before → after  mint | (+) increase  (-) decrease"
             .custom_color(DIM_GRAY)
     );
 }
 
-fn render_lookup_tables_text(transaction: &TransactionSection) {
-    if transaction.lookups.is_empty() {
-        return;
-    }
-    let index_width = index_label_width(transaction.lookups.len().saturating_sub(1));
+// ---------------------------------------------------------------------------
+// Instruction details
+// ---------------------------------------------------------------------------
 
-    for (idx, lookup) in transaction.lookups.iter().enumerate() {
-        println!(
-            "{}{} {}",
-            INDENT_L1,
-            render_account_index_label(idx, index_width),
-            lookup.account_key
-        );
-    }
-}
-
-fn render_account_list_text(transaction: &TransactionSection, resolved: &ResolvedAccounts) {
-    let mut account_index = 0;
-    let layout = account_list_layout(transaction);
-
-    for account in &transaction.static_accounts {
-        account_index = render_account_entry_text(
-            account_index,
-            &account.pubkey,
-            account.signer,
-            account.writable,
-            &layout,
-            resolved,
-            None,
-        );
-    }
-
-    for (table_idx, lookup) in transaction.lookups.iter().enumerate() {
-        for entry in &lookup.writable {
-            account_index = render_account_entry_text(
-                account_index,
-                &entry.pubkey,
-                false,
-                true,
-                &layout,
-                resolved,
-                Some((table_idx, entry.index)),
-            );
-        }
-    }
-
-    for (table_idx, lookup) in transaction.lookups.iter().enumerate() {
-        for entry in &lookup.readonly {
-            account_index = render_account_entry_text(
-                account_index,
-                &entry.pubkey,
-                false,
-                false,
-                &layout,
-                resolved,
-                Some((table_idx, entry.index)),
-            );
-        }
-    }
-}
-
-fn render_account_entry_text(
-    index: usize,
-    pubkey_str: &str,
-    signer: bool,
-    writable: bool,
-    layout: &ColumnLayout,
-    resolved: &ResolvedAccounts,
-    lookup_info: Option<(usize, u8)>,
-) -> usize {
-    let pubkey = Pubkey::from_str(pubkey_str).unwrap();
-    let executable = resolved.accounts.get(&pubkey).map(|acc| acc.executable()).unwrap_or(false);
-    let index_label = render_account_index_label(index, layout.index_width);
-    let marker = render_account_marker(signer, writable, executable);
-    let pubkey_display = format!("{:<width$}", pubkey_str, width = layout.pubkey_width);
-    let lookup_suffix = match lookup_info {
-        Some((table_idx, table_inner_idx)) => {
-            format!("  ALT[{}] #{}", table_idx, table_inner_idx).custom_color(DIM_GRAY).to_string()
-        }
-        None => String::new(),
-    };
-    println!("{}{} {} {}{}", INDENT_L1, index_label, pubkey_display, marker, lookup_suffix);
-    index + 1
-}
-
-/// Render instruction details section with centered header.
 fn render_instruction_details_text(
     transaction: &TransactionSection,
     resolved: &ResolvedAccounts,
     show_ix_data: bool,
+    w: &mut impl Write,
 ) {
     let layout = instruction_account_layout(transaction);
 
-    let data_indent = " ".repeat(INDENT_L1.len() + layout.index_width + 3);
-    let inner_data_indent = " ".repeat(INDENT_L2.len() + layout.index_width + 3);
+    let data_indent = layout.data_indent(INDENT_L1);
+    let inner_data_indent = layout.data_indent(INDENT_L2);
 
     for (ix_pos, ix) in transaction.instructions.iter().enumerate() {
         if ix_pos > 0 {
-            println!();
+            let _ = writeln!(w);
         }
         let program_pubkey = ix.program.pubkey.as_str();
-        // Display outer instruction with 1-based indexing (#1, #2, #3, etc.)
         let outer_number = ix.index + 1;
 
+        // When an instruction has no accounts, indent data relative to "#N "
+        // instead of the account column to keep hex flush under the program name.
         let current_data_indent = if ix.accounts.is_empty() {
             " ".repeat(1 + outer_number.to_string().len() + 1)
         } else {
             data_indent.clone()
         };
 
-        // Try to parse the instruction
         if let Some(parsed) = &ix.parsed {
-            println!(
+            let _ = writeln!(
+                w,
                 "#{} {} {}",
-                outer_number.to_string().custom_color((229, 192, 123)),
+                outer_number.to_string().custom_color(COLOR_GOLD),
                 program_pubkey.cyan(),
-                format!("[{}]", parsed.name).custom_color((152, 195, 121))
+                format!("[{}]", parsed.name).custom_color(COLOR_GREEN)
             );
 
-            // Render accounts with parsed names
             for (i, account) in ix.accounts.iter().enumerate() {
                 let account_name = if i < parsed.account_names.len() {
                     parsed.account_names[i].clone()
@@ -569,6 +548,7 @@ fn render_instruction_details_text(
                     Some(&account_name),
                     INDENT_L1,
                     &layout,
+                    w,
                 );
             }
 
@@ -577,18 +557,20 @@ fn render_instruction_details_text(
                 &current_data_indent,
                 &ix.data,
                 show_ix_data,
+                w,
             );
         } else {
-            println!(
+            let _ = writeln!(
+                w,
                 "#{} {}",
-                outer_number.to_string().custom_color((229, 192, 123)),
+                outer_number.to_string().custom_color(COLOR_GOLD),
                 program_pubkey.cyan()
             );
 
             for account in &ix.accounts {
-                render_instruction_account_text(account, resolved, None, INDENT_L1, &layout);
+                render_instruction_account_text(account, resolved, None, INDENT_L1, &layout, w);
             }
-            render_instruction_data_text(&current_data_indent, &ix.data);
+            render_instruction_data_text(&current_data_indent, &ix.data, w);
         }
 
         if !ix.inner_instructions.is_empty() {
@@ -600,12 +582,13 @@ fn render_instruction_details_text(
                 };
 
                 if let Some(parsed_inner) = &inner_ix.parsed {
-                    println!(
+                    let _ = writeln!(
+                        w,
                         "{}{} {} {}",
                         INDENT_L1,
-                        format!("#{}", inner_ix.label).custom_color((229, 192, 123)),
+                        format!("#{}", inner_ix.label).custom_color(COLOR_GOLD),
                         inner_ix.program.pubkey.as_str().cyan(),
-                        format!("[{}]", parsed_inner.name).custom_color((152, 195, 121))
+                        format!("[{}]", parsed_inner.name).custom_color(COLOR_GREEN)
                     );
 
                     for (i, account) in inner_ix.accounts.iter().enumerate() {
@@ -620,6 +603,7 @@ fn render_instruction_details_text(
                             Some(&account_name),
                             INDENT_L2,
                             &layout,
+                            w,
                         );
                     }
 
@@ -628,28 +612,30 @@ fn render_instruction_details_text(
                         &current_inner_data_indent,
                         &inner_ix.data,
                         show_ix_data,
+                        w,
                     );
                 } else {
-                    println!(
+                    let _ = writeln!(
+                        w,
                         "{}{} {}",
                         INDENT_L1,
-                        format!("#{}", inner_ix.label).custom_color((229, 192, 123)),
+                        format!("#{}", inner_ix.label).custom_color(COLOR_GOLD),
                         inner_ix.program.pubkey.as_str().cyan()
                     );
 
                     for account in &inner_ix.accounts {
                         render_instruction_account_text(
-                            account, resolved, None, INDENT_L2, &layout,
+                            account, resolved, None, INDENT_L2, &layout, w,
                         );
                     }
-                    render_instruction_data_text(&current_inner_data_indent, &inner_ix.data);
+                    render_instruction_data_text(&current_inner_data_indent, &inner_ix.data, w);
                 }
             }
         }
     }
 
     let legend = render_account_legend(transaction);
-    println!("\n{}", legend.custom_color(DIM_GRAY));
+    let _ = writeln!(w, "\n{}", legend.custom_color(DIM_GRAY));
 }
 
 fn render_account_legend(transaction: &TransactionSection) -> String {
@@ -668,12 +654,112 @@ fn render_account_legend(transaction: &TransactionSection) -> String {
     legend
 }
 
+// ---------------------------------------------------------------------------
+// Account rendering helpers
+// ---------------------------------------------------------------------------
+
+fn render_lookup_tables_text(transaction: &TransactionSection, w: &mut impl Write) {
+    if transaction.lookups.is_empty() {
+        return;
+    }
+    let index_width = index_label_width(transaction.lookups.len().saturating_sub(1));
+
+    for (idx, lookup) in transaction.lookups.iter().enumerate() {
+        let _ = writeln!(
+            w,
+            "{}{} {}",
+            INDENT_L1,
+            render_account_index_label(idx, index_width),
+            lookup.account_key
+        );
+    }
+}
+
+fn render_account_list_text(
+    transaction: &TransactionSection,
+    resolved: &ResolvedAccounts,
+    w: &mut impl Write,
+) {
+    let mut account_index = 0;
+    let layout = account_list_layout(transaction);
+
+    for account in &transaction.static_accounts {
+        account_index = render_account_entry_text(
+            account_index,
+            &account.pubkey,
+            account.signer,
+            account.writable,
+            &layout,
+            resolved,
+            None,
+            w,
+        );
+    }
+
+    for (table_idx, lookup) in transaction.lookups.iter().enumerate() {
+        for entry in &lookup.writable {
+            account_index = render_account_entry_text(
+                account_index,
+                &entry.pubkey,
+                false,
+                true,
+                &layout,
+                resolved,
+                Some((table_idx, entry.index)),
+                w,
+            );
+        }
+    }
+
+    for (table_idx, lookup) in transaction.lookups.iter().enumerate() {
+        for entry in &lookup.readonly {
+            account_index = render_account_entry_text(
+                account_index,
+                &entry.pubkey,
+                false,
+                false,
+                &layout,
+                resolved,
+                Some((table_idx, entry.index)),
+                w,
+            );
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn render_account_entry_text(
+    index: usize,
+    pubkey_str: &str,
+    signer: bool,
+    writable: bool,
+    layout: &ColumnLayout,
+    resolved: &ResolvedAccounts,
+    lookup_info: Option<(usize, u8)>,
+    w: &mut impl Write,
+) -> usize {
+    let pubkey = Pubkey::from_str(pubkey_str).unwrap();
+    let executable = resolved.accounts.get(&pubkey).map(|acc| acc.executable()).unwrap_or(false);
+    let index_label = render_account_index_label(index, layout.index_width);
+    let marker = render_account_marker(signer, writable, executable);
+    let pubkey_display = format!("{:<width$}", pubkey_str, width = layout.pubkey_width);
+    let lookup_suffix = match lookup_info {
+        Some((table_idx, table_inner_idx)) => {
+            format!("  ALT[{}] #{}", table_idx, table_inner_idx).custom_color(DIM_GRAY).to_string()
+        }
+        None => String::new(),
+    };
+    let _ = writeln!(w, "{}{} {} {}{}", INDENT_L1, index_label, pubkey_display, marker, lookup_suffix);
+    index + 1
+}
+
 fn render_instruction_account_text(
     account: &InstructionAccountEntry,
     resolved: &ResolvedAccounts,
     name: Option<&str>,
     indent: &str,
     layout: &ColumnLayout,
+    w: &mut impl Write,
 ) {
     let executable = if let Ok(pubkey) = Pubkey::from_str(&account.pubkey) {
         resolved.accounts.get(&pubkey).map(|acc| acc.executable()).unwrap_or(false)
@@ -687,7 +773,7 @@ fn render_instruction_account_text(
     let source_marker = render_account_marker(account.signer, account.writable, executable);
     let index_label = render_account_index_label(account.index, layout.index_width);
     let pubkey_display = format!("{:<width$}", account.pubkey, width = layout.pubkey_width);
-    println!("{}{} {} {}{}", indent, index_label, pubkey_display, source_marker, name_suffix);
+    let _ = writeln!(w, "{}{} {} {}{}", indent, index_label, pubkey_display, source_marker, name_suffix);
 }
 
 fn render_account_marker(signer: bool, writable: bool, executable: bool) -> String {
@@ -702,10 +788,22 @@ fn account_mode_bits(signer: bool, writable: bool, executable: bool) -> String {
     format!("{signer_bit}{access_bit}{exec_bit}")
 }
 
+// ---------------------------------------------------------------------------
+// Column layout
+// ---------------------------------------------------------------------------
+
 /// Pre-computed column widths for aligned account display.
 struct ColumnLayout {
     index_width: usize,
     pubkey_width: usize,
+}
+
+impl ColumnLayout {
+    /// Indent that aligns with the first character after `[idx] pubkey `.
+    /// The index label occupies `index_width + 2` chars (brackets) plus a trailing space.
+    fn data_indent(&self, base_indent: &str) -> String {
+        format!("{}{}", base_indent, " ".repeat(self.index_width + 3))
+    }
 }
 
 fn instruction_account_layout(transaction: &TransactionSection) -> ColumnLayout {
@@ -755,107 +853,9 @@ fn render_account_index_label(index: usize, width: usize) -> String {
     format!("[{:>width$}]", index, width = width).custom_color(DIM_GRAY).to_string()
 }
 
-/// Render logs in a structured format, grouped by instruction with proper indentation.
-fn render_logs_structured(logs: &[String]) {
-    let instruction_logs = parse_logs_by_instruction(logs);
-
-    for (idx, inst_logs) in instruction_logs.iter().enumerate() {
-        if idx > 0 {
-            println!();
-        }
-        // Print instruction header
-        let program_name = get_program_display_name(&inst_logs.program);
-        println!(
-            "{} {} instruction",
-            format!("#{}", inst_logs.instruction_index + 1).bold(),
-            program_name.bold()
-        );
-
-        // Print log entries with proper indentation
-        for entry_with_depth in &inst_logs.entries {
-            render_log_entry(entry_with_depth);
-        }
-    }
-}
-
-/// Get a display name for a program (friendly name or address).
-fn get_program_display_name(pubkey: &str) -> &str {
-    // Return the address as-is (known_programs feature not implemented)
-    pubkey
-}
-
-/// Render a single log entry with appropriate formatting and color.
-fn render_log_entry(entry_with_depth: &LogEntryWithDepth) {
-    let depth = entry_with_depth.depth as usize;
-    // Base indent for logs under instruction header, plus additional for CPI depth
-    let indent = INDENT.repeat(depth);
-
-    match &entry_with_depth.entry {
-        LogEntry::Invoke { program, depth: invoke_depth } => {
-            // Only show "Invoking" for CPI calls (depth > 1)
-            if *invoke_depth > 1 {
-                let program_name = get_program_display_name(program);
-                println!("{}{} {}", indent, "> Invoking".cyan(), program_name.cyan());
-            }
-        }
-        LogEntry::Log { message } => {
-            println!(
-                "{}{} {}",
-                indent,
-                ">".custom_color(DIM_GRAY),
-                format!("Program log: {}", message).custom_color(DIM_GRAY)
-            );
-        }
-        LogEntry::Data { data } => {
-            println!(
-                "{}{} {}",
-                indent,
-                ">".custom_color(DIM_GRAY),
-                format!("Program data: {}", truncate_display(data, 60)).custom_color(DIM_GRAY)
-            );
-        }
-        LogEntry::Consumed { _program: _, used, total } => {
-            println!(
-                "{}{} {}",
-                indent,
-                ">".custom_color(DIM_GRAY),
-                format!("Program consumed: {} of {} compute units", used, total)
-                    .custom_color(DIM_GRAY)
-            );
-        }
-        LogEntry::Success { _program: _ } => {
-            println!("{}{} {}", indent, ">".green(), "Program returned success".green());
-        }
-        LogEntry::Failed { _program: _, error } => {
-            println!("{}{} {}", indent, ">".red(), format!("Program failed: {}", error).red());
-        }
-        LogEntry::Return { _program: _, data } => {
-            println!(
-                "{}{} {}",
-                indent,
-                ">".custom_color(DIM_GRAY),
-                format!("Program return: {}", truncate_display(data, 60)).custom_color(DIM_GRAY)
-            );
-        }
-        LogEntry::Other(msg) => {
-            if !msg.is_empty() {
-                println!("{}{} {}", indent, ">".custom_color(DIM_GRAY), msg.custom_color(DIM_GRAY));
-            }
-        }
-    }
-}
-
-fn truncate_sig(sig: &str, prefix_len: usize) -> String {
-    if sig.len() <= prefix_len * 2 + 3 {
-        sig.to_string()
-    } else {
-        format!("{}...{}", &sig[..prefix_len], &sig[sig.len() - prefix_len..])
-    }
-}
-
-fn truncate_display(value: &str, limit: usize) -> String {
-    if value.len() <= limit { value.to_string() } else { format!("{}…", &value[..limit]) }
-}
+// ---------------------------------------------------------------------------
+// Instruction data / parsed fields
+// ---------------------------------------------------------------------------
 
 struct OrderedFields<'a>(&'a [ParsedField]);
 
@@ -872,7 +872,7 @@ impl Serialize for OrderedFields<'_> {
     }
 }
 
-fn render_parsed_fields(fields: &ParsedInstructionFields, indent: &str) {
+fn render_parsed_fields(fields: &ParsedInstructionFields, indent: &str, w: &mut impl Write) {
     let ParsedInstructionFields::Parsed(fields) = fields else {
         return;
     };
@@ -881,36 +881,38 @@ fn render_parsed_fields(fields: &ParsedInstructionFields, indent: &str) {
     let pretty = serde_json::to_string_pretty(&ordered).unwrap_or_else(|_| "{}".to_string());
 
     for line in pretty.lines() {
-        println!("{}", format!("{}{}", indent, line).custom_color((171, 178, 191)));
+        let _ = writeln!(w, "{}", format!("{}{}", indent, line).custom_color(COLOR_BLUE));
     }
 }
 
-/// Render instruction data hex and/or parsed fields, choosing the raw-hex-amber
-/// fallback when structured decoding failed.
 fn render_instruction_data_and_fields(
     fields: &ParsedInstructionFields,
     indent: &str,
     data: &[u8],
     show_ix_data: bool,
+    w: &mut impl Write,
 ) {
-    // Non-empty RawHex means IDL matched but arg decoding failed — show amber hex.
     if let ParsedInstructionFields::RawHex(raw_hex) = fields {
         if !raw_hex.is_empty() {
             let line = format!("{}0x{} {} bytes", indent, hex::encode(data), data.len());
-            println!("{}", line.custom_color(RAW_HEX_AMBER));
+            let _ = writeln!(w, "{}", line.custom_color(RAW_HEX_AMBER));
             return;
         }
     }
 
     if show_ix_data {
-        render_instruction_data_text(indent, data);
+        render_instruction_data_text(indent, data, w);
     }
-    render_parsed_fields(fields, indent);
+    render_parsed_fields(fields, indent, w);
 }
 
-fn render_instruction_data_text(indent: &str, data: &[u8]) {
-    println!("{}0x{} {} bytes", indent, hex::encode(data), data.len());
+fn render_instruction_data_text(indent: &str, data: &[u8], w: &mut impl Write) {
+    let _ = writeln!(w, "{}0x{} {} bytes", indent, hex::encode(data), data.len());
 }
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
@@ -918,9 +920,10 @@ mod tests {
 
     #[test]
     fn render_instruction_data_and_fields_uses_raw_hex_for_unparsed() {
-        // Verify the function returns early (no panic) for the RawHex variant.
-        // Stdout output is not captured here, but this exercises the code path.
         let fields = ParsedInstructionFields::RawHex("0025a16608ca3c00".to_string());
-        render_instruction_data_and_fields(&fields, "  ", &[0, 37, 161, 102], false);
+        let mut buf = Vec::new();
+        render_instruction_data_and_fields(&fields, "  ", &[0, 37, 161, 102], false, &mut buf);
+        let output = String::from_utf8(buf).unwrap();
+        assert!(output.contains("0x"));
     }
 }

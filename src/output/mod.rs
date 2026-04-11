@@ -1,8 +1,11 @@
 mod account_text;
+mod fmt;
 mod json;
 mod report;
+mod table;
 pub(crate) mod terminal;
 mod text;
+mod theme;
 
 pub(crate) use account_text::render_account_text;
 pub(crate) use json::print_json;
@@ -42,15 +45,19 @@ pub struct RenderOptions {
     pub log_opts: LogDisplayOptions,
 }
 
-#[allow(clippy::too_many_arguments)]
+/// Grouped simulation context arguments that are always passed together.
+pub struct SimulationContext<'a> {
+    pub account_closures: &'a [Pubkey],
+    pub overrides: &'a [AccountOverride],
+    pub fundings: &'a [SolFunding],
+    pub token_fundings: &'a [PreparedTokenFunding],
+}
+
 pub fn render(
     parsed: &ParsedTransaction,
     resolved: &ResolvedAccounts,
     simulation: &ExecutionResult,
-    account_closures: &[Pubkey],
-    overrides: &[AccountOverride],
-    fundings: &[SolFunding],
-    token_fundings: &[PreparedTokenFunding],
+    ctx: &SimulationContext,
     parser_registry: &mut ParserRegistry,
     opts: &RenderOptions,
 ) -> Result<()> {
@@ -58,10 +65,7 @@ pub fn render(
         parsed,
         resolved,
         simulation,
-        account_closures,
-        overrides,
-        fundings,
-        token_fundings,
+        ctx,
         parser_registry,
         opts.verify_signatures,
         opts.balance_opts,
@@ -69,6 +73,7 @@ pub fn render(
     if opts.json {
         json::render_json(&report)
     } else {
+        let mut stdout = std::io::stdout().lock();
         text::render_text(
             &report,
             resolved,
@@ -76,6 +81,7 @@ pub fn render(
             opts.show_ix_data,
             opts.show_ix_detail,
             opts.log_opts,
+            &mut stdout,
         )
     }
 }
@@ -96,20 +102,20 @@ pub fn render_transaction_only(
         println!("{json}");
         Ok(())
     } else {
+        let mut stdout = std::io::stdout().lock();
         text::render_transaction_section_text(
             &transaction,
             resolved,
             parser_registry,
             show_ix_data,
             bundle_info,
-        );
-        Ok(())
+            &mut stdout,
+        )
     }
 }
 
 /// Render multiple decoded transactions as a single JSON array `[{...}, {...}]`.
 /// Used for bundle decode with `--json`; output is a valid JSON document parseable by jq.
-#[allow(clippy::too_many_arguments)]
 pub fn render_decode_bundle_json(
     parsed_txs: &[ParsedTransaction],
     resolved: &ResolvedAccounts,
@@ -126,16 +132,12 @@ pub fn render_decode_bundle_json(
 }
 
 /// Render multiple transaction simulation results (bundle simulation).
-#[allow(clippy::too_many_arguments)]
 pub fn render_bundle(
     parsed_txs: &[ParsedTransaction],
     total_tx_count: usize,
     resolved: &ResolvedAccounts,
     simulations: &[ExecutionResult],
-    account_closures: &[Pubkey],
-    overrides: &[AccountOverride],
-    fundings: &[SolFunding],
-    token_fundings: &[PreparedTokenFunding],
+    ctx: &SimulationContext,
     parser_registry: &mut ParserRegistry,
     opts: &RenderOptions,
 ) -> Result<()> {
@@ -143,10 +145,7 @@ pub fn render_bundle(
         parsed_txs,
         resolved,
         simulations,
-        account_closures,
-        overrides,
-        fundings,
-        token_fundings,
+        ctx,
         parser_registry,
         opts.verify_signatures,
         opts.balance_opts,
@@ -155,6 +154,7 @@ pub fn render_bundle(
     if opts.json {
         json::render_bundle_json(&bundle_report)
     } else {
+        let mut stdout = std::io::stdout().lock();
         text::render_bundle_text(
             &bundle_report,
             total_tx_count,
@@ -162,6 +162,7 @@ pub fn render_bundle(
             opts.show_ix_data,
             opts.show_ix_detail,
             opts.log_opts,
+            &mut stdout,
         )
     }
 }
