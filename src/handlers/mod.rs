@@ -11,3 +11,4 @@ pub(crate) mod pda;
 pub(crate) mod program_elf;
 pub(crate) mod send;
 pub(crate) mod simulate;
+pub(crate) mod trace;

@@ -35,24 +35,24 @@ pub(super) struct Report {
 }
 
 #[derive(Serialize)]
-pub(super) struct SolBalanceChangeSection {
-    pub(super) account: String,
-    pub(super) before: u64,
-    pub(super) after: u64,
-    pub(super) change: i128,
-    pub(super) change_sol: f64,
+pub(crate) struct SolBalanceChangeSection {
+    pub(crate) account: String,
+    pub(crate) before: u64,
+    pub(crate) after: u64,
+    pub(crate) change: i128,
+    pub(crate) change_sol: f64,
 }
 
 #[derive(Serialize)]
-pub(super) struct TokenBalanceChangeSection {
-    pub(super) owner: String,
-    pub(super) token_account: String,
-    pub(super) mint: String,
-    pub(super) before: u64,
-    pub(super) after: u64,
-    pub(super) change: i128,
-    pub(super) decimals: u8,
-    pub(super) ui_change: f64,
+pub(crate) struct TokenBalanceChangeSection {
+    pub(crate) owner: String,
+    pub(crate) token_account: String,
+    pub(crate) mint: String,
+    pub(crate) before: u64,
+    pub(crate) after: u64,
+    pub(crate) change: i128,
+    pub(crate) decimals: u8,
+    pub(crate) ui_change: f64,
 }
 
 /// Report structure for bundle simulation (multiple transactions).
@@ -209,6 +209,33 @@ impl Report {
             overrides,
             fundings,
             token_fundings,
+            sol_balance_changes,
+            token_balance_changes,
+        }
+    }
+
+    /// Construct a trace report with pre-computed balance changes.
+    /// No SimulationContext needed — trace is read-only historical data.
+    pub(super) fn from_trace(
+        parsed: &ParsedTransaction,
+        resolved: &ResolvedAccounts,
+        simulation: &ExecutionResult,
+        parser_registry: &mut ParserRegistry,
+        sol_balance_changes: Vec<SolBalanceChangeSection>,
+        token_balance_changes: Vec<TokenBalanceChangeSection>,
+    ) -> Self {
+        let resolver = LookupResolver::new(resolved.lookup_details());
+        let transaction =
+            TransactionSection::from_sources(parsed, resolved, &resolver, parser_registry, false);
+        let simulation_section = SimulationSection::from_result(simulation);
+
+        Self {
+            transaction,
+            simulation: simulation_section,
+            account_closures: Vec::new(),
+            overrides: Vec::new(),
+            fundings: Vec::new(),
+            token_fundings: Vec::new(),
             sol_balance_changes,
             token_balance_changes,
         }

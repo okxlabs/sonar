@@ -1,7 +1,7 @@
 mod account_text;
 mod fmt;
 mod json;
-mod report;
+pub(crate) mod report;
 #[cfg(test)]
 mod snapshot_tests;
 mod table;
@@ -21,7 +21,10 @@ use sonar_sim::internals::{
     AccountOverride, ExecutionResult, PreparedTokenFunding, ResolvedAccounts, SolFunding,
 };
 
-use report::{BundleReport, LookupResolver, Report, TransactionSection};
+use report::{
+    BundleReport, LookupResolver, Report, SolBalanceChangeSection, TokenBalanceChangeSection,
+    TransactionSection,
+};
 
 /// Balance change display options.
 #[derive(Debug, Clone, Copy, Default)]
@@ -72,12 +75,42 @@ pub fn render(
         opts.verify_signatures,
         opts.balance_opts,
     );
+    render_report(&report, resolved, parser_registry, opts)
+}
+
+/// Render a trace report with pre-computed balance changes from RPC metadata.
+pub fn render_trace(
+    parsed: &ParsedTransaction,
+    resolved: &ResolvedAccounts,
+    simulation: &ExecutionResult,
+    parser_registry: &mut ParserRegistry,
+    opts: &RenderOptions,
+    sol_balance_changes: Vec<SolBalanceChangeSection>,
+    token_balance_changes: Vec<TokenBalanceChangeSection>,
+) -> Result<()> {
+    let report = Report::from_trace(
+        parsed,
+        resolved,
+        simulation,
+        parser_registry,
+        sol_balance_changes,
+        token_balance_changes,
+    );
+    render_report(&report, resolved, parser_registry, opts)
+}
+
+fn render_report(
+    report: &Report,
+    resolved: &ResolvedAccounts,
+    parser_registry: &mut ParserRegistry,
+    opts: &RenderOptions,
+) -> Result<()> {
     if opts.json {
-        json::render_json(&report)
+        json::render_json(report)
     } else {
         let mut stdout = std::io::stdout().lock();
         text::render_text(
-            &report,
+            report,
             resolved,
             parser_registry,
             opts.show_ix_data,
