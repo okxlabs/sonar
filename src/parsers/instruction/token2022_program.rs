@@ -350,22 +350,11 @@ fn dispatch_table_instruction(
             }
             binary_reader::try_parse(data, |reader| {
                 let amount = reader.read_u64()?;
-                let mut account_names: Vec<String> =
-                    def.account_names.iter().map(|s| s.to_string()).collect();
-                append_additional_signer_accounts(
-                    &mut account_names,
-                    def.min_accounts,
-                    instruction.accounts.len(),
-                );
-                Ok(ParsedInstruction {
-                    name: def.name.to_string(),
-                    fields: vec![ParsedField {
-                        name: "amount".into(),
-                        value: IdlValue::U64(amount),
-                    }]
-                    .into(),
-                    account_names,
-                })
+                Ok(parsed_instruction(
+                    def.name,
+                    vec![ParsedField { name: "amount".into(), value: IdlValue::U64(amount) }],
+                    account_names_with_signers(def.account_names, instruction.accounts.len()),
+                ))
             })
         }
         DataLayout::AmountDecimals => {
@@ -375,50 +364,31 @@ fn dispatch_table_instruction(
             binary_reader::try_parse(data, |reader| {
                 let amount = reader.read_u64()?;
                 let decimals = reader.read_u8()?;
-                let mut account_names: Vec<String> =
-                    def.account_names.iter().map(|s| s.to_string()).collect();
-                append_additional_signer_accounts(
-                    &mut account_names,
-                    def.min_accounts,
-                    instruction.accounts.len(),
-                );
-                Ok(ParsedInstruction {
-                    name: def.name.to_string(),
-                    fields: vec![
+                Ok(parsed_instruction(
+                    def.name,
+                    vec![
                         ParsedField { name: "amount".into(), value: IdlValue::U64(amount) },
                         ParsedField { name: "decimals".into(), value: IdlValue::U8(decimals) },
-                    ]
-                    .into(),
-                    account_names,
-                })
+                    ],
+                    account_names_with_signers(def.account_names, instruction.accounts.len()),
+                ))
             })
         }
         DataLayout::NoData => {
             if instruction.accounts.len() < def.min_accounts {
                 return Ok(None);
             }
-            let mut account_names: Vec<String> =
-                def.account_names.iter().map(|s| s.to_string()).collect();
-            append_additional_signer_accounts(
-                &mut account_names,
-                def.min_accounts,
-                instruction.accounts.len(),
-            );
-            Ok(Some(ParsedInstruction {
-                name: def.name.to_string(),
-                fields: vec![].into(),
-                account_names,
-            }))
+            Ok(Some(parsed_instruction(
+                def.name,
+                vec![],
+                account_names_with_signers(def.account_names, instruction.accounts.len()),
+            )))
         }
         DataLayout::SingleAccount => {
             if instruction.accounts.len() != 1 {
                 return Ok(None);
             }
-            Ok(Some(ParsedInstruction {
-                name: def.name.to_string(),
-                fields: vec![].into(),
-                account_names: def.account_names.iter().map(|s| s.to_string()).collect(),
-            }))
+            Ok(Some(parsed_instruction(def.name, vec![], owned_account_names(def.account_names))))
         }
         DataLayout::ExtensionPrefix => {
             parse_extension_prefix_instruction(def.name, data, instruction)
@@ -439,10 +409,38 @@ fn append_additional_signer_accounts(
     );
 }
 
-/// Parses an InitializeMint instruction: 0
-fn parse_initialize_mint_instruction(
+fn parsed_instruction(
+    name: &str,
+    fields: Vec<ParsedField>,
+    account_names: Vec<String>,
+) -> ParsedInstruction {
+    ParsedInstruction { name: name.to_string(), fields: fields.into(), account_names }
+}
+
+fn owned_account_names(account_names: &[&str]) -> Vec<String> {
+    account_names.iter().map(|name| (*name).to_string()).collect()
+}
+
+fn account_names_with_signers(account_names: &[&str], total_accounts: usize) -> Vec<String> {
+    let mut account_names = owned_account_names(account_names);
+    let base_accounts = account_names.len();
+    append_additional_signer_accounts(&mut account_names, base_accounts, total_accounts);
+    account_names
+}
+
+fn extend_numbered_account_names(
+    account_names: &mut Vec<String>,
+    prefix: &str,
+    start: usize,
+    count: usize,
+) {
+    account_names.extend((0..count).map(|offset| format!("{prefix}{}", start + offset)));
+}
+
+fn parse_initialize_mint_variant(
     data: &[u8],
-    _instruction: &InstructionSummary,
+    name: &str,
+    account_names: &[&str],
 ) -> Result<Option<ParsedInstruction>> {
     if data.len() < 34 {
         return Ok(None);
@@ -454,19 +452,50 @@ fn parse_initialize_mint_instruction(
         if has_freeze_authority {
             let _freeze_authority = reader.read_pubkey()?;
         }
-        Ok(ParsedInstruction {
-            name: "InitializeMint".to_string(),
-            fields: vec![
+        Ok(parsed_instruction(
+            name,
+            vec![
                 ParsedField { name: "decimals".into(), value: IdlValue::U8(decimals) },
                 ParsedField {
                     name: "has_freeze_authority".into(),
                     value: IdlValue::Bool(has_freeze_authority),
                 },
-            ]
-            .into(),
-            account_names: vec!["mint".to_string(), "rent_sysvar".to_string()],
-        })
+            ],
+            owned_account_names(account_names),
+        ))
     })
+}
+
+fn parse_initialize_multisig_variant(
+    data: &[u8],
+    instruction: &InstructionSummary,
+    name: &str,
+    trailing_accounts: &[&str],
+) -> Result<Option<ParsedInstruction>> {
+    let min_accounts = 2 + trailing_accounts.len();
+    if data.len() != 1 || instruction.accounts.len() < min_accounts {
+        return Ok(None);
+    }
+    binary_reader::try_parse(data, |reader| {
+        let m = reader.read_u8()?;
+        let num_signers = instruction.accounts.len().saturating_sub(1 + trailing_accounts.len());
+        let mut account_names = owned_account_names(&["multisig"]);
+        extend_numbered_account_names(&mut account_names, "signer_", 1, num_signers);
+        account_names.extend(owned_account_names(trailing_accounts));
+        Ok(parsed_instruction(
+            name,
+            vec![ParsedField { name: "m".into(), value: IdlValue::U8(m) }],
+            account_names,
+        ))
+    })
+}
+
+/// Parses an InitializeMint instruction: 0
+fn parse_initialize_mint_instruction(
+    data: &[u8],
+    _instruction: &InstructionSummary,
+) -> Result<Option<ParsedInstruction>> {
+    parse_initialize_mint_variant(data, "InitializeMint", &["mint", "rent_sysvar"])
 }
 
 /// Parses an InitializeAccount instruction: 1
@@ -478,16 +507,11 @@ fn parse_initialize_account_instruction(
         return Ok(None); // Invalid number of accounts for InitializeAccount
     }
 
-    Ok(Some(ParsedInstruction {
-        name: "InitializeAccount".to_string(),
-        fields: vec![].into(),
-        account_names: vec![
-            "account".to_string(),
-            "mint".to_string(),
-            "owner".to_string(),
-            "rent_sysvar".to_string(),
-        ],
-    }))
+    Ok(Some(parsed_instruction(
+        "InitializeAccount",
+        vec![],
+        owned_account_names(&["account", "mint", "owner", "rent_sysvar"]),
+    )))
 }
 
 /// Parses an InitializeMultisig instruction: 2
@@ -495,22 +519,7 @@ fn parse_initialize_multisig_instruction(
     data: &[u8],
     instruction: &InstructionSummary,
 ) -> Result<Option<ParsedInstruction>> {
-    if data.len() != 1 || instruction.accounts.len() < 3 {
-        return Ok(None);
-    }
-    binary_reader::try_parse(data, |reader| {
-        let m = reader.read_u8()?;
-        let mut account_names = vec!["multisig".to_string(), "rent_sysvar".to_string()];
-        let num_signers = instruction.accounts.len().saturating_sub(2);
-        for i in 0..num_signers {
-            account_names.insert(1 + i, format!("signer_{}", i + 1));
-        }
-        Ok(ParsedInstruction {
-            name: "InitializeMultisig".to_string(),
-            fields: vec![ParsedField { name: "m".into(), value: IdlValue::U8(m) }].into(),
-            account_names,
-        })
-    })
+    parse_initialize_multisig_variant(data, instruction, "InitializeMultisig", &["rent_sysvar"])
 }
 
 /// Parses a SetAuthority instruction: 6
@@ -538,20 +547,17 @@ fn parse_set_authority_instruction(
             }
             other => anyhow::bail!("invalid option tag {other}"),
         };
-        let mut account_names = vec!["account".to_string(), "authority".to_string()];
-        append_additional_signer_accounts(&mut account_names, 2, instruction.accounts.len());
-        Ok(ParsedInstruction {
-            name: "SetAuthority".to_string(),
-            fields: vec![
+        Ok(parsed_instruction(
+            "SetAuthority",
+            vec![
                 ParsedField {
                     name: "authority_type".into(),
-                    value: IdlValue::String(authority_type.to_string().into()),
+                    value: IdlValue::String(authority_type.to_string()),
                 },
                 ParsedField { name: "cleared".into(), value: IdlValue::Bool(cleared) },
-            ]
-            .into(),
-            account_names,
-        })
+            ],
+            account_names_with_signers(&["account", "authority"], instruction.accounts.len()),
+        ))
     })
 }
 
@@ -565,19 +571,11 @@ fn parse_initialize_account2_instruction(
     }
     binary_reader::try_parse(data, |reader| {
         let owner_pubkey = reader.read_pubkey_as_string()?;
-        Ok(ParsedInstruction {
-            name: "InitializeAccount2".to_string(),
-            fields: vec![ParsedField {
-                name: "owner".into(),
-                value: IdlValue::String(owner_pubkey.into()),
-            }]
-            .into(),
-            account_names: vec![
-                "account".to_string(),
-                "mint".to_string(),
-                "rent_sysvar".to_string(),
-            ],
-        })
+        Ok(parsed_instruction(
+            "InitializeAccount2",
+            vec![ParsedField { name: "owner".into(), value: IdlValue::String(owner_pubkey) }],
+            owned_account_names(&["account", "mint", "rent_sysvar"]),
+        ))
     })
 }
 
@@ -591,19 +589,18 @@ fn parse_initialize_account3_instruction(
     }
     binary_reader::try_parse(data, |reader| {
         let owner_pubkey = reader.read_pubkey_as_string()?;
-        let mut account_names = vec!["account".to_string(), "mint".to_string()];
-        for i in 2..instruction.accounts.len() {
-            account_names.push(format!("account_{}", i + 1));
-        }
-        Ok(ParsedInstruction {
-            name: "InitializeAccount3".to_string(),
-            fields: vec![ParsedField {
-                name: "owner".into(),
-                value: IdlValue::String(owner_pubkey.into()),
-            }]
-            .into(),
+        let mut account_names = owned_account_names(&["account", "mint"]);
+        extend_numbered_account_names(
+            &mut account_names,
+            "account_",
+            3,
+            instruction.accounts.len() - 2,
+        );
+        Ok(parsed_instruction(
+            "InitializeAccount3",
+            vec![ParsedField { name: "owner".into(), value: IdlValue::String(owner_pubkey) }],
             account_names,
-        })
+        ))
     })
 }
 
@@ -612,22 +609,7 @@ fn parse_initialize_multisig2_instruction(
     data: &[u8],
     instruction: &InstructionSummary,
 ) -> Result<Option<ParsedInstruction>> {
-    if data.len() != 1 || instruction.accounts.len() < 2 {
-        return Ok(None);
-    }
-    binary_reader::try_parse(data, |reader| {
-        let m = reader.read_u8()?;
-        let mut account_names = vec!["multisig".to_string()];
-        let num_signers = instruction.accounts.len().saturating_sub(1);
-        for i in 0..num_signers {
-            account_names.push(format!("signer_{}", i + 1));
-        }
-        Ok(ParsedInstruction {
-            name: "InitializeMultisig2".to_string(),
-            fields: vec![ParsedField { name: "m".into(), value: IdlValue::U8(m) }].into(),
-            account_names,
-        })
-    })
+    parse_initialize_multisig_variant(data, instruction, "InitializeMultisig2", &[])
 }
 
 /// Parses an InitializeMint2 instruction: 20
@@ -635,29 +617,7 @@ fn parse_initialize_mint2_instruction(
     data: &[u8],
     _instruction: &InstructionSummary,
 ) -> Result<Option<ParsedInstruction>> {
-    if data.len() < 34 {
-        return Ok(None);
-    }
-    binary_reader::try_parse(data, |reader| {
-        let decimals = reader.read_u8()?;
-        let _mint_authority = reader.read_pubkey()?;
-        let has_freeze_authority = reader.read_bool()?;
-        if has_freeze_authority {
-            let _freeze_authority = reader.read_pubkey()?;
-        }
-        Ok(ParsedInstruction {
-            name: "InitializeMint2".to_string(),
-            fields: vec![
-                ParsedField { name: "decimals".into(), value: IdlValue::U8(decimals) },
-                ParsedField {
-                    name: "has_freeze_authority".into(),
-                    value: IdlValue::Bool(has_freeze_authority),
-                },
-            ]
-            .into(),
-            account_names: vec!["mint".to_string()],
-        })
-    })
+    parse_initialize_mint_variant(data, "InitializeMint2", &["mint"])
 }
 
 /// Parses an AmountToUiAmount instruction: 23
@@ -670,12 +630,11 @@ fn parse_amount_to_ui_amount_instruction(
     }
     binary_reader::try_parse(data, |reader| {
         let amount = reader.read_u64()?;
-        Ok(ParsedInstruction {
-            name: "AmountToUiAmount".to_string(),
-            fields: vec![ParsedField { name: "amount".into(), value: IdlValue::U64(amount) }]
-                .into(),
-            account_names: vec!["mint".to_string()],
-        })
+        Ok(parsed_instruction(
+            "AmountToUiAmount",
+            vec![ParsedField { name: "amount".into(), value: IdlValue::U64(amount) }],
+            owned_account_names(&["mint"]),
+        ))
     })
 }
 
@@ -694,15 +653,11 @@ fn parse_ui_amount_to_amount_instruction(
         Err(_) => "invalid_utf8".to_string(),
     };
 
-    Ok(Some(ParsedInstruction {
-        name: "UiAmountToAmount".to_string(),
-        fields: vec![ParsedField {
-            name: "ui_amount".into(),
-            value: IdlValue::String(ui_amount.into()),
-        }]
-        .into(),
-        account_names: vec!["mint".to_string()],
-    }))
+    Ok(Some(parsed_instruction(
+        "UiAmountToAmount",
+        vec![ParsedField { name: "ui_amount".into(), value: IdlValue::String(ui_amount) }],
+        owned_account_names(&["mint"]),
+    )))
 }
 
 fn parse_initialize_mint_close_authority_instruction(
@@ -716,15 +671,14 @@ fn parse_initialize_mint_close_authority_instruction(
         let close_authority = reader.read_option_pubkey()?;
         let close_authority_value =
             close_authority.map_or_else(|| "none".to_string(), |pk| pk.to_string());
-        Ok(ParsedInstruction {
-            name: "InitializeMintCloseAuthority".to_string(),
-            fields: vec![ParsedField {
+        Ok(parsed_instruction(
+            "InitializeMintCloseAuthority",
+            vec![ParsedField {
                 name: "close_authority".into(),
-                value: IdlValue::String(close_authority_value.into()),
-            }]
-            .into(),
-            account_names: vec!["mint".to_string()],
-        })
+                value: IdlValue::String(close_authority_value),
+            }],
+            owned_account_names(&["mint"]),
+        ))
     })
 }
 
@@ -744,15 +698,14 @@ fn parse_transfer_fee_extension_instruction(
         3 => parse_transfer_fee_withdraw_from_accounts_instruction(payload, instruction),
         4 => parse_transfer_fee_harvest_to_mint_instruction(instruction),
         5 => parse_transfer_fee_set_fee_instruction(payload, instruction),
-        unknown => Ok(Some(ParsedInstruction {
-            name: format!("TransferFeeExtension({unknown})"),
-            fields: vec![ParsedField {
+        unknown => Ok(Some(parsed_instruction(
+            &format!("TransferFeeExtension({unknown})"),
+            vec![ParsedField {
                 name: "raw_extension_data".into(),
-                value: IdlValue::String(hex::encode(payload).into()),
-            }]
-            .into(),
-            account_names: generate_generic_account_names(instruction.accounts.len()),
-        })),
+                value: IdlValue::String(hex::encode(payload)),
+            }],
+            generate_generic_account_names(instruction.accounts.len()),
+        ))),
     }
 }
 
@@ -768,31 +721,26 @@ fn parse_transfer_fee_initialize_instruction(
         let withdraw_authority = reader.read_option_pubkey()?;
         let bps = reader.read_u16()?;
         let maximum_fee = reader.read_u64()?;
-        Ok(ParsedInstruction {
-            name: "InitializeTransferFeeConfig".to_string(),
-            fields: vec![
+        Ok(parsed_instruction(
+            "InitializeTransferFeeConfig",
+            vec![
                 ParsedField {
                     name: "transfer_fee_config_authority".into(),
                     value: IdlValue::String(
-                        config_authority
-                            .map_or_else(|| "none".to_string(), |pk| pk.to_string())
-                            .into(),
+                        config_authority.map_or_else(|| "none".to_string(), |pk| pk.to_string()),
                     ),
                 },
                 ParsedField {
                     name: "withdraw_withheld_authority".into(),
                     value: IdlValue::String(
-                        withdraw_authority
-                            .map_or_else(|| "none".to_string(), |pk| pk.to_string())
-                            .into(),
+                        withdraw_authority.map_or_else(|| "none".to_string(), |pk| pk.to_string()),
                     ),
                 },
                 ParsedField { name: "transfer_fee_basis_points".into(), value: IdlValue::U16(bps) },
                 ParsedField { name: "maximum_fee".into(), value: IdlValue::U64(maximum_fee) },
-            ]
-            .into(),
-            account_names: vec!["mint".to_string()],
-        })
+            ],
+            owned_account_names(&["mint"]),
+        ))
     })
 }
 
@@ -807,24 +755,21 @@ fn parse_transfer_checked_with_fee_instruction(
         let amount = reader.read_u64()?;
         let decimals = reader.read_u8()?;
         let fee = reader.read_u64()?;
+        let base_account_names: &[&str] = if instruction.accounts.len() > 3 {
+            &["source", "mint", "destination", "authority"]
+        } else {
+            &["source", "mint", "destination"]
+        };
 
-        let mut account_names =
-            vec!["source".to_string(), "mint".to_string(), "destination".to_string()];
-        if instruction.accounts.len() > 3 {
-            account_names.push("authority".to_string());
-        }
-        append_additional_signer_accounts(&mut account_names, 4, instruction.accounts.len());
-
-        Ok(ParsedInstruction {
-            name: "TransferCheckedWithFee".to_string(),
-            fields: vec![
+        Ok(parsed_instruction(
+            "TransferCheckedWithFee",
+            vec![
                 ParsedField { name: "amount".into(), value: IdlValue::U64(amount) },
                 ParsedField { name: "decimals".into(), value: IdlValue::U8(decimals) },
                 ParsedField { name: "fee".into(), value: IdlValue::U64(fee) },
-            ]
-            .into(),
-            account_names,
-        })
+            ],
+            account_names_with_signers(base_account_names, instruction.accounts.len()),
+        ))
     })
 }
 
@@ -835,17 +780,17 @@ fn parse_transfer_fee_withdraw_from_mint_instruction(
         return Ok(None);
     }
 
-    let mut account_names = vec!["mint".to_string(), "destination".to_string()];
-    if instruction.accounts.len() >= 3 {
-        account_names.push("authority".to_string());
-    }
-    append_additional_signer_accounts(&mut account_names, 3, instruction.accounts.len());
+    let base_account_names: &[&str] = if instruction.accounts.len() >= 3 {
+        &["mint", "destination", "authority"]
+    } else {
+        &["mint", "destination"]
+    };
 
-    Ok(Some(ParsedInstruction {
-        name: "WithdrawWithheldTokensFromMint".to_string(),
-        fields: vec![].into(),
-        account_names,
-    }))
+    Ok(Some(parsed_instruction(
+        "WithdrawWithheldTokensFromMint",
+        vec![],
+        account_names_with_signers(base_account_names, instruction.accounts.len()),
+    )))
 }
 
 fn parse_transfer_fee_withdraw_from_accounts_instruction(
@@ -861,25 +806,19 @@ fn parse_transfer_fee_withdraw_from_accounts_instruction(
         return Ok(None);
     }
 
-    let mut account_names =
-        vec!["mint".to_string(), "destination".to_string(), "authority".to_string()];
+    let mut account_names = owned_account_names(&["mint", "destination", "authority"]);
     let signers_count = instruction.accounts.len().saturating_sub(3 + num_token_accounts);
-    for i in 0..signers_count {
-        account_names.push(format!("additional_signer_{}", i + 1));
-    }
-    for i in 0..num_token_accounts {
-        account_names.push(format!("source_account_{}", i + 1));
-    }
+    extend_numbered_account_names(&mut account_names, "additional_signer_", 1, signers_count);
+    extend_numbered_account_names(&mut account_names, "source_account_", 1, num_token_accounts);
 
-    Ok(Some(ParsedInstruction {
-        name: "WithdrawWithheldTokensFromAccounts".to_string(),
-        fields: vec![ParsedField {
+    Ok(Some(parsed_instruction(
+        "WithdrawWithheldTokensFromAccounts",
+        vec![ParsedField {
             name: "num_token_accounts".into(),
             value: IdlValue::U32(num_token_accounts as u32),
-        }]
-        .into(),
+        }],
         account_names,
-    }))
+    )))
 }
 
 fn parse_transfer_fee_harvest_to_mint_instruction(
@@ -889,16 +828,15 @@ fn parse_transfer_fee_harvest_to_mint_instruction(
         return Ok(None);
     }
 
-    let mut account_names = vec!["mint".to_string()];
-    for i in 1..instruction.accounts.len() {
-        account_names.push(format!("source_account_{}", i));
-    }
+    let mut account_names = owned_account_names(&["mint"]);
+    extend_numbered_account_names(
+        &mut account_names,
+        "source_account_",
+        1,
+        instruction.accounts.len() - 1,
+    );
 
-    Ok(Some(ParsedInstruction {
-        name: "HarvestWithheldTokensToMint".to_string(),
-        fields: vec![].into(),
-        account_names,
-    }))
+    Ok(Some(parsed_instruction("HarvestWithheldTokensToMint", vec![], account_names)))
 }
 
 fn parse_transfer_fee_set_fee_instruction(
@@ -911,25 +849,20 @@ fn parse_transfer_fee_set_fee_instruction(
     binary_reader::try_parse(data, |reader| {
         let transfer_fee_basis_points = reader.read_u16()?;
         let maximum_fee = reader.read_u64()?;
+        let base_account_names: &[&str] =
+            if instruction.accounts.len() >= 2 { &["mint", "authority"] } else { &["mint"] };
 
-        let mut account_names = vec!["mint".to_string()];
-        if instruction.accounts.len() >= 2 {
-            account_names.push("authority".to_string());
-        }
-        append_additional_signer_accounts(&mut account_names, 2, instruction.accounts.len());
-
-        Ok(ParsedInstruction {
-            name: "SetTransferFee".to_string(),
-            fields: vec![
+        Ok(parsed_instruction(
+            "SetTransferFee",
+            vec![
                 ParsedField {
                     name: "transfer_fee_basis_points".into(),
-                    value: IdlValue::String(transfer_fee_basis_points.to_string().into()),
+                    value: IdlValue::String(transfer_fee_basis_points.to_string()),
                 },
                 ParsedField { name: "maximum_fee".into(), value: IdlValue::U64(maximum_fee) },
-            ]
-            .into(),
-            account_names,
-        })
+            ],
+            account_names_with_signers(base_account_names, instruction.accounts.len()),
+        ))
     })
 }
 
@@ -950,26 +883,20 @@ fn parse_reallocate_instruction(
     }
 
     let named = ["account", "payer", "system_program", "owner_or_delegate"];
-    let mut account_names: Vec<String> =
-        named.iter().take(instruction.accounts.len()).map(|s| s.to_string()).collect();
-    append_additional_signer_accounts(&mut account_names, 4, instruction.accounts.len());
+    let base_account_names = &named[..instruction.accounts.len().min(named.len())];
 
-    Ok(Some(ParsedInstruction {
-        name: "Reallocate".to_string(),
-        fields: vec![ParsedField {
+    Ok(Some(parsed_instruction(
+        "Reallocate",
+        vec![ParsedField {
             name: "extension_types".into(),
-            value: IdlValue::String(
-                if extension_types.is_empty() {
-                    "none".to_string()
-                } else {
-                    extension_types.join(",")
-                }
-                .into(),
-            ),
-        }]
-        .into(),
-        account_names,
-    }))
+            value: IdlValue::String(if extension_types.is_empty() {
+                "none".to_string()
+            } else {
+                extension_types.join(",")
+            }),
+        }],
+        account_names_with_signers(base_account_names, instruction.accounts.len()),
+    )))
 }
 
 fn parse_create_native_mint_instruction(
@@ -979,15 +906,11 @@ fn parse_create_native_mint_instruction(
         return Ok(None);
     }
 
-    Ok(Some(ParsedInstruction {
-        name: "CreateNativeMint".to_string(),
-        fields: vec![].into(),
-        account_names: vec![
-            "funding_account".to_string(),
-            "native_mint".to_string(),
-            "system_program".to_string(),
-        ],
-    }))
+    Ok(Some(parsed_instruction(
+        "CreateNativeMint",
+        vec![],
+        owned_account_names(&["funding_account", "native_mint", "system_program"]),
+    )))
 }
 
 fn parse_initialize_permanent_delegate_instruction(
@@ -999,15 +922,11 @@ fn parse_initialize_permanent_delegate_instruction(
     }
     binary_reader::try_parse(data, |reader| {
         let delegate = reader.read_pubkey_as_string()?;
-        Ok(ParsedInstruction {
-            name: "InitializePermanentDelegate".to_string(),
-            fields: vec![ParsedField {
-                name: "delegate".into(),
-                value: IdlValue::String(delegate.into()),
-            }]
-            .into(),
-            account_names: vec!["mint".to_string()],
-        })
+        Ok(parsed_instruction(
+            "InitializePermanentDelegate",
+            vec![ParsedField { name: "delegate".into(), value: IdlValue::String(delegate) }],
+            owned_account_names(&["mint"]),
+        ))
     })
 }
 
@@ -1018,15 +937,14 @@ fn parse_withdraw_excess_lamports_instruction(
         return Ok(None);
     }
 
-    let mut account_names =
-        vec!["source".to_string(), "destination".to_string(), "authority".to_string()];
-    append_additional_signer_accounts(&mut account_names, 3, instruction.accounts.len());
-
-    Ok(Some(ParsedInstruction {
-        name: "WithdrawExcessLamports".to_string(),
-        fields: vec![].into(),
-        account_names,
-    }))
+    Ok(Some(parsed_instruction(
+        "WithdrawExcessLamports",
+        vec![],
+        account_names_with_signers(
+            &["source", "destination", "authority"],
+            instruction.accounts.len(),
+        ),
+    )))
 }
 
 fn parse_extension_prefix_instruction(
@@ -1038,15 +956,15 @@ fn parse_extension_prefix_instruction(
     if !data.is_empty() {
         fields.push(ParsedField {
             name: "raw_extension_data".into(),
-            value: IdlValue::String(hex::encode(data).into()),
+            value: IdlValue::String(hex::encode(data)),
         });
     }
 
-    Ok(Some(ParsedInstruction {
-        name: name.to_string(),
-        fields: fields.into(),
-        account_names: generate_generic_account_names(instruction.accounts.len()),
-    }))
+    Ok(Some(parsed_instruction(
+        name,
+        fields,
+        generate_generic_account_names(instruction.accounts.len()),
+    )))
 }
 
 fn generate_generic_account_names(len: usize) -> Vec<String> {
