@@ -12,7 +12,7 @@ use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_transaction::versioned::VersionedTransaction;
 use solana_transaction_status_client_types::{
-    EncodedConfirmedTransactionWithStatusMeta, TransactionStatus, UiTransactionEncoding,
+    EncodedTransaction, TransactionStatus, UiTransactionEncoding, UiTransactionStatusMeta,
 };
 
 use sonar_sim::internals::rpc_json::{JsonRpcResponse, RpcAccountInfo, RpcResultValue};
@@ -42,6 +42,25 @@ pub struct GetTransactionConfig {
     pub encoding: UiTransactionEncoding,
     pub commitment: CommitmentConfig,
     pub max_supported_transaction_version: Option<u8>,
+}
+
+// RPC `getTransaction` response, deserialized without `#[serde(flatten)]`.
+//
+// The upstream `EncodedConfirmedTransactionWithStatusMeta` uses
+// `#[serde(flatten)]` which breaks untagged enum deserialization of the
+// `version` field (serde bug <https://github.com/serde-rs/serde/issues/1183>).
+// V0 transactions return `"version": 0` (integer) which the flattened
+// deserializer misinterprets. This struct matches the flat JSON shape directly.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[allow(dead_code)] // slot, block_time, version are needed for deserialization only
+pub struct RpcTransactionResponse {
+    pub slot: u64,
+    pub block_time: Option<i64>,
+    pub transaction: EncodedTransaction,
+    pub meta: Option<UiTransactionStatusMeta>,
+    #[serde(default)]
+    version: Option<serde_json::Value>,
 }
 
 // ---------------------------------------------------------------------------
@@ -117,6 +136,17 @@ impl RpcClient {
             .map_err(|e| anyhow!("{e}"))
     }
 
+    pub fn get_multiple_accounts(&self, pubkeys: &[Pubkey]) -> Result<Vec<Option<Account>>> {
+        let keys: Vec<String> = pubkeys.iter().map(|k| k.to_string()).collect();
+        let result: RpcResultValue<Vec<Option<RpcAccountInfo>>> =
+            self.call("getMultipleAccounts", serde_json::json!([keys, {"encoding": "base64"}]))?;
+        result
+            .value
+            .into_iter()
+            .map(|opt| opt.map(|info| info.into_account().map_err(|e| anyhow!("{e}"))).transpose())
+            .collect()
+    }
+
     pub fn get_account_with_commitment(
         &self,
         pubkey: &Pubkey,
@@ -168,7 +198,7 @@ impl RpcClient {
         &self,
         signature: &Signature,
         config: GetTransactionConfig,
-    ) -> Result<EncodedConfirmedTransactionWithStatusMeta> {
+    ) -> Result<RpcTransactionResponse> {
         self.call(
             "getTransaction",
             serde_json::json!([

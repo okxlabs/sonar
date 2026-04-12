@@ -155,7 +155,6 @@ pub fn fetch_transaction_from_rpc(
 
     let tx = response
         .transaction
-        .transaction
         .decode()
         .ok_or_else(|| anyhow!("Failed to decode transaction from RPC response"))?;
     encode_transaction_to_base64(&tx)
