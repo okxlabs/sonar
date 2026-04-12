@@ -18,7 +18,7 @@ use sonar_sim::internals::{
 
 use solana_account::AccountSharedData;
 
-use crate::cli::TraceArgs;
+use crate::cli::ReplayArgs;
 use crate::core::account_loader;
 use crate::core::rpc_client::{GetTransactionConfig, RpcClient};
 use crate::core::transaction::{
@@ -29,7 +29,7 @@ use crate::output::{self, BalanceChangeOptions, LogDisplayOptions, RenderOptions
 use crate::parsers::instruction::ParserRegistry;
 use crate::utils::progress::Progress;
 
-pub(crate) fn handle(args: TraceArgs, json: bool) -> Result<()> {
+pub(crate) fn handle(args: ReplayArgs, json: bool) -> Result<()> {
     let progress = Progress::new();
     let rpc_url = args.rpc.rpc_url;
     let rpc_batch_size = args.rpc.rpc_batch_size;
@@ -74,7 +74,7 @@ pub(crate) fn handle(args: TraceArgs, json: bool) -> Result<()> {
     // not live ALT state — ALTs may have been closed since the tx confirmed.
     let (meta_lookups, ordered_keys) = resolve_from_meta(&parsed_tx, &meta);
 
-    // Fetch only program accounts for IDL parsing — trace doesn't need
+    // Fetch only program accounts for IDL parsing — replay doesn't need
     // sysvars, token accounts, or ALTs like simulate/decode do.
     let resolved_accounts = load_accounts_and_idls(
         &client,
@@ -107,7 +107,7 @@ pub(crate) fn handle(args: TraceArgs, json: bool) -> Result<()> {
         log_opts: LogDisplayOptions { raw_log: args.raw_log },
     };
 
-    output::render_trace(
+    output::render_replay(
         &parsed_tx,
         &resolved_accounts,
         &execution_result,
@@ -184,7 +184,13 @@ fn load_accounts_and_idls(
     let resolved = ResolvedAccounts { accounts, lookups: meta_lookups };
 
     // Delegate to the shared IDL pipeline (auto-fetch + load from disk)
-    match account_loader::create_loader(rpc_url.to_string(), None, false, Some(progress.clone()), rpc_batch_size) {
+    match account_loader::create_loader(
+        rpc_url.to_string(),
+        None,
+        false,
+        Some(progress.clone()),
+        rpc_batch_size,
+    ) {
         Ok(loader) => {
             super::common::run_idl_pipeline(
                 &loader,

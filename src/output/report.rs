@@ -214,9 +214,9 @@ impl Report {
         }
     }
 
-    /// Construct a trace report with pre-computed balance changes.
-    /// No SimulationContext needed — trace is read-only historical data.
-    pub(super) fn from_trace(
+    /// Construct a replay report with pre-computed balance changes.
+    /// No SimulationContext needed — replay is read-only historical data.
+    pub(super) fn from_replay(
         parsed: &ParsedTransaction,
         resolved: &ResolvedAccounts,
         simulation: &ExecutionResult,

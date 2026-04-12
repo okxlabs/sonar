@@ -9,9 +9,9 @@ mod decode;
 mod idl;
 mod pda;
 mod program_elf;
+mod replay;
 mod send;
 mod simulate;
-mod trace;
 
 // Re-export all public types from submodules
 pub use account::*;
@@ -23,9 +23,9 @@ pub use decode::*;
 pub use idl::*;
 pub use pda::*;
 pub use program_elf::*;
+pub use replay::*;
 pub use send::*;
 pub use simulate::*;
-pub use trace::*;
 
 use clap::{Args, Parser, Subcommand};
 
@@ -72,9 +72,9 @@ pub enum Commands {
     /// Decode and display a raw transaction without simulation
     #[command(alias = "dec", next_line_help = true)]
     Decode(DecodeArgs),
-    /// Display the historical execution trace of a confirmed transaction
+    /// Replay the historical execution of a confirmed transaction
     #[command(next_line_help = true)]
-    Trace(TraceArgs),
+    Replay(ReplayArgs),
     /// Manage Anchor IDLs (fetch, sync, address)
     #[command(next_line_help = true)]
     Idl(IdlArgs),

@@ -1,4 +1,4 @@
-# Simulate & Decode
+# Simulate, Decode & Replay
 
 ## Simulate
 
@@ -187,6 +187,30 @@ sonar decode <TX_OR_SIGNATURE> --rpc-url <RPC_URL> --no-cache
 sonar decode <TX_OR_SIGNATURE> --rpc-url <RPC_URL> --refresh-cache
 
 sonar decode <TX_OR_SIGNATURE> --rpc-url <RPC_URL> --cache-dir /path/to/cache
+```
+
+## Replay
+
+Replay the historical execution of a confirmed transaction. Fetches the transaction by signature from RPC and reconstructs the execution trace from on-chain metadata — no local simulation needed.
+
+```bash
+# Replay a confirmed transaction
+sonar replay <SIGNATURE> --rpc-url https://api.mainnet-beta.solana.com
+
+# Show balance changes and instruction details
+sonar replay <SIGNATURE> --rpc-url <RPC_URL> -b -d
+
+# JSON output
+sonar replay <SIGNATURE> --rpc-url <RPC_URL> --json
+
+# Print raw logs instead of structured output
+sonar replay <SIGNATURE> --rpc-url <RPC_URL> --raw-log
+
+# Always print raw instruction data, even when parser succeeds
+sonar replay <SIGNATURE> --rpc-url <RPC_URL> --raw-ix-data
+
+# Load Anchor IDL files from a custom directory
+sonar replay <SIGNATURE> --rpc-url <RPC_URL> --idl-dir /path/to/idls
 ```
 
 ## Cache Management

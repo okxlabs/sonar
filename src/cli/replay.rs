@@ -1,4 +1,4 @@
-//! Trace command arguments.
+//! Replay command arguments.
 
 use std::path::PathBuf;
 
@@ -6,9 +6,9 @@ use clap::Args;
 
 use super::RpcArgs;
 
-/// Display the historical execution trace of a confirmed transaction.
+/// Replay the historical execution of a confirmed transaction.
 #[derive(Args, Debug)]
-pub struct TraceArgs {
+pub struct ReplayArgs {
     /// Transaction signature to look up
     pub signature: String,
     #[command(flatten)]
