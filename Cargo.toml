@@ -6,7 +6,7 @@ rust-version = "1.86.0"
 
 [package]
 name = "sonar"
-version = "0.3.0"
+version = "0.5.0"
 edition = "2021"
 rust-version.workspace = true
 
