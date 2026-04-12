@@ -53,23 +53,16 @@ pub(crate) struct TableWriter {
     columns: Vec<Column>,
     rows: Vec<Vec<Cell>>,
     indent: String,
-    max_width: Option<usize>,
 }
 
 impl TableWriter {
     pub(crate) fn new(indent: &str) -> Self {
-        Self { columns: Vec::new(), rows: Vec::new(), indent: indent.to_string(), max_width: None }
+        Self { columns: Vec::new(), rows: Vec::new(), indent: indent.to_string() }
     }
 
     /// Add a column definition. Call once per column, in order.
     pub(crate) fn column(mut self, align: Align) -> Self {
         self.columns.push(Column { align });
-        self
-    }
-
-    /// Set maximum total line width. Columns exceeding this are truncated.
-    pub(crate) fn max_width(mut self, width: usize) -> Self {
-        self.max_width = Some(width);
         self
     }
 
@@ -88,25 +81,6 @@ impl TableWriter {
             }
         }
 
-        // If max_width is set, shrink the widest column(s) to fit.
-        if let Some(max) = self.max_width {
-            let indent_width = UnicodeWidthStr::width(self.indent.as_str());
-            // 2 chars gap between columns
-            let gaps = if self.columns.is_empty() { 0 } else { (self.columns.len() - 1) * 2 };
-            let total: usize = widths.iter().sum::<usize>() + indent_width + gaps;
-            if total > max {
-                let overflow = total - max;
-                // Find the widest column and shrink it
-                if let Some((widest_idx, widest)) =
-                    widths.iter().enumerate().max_by_key(|(_, w)| **w)
-                {
-                    let min_col = 12; // never shrink below 12 chars
-                    let new_width = (*widest).saturating_sub(overflow).max(min_col);
-                    widths[widest_idx] = new_width;
-                }
-            }
-        }
-
         widths
     }
 
@@ -121,16 +95,10 @@ impl TableWriter {
                     let _ = write!(w, "  ");
                 }
                 let width = widths.get(i).copied().unwrap_or(0);
-                let text = if cell.display_width() > width {
-                    // Truncate to fit column width
-                    super::fmt::truncate_display(&cell.text, width.saturating_sub(1))
-                } else {
-                    cell.text.clone()
-                };
                 let align = self.columns.get(i).map(|c| c.align).unwrap_or(Align::Left);
                 let formatted = match align {
-                    Align::Left => format!("{:<width$}", text, width = width),
-                    Align::Right => format!("{:>width$}", text, width = width),
+                    Align::Left => format!("{:<width$}", cell.text, width = width),
+                    Align::Right => format!("{:>width$}", cell.text, width = width),
                 };
                 match cell.color {
                     Some(color) => {
@@ -179,21 +147,5 @@ mod tests {
         // "short " should be padded to match "longer"
         assert_eq!(lines[0], "short   x");
         assert_eq!(lines[1], "longer  y");
-    }
-
-    #[test]
-    fn max_width_truncates_widest_column() {
-        colored::control::set_override(false);
-        let mut table = TableWriter::new("").column(Align::Left).column(Align::Left).max_width(25);
-        // col0: 20 chars, col1: 5 chars → total 20+2+5 = 27, overflow = 2
-        table.row(vec![Cell::plain("a]234567890123456789"), Cell::plain("hello")]);
-
-        let mut buf = Vec::new();
-        table.print(&mut buf);
-        let output = String::from_utf8(buf).unwrap();
-        // The widest column (col0) should be truncated to fit
-        let first_line = output.lines().next().unwrap();
-        let display_width = UnicodeWidthStr::width(first_line);
-        assert!(display_width <= 25, "line too wide: {} ({})", first_line, display_width);
     }
 }

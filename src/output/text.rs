@@ -20,7 +20,7 @@ use super::report::{
     BundleReport, InstructionAccountEntry, Report, SimulationSection, SimulationStatusReport,
     SolBalanceChangeSection, TokenBalanceChangeSection, TransactionSection,
 };
-use super::terminal::{terminal_width, write_section_title};
+use super::terminal::write_section_title;
 use super::theme::{COLOR_BLUE, COLOR_GOLD, COLOR_GREEN, COLOR_RED, DIM_GRAY, RAW_HEX_AMBER};
 
 /// Single indentation unit (2 spaces).
@@ -53,15 +53,14 @@ pub(super) fn render_text(
         render_instruction_details_text(&report.transaction, resolved, show_ix_data, w);
     }
 
-    let tw = terminal_width();
     if !report.sol_balance_changes.is_empty() {
         write_section_title(w, "SOL Balance Changes");
-        render_sol_balance_changes(&report.sol_balance_changes, "", tw, w);
+        render_sol_balance_changes(&report.sol_balance_changes, "", w);
     }
 
     if !report.token_balance_changes.is_empty() {
         write_section_title(w, "Token Balance Changes");
-        render_token_balance_changes(&report.token_balance_changes, "", tw, w);
+        render_token_balance_changes(&report.token_balance_changes, "", w);
     }
 
     let _ = writeln!(w);
@@ -103,15 +102,14 @@ pub(super) fn render_bundle_text(
         }
     }
 
-    let tw = terminal_width();
     if !bundle.sol_balance_changes.is_empty() {
         write_section_title(w, "SOL Balance Changes");
-        render_sol_balance_changes(&bundle.sol_balance_changes, INDENT_L1, tw, w);
+        render_sol_balance_changes(&bundle.sol_balance_changes, INDENT_L1, w);
     }
 
     if !bundle.token_balance_changes.is_empty() {
         write_section_title(w, "Token Balance Changes");
-        render_token_balance_changes(&bundle.token_balance_changes, INDENT_L1, tw, w);
+        render_token_balance_changes(&bundle.token_balance_changes, INDENT_L1, w);
     }
 
     let _ = writeln!(w);
@@ -413,17 +411,17 @@ fn render_log_entry(entry_with_depth: &LogEntryWithDepth, w: &mut impl Write) {
 pub(super) fn render_sol_balance_changes(
     sol_changes: &[SolBalanceChangeSection],
     indent: &str,
-    max_width: Option<usize>,
     w: &mut impl Write,
 ) {
     use super::table::{Align, Cell, TableWriter};
 
     let prefix = format!("{}{}", indent, INDENT_L1);
-    let mut table =
-        TableWriter::new(&prefix).column(Align::Left).column(Align::Left).column(Align::Left);
-    if let Some(mw) = max_width {
-        table = table.max_width(mw);
-    }
+    let mut table = TableWriter::new(&prefix)
+        .column(Align::Left)
+        .column(Align::Left)
+        .column(Align::Right)
+        .column(Align::Left)
+        .column(Align::Left);
 
     for c in sol_changes {
         let sol_before = c.before as f64 / 1_000_000_000.0;
@@ -434,7 +432,9 @@ pub(super) fn render_sol_balance_changes(
         table.row(vec![
             Cell::plain(&c.account),
             Cell::colored(&format!("{}{:.9}", sign, c.change_sol), color),
-            Cell::colored(&format!("{:.9} → {:.9}", sol_before, sol_after), COLOR_BLUE),
+            Cell::colored(&format!("{:.9}", sol_before), COLOR_BLUE),
+            Cell::colored("→", COLOR_BLUE),
+            Cell::colored(&format!("{:.9}", sol_after), COLOR_BLUE),
         ]);
     }
 
@@ -449,7 +449,6 @@ pub(super) fn render_sol_balance_changes(
 pub(super) fn render_token_balance_changes(
     token_changes: &[TokenBalanceChangeSection],
     indent: &str,
-    max_width: Option<usize>,
     w: &mut impl Write,
 ) {
     use super::table::{Align, Cell, TableWriter};
@@ -459,11 +458,10 @@ pub(super) fn render_token_balance_changes(
         .column(Align::Left)
         .column(Align::Left)
         .column(Align::Left)
+        .column(Align::Right)
+        .column(Align::Left)
         .column(Align::Left)
         .column(Align::Left);
-    if let Some(mw) = max_width {
-        table = table.max_width(mw);
-    }
 
     for c in token_changes {
         let divisor = 10f64.powi(c.decimals as i32);
@@ -477,10 +475,9 @@ pub(super) fn render_token_balance_changes(
             Cell::plain(&c.token_account),
             Cell::plain(&c.owner),
             Cell::colored(&format!("{}{:.prec$}", sign, c.ui_change, prec = prec), color),
-            Cell::colored(
-                &format!("{:.prec$} → {:.prec$}", ui_before, ui_after, prec = prec),
-                COLOR_BLUE,
-            ),
+            Cell::colored(&format!("{:.prec$}", ui_before, prec = prec), COLOR_BLUE),
+            Cell::colored("→", COLOR_BLUE),
+            Cell::colored(&format!("{:.prec$}", ui_after, prec = prec), COLOR_BLUE),
             Cell::plain(&c.mint),
         ]);
     }

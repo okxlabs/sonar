@@ -2,7 +2,7 @@
 source: src/output/snapshot_tests.rs
 expression: output
 ---
-  FeePayerABCDEFGH1234567890abcdefghijklm123  -0.010000000  5.000000000 → 4.990000000
-  ReceiverXYZ9876543210zyxwvutsrqponmlkji987  +0.010000000  0.000000000 → 0.010000000
+  FeePayerABCDEFGH1234567890abcdefghijklm123  -0.010000000  5.000000000  →  4.990000000
+  ReceiverXYZ9876543210zyxwvutsrqponmlkji987  +0.010000000  0.000000000  →  0.010000000
 
   account  ±Δ(SOL)  before → after | (+) increase  (-) decrease
