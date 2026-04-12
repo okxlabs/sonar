@@ -13,7 +13,7 @@ pub use crate::transaction::{
 
 // ── Account loading ──
 
-pub use crate::account_fetcher::AccountFetcher;
+pub use crate::account_fetcher::{AccountFetcher, DEFAULT_RPC_BATCH_SIZE};
 pub use crate::account_loader::AccountLoader;
 
 // ── Account types ──

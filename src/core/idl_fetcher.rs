@@ -7,13 +7,12 @@ use solana_account::{AccountSharedData, ReadableAccount};
 use solana_pubkey::Pubkey;
 
 use crate::utils::progress::Progress;
-use sonar_sim::internals::{RpcAccountProvider, SolanaRpcProvider};
-
-const MAX_ACCOUNTS_PER_REQUEST: usize = 100;
+use sonar_sim::internals::{DEFAULT_RPC_BATCH_SIZE, RpcAccountProvider, SolanaRpcProvider};
 
 pub struct IdlFetcher {
     provider: Arc<dyn RpcAccountProvider>,
     progress: Option<Progress>,
+    rpc_batch_size: usize,
 }
 
 impl IdlFetcher {
@@ -21,14 +20,23 @@ impl IdlFetcher {
         if rpc_url.is_empty() {
             return Err(anyhow!("RPC URL cannot be empty"));
         }
-        Ok(Self { provider: Arc::new(SolanaRpcProvider::new(rpc_url)), progress })
+        Ok(Self {
+            provider: Arc::new(SolanaRpcProvider::new(rpc_url)),
+            progress,
+            rpc_batch_size: DEFAULT_RPC_BATCH_SIZE,
+        })
     }
 
     pub fn with_provider(
         provider: Arc<dyn RpcAccountProvider>,
         progress: Option<Progress>,
     ) -> Self {
-        Self { provider, progress }
+        Self { provider, progress, rpc_batch_size: DEFAULT_RPC_BATCH_SIZE }
+    }
+
+    pub fn with_rpc_batch_size(mut self, size: usize) -> Self {
+        self.rpc_batch_size = size.max(1);
+        self
     }
 
     /// Fetches and parses the Anchor IDL for a given program ID.
@@ -49,10 +57,64 @@ impl IdlFetcher {
 
     /// Fetches and parses Anchor IDLs for multiple program IDs in batch.
     ///
-    /// Uses `get_multiple_accounts` to minimize RPC round-trips.
-    /// Returns one `(program_id, result)` entry per input, preserving order.
+    /// Parallelizes RPC calls when many programs are requested (> batch_size)
+    /// to reduce total wall-clock time. Order is preserved to match input.
     pub fn fetch_idls(&self, program_ids: &[Pubkey]) -> Vec<(Pubkey, Result<Option<String>>)> {
-        self.fetch_idls_with(program_ids, |chunk| Ok(self.provider.get_multiple_accounts(chunk)?))
+        if program_ids.is_empty() {
+            return Vec::new();
+        }
+
+        let (pending, mut results) = prepare_idl_batch(program_ids);
+        let total = pending.len();
+        let chunks: Vec<&[(usize, Pubkey, Pubkey)]> =
+            pending.chunks(self.rpc_batch_size).collect();
+
+        // Fetch all chunks in parallel when multiple batches are needed
+        let batch_rpc_results: Vec<Result<Vec<Option<AccountSharedData>>>> =
+            if chunks.len() <= 1 {
+                chunks
+                    .iter()
+                    .map(|chunk| {
+                        let addrs: Vec<Pubkey> = chunk.iter().map(|(_, _, idl)| *idl).collect();
+                        self.provider
+                            .get_multiple_accounts(&addrs)
+                            .map_err(|e| anyhow!("{e}"))
+                    })
+                    .collect()
+            } else {
+                std::thread::scope(|s| {
+                    let handles: Vec<_> = chunks
+                        .iter()
+                        .map(|chunk| {
+                            let provider = Arc::clone(&self.provider);
+                            let addrs: Vec<Pubkey> =
+                                chunk.iter().map(|(_, _, idl)| *idl).collect();
+                            s.spawn(move || {
+                                provider
+                                    .get_multiple_accounts(&addrs)
+                                    .map_err(|e| anyhow!("{e}"))
+                            })
+                        })
+                        .collect();
+                    handles
+                        .into_iter()
+                        .map(|h| h.join().expect("IDL batch thread panicked"))
+                        .collect()
+                })
+            };
+
+        let mut requested = 0usize;
+        for (chunk, batch_result) in chunks.iter().zip(batch_rpc_results) {
+            self.set_progress_message(format!(
+                "fetching IDL accounts ({}/{})",
+                requested + 1,
+                total
+            ));
+            process_idl_chunk(chunk, batch_result, &mut results);
+            requested += chunk.len();
+        }
+
+        collect_idl_results(program_ids, results)
     }
 
     fn fetch_idl_with<F>(&self, program_id: &Pubkey, fetch_account: F) -> Result<Option<String>>
@@ -75,6 +137,7 @@ impl IdlFetcher {
         Ok(Some(parse_idl_account_data(account.data(), program_id)?))
     }
 
+    #[cfg(test)]
     fn fetch_idls_with<F>(
         &self,
         program_ids: &[Pubkey],
@@ -87,74 +150,22 @@ impl IdlFetcher {
             return Vec::new();
         }
 
-        let mut pending = Vec::with_capacity(program_ids.len());
-        let mut results: Vec<Option<Result<Option<String>>>> =
-            (0..program_ids.len()).map(|_| None).collect();
-
-        for (idx, program_id) in program_ids.iter().enumerate() {
-            match get_idl_address(program_id) {
-                Ok(idl_address) => pending.push((idx, *program_id, idl_address)),
-                Err(e) => results[idx] = Some(Err(e)),
-            }
-        }
-
+        let (pending, mut results) = prepare_idl_batch(program_ids);
         let total = pending.len();
         let mut requested = 0usize;
 
-        for chunk in pending.chunks(MAX_ACCOUNTS_PER_REQUEST) {
+        for chunk in pending.chunks(self.rpc_batch_size) {
             self.set_progress_message(format!(
                 "fetching IDL accounts ({}/{})",
                 requested + 1,
                 total
             ));
-
             let idl_addresses: Vec<Pubkey> = chunk.iter().map(|(_, _, idl)| *idl).collect();
-            match fetch_chunk(&idl_addresses) {
-                Ok(response) => {
-                    if response.len() != chunk.len() {
-                        for (idx, _, idl_addr) in chunk {
-                            results[*idx] = Some(Err(anyhow!(
-                                "Failed to fetch IDL account {}: RPC returned count mismatch ({} != {})",
-                                idl_addr,
-                                response.len(),
-                                chunk.len()
-                            )));
-                        }
-                    } else {
-                        for ((idx, program_id, _), maybe_account) in
-                            chunk.iter().zip(response.into_iter())
-                        {
-                            let parsed = match maybe_account {
-                                Some(account) => {
-                                    parse_idl_account_data(account.data(), program_id).map(Some)
-                                }
-                                None => Ok(None),
-                            };
-                            results[*idx] = Some(parsed);
-                        }
-                    }
-                }
-                Err(e) => {
-                    for (idx, _, idl_addr) in chunk {
-                        results[*idx] =
-                            Some(Err(anyhow!("Failed to fetch IDL account {}: {}", idl_addr, e)));
-                    }
-                }
-            }
+            process_idl_chunk(chunk, fetch_chunk(&idl_addresses), &mut results);
             requested += chunk.len();
         }
 
-        let mut ordered_results = Vec::with_capacity(program_ids.len());
-        for (idx, program_id) in program_ids.iter().enumerate() {
-            let result = results[idx].take().unwrap_or_else(|| {
-                Err(anyhow!(
-                    "Missing IDL fetch result for program {} (internal state mismatch)",
-                    program_id
-                ))
-            });
-            ordered_results.push((*program_id, result));
-        }
-        ordered_results
+        collect_idl_results(program_ids, results)
     }
 
     fn set_progress_message(&self, message: impl Into<std::borrow::Cow<'static, str>>) {
@@ -162,6 +173,84 @@ impl IdlFetcher {
             progress.set_message(message);
         }
     }
+}
+
+/// Derive IDL addresses for a batch of program IDs.
+/// Returns (pending_entries, results_slots) where each pending entry is
+/// `(original_index, program_id, idl_address)` and failed derivations are
+/// pre-filled in the results vec.
+fn prepare_idl_batch(
+    program_ids: &[Pubkey],
+) -> (Vec<(usize, Pubkey, Pubkey)>, Vec<Option<Result<Option<String>>>>) {
+    let mut pending = Vec::with_capacity(program_ids.len());
+    let mut results: Vec<Option<Result<Option<String>>>> =
+        (0..program_ids.len()).map(|_| None).collect();
+    for (idx, program_id) in program_ids.iter().enumerate() {
+        match get_idl_address(program_id) {
+            Ok(idl_address) => pending.push((idx, *program_id, idl_address)),
+            Err(e) => results[idx] = Some(Err(e)),
+        }
+    }
+    (pending, results)
+}
+
+/// Process a single batch RPC response, parsing IDL data into the results vec.
+fn process_idl_chunk(
+    chunk: &[(usize, Pubkey, Pubkey)],
+    batch_result: Result<Vec<Option<AccountSharedData>>>,
+    results: &mut [Option<Result<Option<String>>>],
+) {
+    match batch_result {
+        Ok(response) => {
+            if response.len() != chunk.len() {
+                for &(idx, _, idl_addr) in chunk {
+                    results[idx] = Some(Err(anyhow!(
+                        "Failed to fetch IDL account {}: RPC returned count mismatch ({} != {})",
+                        idl_addr,
+                        response.len(),
+                        chunk.len()
+                    )));
+                }
+            } else {
+                for (&(idx, program_id, _), maybe_account) in
+                    chunk.iter().zip(response.into_iter())
+                {
+                    results[idx] = Some(match maybe_account {
+                        Some(account) => {
+                            parse_idl_account_data(account.data(), &program_id).map(Some)
+                        }
+                        None => Ok(None),
+                    });
+                }
+            }
+        }
+        Err(e) => {
+            for &(idx, _, idl_addr) in chunk {
+                results[idx] =
+                    Some(Err(anyhow!("Failed to fetch IDL account {}: {}", idl_addr, e)));
+            }
+        }
+    }
+}
+
+/// Collect ordered results, matching original program_ids input order.
+fn collect_idl_results(
+    program_ids: &[Pubkey],
+    mut results: Vec<Option<Result<Option<String>>>>,
+) -> Vec<(Pubkey, Result<Option<String>>)> {
+    program_ids
+        .iter()
+        .enumerate()
+        .map(|(idx, program_id)| {
+            let result = results[idx].take().unwrap_or_else(|| {
+                Err(anyhow!(
+                    "Missing IDL fetch result for program {} (internal state mismatch)",
+                    program_id
+                ))
+            });
+            (*program_id, result)
+        })
+        .collect()
 }
 
 fn is_account_not_found_error(error: &str) -> bool {
@@ -227,7 +316,8 @@ mod tests {
     use solana_account::{Account, AccountSharedData, ReadableAccount};
     use solana_pubkey::Pubkey;
 
-    use super::{IdlFetcher, MAX_ACCOUNTS_PER_REQUEST, get_idl_address, parse_idl_account_data};
+    use super::{IdlFetcher, get_idl_address, parse_idl_account_data};
+    use sonar_sim::internals::DEFAULT_RPC_BATCH_SIZE;
     use sonar_sim::internals::FakeAccountProvider;
 
     fn dummy_fetcher() -> IdlFetcher {
@@ -315,7 +405,7 @@ mod tests {
     fn fetch_idls_chunk_error_only_affects_failed_chunk() {
         let fetcher = dummy_fetcher();
         let program_ids: Vec<Pubkey> =
-            (0..(MAX_ACCOUNTS_PER_REQUEST + 1)).map(|_| Pubkey::new_unique()).collect();
+            (0..(DEFAULT_RPC_BATCH_SIZE + 1)).map(|_| Pubkey::new_unique()).collect();
 
         let mut call_count = 0usize;
         let results = fetcher.fetch_idls_with(&program_ids, |chunk| {
@@ -330,7 +420,7 @@ mod tests {
         assert_eq!(results.len(), program_ids.len());
         for (idx, (program_id, result)) in results.iter().enumerate() {
             assert_eq!(*program_id, program_ids[idx]);
-            if idx < MAX_ACCOUNTS_PER_REQUEST {
+            if idx < DEFAULT_RPC_BATCH_SIZE {
                 assert!(result.as_ref().unwrap().is_none());
             } else {
                 assert!(result.is_err());

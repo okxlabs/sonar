@@ -40,6 +40,12 @@ pub struct RpcArgs {
         default_value = "https://api.mainnet-beta.solana.com"
     )]
     pub rpc_url: String,
+
+    /// Maximum accounts per getMultipleAccounts RPC call.
+    /// The default (100) matches the Solana validator limit.
+    /// Commercial RPC providers often support higher values.
+    #[arg(long = "rpc-batch-size", env = "SONAR_RPC_BATCH_SIZE", default_value = "100")]
+    pub rpc_batch_size: usize,
 }
 
 #[derive(Parser, Debug)]

@@ -107,6 +107,7 @@ pub fn create_loader(
     local_dir: Option<PathBuf>,
     offline: bool,
     progress: Option<Progress>,
+    rpc_batch_size: usize,
 ) -> Result<AccountLoader> {
     let url = if rpc_url.is_empty() && offline {
         "http://localhost:8899".to_string()
@@ -118,7 +119,7 @@ pub fn create_loader(
         rpc_url
     };
 
-    let mut loader = AccountLoader::new(url)?;
+    let mut loader = AccountLoader::new(url)?.with_rpc_batch_size(rpc_batch_size);
 
     if let Some(dir) = local_dir {
         loader = loader.with_source(Arc::new(LocalDirSource::new(dir)));
@@ -137,9 +138,10 @@ pub fn create_loader(
     Ok(loader)
 }
 
-/// Create an `IdlFetcher` that shares the loader's RPC provider.
+/// Create an `IdlFetcher` that shares the loader's RPC provider and batch size.
 pub fn create_idl_fetcher(loader: &AccountLoader, progress: Option<Progress>) -> IdlFetcher {
     IdlFetcher::with_provider(loader.provider(), progress)
+        .with_rpc_batch_size(loader.rpc_batch_size())
 }
 
 #[cfg(test)]
