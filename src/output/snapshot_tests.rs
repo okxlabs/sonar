@@ -33,7 +33,7 @@ mod tests {
             change_sol: 1.5,
         }];
         let output = capture(|w| {
-            crate::output::text::render_sol_balance_changes(&changes, "", None, w);
+            crate::output::text::render_sol_balance_changes(&changes, "", w);
         });
         insta::assert_snapshot!("sol_balance_single_positive", output);
     }
@@ -57,7 +57,7 @@ mod tests {
             },
         ];
         let output = capture(|w| {
-            crate::output::text::render_sol_balance_changes(&changes, "", None, w);
+            crate::output::text::render_sol_balance_changes(&changes, "", w);
         });
         insta::assert_snapshot!("sol_balance_mixed", output);
     }
@@ -79,7 +79,7 @@ mod tests {
             ui_change: -0.5,
         }];
         let output = capture(|w| {
-            crate::output::text::render_token_balance_changes(&changes, "", None, w);
+            crate::output::text::render_token_balance_changes(&changes, "", w);
         });
         insta::assert_snapshot!("token_balance_single", output);
     }
@@ -109,7 +109,7 @@ mod tests {
             },
         ];
         let output = capture(|w| {
-            crate::output::text::render_token_balance_changes(&changes, "", None, w);
+            crate::output::text::render_token_balance_changes(&changes, "", w);
         });
         insta::assert_snapshot!("token_balance_multiple", output);
     }
