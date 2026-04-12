@@ -11,7 +11,9 @@ use crate::error::{Result, SonarSimError};
 use crate::rpc_provider::{RpcAccountProvider, SolanaRpcProvider};
 use crate::types::{AccountSource, FetchEvent, FetchObserver, FetchPolicy, RpcDecision};
 
-const MAX_ACCOUNTS_PER_REQUEST: usize = 100;
+/// Default maximum number of accounts per `getMultipleAccounts` RPC call.
+/// Matches the Solana validator's built-in limit.
+pub const DEFAULT_RPC_BATCH_SIZE: usize = 100;
 
 /// Low-level account fetcher that handles dedup, caching, source resolution,
 /// policy gating, observer events, and batched RPC calls.
@@ -26,6 +28,7 @@ pub struct AccountFetcher {
     sources: Vec<Arc<dyn AccountSource>>,
     policy: Option<Arc<dyn FetchPolicy>>,
     observers: Vec<Arc<dyn FetchObserver>>,
+    rpc_batch_size: usize,
 }
 
 impl AccountFetcher {
@@ -44,7 +47,14 @@ impl AccountFetcher {
             sources: Vec::new(),
             policy: None,
             observers: Vec::new(),
+            rpc_batch_size: DEFAULT_RPC_BATCH_SIZE,
         }
+    }
+
+    /// Set the maximum number of accounts per `getMultipleAccounts` RPC call.
+    pub fn with_rpc_batch_size(mut self, size: usize) -> Self {
+        self.rpc_batch_size = size.max(1);
+        self
     }
 
     pub fn with_source(mut self, source: Arc<dyn AccountSource>) -> Self {
@@ -66,6 +76,10 @@ impl AccountFetcher {
         Arc::clone(&self.provider)
     }
 
+    pub fn rpc_batch_size(&self) -> usize {
+        self.rpc_batch_size
+    }
+
     /// Fetch accounts by pubkey into `destination`.
     ///
     /// Handles the full pipeline:
@@ -79,8 +93,8 @@ impl AccountFetcher {
         pubkeys: &[Pubkey],
         destination: &mut HashMap<Pubkey, AccountSharedData>,
     ) -> Result<()> {
-        let mut unique = Vec::new();
-        let mut seen = HashSet::new();
+        let mut unique = Vec::with_capacity(pubkeys.len());
+        let mut seen = HashSet::with_capacity(pubkeys.len());
         for key in pubkeys {
             if crate::known_programs::is_litesvm_builtin_program(key) {
                 continue;
@@ -152,21 +166,50 @@ impl AccountFetcher {
         }
 
         let total_count = to_fetch.len();
-        let mut requested_count = 0usize;
-        let mut fetched_count = 0usize;
-        for (batch_index, chunk) in to_fetch.chunks(MAX_ACCOUNTS_PER_REQUEST).enumerate() {
+        let chunks: Vec<&[Pubkey]> = to_fetch.chunks(self.rpc_batch_size).collect();
+
+        for (batch_index, chunk) in chunks.iter().enumerate() {
             self.notify(FetchEvent::RpcBatchStarted {
                 batch_index,
                 batch_size: chunk.len(),
                 total_requested: total_count,
             });
-            let response =
-                self.provider.get_multiple_accounts(chunk).map_err(|e| SonarSimError::Rpc {
-                    reason: format!(
-                        "getMultipleAccounts call failed, account list: [{}]: {e}",
-                        format_pubkeys(chunk)
-                    ),
-                })?;
+        }
+
+        // Fetch all batches in parallel when multiple chunks are needed.
+        // Single-batch case avoids thread overhead.
+        let batch_results: Vec<Result<Vec<Option<AccountSharedData>>>> = if chunks.len() <= 1 {
+            chunks
+                .iter()
+                .map(|&chunk| self.provider.get_multiple_accounts(chunk))
+                .collect()
+        } else {
+            let provider = &self.provider;
+            std::thread::scope(|s| {
+                let handles: Vec<_> = chunks
+                    .iter()
+                    .map(|&chunk| {
+                        let provider = Arc::clone(provider);
+                        s.spawn(move || provider.get_multiple_accounts(chunk))
+                    })
+                    .collect();
+                handles
+                    .into_iter()
+                    .map(|h| h.join().expect("RPC batch thread panicked"))
+                    .collect()
+            })
+        };
+
+        // Process results and update caches
+        let mut requested_count = 0usize;
+        let mut fetched_count = 0usize;
+        for (&chunk, result) in chunks.iter().zip(batch_results) {
+            let response = result.map_err(|e| SonarSimError::Rpc {
+                reason: format!(
+                    "getMultipleAccounts call failed, account list: [{}]: {e}",
+                    format_pubkeys(chunk)
+                ),
+            })?;
 
             if response.len() != chunk.len() {
                 return Err(SonarSimError::Rpc {

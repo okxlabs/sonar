@@ -61,9 +61,19 @@ impl AccountLoader {
         self
     }
 
+    /// Set the maximum number of accounts per `getMultipleAccounts` RPC call.
+    pub fn with_rpc_batch_size(mut self, size: usize) -> Self {
+        self.fetcher = self.fetcher.with_rpc_batch_size(size);
+        self
+    }
+
     /// Expose the underlying provider so callers can reuse the RPC connection.
     pub fn provider(&self) -> Arc<dyn RpcAccountProvider> {
         self.fetcher.provider()
+    }
+
+    pub fn rpc_batch_size(&self) -> usize {
+        self.fetcher.rpc_batch_size()
     }
 
     /// Expose the inner fetcher for direct low-level account access.
@@ -90,7 +100,7 @@ impl AccountLoader {
 
     fn load_from_plans(&mut self, plans: &[MessageAccountPlan]) -> Result<ResolvedAccounts> {
         let initial = collect_initial_accounts(plans);
-        let mut accounts = HashMap::new();
+        let mut accounts = HashMap::with_capacity(initial.len());
 
         self.fetcher.fetch_accounts(&initial, &mut accounts).map_err(|e| {
             SonarSimError::AccountData {
@@ -260,8 +270,10 @@ impl AccountAppender for AccountLoader {
 }
 
 fn collect_initial_accounts(plans: &[MessageAccountPlan]) -> Vec<Pubkey> {
-    let mut keys = Vec::new();
-    let mut seen = HashSet::new();
+    let cap =
+        plans.iter().map(|p| p.static_accounts.len() + p.address_lookups.len()).sum::<usize>() + 2;
+    let mut keys = Vec::with_capacity(cap);
+    let mut seen = HashSet::with_capacity(cap);
 
     for plan in plans {
         for key in &plan.static_accounts {

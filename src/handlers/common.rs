@@ -44,6 +44,7 @@ pub(crate) struct CachePrepareArgs<'a> {
     pub cache_dir: &'a Option<PathBuf>,
     pub refresh_cache: bool,
     pub no_idl_fetch: bool,
+    pub rpc_batch_size: usize,
 }
 
 /// Result of resolving cache state and preparing accounts/IDLs.
@@ -159,6 +160,7 @@ pub(crate) fn resolve_cache_and_prepare(
         parser_registry,
         args.no_idl_fetch,
         progress,
+        args.rpc_batch_size,
     )?;
 
     Ok(CachePreparedContext { cache_dir: resolved_cache_dir, offline, prepared })
@@ -285,12 +287,14 @@ pub(crate) fn prepare_accounts_and_idls(
     parser_registry: &mut ParserRegistry,
     no_idl_fetch: bool,
     progress: &Progress,
+    rpc_batch_size: usize,
 ) -> Result<PreparedPipelineContext> {
     let mut account_loader = account_loader::create_loader(
         rpc_url.to_string(),
         cache_dir,
         offline,
         Some(progress.clone()),
+        rpc_batch_size,
     )?;
     let resolved_accounts = if parsed_txs.len() == 1 {
         account_loader.load_for_transaction(&parsed_txs[0].transaction)?

@@ -42,13 +42,13 @@ pub(crate) fn handle(args: IdlArgs, json: bool) -> Result<()> {
 fn handle_fetch(args: IdlFetchArgs, json: bool) -> Result<()> {
     let program_ids = parse_program_ids(&args.programs)?;
     let output_dir = resolve_output_dir(args.output_dir, None);
-    fetch_and_write_idls(program_ids, args.rpc.rpc_url, output_dir, json)
+    fetch_and_write_idls(program_ids, args.rpc.rpc_url, args.rpc.rpc_batch_size, output_dir, json)
 }
 
 fn handle_sync(args: IdlSyncArgs, json: bool) -> Result<()> {
     let (program_ids, default_output_dir) = collect_program_ids_from_sync_path(&args.path)?;
     let output_dir = resolve_output_dir(args.output_dir, default_output_dir.as_deref());
-    fetch_and_write_idls(program_ids, args.rpc.rpc_url, output_dir, json)
+    fetch_and_write_idls(program_ids, args.rpc.rpc_url, args.rpc.rpc_batch_size, output_dir, json)
 }
 
 fn handle_address(args: IdlAddressArgs, json: bool) -> Result<()> {
@@ -85,6 +85,7 @@ fn parse_program_ids(raw_programs: &[String]) -> Result<Vec<Pubkey>> {
 fn fetch_and_write_idls(
     program_ids: Vec<Pubkey>,
     rpc_url: String,
+    rpc_batch_size: usize,
     output_dir: PathBuf,
     json: bool,
 ) -> Result<()> {
@@ -92,7 +93,8 @@ fn fetch_and_write_idls(
         .with_context(|| format!("Failed to create output directory: {}", output_dir.display()))?;
 
     let progress = Progress::new();
-    let fetcher = idl_fetcher::IdlFetcher::new(rpc_url, Some(progress.clone()))?;
+    let fetcher = idl_fetcher::IdlFetcher::new(rpc_url, Some(progress.clone()))?
+        .with_rpc_batch_size(rpc_batch_size);
     let results = fetcher.fetch_idls(&program_ids);
     progress.finish();
 

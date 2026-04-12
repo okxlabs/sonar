@@ -90,6 +90,7 @@ pub(crate) fn handle(args: SimulateArgs, json: bool) -> Result<()> {
     } = args;
     // --cache-dir or --refresh-cache imply --cache
     let cache = cache || cache_dir.is_some() || refresh_cache;
+    let rpc_batch_size = rpc.rpc_batch_size;
     let rpc_url = rpc.rpc_url;
     let resolver_cache_location = Some(build_cache_location(&cache_dir));
 
@@ -145,6 +146,7 @@ pub(crate) fn handle(args: SimulateArgs, json: bool) -> Result<()> {
             cache_dir,
             refresh_cache,
             no_idl_fetch,
+            rpc_batch_size,
             &progress,
         );
     }
@@ -168,6 +170,7 @@ pub(crate) fn handle(args: SimulateArgs, json: bool) -> Result<()> {
         cache_dir: &cache_dir,
         refresh_cache,
         no_idl_fetch,
+        rpc_batch_size,
     };
     let cached = resolve_cache_and_prepare(
         &cache_args,
@@ -288,6 +291,7 @@ fn handle_bundle(
     cache_dir: Option<PathBuf>,
     refresh_cache: bool,
     no_idl_fetch: bool,
+    rpc_batch_size: usize,
     progress: &Progress,
 ) -> Result<()> {
     log::info!("Bundle simulation mode: {} transactions", tx_inputs.len());
@@ -308,6 +312,7 @@ fn handle_bundle(
         cache_dir: &cache_dir,
         refresh_cache,
         no_idl_fetch,
+        rpc_batch_size,
     };
     let cached = resolve_cache_and_prepare(
         &cache_args,

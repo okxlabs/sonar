@@ -32,6 +32,7 @@ use crate::utils::progress::Progress;
 pub(crate) fn handle(args: TraceArgs, json: bool) -> Result<()> {
     let progress = Progress::new();
     let rpc_url = args.rpc.rpc_url;
+    let rpc_batch_size = args.rpc.rpc_batch_size;
     let idl_dir = args.idl_dir.clone();
     let mut parser_registry = ParserRegistry::new(idl_dir);
 
@@ -84,6 +85,7 @@ pub(crate) fn handle(args: TraceArgs, json: bool) -> Result<()> {
         args.no_idl_fetch,
         meta_lookups,
         &progress,
+        rpc_batch_size,
     );
 
     progress.finish();
@@ -134,6 +136,7 @@ fn load_accounts_and_idls(
     no_idl_fetch: bool,
     meta_lookups: Vec<ResolvedLookup>,
     progress: &Progress,
+    rpc_batch_size: usize,
 ) -> ResolvedAccounts {
     let mut program_ids: Vec<Pubkey> = parsed_tx
         .summary
@@ -147,16 +150,18 @@ fn load_accounts_and_idls(
 
     progress.set_message("Fetching program accounts...");
     let mut accounts: HashMap<Pubkey, AccountSharedData> = HashMap::new();
-    match client.get_multiple_accounts(&program_ids) {
-        Ok(results) => {
-            for (pubkey, account) in program_ids.iter().zip(results) {
-                if let Some(account) = account {
-                    accounts.insert(*pubkey, AccountSharedData::from(account));
+    for chunk in program_ids.chunks(rpc_batch_size) {
+        match client.get_multiple_accounts(chunk) {
+            Ok(results) => {
+                for (pubkey, account) in chunk.iter().zip(results) {
+                    if let Some(account) = account {
+                        accounts.insert(*pubkey, AccountSharedData::from(account));
+                    }
                 }
             }
-        }
-        Err(e) => {
-            log::warn!("Failed to fetch program accounts: {:#}", e);
+            Err(e) => {
+                log::warn!("Failed to fetch program accounts: {:#}", e);
+            }
         }
     }
 
@@ -179,7 +184,7 @@ fn load_accounts_and_idls(
     let resolved = ResolvedAccounts { accounts, lookups: meta_lookups };
 
     // Delegate to the shared IDL pipeline (auto-fetch + load from disk)
-    match account_loader::create_loader(rpc_url.to_string(), None, false, Some(progress.clone())) {
+    match account_loader::create_loader(rpc_url.to_string(), None, false, Some(progress.clone()), rpc_batch_size) {
         Ok(loader) => {
             super::common::run_idl_pipeline(
                 &loader,
