@@ -202,7 +202,7 @@ mod tests {
     use std::collections::HashMap;
     use std::path::PathBuf;
 
-    use crate::parsers::instruction::ParsedInstructionFields;
+    use sonar_idl::IdlValue;
 
     #[test]
     fn test_token2022_parser_registration() {
@@ -326,7 +326,7 @@ mod tests {
     }
 
     #[test]
-    fn parser_registry_marks_truncated_idl_args_as_raw_hex() {
+    fn parser_registry_decodes_trailing_absent_args_as_null() {
         let test_dir = std::env::temp_dir().join(format!(
             "sonar-idl-unparsed-test-{}-{}",
             std::process::id(),
@@ -360,6 +360,10 @@ mod tests {
         )
         .expect("write temp idl");
 
+        // Instruction data: 8-byte disc + 8-byte u64 arg — no bytes for the
+        // trailing u16 arg. Programs commonly add optional trailing args that
+        // callers may omit, so sonar should decode what's present and default
+        // the absent trailing arg to null.
         let instruction = crate::core::transaction::InstructionSummary {
             index: 7,
             program: crate::core::transaction::AccountReferenceSummary {
@@ -387,10 +391,12 @@ mod tests {
 
         assert_eq!(parsed.name, "swap_toc");
         assert_eq!(parsed.account_names, vec!["payer"]);
-        assert!(matches!(
-            parsed.fields,
-            ParsedInstructionFields::RawHex(raw_hex) if raw_hex == "0025a16608ca3c00"
-        ));
+        let fields = parsed.fields.parsed_fields().expect("should be Parsed, not RawHex");
+        assert_eq!(fields.len(), 2);
+        assert_eq!(fields[0].name, "amount_in");
+        assert_eq!(fields[0].value, IdlValue::U64(0x003cca0866a12500));
+        assert_eq!(fields[1].name, "slippage_bps");
+        assert_eq!(fields[1].value, IdlValue::Null);
 
         std::fs::remove_file(idl_path).ok();
         std::fs::remove_dir_all(test_dir).ok();
