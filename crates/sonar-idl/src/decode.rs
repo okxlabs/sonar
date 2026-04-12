@@ -13,6 +13,14 @@ pub(super) fn parse_instruction_args(
 ) -> Result<Vec<IdlParsedField>> {
     let mut fields = Vec::new();
     for arg in args {
+        // When data is exactly consumed, treat remaining trailing args as absent
+        // (null). Programs commonly add optional trailing args that callers may
+        // omit; the Solana runtime does not enforce that programs read all
+        // instruction data.
+        if *offset >= data.len() && !fields.is_empty() {
+            fields.push(IdlParsedField { name: arg.name.clone(), value: IdlValue::Null });
+            continue;
+        }
         let value = parse_type(data, offset, &arg.type_, indexed)?;
         fields.push(IdlParsedField { name: arg.name.clone(), value });
     }
