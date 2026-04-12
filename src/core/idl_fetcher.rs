@@ -66,42 +66,32 @@ impl IdlFetcher {
 
         let (pending, mut results) = prepare_idl_batch(program_ids);
         let total = pending.len();
-        let chunks: Vec<&[(usize, Pubkey, Pubkey)]> =
-            pending.chunks(self.rpc_batch_size).collect();
+        let chunks: Vec<&[(usize, Pubkey, Pubkey)]> = pending.chunks(self.rpc_batch_size).collect();
 
         // Fetch all chunks in parallel when multiple batches are needed
-        let batch_rpc_results: Vec<Result<Vec<Option<AccountSharedData>>>> =
-            if chunks.len() <= 1 {
-                chunks
+        let batch_rpc_results: Vec<Result<Vec<Option<AccountSharedData>>>> = if chunks.len() <= 1 {
+            chunks
+                .iter()
+                .map(|chunk| {
+                    let addrs: Vec<Pubkey> = chunk.iter().map(|(_, _, idl)| *idl).collect();
+                    self.provider.get_multiple_accounts(&addrs).map_err(|e| anyhow!("{e}"))
+                })
+                .collect()
+        } else {
+            std::thread::scope(|s| {
+                let handles: Vec<_> = chunks
                     .iter()
                     .map(|chunk| {
+                        let provider = Arc::clone(&self.provider);
                         let addrs: Vec<Pubkey> = chunk.iter().map(|(_, _, idl)| *idl).collect();
-                        self.provider
-                            .get_multiple_accounts(&addrs)
-                            .map_err(|e| anyhow!("{e}"))
-                    })
-                    .collect()
-            } else {
-                std::thread::scope(|s| {
-                    let handles: Vec<_> = chunks
-                        .iter()
-                        .map(|chunk| {
-                            let provider = Arc::clone(&self.provider);
-                            let addrs: Vec<Pubkey> =
-                                chunk.iter().map(|(_, _, idl)| *idl).collect();
-                            s.spawn(move || {
-                                provider
-                                    .get_multiple_accounts(&addrs)
-                                    .map_err(|e| anyhow!("{e}"))
-                            })
+                        s.spawn(move || {
+                            provider.get_multiple_accounts(&addrs).map_err(|e| anyhow!("{e}"))
                         })
-                        .collect();
-                    handles
-                        .into_iter()
-                        .map(|h| h.join().expect("IDL batch thread panicked"))
-                        .collect()
-                })
-            };
+                    })
+                    .collect();
+                handles.into_iter().map(|h| h.join().expect("IDL batch thread panicked")).collect()
+            })
+        };
 
         let mut requested = 0usize;
         for (chunk, batch_result) in chunks.iter().zip(batch_rpc_results) {
@@ -212,8 +202,7 @@ fn process_idl_chunk(
                     )));
                 }
             } else {
-                for (&(idx, program_id, _), maybe_account) in
-                    chunk.iter().zip(response.into_iter())
+                for (&(idx, program_id, _), maybe_account) in chunk.iter().zip(response.into_iter())
                 {
                     results[idx] = Some(match maybe_account {
                         Some(account) => {

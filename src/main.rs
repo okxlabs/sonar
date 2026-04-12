@@ -108,7 +108,7 @@ fn run() -> Result<()> {
             handlers::completions::handle(args);
             return Ok(());
         }
-        Commands::Trace(args) => handlers::trace::handle(args, json)?,
+        Commands::Replay(args) => handlers::replay::handle(args, json)?,
     }
     Ok(())
 }

@@ -179,10 +179,7 @@ impl AccountFetcher {
         // Fetch all batches in parallel when multiple chunks are needed.
         // Single-batch case avoids thread overhead.
         let batch_results: Vec<Result<Vec<Option<AccountSharedData>>>> = if chunks.len() <= 1 {
-            chunks
-                .iter()
-                .map(|&chunk| self.provider.get_multiple_accounts(chunk))
-                .collect()
+            chunks.iter().map(|&chunk| self.provider.get_multiple_accounts(chunk)).collect()
         } else {
             let provider = &self.provider;
             std::thread::scope(|s| {
@@ -193,10 +190,7 @@ impl AccountFetcher {
                         s.spawn(move || provider.get_multiple_accounts(chunk))
                     })
                     .collect();
-                handles
-                    .into_iter()
-                    .map(|h| h.join().expect("RPC batch thread panicked"))
-                    .collect()
+                handles.into_iter().map(|h| h.join().expect("RPC batch thread panicked")).collect()
             })
         };
 

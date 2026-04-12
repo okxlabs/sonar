@@ -78,8 +78,8 @@ pub fn render(
     render_report(&report, resolved, parser_registry, opts)
 }
 
-/// Render a trace report with pre-computed balance changes from RPC metadata.
-pub fn render_trace(
+/// Render a replay report with pre-computed balance changes from RPC metadata.
+pub fn render_replay(
     parsed: &ParsedTransaction,
     resolved: &ResolvedAccounts,
     simulation: &ExecutionResult,
@@ -88,7 +88,7 @@ pub fn render_trace(
     sol_balance_changes: Vec<SolBalanceChangeSection>,
     token_balance_changes: Vec<TokenBalanceChangeSection>,
 ) -> Result<()> {
-    let report = Report::from_trace(
+    let report = Report::from_replay(
         parsed,
         resolved,
         simulation,
