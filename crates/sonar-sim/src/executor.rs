@@ -372,24 +372,9 @@ impl<B: SvmBackend> PreparedSimulation<B> {
         &self.resolved
     }
 
-    pub fn account_closures(&self) -> &[Pubkey] {
-        &self.record.account_closures
-    }
-
-    pub fn account_overrides(&self) -> &[AccountOverride] {
-        &self.record.account_overrides
-    }
-
-    pub fn sol_fundings(&self) -> &[SolFunding] {
-        &self.record.sol_fundings
-    }
-
-    pub fn token_fundings(&self) -> &[PreparedTokenFunding] {
-        &self.record.token_fundings
-    }
-
-    pub fn account_data_patches(&self) -> &[AccountDataPatch] {
-        &self.record.account_data_patches
+    /// Access the pre-simulation mutation record.
+    pub fn mutations(&self) -> &StateMutationOptions {
+        &self.record
     }
 }
 
@@ -532,24 +517,9 @@ impl<B: SvmBackend> SimulationRunner<B> {
         &self.resolved
     }
 
-    pub fn account_closures(&self) -> &[Pubkey] {
-        &self.record.account_closures
-    }
-
-    pub fn account_overrides(&self) -> &[AccountOverride] {
-        &self.record.account_overrides
-    }
-
-    pub fn sol_fundings(&self) -> &[SolFunding] {
-        &self.record.sol_fundings
-    }
-
-    pub fn token_fundings(&self) -> &[PreparedTokenFunding] {
-        &self.record.token_fundings
-    }
-
-    pub fn account_data_patches(&self) -> &[AccountDataPatch] {
-        &self.record.account_data_patches
+    /// Access the pre-simulation mutation record.
+    pub fn mutations(&self) -> &StateMutationOptions {
+        &self.record
     }
 }
 

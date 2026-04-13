@@ -256,11 +256,12 @@ pub(crate) fn handle(args: SimulateArgs, json: bool) -> Result<()> {
     );
 
     progress.finish();
+    let mutations = runner.mutations();
     let ctx = output::SimulationContext {
-        account_closures: runner.account_closures(),
-        account_overrides: runner.account_overrides(),
-        fundings: runner.sol_fundings(),
-        token_fundings: runner.token_fundings(),
+        account_closures: &mutations.account_closures,
+        account_overrides: &mutations.account_overrides,
+        fundings: &mutations.sol_fundings,
+        token_fundings: &mutations.token_fundings,
     };
     output::render(
         &parsed_tx,
@@ -425,11 +426,12 @@ fn handle_bundle(
         .collect();
 
     progress.finish();
+    let mutations = runner.mutations();
     let ctx = output::SimulationContext {
-        account_closures: runner.account_closures(),
-        account_overrides: runner.account_overrides(),
-        fundings: runner.sol_fundings(),
-        token_fundings: runner.token_fundings(),
+        account_closures: &mutations.account_closures,
+        account_overrides: &mutations.account_overrides,
+        fundings: &mutations.sol_fundings,
+        token_fundings: &mutations.token_fundings,
     };
     output::render_bundle(
         &updated_txs,
