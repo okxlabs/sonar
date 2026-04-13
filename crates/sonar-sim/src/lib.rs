@@ -20,6 +20,7 @@ pub(crate) mod pipeline;
 pub(crate) mod result;
 pub(crate) mod rpc_json;
 pub(crate) mod rpc_provider;
+pub(crate) mod rpc_transport;
 pub(crate) mod svm_backend;
 #[cfg(test)]
 pub(crate) mod test_utils;
