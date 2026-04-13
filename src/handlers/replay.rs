@@ -138,6 +138,11 @@ fn load_accounts_and_idls(
     progress: &Progress,
     rpc_batch_size: usize,
 ) -> ResolvedAccounts {
+    // Collect program IDs from both outer and inner (CPI) instructions so that
+    // all programs are fetched from RPC with real account data. Previously only
+    // outer programs were fetched; CPI programs got stubs with a default owner
+    // (system_program), which caused find_fetchable_programs() to skip them for
+    // IDL auto-fetch (it requires owner == bpf_loader_upgradeable).
     let mut program_ids: Vec<Pubkey> = parsed_tx
         .summary
         .instructions
@@ -145,6 +150,14 @@ fn load_accounts_and_idls(
         .filter_map(|ix| ix.program.pubkey.as_ref())
         .filter_map(|s| Pubkey::from_str(s).ok())
         .collect();
+    for group in &parsed_tx.summary.inner_instructions {
+        for inner_ix in group {
+            let idx = inner_ix.instruction.program_id_index as usize;
+            if let Some(&pubkey) = ordered_keys.get(idx) {
+                program_ids.push(pubkey);
+            }
+        }
+    }
     program_ids.sort();
     program_ids.dedup();
 
@@ -161,22 +174,6 @@ fn load_accounts_and_idls(
             }
             Err(e) => {
                 log::warn!("Failed to fetch program accounts: {:#}", e);
-            }
-        }
-    }
-
-    // Mark CPI program accounts as executable using inner instruction data
-    // already in memory — no extra RPC calls needed.
-    for group in &parsed_tx.summary.inner_instructions {
-        for inner_ix in group {
-            let idx = inner_ix.instruction.program_id_index as usize;
-            if let Some(&pubkey) = ordered_keys.get(idx) {
-                accounts.entry(pubkey).or_insert_with(|| {
-                    AccountSharedData::from(solana_account::Account {
-                        executable: true,
-                        ..Default::default()
-                    })
-                });
             }
         }
     }
