@@ -232,19 +232,73 @@ impl Pipeline {
         self
     }
 
+    // ── Private helpers ──
+
+    /// Apply transaction-level mutations (instruction patches) to a single transaction.
+    fn apply_tx_mutations(tx: &mut VersionedTransaction, mutations: &Mutations) -> Result<()> {
+        if !mutations.ix_account_patches.is_empty() {
+            apply_ix_account_patches(tx, &mutations.ix_account_patches)?;
+        }
+        if !mutations.ix_account_appends.is_empty() {
+            apply_ix_account_appends(tx, &mutations.ix_account_appends)?;
+        }
+        if !mutations.ix_data_patches.is_empty() {
+            apply_ix_data_patches(tx, &mutations.ix_data_patches)?;
+        }
+        Ok(())
+    }
+
+    /// Extract and validate the execution-stage state from the pipeline.
+    fn take_execution_state(&mut self) -> Result<(ParsedState, ResolvedAccounts, AccountLoader)> {
+        let parsed = self.parsed.take().ok_or(SonarSimError::Validation {
+            reason: "parse() or parse_bundle() must be called before execution".into(),
+        })?;
+        let resolved = self.resolved.take().ok_or(SonarSimError::Validation {
+            reason: "load_accounts() must be called before execution".into(),
+        })?;
+        let loader = self.loader.take().ok_or(SonarSimError::Validation {
+            reason: "load_accounts() must be called before execution".into(),
+        })?;
+        Ok((parsed, resolved, loader))
+    }
+
+    /// Build SimulationOptions from pipeline config and user-facing Mutations.
+    ///
+    /// Handles token funding preparation and maps Mutations fields into
+    /// the executor's StateMutationOptions.
+    fn build_sim_options(
+        &self,
+        mutations: Mutations,
+        loader: &mut AccountLoader,
+        resolved: &ResolvedAccounts,
+    ) -> Result<SimulationOptions> {
+        let prepared_fundings = if !mutations.token_fundings.is_empty() {
+            prepare_token_fundings(loader, resolved, &mutations.token_fundings)?
+        } else {
+            vec![]
+        };
+
+        Ok(SimulationOptions {
+            execution: ExecutionOptions {
+                signature_verification: SignatureVerification::from(self.verify_signatures),
+                slot: self.slot,
+                timestamp: self.timestamp,
+            },
+            mutations: StateMutationOptions {
+                account_closures: mutations.account_closures,
+                overrides: mutations.account_overrides,
+                sol_fundings: mutations.sol_fundings,
+                token_fundings: prepared_fundings,
+                data_patches: mutations.account_data_patches,
+            },
+        })
+    }
+
     // ── Execute stage ──
 
     /// Execute a single transaction simulation.
     pub fn execute(mut self) -> Result<SimulationResult> {
-        let parsed_state = self.parsed.take().ok_or(SonarSimError::Validation {
-            reason: "parse() must be called before execute()".into(),
-        })?;
-        let resolved = self.resolved.take().ok_or(SonarSimError::Validation {
-            reason: "load_accounts() must be called before execute()".into(),
-        })?;
-        let mut loader = self.loader.take().ok_or(SonarSimError::Validation {
-            reason: "load_accounts() must be called before execute()".into(),
-        })?;
+        let (parsed_state, resolved, mut loader) = self.take_execution_state()?;
 
         let parsed = match parsed_state {
             ParsedState::Single(p) => p,
@@ -256,7 +310,15 @@ impl Pipeline {
         };
 
         let mutations = self.mutations.take().unwrap_or_default();
-        self.execute_inner(parsed.transaction, mutations, resolved, &mut loader)
+        let mut tx = parsed.transaction;
+        Self::apply_tx_mutations(&mut tx, &mutations)?;
+
+        let sim_opts = self.build_sim_options(mutations, &mut loader, &resolved)?;
+        let prepared = PreparedSimulation::prepare(resolved, sim_opts)?;
+        let mut runner = prepared.into_runner();
+        let exec_result = runner.execute(&tx)?;
+
+        Ok(SimulationResult::from_execution(exec_result))
     }
 
     /// Execute a bundle of transactions sequentially.
@@ -265,15 +327,7 @@ impl Pipeline {
     /// transactions and the total count. Check [`BundleResult::skipped_count`]
     /// to detect transactions that were never attempted due to a prior failure.
     pub fn execute_bundle(mut self) -> Result<BundleResult<Result<SimulationResult>>> {
-        let parsed_state = self.parsed.take().ok_or(SonarSimError::Validation {
-            reason: "parse_bundle() must be called before execute_bundle()".into(),
-        })?;
-        let resolved = self.resolved.take().ok_or(SonarSimError::Validation {
-            reason: "load_accounts() must be called before execute_bundle()".into(),
-        })?;
-        let mut loader = self.loader.take().ok_or(SonarSimError::Validation {
-            reason: "load_accounts() must be called before execute_bundle()".into(),
-        })?;
+        let (parsed_state, resolved, mut loader) = self.take_execution_state()?;
 
         let parsed_txs = match parsed_state {
             ParsedState::Bundle(txs) => txs,
@@ -284,54 +338,22 @@ impl Pipeline {
             }
         };
 
-        let mutations = self.mutations.unwrap_or_default();
+        let mutations = self.mutations.take().unwrap_or_default();
 
-        // Clone and mutate all transactions
         let mut txs: Vec<VersionedTransaction> = Vec::with_capacity(parsed_txs.len());
         for parsed in &parsed_txs {
             let mut tx = parsed.transaction.clone();
-            if !mutations.ix_account_patches.is_empty() {
-                apply_ix_account_patches(&mut tx, &mutations.ix_account_patches)?;
-            }
-            if !mutations.ix_account_appends.is_empty() {
-                apply_ix_account_appends(&mut tx, &mutations.ix_account_appends)?;
-            }
-            if !mutations.ix_data_patches.is_empty() {
-                apply_ix_data_patches(&mut tx, &mutations.ix_data_patches)?;
-            }
+            Self::apply_tx_mutations(&mut tx, &mutations)?;
             txs.push(tx);
         }
 
-        // Prepare token fundings
-        let prepared_fundings = if !mutations.token_fundings.is_empty() {
-            prepare_token_fundings(&mut loader, &resolved, &mutations.token_fundings)?
-        } else {
-            vec![]
-        };
-
-        // Build simulation options
-        let sim_opts = SimulationOptions {
-            execution: ExecutionOptions {
-                signature_verification: SignatureVerification::from(self.verify_signatures),
-                slot: self.slot,
-                timestamp: self.timestamp,
-            },
-            mutations: StateMutationOptions {
-                account_closures: mutations.account_closures,
-                overrides: mutations.account_overrides,
-                sol_fundings: mutations.sol_fundings,
-                token_fundings: prepared_fundings,
-                data_patches: mutations.account_data_patches,
-            },
-        };
-
+        let sim_opts = self.build_sim_options(mutations, &mut loader, &resolved)?;
         let prepared = PreparedSimulation::prepare(resolved, sim_opts)?;
         let mut runner = prepared.into_runner();
 
         let tx_refs: Vec<&VersionedTransaction> = txs.iter().collect();
         let bundle = runner.execute_bundle(&tx_refs);
 
-        // Map inner ExecutionResults to SimulationResults
         let total = bundle.total();
         let mapped = bundle
             .into_executed()
@@ -340,58 +362,6 @@ impl Pipeline {
             .collect();
 
         Ok(BundleResult::new(mapped, total))
-    }
-
-    // ── Private helpers ──
-
-    fn execute_inner(
-        &self,
-        transaction: VersionedTransaction,
-        mutations: Mutations,
-        resolved: ResolvedAccounts,
-        loader: &mut AccountLoader,
-    ) -> Result<SimulationResult> {
-        let mut tx = transaction;
-
-        // Apply transaction-level mutations
-        if !mutations.ix_account_patches.is_empty() {
-            apply_ix_account_patches(&mut tx, &mutations.ix_account_patches)?;
-        }
-        if !mutations.ix_account_appends.is_empty() {
-            apply_ix_account_appends(&mut tx, &mutations.ix_account_appends)?;
-        }
-        if !mutations.ix_data_patches.is_empty() {
-            apply_ix_data_patches(&mut tx, &mutations.ix_data_patches)?;
-        }
-
-        // Prepare token fundings
-        let prepared_fundings = if !mutations.token_fundings.is_empty() {
-            prepare_token_fundings(loader, &resolved, &mutations.token_fundings)?
-        } else {
-            vec![]
-        };
-
-        // Build simulation options
-        let sim_opts = SimulationOptions {
-            execution: ExecutionOptions {
-                signature_verification: SignatureVerification::from(self.verify_signatures),
-                slot: self.slot,
-                timestamp: self.timestamp,
-            },
-            mutations: StateMutationOptions {
-                account_closures: mutations.account_closures,
-                overrides: mutations.account_overrides,
-                sol_fundings: mutations.sol_fundings,
-                token_fundings: prepared_fundings,
-                data_patches: mutations.account_data_patches,
-            },
-        };
-
-        let prepared = PreparedSimulation::prepare(resolved, sim_opts)?;
-        let mut runner = prepared.into_runner();
-        let exec_result = runner.execute(&tx)?;
-
-        Ok(SimulationResult::from_execution(exec_result))
     }
 }
 
