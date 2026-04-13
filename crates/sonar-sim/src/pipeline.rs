@@ -236,14 +236,15 @@ impl Pipeline {
 
     /// Apply transaction-level mutations (instruction patches) to a single transaction.
     fn apply_tx_mutations(tx: &mut VersionedTransaction, mutations: &Mutations) -> Result<()> {
-        if !mutations.ix_account_patches.is_empty() {
-            apply_ix_account_patches(tx, &mutations.ix_account_patches)?;
+        let tx_m = &mutations.transaction;
+        if !tx_m.ix_account_patches.is_empty() {
+            apply_ix_account_patches(tx, &tx_m.ix_account_patches)?;
         }
-        if !mutations.ix_account_appends.is_empty() {
-            apply_ix_account_appends(tx, &mutations.ix_account_appends)?;
+        if !tx_m.ix_account_appends.is_empty() {
+            apply_ix_account_appends(tx, &tx_m.ix_account_appends)?;
         }
-        if !mutations.ix_data_patches.is_empty() {
-            apply_ix_data_patches(tx, &mutations.ix_data_patches)?;
+        if !tx_m.ix_data_patches.is_empty() {
+            apply_ix_data_patches(tx, &tx_m.ix_data_patches)?;
         }
         Ok(())
     }
@@ -272,8 +273,9 @@ impl Pipeline {
         loader: &mut AccountLoader,
         resolved: &ResolvedAccounts,
     ) -> Result<SimulationOptions> {
-        let prepared_fundings = if !mutations.token_fundings.is_empty() {
-            prepare_token_fundings(loader, resolved, &mutations.token_fundings)?
+        let state = mutations.state;
+        let prepared_fundings = if !state.token_fundings.is_empty() {
+            prepare_token_fundings(loader, resolved, &state.token_fundings)?
         } else {
             vec![]
         };
@@ -285,11 +287,11 @@ impl Pipeline {
                 timestamp: self.timestamp,
             },
             mutations: StateMutationOptions {
-                account_closures: mutations.account_closures,
-                account_overrides: mutations.account_overrides,
-                sol_fundings: mutations.sol_fundings,
+                account_closures: state.account_closures,
+                account_overrides: state.account_overrides,
+                sol_fundings: state.sol_fundings,
                 token_fundings: prepared_fundings,
-                account_data_patches: mutations.account_data_patches,
+                account_data_patches: state.account_data_patches,
             },
         })
     }
