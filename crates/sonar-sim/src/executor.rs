@@ -63,10 +63,10 @@ pub struct ExecutionOptions {
 #[derive(Debug, Clone, Default)]
 pub struct StateMutationOptions {
     pub account_closures: Vec<Pubkey>,
-    pub overrides: Vec<AccountOverride>,
+    pub account_overrides: Vec<AccountOverride>,
     pub sol_fundings: Vec<SolFunding>,
     pub token_fundings: Vec<PreparedTokenFunding>,
-    pub data_patches: Vec<AccountDataPatch>,
+    pub account_data_patches: Vec<AccountDataPatch>,
 }
 
 /// Simulation execution options passed to [`PreparedSimulation::prepare`].
@@ -116,8 +116,8 @@ impl SimulationOptionsBuilder {
         self
     }
 
-    pub fn overrides(mut self, overrides: Vec<AccountOverride>) -> Self {
-        self.opts.mutations.overrides = overrides;
+    pub fn account_overrides(mut self, account_overrides: Vec<AccountOverride>) -> Self {
+        self.opts.mutations.account_overrides = account_overrides;
         self
     }
 
@@ -131,8 +131,8 @@ impl SimulationOptionsBuilder {
         self
     }
 
-    pub fn data_patches(mut self, data_patches: Vec<AccountDataPatch>) -> Self {
-        self.opts.mutations.data_patches = data_patches;
+    pub fn account_data_patches(mut self, account_data_patches: Vec<AccountDataPatch>) -> Self {
+        self.opts.mutations.account_data_patches = account_data_patches;
         self
     }
 
@@ -149,9 +149,9 @@ impl StateMutationOptions {
         resolved: &ResolvedAccounts,
     ) -> Result<()> {
         apply_account_closures(svm, &self.account_closures)?;
-        apply_overrides(svm, &self.overrides, resolved)?;
+        apply_overrides(svm, &self.account_overrides, resolved)?;
         apply_sol_fundings(svm, &self.sol_fundings)?;
-        apply_data_patches(svm, &self.data_patches)?;
+        apply_data_patches(svm, &self.account_data_patches)?;
         apply_token_fundings(svm, &self.token_fundings, resolved)?;
         Ok(())
     }
@@ -376,8 +376,8 @@ impl<B: SvmBackend> PreparedSimulation<B> {
         &self.record.account_closures
     }
 
-    pub fn overrides(&self) -> &[AccountOverride] {
-        &self.record.overrides
+    pub fn account_overrides(&self) -> &[AccountOverride] {
+        &self.record.account_overrides
     }
 
     pub fn sol_fundings(&self) -> &[SolFunding] {
@@ -388,8 +388,8 @@ impl<B: SvmBackend> PreparedSimulation<B> {
         &self.record.token_fundings
     }
 
-    pub fn data_patches(&self) -> &[AccountDataPatch] {
-        &self.record.data_patches
+    pub fn account_data_patches(&self) -> &[AccountDataPatch] {
+        &self.record.account_data_patches
     }
 }
 
@@ -536,8 +536,8 @@ impl<B: SvmBackend> SimulationRunner<B> {
         &self.record.account_closures
     }
 
-    pub fn overrides(&self) -> &[AccountOverride] {
-        &self.record.overrides
+    pub fn account_overrides(&self) -> &[AccountOverride] {
+        &self.record.account_overrides
     }
 
     pub fn sol_fundings(&self) -> &[SolFunding] {
@@ -548,8 +548,8 @@ impl<B: SvmBackend> SimulationRunner<B> {
         &self.record.token_fundings
     }
 
-    pub fn data_patches(&self) -> &[AccountDataPatch] {
-        &self.record.data_patches
+    pub fn account_data_patches(&self) -> &[AccountDataPatch] {
+        &self.record.account_data_patches
     }
 }
 

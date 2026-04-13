@@ -96,10 +96,10 @@ pub(crate) fn handle(args: SimulateArgs, json: bool) -> Result<()> {
 
     let TransactionInputArgs { tx } = transaction;
 
-    let overrides = parse_cli_args(override_args, cli::parse_override)?;
+    let account_overrides = parse_cli_args(override_args, cli::parse_override)?;
     let sol_fundings = parse_cli_args(funding_args, cli::parse_funding)?;
     let token_funding_requests = parse_cli_args(token_funding_args, cli::parse_token_funding)?;
-    let data_patches = parse_cli_args(data_patch_args, cli::parse_data_patch)?;
+    let account_data_patches = parse_cli_args(data_patch_args, cli::parse_data_patch)?;
     let account_closures = parse_cli_args(account_closure_args, cli::parse_close_account)?;
     let ix_account_patches = parse_cli_args(ix_account_patch_args, cli::parse_ix_account_patch)?;
     let ix_account_appends = parse_cli_args(ix_account_append_args, cli::parse_ix_account_append)?;
@@ -125,9 +125,9 @@ pub(crate) fn handle(args: SimulateArgs, json: bool) -> Result<()> {
             },
             mutations: StateMutationOptions {
                 account_closures,
-                overrides,
+                account_overrides,
                 sol_fundings,
-                data_patches,
+                account_data_patches,
                 ..Default::default()
             },
         };
@@ -184,7 +184,7 @@ pub(crate) fn handle(args: SimulateArgs, json: bool) -> Result<()> {
     let mut prepared = cached.prepared;
 
     warn_unmatched_addresses(
-        &overrides,
+        &account_overrides,
         &sol_fundings,
         &token_funding_requests,
         &account_closures,
@@ -237,10 +237,10 @@ pub(crate) fn handle(args: SimulateArgs, json: bool) -> Result<()> {
         },
         mutations: StateMutationOptions {
             account_closures,
-            overrides,
+            account_overrides,
             sol_fundings,
             token_fundings: prepared_token_fundings,
-            data_patches,
+            account_data_patches,
         },
     };
     let mut runner =
@@ -258,7 +258,7 @@ pub(crate) fn handle(args: SimulateArgs, json: bool) -> Result<()> {
     progress.finish();
     let ctx = output::SimulationContext {
         account_closures: runner.account_closures(),
-        overrides: runner.overrides(),
+        account_overrides: runner.account_overrides(),
         fundings: runner.sol_fundings(),
         token_fundings: runner.token_fundings(),
     };
@@ -327,7 +327,7 @@ fn handle_bundle(
 
     let parsed_tx_refs: Vec<_> = parsed_txs.iter().collect();
     warn_unmatched_addresses(
-        &sim_opts.mutations.overrides,
+        &sim_opts.mutations.account_overrides,
         &sim_opts.mutations.sol_fundings,
         &token_funding_requests,
         &sim_opts.mutations.account_closures,
@@ -427,7 +427,7 @@ fn handle_bundle(
     progress.finish();
     let ctx = output::SimulationContext {
         account_closures: runner.account_closures(),
-        overrides: runner.overrides(),
+        account_overrides: runner.account_overrides(),
         fundings: runner.sol_fundings(),
         token_fundings: runner.token_fundings(),
     };
