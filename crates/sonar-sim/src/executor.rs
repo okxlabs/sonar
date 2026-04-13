@@ -75,70 +75,17 @@ pub struct StateMutationOptions {
 /// - [`ExecutionOptions`]: VM-level knobs (signature verification, slot/time override).
 /// - [`StateMutationOptions`]: pre-simulation account mutations (replace, fund, patch).
 ///
-/// Construct via `Default`, struct literal, or the builder returned by
-/// [`SimulationOptions::builder`].
+/// All fields are public with `Default` — construct via struct literal:
+/// ```ignore
+/// SimulationOptions {
+///     execution: ExecutionOptions { slot: Some(42), ..Default::default() },
+///     ..Default::default()
+/// }
+/// ```
 #[derive(Debug, Clone, Default)]
 pub struct SimulationOptions {
     pub execution: ExecutionOptions,
     pub mutations: StateMutationOptions,
-}
-
-/// Incremental builder for [`SimulationOptions`].
-#[derive(Debug, Clone, Default)]
-pub struct SimulationOptionsBuilder {
-    opts: SimulationOptions,
-}
-
-impl SimulationOptions {
-    pub fn builder() -> SimulationOptionsBuilder {
-        SimulationOptionsBuilder::default()
-    }
-}
-
-impl SimulationOptionsBuilder {
-    pub fn signature_verification(mut self, verification: SignatureVerification) -> Self {
-        self.opts.execution.signature_verification = verification;
-        self
-    }
-
-    pub fn slot(mut self, slot: u64) -> Self {
-        self.opts.execution.slot = Some(slot);
-        self
-    }
-
-    pub fn timestamp(mut self, ts: i64) -> Self {
-        self.opts.execution.timestamp = Some(ts);
-        self
-    }
-
-    pub fn account_closures(mut self, account_closures: Vec<Pubkey>) -> Self {
-        self.opts.mutations.account_closures = account_closures;
-        self
-    }
-
-    pub fn account_overrides(mut self, account_overrides: Vec<AccountOverride>) -> Self {
-        self.opts.mutations.account_overrides = account_overrides;
-        self
-    }
-
-    pub fn sol_fundings(mut self, sol_fundings: Vec<SolFunding>) -> Self {
-        self.opts.mutations.sol_fundings = sol_fundings;
-        self
-    }
-
-    pub fn token_fundings(mut self, token_fundings: Vec<PreparedTokenFunding>) -> Self {
-        self.opts.mutations.token_fundings = token_fundings;
-        self
-    }
-
-    pub fn account_data_patches(mut self, account_data_patches: Vec<AccountDataPatch>) -> Self {
-        self.opts.mutations.account_data_patches = account_data_patches;
-        self
-    }
-
-    pub fn build(self) -> SimulationOptions {
-        self.opts
-    }
 }
 
 impl StateMutationOptions {
@@ -724,12 +671,16 @@ mod tests {
         let accounts = HashMap::new();
         let resolved = ResolvedAccounts { accounts, lookups: vec![] };
 
-        let opts = SimulationOptions::builder()
-            .sol_fundings(vec![SolFunding {
-                pubkey: payer.pubkey(),
-                amount_lamports: 10_000_000_000,
-            }])
-            .build();
+        let opts = SimulationOptions {
+            mutations: StateMutationOptions {
+                sol_fundings: vec![SolFunding {
+                    pubkey: payer.pubkey(),
+                    amount_lamports: 10_000_000_000,
+                }],
+                ..Default::default()
+            },
+            ..Default::default()
+        };
 
         let mut runner = PreparedSimulation::prepare(resolved, opts)
             .expect("prepare should succeed")
