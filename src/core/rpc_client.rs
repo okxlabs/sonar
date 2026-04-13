@@ -1,6 +1,4 @@
 use std::str::FromStr;
-use std::thread;
-use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow};
 use base64::Engine;
@@ -15,12 +13,12 @@ use solana_transaction_status_client_types::{
     EncodedTransaction, TransactionStatus, UiTransactionEncoding, UiTransactionStatusMeta,
 };
 
-use sonar_sim::internals::rpc_json::{JsonRpcResponse, RpcAccountInfo, RpcResultValue};
+use sonar_sim::internals::rpc_json::{RpcAccountInfo, RpcResultValue};
+use sonar_sim::internals::RpcTransport;
 
-/// Lightweight Solana JSON-RPC client backed by `ureq`.
+/// Lightweight Solana JSON-RPC client backed by [`RpcTransport`].
 pub struct RpcClient {
-    agent: ureq::Agent,
-    rpc_url: String,
+    transport: RpcTransport,
 }
 
 #[derive(Deserialize)]
@@ -67,61 +65,18 @@ pub struct RpcTransactionResponse {
 // Client implementation
 // ---------------------------------------------------------------------------
 
-const RPC_TIMEOUT: Duration = Duration::from_secs(30);
-const MAX_RETRIES: u32 = 5;
-const DEFAULT_RETRY_DELAY: Duration = Duration::from_secs(2);
-
 impl RpcClient {
     pub fn new(rpc_url: impl Into<String>) -> Self {
-        let agent =
-            ureq::Agent::config_builder().timeout_global(Some(RPC_TIMEOUT)).build().new_agent();
-        Self { agent, rpc_url: rpc_url.into() }
+        Self { transport: RpcTransport::new(rpc_url) }
     }
 
+    /// Convenience wrapper that converts [`sonar_sim::SonarSimError`] → [`anyhow::Error`].
     fn call<T: serde::de::DeserializeOwned>(
         &self,
         method: &str,
         params: serde_json::Value,
     ) -> Result<T> {
-        let body = serde_json::json!({
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": method,
-            "params": params,
-        });
-
-        let mut last_err = None;
-        for attempt in 0..=MAX_RETRIES {
-            match self.agent.post(&self.rpc_url).send_json(&body) {
-                Ok(mut response) => {
-                    let rpc: JsonRpcResponse<T> = response
-                        .body_mut()
-                        .read_json()
-                        .map_err(|e| anyhow!("Failed to parse RPC response: {e}"))?;
-
-                    if let Some(err) = rpc.error {
-                        return Err(anyhow!("{err}"));
-                    }
-                    return rpc.result.ok_or_else(|| anyhow!("RPC returned empty result"));
-                }
-                Err(ureq::Error::StatusCode(status_code))
-                    if (status_code == 429 || status_code == 503) && attempt < MAX_RETRIES =>
-                {
-                    let delay = DEFAULT_RETRY_DELAY * (attempt + 1);
-                    log::warn!(
-                        "RPC returned {}; retrying in {:?} (attempt {}/{})",
-                        status_code,
-                        delay,
-                        attempt + 1,
-                        MAX_RETRIES,
-                    );
-                    thread::sleep(delay);
-                    last_err = Some(anyhow!("RPC returned HTTP {status_code}"));
-                }
-                Err(e) => return Err(anyhow!("RPC request failed: {e}")),
-            }
-        }
-        Err(last_err.unwrap_or_else(|| anyhow!("RPC request failed after retries")))
+        self.transport.call(method, params).map_err(|e| anyhow!("{e}"))
     }
 
     pub fn get_account(&self, pubkey: &Pubkey) -> Result<Account> {
