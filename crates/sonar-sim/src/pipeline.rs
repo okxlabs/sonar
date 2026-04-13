@@ -286,10 +286,10 @@ impl Pipeline {
             },
             mutations: StateMutationOptions {
                 account_closures: mutations.account_closures,
-                overrides: mutations.account_overrides,
+                account_overrides: mutations.account_overrides,
                 sol_fundings: mutations.sol_fundings,
                 token_fundings: prepared_fundings,
-                data_patches: mutations.account_data_patches,
+                account_data_patches: mutations.account_data_patches,
             },
         })
     }

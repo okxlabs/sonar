@@ -53,7 +53,7 @@ pub struct RenderOptions {
 /// Grouped simulation context arguments that are always passed together.
 pub struct SimulationContext<'a> {
     pub account_closures: &'a [Pubkey],
-    pub overrides: &'a [AccountOverride],
+    pub account_overrides: &'a [AccountOverride],
     pub fundings: &'a [SolFunding],
     pub token_fundings: &'a [PreparedTokenFunding],
 }

@@ -110,7 +110,7 @@ impl BundleReport {
             .collect();
 
         let account_closures = closures_to_sections(ctx.account_closures);
-        let overrides = ctx.overrides.iter().map(override_to_section).collect();
+        let overrides = ctx.account_overrides.iter().map(override_to_section).collect();
 
         let fundings = ctx
             .fundings
@@ -172,7 +172,7 @@ impl Report {
         );
         let simulation_section = SimulationSection::from_result(simulation);
         let account_closures = closures_to_sections(ctx.account_closures);
-        let overrides = ctx.overrides.iter().map(override_to_section).collect();
+        let overrides = ctx.account_overrides.iter().map(override_to_section).collect();
         let (sol_balance_changes, token_balance_changes) =
             if matches!(simulation.status, ExecutionStatus::Succeeded)
                 && balance_opts.show_balance_change
