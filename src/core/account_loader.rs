@@ -5,7 +5,7 @@ use log::debug;
 use solana_account::AccountSharedData;
 use solana_pubkey::Pubkey;
 
-use sonar_sim::internals::{AccountLoader, HistoricalRpcProvider};
+use sonar_sim::internals::{AccountLoader, SolanaRpcProvider};
 
 use crate::core::idl_fetcher::IdlFetcher;
 use crate::utils::progress::Progress;
@@ -121,7 +121,7 @@ pub fn create_loader(
     };
 
     let mut loader = if let Some(slot) = history_slot {
-        AccountLoader::with_provider(Arc::new(HistoricalRpcProvider::new(url, slot)))
+        AccountLoader::with_provider(Arc::new(SolanaRpcProvider::historical(url, slot)))
     } else {
         AccountLoader::new(url)?
     }

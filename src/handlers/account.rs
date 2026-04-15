@@ -16,9 +16,7 @@ use sonar_sim::internals::DEFAULT_RPC_BATCH_SIZE;
 use crate::cli::AccountArgs;
 use crate::parsers::instruction::anchor_idl::IndexedIdl;
 use crate::{
-    core::{account_loader, idl_fetcher},
-    parsers::metaplex_metadata_decoder,
-    parsers::token_account_decoder,
+    core::account_loader, parsers::metaplex_metadata_decoder, parsers::token_account_decoder,
 };
 
 pub(crate) fn handle(args: AccountArgs, json: bool) -> Result<()> {
@@ -460,29 +458,16 @@ fn try_load_idl_from_dir(idl_dir: &Option<PathBuf>, owner: &Pubkey) -> Option<St
 }
 
 fn fetch_idl_from_chain(args: &AccountArgs, owner: &Pubkey) -> Option<String> {
-    fetch_idl_from_chain_with(args, owner, |rpc_url, history_slot| {
-        let loader = account_loader::create_loader(
-            rpc_url,
-            None,
-            false,
-            None,
-            DEFAULT_RPC_BATCH_SIZE,
-            history_slot,
-        )
-        .ok()?;
-        Some(account_loader::create_idl_fetcher(&loader, None))
-    })
-}
-
-fn fetch_idl_from_chain_with<F>(
-    args: &AccountArgs,
-    owner: &Pubkey,
-    make_fetcher: F,
-) -> Option<String>
-where
-    F: FnOnce(String, Option<u64>) -> Option<idl_fetcher::IdlFetcher>,
-{
-    let fetcher = make_fetcher(args.rpc.rpc_url.clone(), args.history_slot)?;
+    let loader = account_loader::create_loader(
+        args.rpc.rpc_url.clone(),
+        None,
+        false,
+        None,
+        DEFAULT_RPC_BATCH_SIZE,
+        args.history_slot,
+    )
+    .ok()?;
+    let fetcher = account_loader::create_idl_fetcher(&loader, None);
     fetcher.fetch_idl(owner).ok().flatten()
 }
 
@@ -602,14 +587,12 @@ fn fetch_metadata_for_mint(
 #[cfg(test)]
 mod tests {
     use std::io::Write;
-    use std::sync::{Arc, Mutex};
+    use std::sync::Arc;
 
     use super::{
-        fetch_idl_from_chain_with, load_account_json, parse_account_data_field,
-        parse_solana_account_json, should_enrich_with_metaplex_metadata,
+        load_account_json, parse_account_data_field, parse_solana_account_json,
+        should_enrich_with_metaplex_metadata,
     };
-    use crate::cli::AccountArgs;
-    use crate::cli::RpcArgs;
     use crate::core::idl_fetcher::{IdlFetcher, get_idl_address};
     use crate::parsers::token_account_decoder;
     use base64::{Engine as _, engine::general_purpose};
@@ -827,19 +810,11 @@ mod tests {
     }
 
     #[test]
-    fn fetch_idl_from_chain_passes_history_slot_to_fetcher_factory() {
+    fn idl_fetcher_finds_idl_via_fake_provider() {
         let program_id = Pubkey::new_unique();
         let historical_idl_json =
             build_anchor_idl_json(&program_id, "HistoricalAccount", "historicalValue");
-        let seen_history_slot = Arc::new(Mutex::new(None));
 
-        let args = AccountArgs {
-            account: None,
-            rpc: RpcArgs { rpc_url: "http://example.invalid".into(), rpc_batch_size: 100 },
-            idl_dir: None,
-            raw: false,
-            history_slot: Some(123),
-        };
         let idl_address = get_idl_address(&program_id).unwrap();
         let accounts = std::collections::HashMap::from([(
             idl_address,
@@ -852,18 +827,10 @@ mod tests {
             },
         )]);
 
-        let idl_json = fetch_idl_from_chain_with(&args, &program_id, {
-            let seen_history_slot = Arc::clone(&seen_history_slot);
-            move |_rpc_url, history_slot| {
-                *seen_history_slot.lock().unwrap() = history_slot;
-                Some(IdlFetcher::with_provider(
-                    Arc::new(FakeAccountProvider::from_accounts(accounts)),
-                    None,
-                ))
-            }
-        });
+        let fetcher =
+            IdlFetcher::with_provider(Arc::new(FakeAccountProvider::from_accounts(accounts)), None);
 
-        assert_eq!(*seen_history_slot.lock().unwrap(), Some(123));
+        let idl_json = fetcher.fetch_idl(&program_id).unwrap();
         assert_eq!(idl_json, Some(historical_idl_json));
     }
 }

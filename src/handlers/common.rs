@@ -156,15 +156,12 @@ pub(crate) fn resolve_cache_and_prepare(
     let cache_read_dir_for_load = cache_read_dir(resolved_cache_dir.clone(), args.refresh_cache);
 
     let prepared = prepare_accounts_and_idls(
-        args.rpc_url,
+        args,
         cache_read_dir_for_load,
         offline,
         parsed_txs,
         parser_registry,
-        args.no_idl_fetch,
         progress,
-        args.rpc_batch_size,
-        args.history_slot,
     )?;
 
     Ok(CachePreparedContext { cache_dir: resolved_cache_dir, offline, prepared })
@@ -284,23 +281,20 @@ pub(crate) fn run_idl_pipeline(
 
 /// Loads accounts for parsed transactions and runs the shared IDL pipeline.
 pub(crate) fn prepare_accounts_and_idls(
-    rpc_url: &str,
+    args: &CachePrepareArgs,
     cache_dir: Option<PathBuf>,
     offline: bool,
     parsed_txs: &[transaction::ParsedTransaction],
     parser_registry: &mut ParserRegistry,
-    no_idl_fetch: bool,
     progress: &Progress,
-    rpc_batch_size: usize,
-    history_slot: Option<u64>,
 ) -> Result<PreparedPipelineContext> {
     let mut account_loader = account_loader::create_loader(
-        rpc_url.to_string(),
+        args.rpc_url.to_string(),
         cache_dir,
         offline,
         Some(progress.clone()),
-        rpc_batch_size,
-        history_slot,
+        args.rpc_batch_size,
+        args.history_slot,
     )?;
     let resolved_accounts = if parsed_txs.len() == 1 {
         account_loader.load_for_transaction(&parsed_txs[0].transaction)?
@@ -313,7 +307,7 @@ pub(crate) fn prepare_accounts_and_idls(
         &account_loader,
         parser_registry,
         &resolved_accounts,
-        no_idl_fetch,
+        args.no_idl_fetch,
         offline,
         Some(progress),
     );
