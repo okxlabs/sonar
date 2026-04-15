@@ -37,49 +37,35 @@ pub trait RpcAccountProvider: Send + Sync {
 }
 
 /// Production implementation backed by [`RpcTransport`].
+///
+/// When `history_slot` is `Some`, uses the non-standard
+/// `getMultipleAccountsDataBySlot` RPC method to fetch account state at a
+/// specific slot. Otherwise uses standard `getMultipleAccounts`.
 pub struct SolanaRpcProvider {
     transport: Arc<RpcTransport>,
+    history_slot: Option<u64>,
 }
 
 impl SolanaRpcProvider {
     pub fn new(rpc_url: String) -> Self {
-        Self { transport: Arc::new(RpcTransport::new(rpc_url)) }
+        Self { transport: Arc::new(RpcTransport::new(rpc_url)), history_slot: None }
+    }
+
+    pub fn historical(rpc_url: String, slot: u64) -> Self {
+        Self { transport: Arc::new(RpcTransport::new(rpc_url)), history_slot: Some(slot) }
     }
 }
 
 impl RpcAccountProvider for SolanaRpcProvider {
     fn get_multiple_accounts(&self, pubkeys: &[Pubkey]) -> Result<Vec<Option<AccountSharedData>>> {
         let keys: Vec<String> = pubkeys.iter().map(|p| p.to_string()).collect();
-        let result: RpcResultValue<Vec<Option<RpcAccountInfo>>> = self
-            .transport
-            .call("getMultipleAccounts", serde_json::json!([keys, {"encoding": "base64"}]))?;
-
-        parse_account_result(result)
-    }
-}
-
-/// Production implementation that fetches historical account state at a
-/// specific slot via the non-standard `getMultipleAccountsDataBySlot` RPC method.
-pub struct HistoricalRpcProvider {
-    transport: Arc<RpcTransport>,
-    slot: u64,
-}
-
-impl HistoricalRpcProvider {
-    pub fn new(rpc_url: String, slot: u64) -> Self {
-        Self { transport: Arc::new(RpcTransport::new(rpc_url)), slot }
-    }
-}
-
-impl RpcAccountProvider for HistoricalRpcProvider {
-    fn get_multiple_accounts(&self, pubkeys: &[Pubkey]) -> Result<Vec<Option<AccountSharedData>>> {
-        let keys: Vec<String> = pubkeys.iter().map(|p| p.to_string()).collect();
-        let result: RpcResultValue<Vec<Option<RpcAccountInfo>>> = self.transport.call(
-            HISTORICAL_RPC_METHOD,
-            serde_json::json!([keys, self.slot, {"encoding": "base64"}]),
-        )?;
-
-        parse_account_result(result)
+        let (method, params) = match self.history_slot {
+            Some(slot) => {
+                (HISTORICAL_RPC_METHOD, serde_json::json!([keys, slot, {"encoding": "base64"}]))
+            }
+            None => ("getMultipleAccounts", serde_json::json!([keys, {"encoding": "base64"}])),
+        };
+        parse_account_result(self.transport.call(method, params)?)
     }
 }
 

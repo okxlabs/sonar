@@ -137,24 +137,6 @@ impl RpcClient {
             .collect()
     }
 
-    #[allow(dead_code)]
-    pub fn get_account_with_commitment(
-        &self,
-        pubkey: &Pubkey,
-        commitment: CommitmentConfig,
-    ) -> Result<RpcResponse<Option<Account>>> {
-        let result: RpcResultValue<Option<RpcAccountInfo>> = self.call(
-            "getAccountInfo",
-            serde_json::json!([
-                pubkey.to_string(),
-                {"encoding": "base64", "commitment": commitment_str(commitment)}
-            ]),
-        )?;
-        let value =
-            result.value.map(|info| info.into_account().map_err(|e| anyhow!("{e}"))).transpose()?;
-        Ok(RpcResponse { value })
-    }
-
     pub fn send_transaction_with_config(
         &self,
         transaction: &VersionedTransaction,
