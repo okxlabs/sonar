@@ -55,7 +55,8 @@ pub use crate::token_decode::{
 // ── RPC ──
 
 pub use crate::rpc_provider::{
-    FakeAccountProvider, HistoricalRpcProvider, RpcAccountProvider, SolanaRpcProvider,
+    FakeAccountProvider, HISTORICAL_RPC_METHOD, HistoricalRpcProvider, RpcAccountProvider,
+    SolanaRpcProvider,
 };
 pub use crate::rpc_transport::RpcTransport;
 pub use crate::svm_backend::SvmBackend;

@@ -460,9 +460,11 @@ fn try_load_idl_from_dir(idl_dir: &Option<PathBuf>, owner: &Pubkey) -> Option<St
 }
 
 fn fetch_idl_from_chain(args: &AccountArgs, owner: &Pubkey) -> Option<String> {
-    fetch_idl_from_chain_with(args, owner, |rpc_url, history_slot| {
+    let rpc_batch_size = args.rpc.rpc_batch_size;
+    fetch_idl_from_chain_with(args, owner, move |rpc_url, history_slot| {
         let loader =
-            account_loader::create_loader(rpc_url, None, false, None, history_slot).ok()?;
+            account_loader::create_loader(rpc_url, None, false, None, rpc_batch_size, history_slot)
+                .ok()?;
         Some(account_loader::create_idl_fetcher(&loader, None))
     })
 }
@@ -622,7 +624,7 @@ mod tests {
     use flate2::Compression;
     use flate2::write::ZlibEncoder;
     use solana_pubkey::Pubkey;
-    use sonar_sim::FakeAccountProvider;
+    use sonar_sim::internals::FakeAccountProvider;
     use spl_token::solana_program::program_option::COption;
     use spl_token::solana_program::program_pack::Pack;
     use spl_token::solana_program::pubkey::Pubkey as ProgramPubkey;
@@ -841,7 +843,7 @@ mod tests {
 
         let args = AccountArgs {
             account: None,
-            rpc: RpcArgs { rpc_url: "http://example.invalid".into() },
+            rpc: RpcArgs { rpc_url: "http://example.invalid".into(), rpc_batch_size: 100 },
             idl_dir: None,
             raw: false,
             history_slot: Some(123),
