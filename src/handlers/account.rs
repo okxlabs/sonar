@@ -4,7 +4,6 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 use crate::core::rpc_client::RpcClient;
-use sonar_sim::internals::DEFAULT_RPC_BATCH_SIZE;
 use anyhow::{Context, Result, anyhow};
 use base64::{Engine as _, engine::general_purpose};
 use serde_json::Value;
@@ -12,6 +11,7 @@ use solana_address_lookup_table_interface::state::AddressLookupTable;
 use solana_loader_v3_interface::state::UpgradeableLoaderState;
 use solana_pubkey::Pubkey;
 use solana_sdk_ids::{address_lookup_table, bpf_loader_upgradeable};
+use sonar_sim::internals::DEFAULT_RPC_BATCH_SIZE;
 
 use crate::cli::AccountArgs;
 use crate::parsers::instruction::anchor_idl::IndexedIdl;
@@ -461,8 +461,15 @@ fn try_load_idl_from_dir(idl_dir: &Option<PathBuf>, owner: &Pubkey) -> Option<St
 
 fn fetch_idl_from_chain(args: &AccountArgs, owner: &Pubkey) -> Option<String> {
     fetch_idl_from_chain_with(args, owner, |rpc_url, history_slot| {
-        let loader =
-            account_loader::create_loader(rpc_url, None, false, None, DEFAULT_RPC_BATCH_SIZE, history_slot).ok()?;
+        let loader = account_loader::create_loader(
+            rpc_url,
+            None,
+            false,
+            None,
+            DEFAULT_RPC_BATCH_SIZE,
+            history_slot,
+        )
+        .ok()?;
         Some(account_loader::create_idl_fetcher(&loader, None))
     })
 }
@@ -567,9 +574,8 @@ fn fetch_metadata_for_mint(
     history_slot: Option<u64>,
 ) -> Result<(solana_account::Account, Value)> {
     let metadata_pda = metaplex_metadata_decoder::derive_metadata_pda(mint_pubkey);
-    let metadata_account = client
-        .get_account_maybe_historical(&metadata_pda, history_slot)
-        .with_context(|| {
+    let metadata_account =
+        client.get_account_maybe_historical(&metadata_pda, history_slot).with_context(|| {
             format!("Failed to fetch metadata PDA {} for mint {}", metadata_pda, mint_pubkey)
         })?;
 
@@ -610,7 +616,7 @@ mod tests {
     use flate2::Compression;
     use flate2::write::ZlibEncoder;
     use solana_pubkey::Pubkey;
-    use sonar_sim::FakeAccountProvider;
+    use sonar_sim::internals::FakeAccountProvider;
     use spl_token::solana_program::program_option::COption;
     use spl_token::solana_program::program_pack::Pack;
     use spl_token::solana_program::pubkey::Pubkey as ProgramPubkey;
@@ -829,7 +835,7 @@ mod tests {
 
         let args = AccountArgs {
             account: None,
-            rpc: RpcArgs { rpc_url: "http://example.invalid".into() },
+            rpc: RpcArgs { rpc_url: "http://example.invalid".into(), rpc_batch_size: 100 },
             idl_dir: None,
             raw: false,
             history_slot: Some(123),

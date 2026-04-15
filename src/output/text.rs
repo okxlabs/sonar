@@ -964,9 +964,7 @@ fn leaf_str(value: &Value) -> Cow<'_, str> {
     match value {
         Value::String(s) => {
             if s.chars().any(|c| c.is_control()) {
-                Cow::Owned(
-                    s.chars().map(|c| if c.is_control() { '\u{FFFD}' } else { c }).collect(),
-                )
+                Cow::Owned(s.chars().map(|c| if c.is_control() { '\u{FFFD}' } else { c }).collect())
             } else {
                 Cow::Borrowed(s.as_str())
             }
