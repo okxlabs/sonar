@@ -1,0 +1,11 @@
+---
+source: src/output/text.rs
+assertion_line: 1059
+expression: output
+---
+  {
+    amount_in: 1000000,
+    destination_token_change: 999245,
+    commission_direction: false,
+    source_mint: EPjFWdd5AufqSSqeM2qN1xzy
+  }
