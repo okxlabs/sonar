@@ -277,6 +277,7 @@ pub(crate) fn handle(args: SimulateArgs, json: bool) -> Result<()> {
         refresh_cache,
         no_idl_fetch,
         rpc_batch_size,
+        history_slot,
     };
     let cached = resolve_cache_and_prepare(
         &cache_args,
@@ -284,7 +285,6 @@ pub(crate) fn handle(args: SimulateArgs, json: bool) -> Result<()> {
         std::slice::from_ref(&parsed_tx),
         &mut parser_registry,
         &progress,
-        history_slot,
     )?;
     let tx_cache_dir = cached.cache_dir;
     let offline = cached.offline;
@@ -421,6 +421,7 @@ fn handle_bundle(
         refresh_cache,
         no_idl_fetch,
         rpc_batch_size,
+        history_slot,
     };
     let cached = resolve_cache_and_prepare(
         &cache_args,
@@ -428,7 +429,6 @@ fn handle_bundle(
         &parsed_txs,
         parser_registry,
         progress,
-        history_slot,
     )?;
     let bundle_cache_dir = cached.cache_dir;
     let offline = cached.offline;
