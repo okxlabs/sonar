@@ -14,7 +14,7 @@ use solana_transaction_status_client_types::{
 };
 
 use sonar_sim::internals::rpc_json::{RpcAccountInfo, RpcResultValue};
-use sonar_sim::internals::RpcTransport;
+use sonar_sim::internals::{HISTORICAL_RPC_METHOD, RpcTransport};
 
 /// Lightweight Solana JSON-RPC client backed by [`RpcTransport`].
 pub struct RpcClient {
@@ -64,8 +64,6 @@ pub struct RpcTransactionResponse {
 // ---------------------------------------------------------------------------
 // Client implementation
 // ---------------------------------------------------------------------------
-
-const HISTORICAL_RPC_METHOD: &str = "getMultipleAccountsDataBySlot";
 
 impl RpcClient {
     pub fn new(rpc_url: impl Into<String>) -> Self {

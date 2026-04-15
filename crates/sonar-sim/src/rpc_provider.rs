@@ -7,7 +7,8 @@ use crate::error::{Result, SonarSimError};
 use crate::rpc_json::{RpcAccountInfo, RpcResultValue};
 use crate::rpc_transport::RpcTransport;
 
-const HISTORICAL_RPC_METHOD: &str = "getMultipleAccountsDataBySlot";
+/// Non-standard RPC method for fetching accounts at a historical slot.
+pub const HISTORICAL_RPC_METHOD: &str = "getMultipleAccountsDataBySlot";
 
 /// Parse a batch account RPC result into a vector of optional `AccountSharedData`.
 fn parse_account_result(
