@@ -867,7 +867,7 @@ fn render_parsed_fields(fields: &ParsedInstructionFields, indent: &str, w: &mut 
     }
 
     let map: serde_json::Map<String, Value> =
-        fields.iter().map(|f| (f.name.clone(), f.value.to_json_value())).collect();
+        fields.iter().map(|f| (f.name.clone(), f.value.to_display_json_value())).collect();
     let pretty = pretty_print_unquoted(&Value::Object(map), indent);
 
     for line in pretty.lines() {

@@ -390,12 +390,14 @@ pub(crate) fn parse_type_definition(
 
                 if variant_index < variants.len() {
                     let variant = &variants[variant_index];
-                    let payload = match variant.fields.as_ref() {
-                        Some(fields) => parse_idl_fields_value(data, offset, fields, indexed)?,
-                        None => IdlValue::Null,
-                    };
-
-                    return Ok(IdlValue::Struct(vec![(variant.name.clone(), payload)]));
+                    return Ok(match variant.fields.as_ref() {
+                        Some(fields) => {
+                            let payload =
+                                parse_idl_fields_value(data, offset, fields, indexed)?;
+                            IdlValue::Struct(vec![(variant.name.clone(), payload)])
+                        }
+                        None => IdlValue::EnumUnit(variant.name.clone()),
+                    });
                 }
             }
         }

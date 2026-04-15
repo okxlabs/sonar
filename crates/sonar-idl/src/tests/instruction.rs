@@ -387,11 +387,11 @@ fn indexed_idl_parse_instruction_with_enum_arg() {
 
     let mut data = vec![1, 1, 1, 1, 1, 1, 1, 1, 0];
     let parsed = indexed.parse_instruction(&data).unwrap().unwrap();
-    assert_eq!(parsed.fields[0].value, IdlValue::Struct(vec![("Start".into(), IdlValue::Null)]));
+    assert_eq!(parsed.fields[0].value, IdlValue::EnumUnit("Start".into()));
 
     data[8] = 1;
     let parsed = indexed.parse_instruction(&data).unwrap().unwrap();
-    assert_eq!(parsed.fields[0].value, IdlValue::Struct(vec![("Stop".into(), IdlValue::Null)]));
+    assert_eq!(parsed.fields[0].value, IdlValue::EnumUnit("Stop".into()));
 }
 
 #[test]
