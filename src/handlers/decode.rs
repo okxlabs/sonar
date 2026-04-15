@@ -42,6 +42,7 @@ pub(crate) fn handle(args: DecodeArgs, json: bool) -> Result<()> {
         refresh_cache,
         no_idl_fetch,
         rpc_batch_size,
+        history_slot,
     };
     let cached = resolve_cache_and_prepare(
         &cache_args,
@@ -49,7 +50,6 @@ pub(crate) fn handle(args: DecodeArgs, json: bool) -> Result<()> {
         &parsed_txs,
         &mut parser_registry,
         &progress,
-        history_slot,
     )?;
 
     progress.finish();

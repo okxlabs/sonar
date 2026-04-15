@@ -137,6 +137,7 @@ impl RpcClient {
             .collect()
     }
 
+    #[allow(dead_code)]
     pub fn get_account_with_commitment(
         &self,
         pubkey: &Pubkey,
