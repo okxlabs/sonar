@@ -28,6 +28,8 @@ pub enum IdlValue {
     Struct(Vec<(String, IdlValue)>),
     /// Ordered values (vec, fixed-size array, tuple).
     Array(Vec<IdlValue>),
+    /// Fieldless (unit) enum variant — carries only a name, no payload.
+    EnumUnit(String),
     /// None / null (Option::None).
     Null,
 }
@@ -62,7 +64,33 @@ impl IdlValue {
                 Value::Object(map)
             }
             Self::Array(values) => Value::Array(values.iter().map(|v| v.to_json_value()).collect()),
+            Self::EnumUnit(name) => {
+                let mut map = serde_json::Map::with_capacity(1);
+                map.insert(name.clone(), Value::Null);
+                Value::Object(map)
+            }
             Self::Null => Value::Null,
+        }
+    }
+
+    /// Convert to `serde_json::Value` optimised for human-readable display.
+    ///
+    /// [`EnumUnit`] variants are flattened to a plain string so they render
+    /// as `name` instead of `name: null`.  All other values are identical
+    /// to [`to_json_value`].
+    pub fn to_display_json_value(&self) -> serde_json::Value {
+        use serde_json::Value;
+        match self {
+            Self::EnumUnit(name) => Value::String(name.clone()),
+            Self::Struct(fields) => {
+                let map: serde_json::Map<std::string::String, Value> =
+                    fields.iter().map(|(k, v)| (k.clone(), v.to_display_json_value())).collect();
+                Value::Object(map)
+            }
+            Self::Array(values) => {
+                Value::Array(values.iter().map(|v| v.to_display_json_value()).collect())
+            }
+            _ => self.to_json_value(),
         }
     }
 }
