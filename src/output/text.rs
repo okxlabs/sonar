@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::io::Write;
 use std::str::FromStr;
 
@@ -867,10 +868,113 @@ fn render_parsed_fields(fields: &ParsedInstructionFields, indent: &str, w: &mut 
 
     let map: serde_json::Map<String, Value> =
         fields.iter().map(|f| (f.name.clone(), f.value.to_json_value())).collect();
-    let pretty = serde_json::to_string_pretty(&map).unwrap_or_else(|_| "{}".to_string());
+    let pretty = pretty_print_unquoted(&Value::Object(map), indent);
 
     for line in pretty.lines() {
-        let _ = writeln!(w, "{}", format!("{}{}", indent, line).custom_color(COLOR_BLUE));
+        let _ = writeln!(w, "{}", line.custom_color(COLOR_BLUE));
+    }
+}
+
+/// Pretty-print a JSON value without quotes on keys or string values,
+/// with proper recursive indentation.
+fn pretty_print_unquoted(value: &Value, base_indent: &str) -> String {
+    let mut out = String::new();
+    write_value(&mut out, value, base_indent, 0, true, "");
+    out
+}
+
+/// Unified recursive writer.
+/// - `own_line`: if true, the opening brace/bracket gets its own indented line (top-level).
+///   If false, it's written inline (nested after "key: ").
+/// - `trailing`: suffix appended after the closing brace/bracket (e.g. ",").
+fn write_value(
+    out: &mut String,
+    value: &Value,
+    base_indent: &str,
+    depth: usize,
+    own_line: bool,
+    trailing: &str,
+) {
+    use std::fmt::Write;
+    let current = format!("{}{}", base_indent, "  ".repeat(depth));
+    let child = format!("{}{}", base_indent, "  ".repeat(depth + 1));
+
+    match value {
+        Value::Object(map) => {
+            if own_line {
+                let _ = writeln!(out, "{}{{", current);
+            } else {
+                let _ = writeln!(out, "{{");
+            }
+            let last = map.len().saturating_sub(1);
+            for (i, (k, v)) in map.iter().enumerate() {
+                let comma = if i < last { "," } else { "" };
+                if is_leaf(v) {
+                    let _ = writeln!(out, "{}{}: {}{}", child, k, leaf_str(v), comma);
+                } else {
+                    let _ = write!(out, "{}{}: ", child, k);
+                    write_value(out, v, base_indent, depth + 1, false, comma);
+                }
+            }
+            if own_line {
+                let _ = write!(out, "{}}}", current);
+            } else {
+                let _ = writeln!(out, "{}}}{}", current, trailing);
+            }
+        }
+        Value::Array(arr) => {
+            if own_line {
+                let _ = writeln!(out, "{}[", current);
+            } else {
+                let _ = writeln!(out, "[");
+            }
+            let last = arr.len().saturating_sub(1);
+            for (i, v) in arr.iter().enumerate() {
+                let comma = if i < last { "," } else { "" };
+                if is_leaf(v) {
+                    let _ = writeln!(out, "{}{}{}", child, leaf_str(v), comma);
+                } else {
+                    if !own_line {
+                        let _ = write!(out, "{}", child);
+                    }
+                    write_value(out, v, base_indent, depth + 1, own_line, comma);
+                }
+            }
+            if own_line {
+                let _ = write!(out, "{}]", current);
+            } else {
+                let _ = writeln!(out, "{}]{}", current, trailing);
+            }
+        }
+        _ => {
+            if own_line {
+                let _ = write!(out, "{}{}", current, leaf_str(value));
+            } else {
+                let _ = writeln!(out, "{}{}", leaf_str(value), trailing);
+            }
+        }
+    }
+}
+
+fn is_leaf(value: &Value) -> bool {
+    !matches!(value, Value::Object(_) | Value::Array(_))
+}
+
+fn leaf_str(value: &Value) -> Cow<'_, str> {
+    match value {
+        Value::String(s) => {
+            if s.chars().any(|c| c.is_control()) {
+                Cow::Owned(
+                    s.chars().map(|c| if c.is_control() { '\u{FFFD}' } else { c }).collect(),
+                )
+            } else {
+                Cow::Borrowed(s.as_str())
+            }
+        }
+        Value::Number(n) => Cow::Owned(n.to_string()),
+        Value::Bool(b) => Cow::Borrowed(if *b { "true" } else { "false" }),
+        Value::Null => Cow::Borrowed("null"),
+        _ => Cow::Borrowed(""),
     }
 }
 
@@ -914,5 +1018,57 @@ mod tests {
         render_instruction_data_and_fields(&fields, "  ", &[0, 37, 161, 102], false, &mut buf);
         let output = String::from_utf8(buf).unwrap();
         assert!(output.contains("0x"));
+    }
+
+    #[test]
+    fn pretty_print_unquoted_nested() {
+        use serde_json::json;
+
+        let value = json!({
+            "amount_in": 1000000,
+            "args": {
+                "order_id": 17110579994567808_u64,
+                "slippage": 14,
+                "routes": [
+                    {
+                        "dex": { "FusionAmm": null },
+                        "weight": 10000
+                    }
+                ]
+            },
+            "commission_direction": false,
+            "source_mint": "EPjFWdd5AufqSSqeM2qN1xzy"
+        });
+
+        let output = pretty_print_unquoted(&value, "    ");
+        insta::assert_snapshot!("pretty_print_unquoted_nested", output);
+    }
+
+    #[test]
+    fn pretty_print_unquoted_flat() {
+        use serde_json::json;
+
+        let value = json!({
+            "amount_in": 1000000,
+            "destination_token_change": 999245,
+            "commission_direction": false,
+            "source_mint": "EPjFWdd5AufqSSqeM2qN1xzy"
+        });
+
+        let output = pretty_print_unquoted(&value, "  ");
+        insta::assert_snapshot!("pretty_print_unquoted_flat", output);
+    }
+
+    #[test]
+    fn leaf_str_escapes_control_chars() {
+        let val = Value::String("hello\x1b[2Jworld\nbye".to_string());
+        assert_eq!(leaf_str(&val).as_ref(), "hello\u{FFFD}[2Jworld\u{FFFD}bye");
+    }
+
+    #[test]
+    fn leaf_str_preserves_clean_strings() {
+        let val = Value::String("GnHZxAnNHnFn1uNPJt5BwUvY".to_string());
+        // Should borrow, not allocate
+        assert!(matches!(leaf_str(&val), Cow::Borrowed(_)));
     }
 }

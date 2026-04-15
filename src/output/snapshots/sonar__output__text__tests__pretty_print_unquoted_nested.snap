@@ -1,0 +1,22 @@
+---
+source: src/output/text.rs
+assertion_line: 1044
+expression: output
+---
+    {
+      amount_in: 1000000,
+      args: {
+        order_id: 17110579994567808,
+        slippage: 14,
+        routes: [
+          {
+            dex: {
+              FusionAmm: null
+            },
+            weight: 10000
+          }
+        ]
+      },
+      commission_direction: false,
+      source_mint: EPjFWdd5AufqSSqeM2qN1xzy
+    }
