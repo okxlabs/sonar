@@ -24,7 +24,7 @@ pub(crate) fn handle(args: ProgramDataArgs) -> Result<()> {
         .with_context(|| format!("Invalid address: {}", args.address))?;
 
     let client = RpcClient::new(&args.rpc.rpc_url);
-    let history_slot = args.history_slot;
+    let history_slot = args.rpc.history_slot;
     let input_account = client
         .get_account_maybe_historical(&address, history_slot)
         .with_context(|| format!("Failed to fetch account: {address}"))?;
