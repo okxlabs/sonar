@@ -447,16 +447,16 @@ fn parse_ix_pos_prefix(raw: &str) -> Result<(usize, usize, Option<&str>), String
 
 pub fn parse_ix_account_patch(raw: &str) -> Result<InstructionAccountOp, String> {
     let (instruction_index, account_position, rest) = parse_ix_pos_prefix(raw)?;
-    let value_str = rest
-        .ok_or_else(|| "Patch must be in <IX>.<ACCOUNT>=<NEW_PUBKEY>[:w] format".to_string())?;
+    let value_str =
+        rest.ok_or_else(|| "Patch must be in <IX>.<ACCOUNT>=<NEW_PUBKEY>[:w] format".to_string())?;
     let (new_pubkey, writable) = parse_ix_account_op_value(value_str, "--patch-ix-account")?;
     Ok(InstructionAccountOp::Patch { instruction_index, account_position, new_pubkey, writable })
 }
 
 pub fn parse_ix_account_insert(raw: &str) -> Result<InstructionAccountOp, String> {
     let (instruction_index, account_position, rest) = parse_ix_pos_prefix(raw)?;
-    let value_str = rest
-        .ok_or_else(|| "Insert must be in <IX>.<POSITION>=<PUBKEY>[:w] format".to_string())?;
+    let value_str =
+        rest.ok_or_else(|| "Insert must be in <IX>.<POSITION>=<PUBKEY>[:w] format".to_string())?;
     let (new_pubkey, writable) = parse_ix_account_op_value(value_str, "--insert-ix-account")?;
     Ok(InstructionAccountOp::Insert { instruction_index, account_position, new_pubkey, writable })
 }

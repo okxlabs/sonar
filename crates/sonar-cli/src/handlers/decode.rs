@@ -29,8 +29,13 @@ pub(crate) fn handle(args: DecodeArgs, json: bool) -> Result<()> {
         if refresh_cache { None } else { Some(super::common::build_cache_location(&cache_dir)) };
     let TransactionInputArgs { tx } = transaction;
 
-    let resolved =
-        resolve_and_derive_cache_key(tx, &rpc_url, resolver_cache_location, &progress, history_slot)?;
+    let resolved = resolve_and_derive_cache_key(
+        tx,
+        &rpc_url,
+        resolver_cache_location,
+        &progress,
+        history_slot,
+    )?;
     let is_bundle = resolved.resolved_txs.len() > 1;
     let parsed_txs: Vec<_> =
         resolved.resolved_txs.into_iter().map(|entry| entry.parsed_tx).collect();

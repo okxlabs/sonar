@@ -4,7 +4,6 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 use crate::core::rpc_client::RpcClient;
-use sonar_sim::internals::DEFAULT_RPC_BATCH_SIZE;
 use anyhow::{Context, Result, anyhow};
 use base64::{Engine as _, engine::general_purpose};
 use serde_json::Value;
@@ -12,6 +11,7 @@ use solana_address_lookup_table_interface::state::AddressLookupTable;
 use solana_loader_v3_interface::state::UpgradeableLoaderState;
 use solana_pubkey::Pubkey;
 use solana_sdk_ids::{address_lookup_table, bpf_loader_upgradeable};
+use sonar_sim::internals::DEFAULT_RPC_BATCH_SIZE;
 
 use crate::cli::AccountArgs;
 use crate::parsers::instruction::anchor_idl::IndexedIdl;
@@ -574,9 +574,8 @@ fn fetch_metadata_for_mint(
     history_slot: Option<u64>,
 ) -> Result<(solana_account::Account, Value)> {
     let metadata_pda = metaplex_metadata_decoder::derive_metadata_pda(mint_pubkey);
-    let metadata_account = client
-        .get_account_maybe_historical(&metadata_pda, history_slot)
-        .with_context(|| {
+    let metadata_account =
+        client.get_account_maybe_historical(&metadata_pda, history_slot).with_context(|| {
             format!("Failed to fetch metadata PDA {} for mint {}", metadata_pda, mint_pubkey)
         })?;
 

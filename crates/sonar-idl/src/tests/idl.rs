@@ -100,9 +100,7 @@ fn idl_type_tuple_serde_and_decode() {
     let parsed: IdlType = serde_json::from_str(r#"{"tuple":["u8","u32"]}"#).unwrap();
     assert_eq!(
         parsed,
-        IdlType::Tuple {
-            tuple: vec![IdlType::Simple("u8".into()), IdlType::Simple("u32".into())],
-        }
+        IdlType::Tuple { tuple: vec![IdlType::Simple("u8".into()), IdlType::Simple("u32".into())] }
     );
 
     // Decode an instruction with a Vec<(u8, u32)> arg — the shape mpl-core uses.
