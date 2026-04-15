@@ -78,7 +78,6 @@ pub(crate) fn handle(args: SimulateArgs, json: bool) -> Result<()> {
         show_balance_change,
         raw_log,
         show_ix_detail,
-        history_slot,
         timestamp,
         slot,
         data_patches: data_patch_args,
@@ -92,6 +91,7 @@ pub(crate) fn handle(args: SimulateArgs, json: bool) -> Result<()> {
     // --cache-dir or --refresh-cache imply --cache
     let cache = cache || cache_dir.is_some() || refresh_cache;
     let rpc_batch_size = rpc.rpc_batch_size;
+    let history_slot = rpc.history_slot;
     let rpc_url = rpc.rpc_url;
     let resolver_cache_location = Some(build_cache_location(&cache_dir));
 

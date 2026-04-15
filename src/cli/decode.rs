@@ -32,8 +32,4 @@ pub struct DecodeArgs {
     /// Ignore existing cache entries and re-fetch from RPC (including signature->raw-tx).
     #[arg(long = "refresh-cache", default_value_t = false)]
     pub refresh_cache: bool,
-    /// Fetch account state from a historical slot via the non-standard
-    /// getMultipleAccountsDataBySlot RPC method.
-    #[arg(long = "history-slot", value_name = "SLOT")]
-    pub history_slot: Option<u64>,
 }

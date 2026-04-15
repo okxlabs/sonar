@@ -33,7 +33,7 @@ pub(crate) fn handle(args: AccountArgs, json: bool) -> Result<()> {
                     .with_context(|| format!("Invalid account pubkey: {input}"))?;
                 let client = RpcClient::new(&args.rpc.rpc_url);
                 let acct = client
-                    .get_account_maybe_historical(&pk, args.history_slot)
+                    .get_account_maybe_historical(&pk, args.rpc.history_slot)
                     .with_context(|| format!("Failed to fetch account: {pk}"))?;
                 (pk.to_string(), pk, acct)
             }
@@ -187,7 +187,7 @@ fn decode_account_output(
     if let Some(result) = decode_address_lookup_table(account) {
         return Ok(result);
     }
-    if let Some(result) = decode_spl_token(client, account_pubkey, account, args.history_slot) {
+    if let Some(result) = decode_spl_token(client, account_pubkey, account, args.rpc.history_slot) {
         return Ok(result);
     }
 
@@ -464,7 +464,7 @@ fn fetch_idl_from_chain(args: &AccountArgs, owner: &Pubkey) -> Option<String> {
         false,
         None,
         DEFAULT_RPC_BATCH_SIZE,
-        args.history_slot,
+        args.rpc.history_slot,
     )
     .ok()?;
     let fetcher = account_loader::create_idl_fetcher(&loader, None);

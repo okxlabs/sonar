@@ -21,9 +21,9 @@ pub(crate) fn handle(args: DecodeArgs, json: bool) -> Result<()> {
         no_cache,
         cache_dir,
         refresh_cache,
-        history_slot,
     } = args;
     let rpc_batch_size = rpc.rpc_batch_size;
+    let history_slot = rpc.history_slot;
     let rpc_url = rpc.rpc_url;
     let resolver_cache_location =
         if refresh_cache { None } else { Some(super::common::build_cache_location(&cache_dir)) };
