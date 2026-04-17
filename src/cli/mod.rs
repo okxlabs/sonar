@@ -70,9 +70,16 @@ pub enum Commands {
     #[command(alias = "sim", next_line_help = true)]
     Simulate(Box<SimulateArgs>),
     /// Parse a raw transaction without executing it
+    ///
+    /// Unlike simulate, decode does not run the transaction — it only parses
+    /// instruction data and account metadata from the raw transaction bytes.
     #[command(alias = "dec", next_line_help = true)]
     Decode(DecodeArgs),
     /// Fetch and display a confirmed transaction's on-chain execution
+    ///
+    /// Unlike simulate, replay retrieves the actual execution results (logs,
+    /// inner instructions, balance changes) from the RPC node — no local
+    /// execution.
     #[command(next_line_help = true)]
     Replay(ReplayArgs),
     /// Manage Anchor IDLs (fetch, sync, address)

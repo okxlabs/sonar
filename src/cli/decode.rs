@@ -7,10 +7,6 @@ use clap::Args;
 use super::RpcArgs;
 use super::simulate::TransactionInputArgs;
 
-/// Parse a raw transaction without executing it.
-///
-/// Unlike simulate, decode does not run the transaction — it only parses
-/// instruction data and account metadata from the raw transaction bytes.
 #[derive(Args, Debug)]
 pub struct DecodeArgs {
     #[command(flatten)]
