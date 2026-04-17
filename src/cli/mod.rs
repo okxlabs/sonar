@@ -69,10 +69,17 @@ pub enum Commands {
     /// Simulate a Solana transaction locally using LiteSVM
     #[command(alias = "sim", next_line_help = true)]
     Simulate(Box<SimulateArgs>),
-    /// Decode and display a raw transaction without simulation
+    /// Parse a raw transaction without executing it
+    ///
+    /// Unlike simulate, decode does not run the transaction — it only parses
+    /// instruction data and account metadata from the raw transaction bytes.
     #[command(alias = "dec", next_line_help = true)]
     Decode(DecodeArgs),
-    /// Replay the historical execution of a confirmed transaction
+    /// Fetch and display a confirmed transaction's on-chain execution
+    ///
+    /// Unlike simulate, replay retrieves the actual execution results (logs,
+    /// inner instructions, balance changes) from the RPC node — no local
+    /// execution.
     #[command(next_line_help = true)]
     Replay(ReplayArgs),
     /// Manage Anchor IDLs (fetch, sync, address)
@@ -91,9 +98,16 @@ pub enum Commands {
     #[command(next_line_help = true)]
     Pda(PdaArgs),
     /// Get raw program data (ELF bytecode) from an upgradeable Program/ProgramData/Buffer account
+    ///
+    /// Either --output <FILE> (use "-" for stdout) or --verify-sha256 <HASH> is
+    /// required. When both are given, the file is written only if the hash matches.
     #[command(name = "program-elf", next_line_help = true)]
     ProgramData(ProgramDataArgs),
     /// Send a signed transaction to the network
+    ///
+    /// Unlike simulate, send broadcasts to the RPC and mutates on-chain state.
+    /// The TX must already be signed — sonar does not sign. Use --wait to block
+    /// until the configured commitment level is reached.
     #[command(next_line_help = true)]
     Send(SendArgs),
     /// Generate shell completion scripts

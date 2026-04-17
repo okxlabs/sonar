@@ -4,6 +4,12 @@ use clap::{Args, Subcommand};
 
 /// View or modify `~/.config/sonar/config.toml`.
 #[derive(Args, Debug)]
+#[command(after_help = "\
+EXAMPLES:
+  sonar config list
+  sonar config get show_ix_detail
+  sonar config set show_ix_detail=true    KEY=VALUE form
+  sonar config set show_ix_detail true    KEY VALUE form")]
 pub struct ConfigArgs {
     #[command(subcommand)]
     pub command: ConfigSubcommands,

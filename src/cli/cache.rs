@@ -12,7 +12,10 @@ pub struct CacheArgs {
 pub enum CacheCommands {
     /// List all cached transaction account snapshots
     List,
-    /// Remove cached account snapshots
+    /// Remove cached account snapshots (ALL entries by default — use --older-than to scope)
+    ///
+    /// Without --older-than this wipes every cache entry. Run `sonar cache list`
+    /// first to inspect what would be deleted.
     Clean(CacheCleanArgs),
     /// Show details of a specific cache entry
     Info(CacheInfoArgs),

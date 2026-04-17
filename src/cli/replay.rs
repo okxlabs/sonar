@@ -6,7 +6,6 @@ use clap::Args;
 
 use super::RpcArgs;
 
-/// Replay the historical execution of a confirmed transaction.
 #[derive(Args, Debug)]
 pub struct ReplayArgs {
     /// Transaction signature to look up

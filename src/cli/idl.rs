@@ -8,6 +8,13 @@ use super::RpcArgs;
 
 /// Manage Anchor IDLs: fetch, sync, and derive IDL account address.
 #[derive(Args, Debug)]
+#[command(after_help = "\
+EXAMPLES:
+  sonar idl fetch <PROG>                       Fetch one IDL to cwd
+  sonar idl fetch <PROG1> <PROG2> -o ./idls    Fetch many into ./idls
+  sonar idl sync ./idls                        Upload all IDLs in dir
+  sonar idl sync ./idls/<PROG>.json            Upload a single IDL file
+  sonar idl address <PROG>                     Derive the IDL account PDA")]
 pub struct IdlArgs {
     #[command(subcommand)]
     pub command: IdlSubcommands,
@@ -16,10 +23,17 @@ pub struct IdlArgs {
 #[derive(Subcommand, Debug)]
 pub enum IdlSubcommands {
     /// Fetch Anchor IDLs from on-chain program accounts
+    ///
+    /// Use when you have the program ID and want the latest on-chain IDL.
+    /// Writes one `<PUBKEY>.json` per program to --output-dir (default: cwd).
     Fetch(IdlFetchArgs),
     /// Sync IDLs using a directory or one `<PUBKEY>.json` file as source
+    ///
+    /// Inverse of fetch: re-uploads local IDL files to the IDL account on chain.
     Sync(IdlSyncArgs),
     /// Calculate Anchor IDL account address for a program
+    ///
+    /// Pure derivation — no RPC call. Equivalent to the Anchor IDL seed convention.
     Address(IdlAddressArgs),
 }
 

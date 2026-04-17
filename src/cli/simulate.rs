@@ -16,6 +16,12 @@ const HELP_HEADING_SIMULATION_CONTROLS: &str = "Simulation Controls";
 const HELP_HEADING_OUTPUT_DEBUG: &str = "Output & Debug";
 
 #[derive(Args, Debug)]
+#[command(after_help = "\
+EXAMPLES:
+  sonar simulate <TX>                           Single transaction
+  sonar simulate <TX1> <TX2>                    Bundle (atomic multi-tx)
+  sonar simulate <TX> --fund-sol ALICE=1sol     Fund account before sim
+  sonar simulate <TX> --override PROG=prog.so   Override on-chain program")]
 pub struct SimulateArgs {
     #[command(flatten, next_help_heading = HELP_HEADING_INPUT_RPC)]
     pub transaction: TransactionInputArgs,
@@ -61,6 +67,7 @@ pub struct SimulateArgs {
     /// Patch an account pubkey within a specific instruction.
     /// Format: <IX>.<ACCOUNT>=<NEW_PUBKEY>[:<w|r>] (1-based indices)
     /// Append :w (default) for writable, :r for read-only.
+    /// Example: --patch-ix-account 1.3=So11111111111111111111111111111111111111112:r
     #[arg(
         short = 'A',
         long = "patch-ix-account",
@@ -73,6 +80,7 @@ pub struct SimulateArgs {
     /// Append an account to the end of a specific instruction's account list.
     /// Format: <IX>=<PUBKEY>[:<w|r>] (1-based instruction index)
     /// Append :w (default) for writable, :r for read-only.
+    /// Example: --append-ix-account 2=So11111111111111111111111111111111111111112
     #[arg(
         long = "append-ix-account",
         help_heading = HELP_HEADING_STATE_PREPARATION,
@@ -84,6 +92,7 @@ pub struct SimulateArgs {
     /// Patch bytes in an instruction's data field before simulation.
     /// Format: <IX>=<OFFSET>:<HEX_DATA> (1-based instruction index)
     /// HEX_DATA may optionally start with 0x.
+    /// Example: --patch-ix-data 1=8:0xdeadbeef
     #[arg(
         short = 'P',
         long = "patch-ix-data",
@@ -96,6 +105,7 @@ pub struct SimulateArgs {
     /// Patch bytes in an account data field before simulation.
     /// Format: <PUBKEY>=<OFFSET>:<HEX_DATA>
     /// HEX_DATA may optionally start with 0x.
+    /// Example: --patch-account-data So11111111111111111111111111111111111111112=16:0xdeadbeef
     #[arg(
         short = 'p',
         long = "patch-account-data",
@@ -181,7 +191,7 @@ pub struct SimulateArgs {
 pub struct TransactionInputArgs {
     /// Raw transaction (Base58/Base64) or transaction signature.
     /// Omit to read from stdin (when stdin is not a TTY).
-    /// Pass multiple values for bundle mode.
+    /// Pass multiple TX values to simulate a bundle (atomic multi-transaction).
     #[arg(value_name = "TX", required = false)]
     pub tx: Vec<String>,
 }

@@ -7,7 +7,6 @@ use clap::Args;
 use super::RpcArgs;
 use super::simulate::TransactionInputArgs;
 
-/// Decode and display a raw transaction without simulation.
 #[derive(Args, Debug)]
 pub struct DecodeArgs {
     #[command(flatten)]

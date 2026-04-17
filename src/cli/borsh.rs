@@ -1,5 +1,10 @@
 use clap::{Args, Subcommand};
 
+/// Serialize or deserialize data using Borsh-compatible type descriptors.
+///
+/// Type descriptors are lowercase: u8/u16/u32/u64/u128, i8..i128, bool, string,
+/// pubkey, vec<T>, [T;N] (fixed array), (T1,T2,...) (tuple), option<T>.
+/// Nest freely, e.g. `vec<(u64,option<pubkey>)>`.
 #[derive(Args, Debug)]
 pub struct BorshArgs {
     #[command(subcommand)]
