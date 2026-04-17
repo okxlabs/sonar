@@ -16,6 +16,12 @@ const HELP_HEADING_SIMULATION_CONTROLS: &str = "Simulation Controls";
 const HELP_HEADING_OUTPUT_DEBUG: &str = "Output & Debug";
 
 #[derive(Args, Debug)]
+#[command(after_help = "\
+EXAMPLES:
+  sonar simulate <TX>                           Single transaction
+  sonar simulate <TX1> <TX2>                    Bundle (atomic multi-tx)
+  sonar simulate <TX> --fund-sol ALICE=1sol     Fund account before sim
+  sonar simulate <TX> --override PROG=prog.so   Override on-chain program")]
 pub struct SimulateArgs {
     #[command(flatten, next_help_heading = HELP_HEADING_INPUT_RPC)]
     pub transaction: TransactionInputArgs,
@@ -181,7 +187,7 @@ pub struct SimulateArgs {
 pub struct TransactionInputArgs {
     /// Raw transaction (Base58/Base64) or transaction signature.
     /// Omit to read from stdin (when stdin is not a TTY).
-    /// Pass multiple values for bundle mode.
+    /// Pass multiple TX values to simulate a bundle (atomic multi-transaction).
     #[arg(value_name = "TX", required = false)]
     pub tx: Vec<String>,
 }

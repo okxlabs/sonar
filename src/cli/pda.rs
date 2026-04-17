@@ -12,7 +12,10 @@ pub struct PdaArgs {
     pub program_id: String,
 
     /// Seeds in format: type:value (repeatable), e.g. string:hello pubkey:<PUBKEY>
-    /// Types: string (str), pubkey (pk), bool, u8, u16, u32, u64, u128, i8, i16, i32, i64, i128, bytes (hex)
+    ///
+    /// Seed types with aliases in parentheses:
+    ///   string (str) · pubkey (pk) · bool · u8 · u16 · u32 · u64 · u128
+    ///   i8 · i16 · i32 · i64 · i128 · bytes (hex)
     #[arg(value_name = "SEED", num_args = 1.., required = true)]
     pub seeds: Vec<String>,
 }
@@ -70,7 +73,7 @@ impl FromStr for SeedType {
             "i128" => Ok(SeedType::I128),
             "bytes" | "hex" => Ok(SeedType::Bytes),
             _ => Err(format!(
-                "Unknown seed type: '{}'. Supported: string, pubkey, bool, u8, u16, u32, u64, u128, i8, i16, i32, i64, i128, bytes",
+                "Unknown seed type: '{}'. Supported: string (str), pubkey (pk, publickey), bool, u8, u16, u32, u64, u128, i8, i16, i32, i64, i128, bytes (hex)",
                 s
             )),
         }

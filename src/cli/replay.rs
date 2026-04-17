@@ -6,7 +6,10 @@ use clap::Args;
 
 use super::RpcArgs;
 
-/// Replay the historical execution of a confirmed transaction.
+/// Fetch and display a confirmed transaction's on-chain execution.
+///
+/// Unlike simulate, replay retrieves the actual execution results (logs, inner
+/// instructions, balance changes) from the RPC node — no local execution.
 #[derive(Args, Debug)]
 pub struct ReplayArgs {
     /// Transaction signature to look up

@@ -69,10 +69,10 @@ pub enum Commands {
     /// Simulate a Solana transaction locally using LiteSVM
     #[command(alias = "sim", next_line_help = true)]
     Simulate(Box<SimulateArgs>),
-    /// Decode and display a raw transaction without simulation
+    /// Parse a raw transaction without executing it
     #[command(alias = "dec", next_line_help = true)]
     Decode(DecodeArgs),
-    /// Replay the historical execution of a confirmed transaction
+    /// Fetch and display a confirmed transaction's on-chain execution
     #[command(next_line_help = true)]
     Replay(ReplayArgs),
     /// Manage Anchor IDLs (fetch, sync, address)
