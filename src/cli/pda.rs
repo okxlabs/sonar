@@ -6,6 +6,11 @@ use solana_pubkey::Pubkey;
 use std::str::FromStr;
 
 #[derive(Args, Debug)]
+#[command(after_help = "\
+EXAMPLES:
+  sonar pda 11111111111111111111111111111111 str:vault pk:So11111111111111111111111111111111111111112
+  sonar pda <PROG> str:position u64:42 bool:true
+  sonar pda <PROG> bytes:deadbeef          Raw hex seed")]
 pub struct PdaArgs {
     /// The program ID to derive the PDA from
     #[arg(value_name = "PROGRAM_ID")]
@@ -101,7 +106,12 @@ pub fn parse_seeds(inputs: &[String]) -> Result<Vec<ParsedSeed>, String> {
         let part = raw.trim();
         let (type_str, value) = part
             .split_once(':')
-            .ok_or_else(|| format!("Invalid seed format '{}': expected 'type:value'", part))?;
+            .ok_or_else(|| {
+                format!(
+                    "Invalid seed format '{}': expected 'type:value' (e.g. 'str:vault', 'pk:<PUBKEY>', 'u64:42')",
+                    part
+                )
+            })?;
         let type_str = type_str.trim();
         let value = value.trim();
 

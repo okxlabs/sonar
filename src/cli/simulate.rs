@@ -67,6 +67,7 @@ pub struct SimulateArgs {
     /// Patch an account pubkey within a specific instruction.
     /// Format: <IX>.<ACCOUNT>=<NEW_PUBKEY>[:<w|r>] (1-based indices)
     /// Append :w (default) for writable, :r for read-only.
+    /// Example: --patch-ix-account 1.3=So11111111111111111111111111111111111111112:r
     #[arg(
         short = 'A',
         long = "patch-ix-account",
@@ -79,6 +80,7 @@ pub struct SimulateArgs {
     /// Append an account to the end of a specific instruction's account list.
     /// Format: <IX>=<PUBKEY>[:<w|r>] (1-based instruction index)
     /// Append :w (default) for writable, :r for read-only.
+    /// Example: --append-ix-account 2=So11111111111111111111111111111111111111112
     #[arg(
         long = "append-ix-account",
         help_heading = HELP_HEADING_STATE_PREPARATION,
@@ -90,6 +92,7 @@ pub struct SimulateArgs {
     /// Patch bytes in an instruction's data field before simulation.
     /// Format: <IX>=<OFFSET>:<HEX_DATA> (1-based instruction index)
     /// HEX_DATA may optionally start with 0x.
+    /// Example: --patch-ix-data 1=8:0xdeadbeef
     #[arg(
         short = 'P',
         long = "patch-ix-data",
@@ -102,6 +105,7 @@ pub struct SimulateArgs {
     /// Patch bytes in an account data field before simulation.
     /// Format: <PUBKEY>=<OFFSET>:<HEX_DATA>
     /// HEX_DATA may optionally start with 0x.
+    /// Example: --patch-account-data So11111111111111111111111111111111111111112=16:0xdeadbeef
     #[arg(
         short = 'p',
         long = "patch-account-data",

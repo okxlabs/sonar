@@ -98,9 +98,16 @@ pub enum Commands {
     #[command(next_line_help = true)]
     Pda(PdaArgs),
     /// Get raw program data (ELF bytecode) from an upgradeable Program/ProgramData/Buffer account
+    ///
+    /// Either --output <FILE> (use "-" for stdout) or --verify-sha256 <HASH> is
+    /// required. When both are given, the file is written only if the hash matches.
     #[command(name = "program-elf", next_line_help = true)]
     ProgramData(ProgramDataArgs),
     /// Send a signed transaction to the network
+    ///
+    /// Unlike simulate, send broadcasts to the RPC and mutates on-chain state.
+    /// The TX must already be signed — sonar does not sign. Use --wait to block
+    /// until the configured commitment level is reached.
     #[command(next_line_help = true)]
     Send(SendArgs),
     /// Generate shell completion scripts
