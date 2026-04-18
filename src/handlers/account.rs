@@ -8,15 +8,15 @@ use anyhow::{Context, Result, anyhow};
 use base64::{Engine as _, engine::general_purpose};
 use serde_json::Value;
 use solana_address_lookup_table_interface::state::AddressLookupTable;
-use solana_commitment_config::CommitmentConfig;
 use solana_loader_v3_interface::state::UpgradeableLoaderState;
 use solana_pubkey::Pubkey;
 use solana_sdk_ids::{address_lookup_table, bpf_loader_upgradeable};
+use sonar_sim::internals::DEFAULT_RPC_BATCH_SIZE;
 
 use crate::cli::AccountArgs;
 use crate::parsers::instruction::anchor_idl::IndexedIdl;
 use crate::{
-    core::idl_fetcher, parsers::metaplex_metadata_decoder, parsers::token_account_decoder,
+    core::account_loader, parsers::metaplex_metadata_decoder, parsers::token_account_decoder,
 };
 
 pub(crate) fn handle(args: AccountArgs, json: bool) -> Result<()> {
@@ -33,7 +33,7 @@ pub(crate) fn handle(args: AccountArgs, json: bool) -> Result<()> {
                     .with_context(|| format!("Invalid account pubkey: {input}"))?;
                 let client = RpcClient::new(&args.rpc.rpc_url);
                 let acct = client
-                    .get_account(&pk)
+                    .get_account_maybe_historical(&pk, args.rpc.history_slot)
                     .with_context(|| format!("Failed to fetch account: {pk}"))?;
                 (pk.to_string(), pk, acct)
             }
@@ -187,16 +187,14 @@ fn decode_account_output(
     if let Some(result) = decode_address_lookup_table(account) {
         return Ok(result);
     }
-    if let Some(result) = decode_spl_token(client, account_pubkey, account) {
+    if let Some(result) = decode_spl_token(client, account_pubkey, account, args.rpc.history_slot) {
         return Ok(result);
     }
 
     // IDL decode + fallback — depends on args and has complex fallback paths.
     let owner = account.owner;
-    let idl_json = try_load_idl_from_dir(&args.idl_dir, &owner).or_else(|| {
-        let fetcher = idl_fetcher::IdlFetcher::new(args.rpc.rpc_url.clone(), None).ok()?;
-        fetcher.fetch_idl(&owner).ok().flatten()
-    });
+    let idl_json =
+        try_load_idl_from_dir(&args.idl_dir, &owner).or_else(|| fetch_idl_from_chain(args, &owner));
 
     let idl_json = match idl_json {
         Some(json) => json,
@@ -401,12 +399,13 @@ fn decode_spl_token(
     client: &RpcClient,
     account_pubkey: &Pubkey,
     account: &solana_account::Account,
+    history_slot: Option<u64>,
 ) -> Option<(Value, String, Option<Value>)> {
     let token_json = token_account_decoder::decode_spl_token_account(account)?;
     let account_type = detect_token_type(account, &token_json);
 
     let metadata_output = if should_enrich_with_metaplex_metadata(account, &token_json) {
-        match fetch_metadata_for_mint(client, account_pubkey) {
+        match fetch_metadata_for_mint(client, account_pubkey, history_slot) {
             Ok((meta_account, decoded)) => Some(wrap_account_data_output(&meta_account, decoded)),
             Err(error) => {
                 log::warn!(
@@ -456,6 +455,20 @@ fn try_load_idl_from_dir(idl_dir: &Option<PathBuf>, owner: &Pubkey) -> Option<St
             None
         }
     }
+}
+
+fn fetch_idl_from_chain(args: &AccountArgs, owner: &Pubkey) -> Option<String> {
+    let loader = account_loader::create_loader(
+        args.rpc.rpc_url.clone(),
+        None,
+        false,
+        None,
+        DEFAULT_RPC_BATCH_SIZE,
+        args.rpc.history_slot,
+    )
+    .ok()?;
+    let fetcher = account_loader::create_idl_fetcher(&loader, None);
+    fetcher.fetch_idl(owner).ok().flatten()
 }
 
 /// Build ProgramData account payload.
@@ -543,17 +556,13 @@ fn should_enrich_with_metaplex_metadata(
 fn fetch_metadata_for_mint(
     client: &RpcClient,
     mint_pubkey: &Pubkey,
+    history_slot: Option<u64>,
 ) -> Result<(solana_account::Account, Value)> {
     let metadata_pda = metaplex_metadata_decoder::derive_metadata_pda(mint_pubkey);
-    let response = client
-        .get_account_with_commitment(&metadata_pda, CommitmentConfig::processed())
-        .with_context(|| {
+    let metadata_account =
+        client.get_account_maybe_historical(&metadata_pda, history_slot).with_context(|| {
             format!("Failed to fetch metadata PDA {} for mint {}", metadata_pda, mint_pubkey)
         })?;
-
-    let metadata_account = response.value.with_context(|| {
-        format!("Metadata PDA account not found for mint {} (PDA: {})", mint_pubkey, metadata_pda)
-    })?;
 
     if metadata_account.owner != metaplex_metadata_decoder::metadata_program_id() {
         anyhow::bail!(
@@ -578,14 +587,19 @@ fn fetch_metadata_for_mint(
 #[cfg(test)]
 mod tests {
     use std::io::Write;
+    use std::sync::Arc;
 
     use super::{
         load_account_json, parse_account_data_field, parse_solana_account_json,
         should_enrich_with_metaplex_metadata,
     };
+    use crate::core::idl_fetcher::{IdlFetcher, get_idl_address};
     use crate::parsers::token_account_decoder;
     use base64::{Engine as _, engine::general_purpose};
+    use flate2::Compression;
+    use flate2::write::ZlibEncoder;
     use solana_pubkey::Pubkey;
+    use sonar_sim::internals::FakeAccountProvider;
     use spl_token::solana_program::program_option::COption;
     use spl_token::solana_program::program_pack::Pack;
     use spl_token::solana_program::pubkey::Pubkey as ProgramPubkey;
@@ -598,6 +612,32 @@ mod tests {
 
     fn token2022_owner_pubkey() -> Pubkey {
         Pubkey::new_from_array(spl_token_2022::ID.to_bytes())
+    }
+
+    fn build_anchor_idl_json(program_id: &Pubkey, account_name: &str, field_name: &str) -> String {
+        serde_json::json!({
+            "address": program_id.to_string(),
+            "metadata": { "name": "test_program", "version": "0.1.0", "spec": "0.1.0" },
+            "instructions": [],
+            "types": [{
+                "name": account_name,
+                "type": { "kind": "struct", "fields": [{ "name": field_name, "type": "u64" }] }
+            }]
+        })
+        .to_string()
+    }
+
+    fn build_idl_account_data(idl_json: &str) -> Vec<u8> {
+        let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(idl_json.as_bytes()).unwrap();
+        let compressed = encoder.finish().unwrap();
+
+        let mut data = Vec::with_capacity(44 + compressed.len());
+        data.extend_from_slice(&[0u8; 8]);
+        data.extend_from_slice(&[0u8; 32]);
+        data.extend_from_slice(&(compressed.len() as u32).to_le_bytes());
+        data.extend_from_slice(&compressed);
+        data
     }
 
     #[test]
@@ -767,5 +807,30 @@ mod tests {
         assert_eq!(acct.lamports, 500);
         assert_eq!(acct.data, raw_data);
         assert!(acct.executable);
+    }
+
+    #[test]
+    fn idl_fetcher_finds_idl_via_fake_provider() {
+        let program_id = Pubkey::new_unique();
+        let historical_idl_json =
+            build_anchor_idl_json(&program_id, "HistoricalAccount", "historicalValue");
+
+        let idl_address = get_idl_address(&program_id).unwrap();
+        let accounts = std::collections::HashMap::from([(
+            idl_address,
+            solana_account::Account {
+                lamports: 1,
+                data: build_idl_account_data(&historical_idl_json),
+                owner: Pubkey::new_unique(),
+                executable: false,
+                rent_epoch: 0,
+            },
+        )]);
+
+        let fetcher =
+            IdlFetcher::with_provider(Arc::new(FakeAccountProvider::from_accounts(accounts)), None);
+
+        let idl_json = fetcher.fetch_idl(&program_id).unwrap();
+        assert_eq!(idl_json, Some(historical_idl_json));
     }
 }

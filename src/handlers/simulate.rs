@@ -91,6 +91,7 @@ pub(crate) fn handle(args: SimulateArgs, json: bool) -> Result<()> {
     // --cache-dir or --refresh-cache imply --cache
     let cache = cache || cache_dir.is_some() || refresh_cache;
     let rpc_batch_size = rpc.rpc_batch_size;
+    let history_slot = rpc.history_slot;
     let rpc_url = rpc.rpc_url;
     let resolver_cache_location = Some(build_cache_location(&cache_dir));
 
@@ -147,11 +148,18 @@ pub(crate) fn handle(args: SimulateArgs, json: bool) -> Result<()> {
             refresh_cache,
             no_idl_fetch,
             rpc_batch_size,
+            history_slot,
             &progress,
         );
     }
 
-    let resolved = resolve_and_derive_cache_key(tx, &rpc_url, resolver_cache_location, &progress)?;
+    let resolved = resolve_and_derive_cache_key(
+        tx,
+        &rpc_url,
+        resolver_cache_location,
+        &progress,
+        history_slot,
+    )?;
     let resolved_input = resolved
         .resolved_txs
         .into_iter()
@@ -171,6 +179,7 @@ pub(crate) fn handle(args: SimulateArgs, json: bool) -> Result<()> {
         refresh_cache,
         no_idl_fetch,
         rpc_batch_size,
+        history_slot,
     };
     let cached = resolve_cache_and_prepare(
         &cache_args,
@@ -293,12 +302,18 @@ fn handle_bundle(
     refresh_cache: bool,
     no_idl_fetch: bool,
     rpc_batch_size: usize,
+    history_slot: Option<u64>,
     progress: &Progress,
 ) -> Result<()> {
     log::info!("Bundle simulation mode: {} transactions", tx_inputs.len());
 
-    let resolved =
-        resolve_and_derive_cache_key(tx_inputs, rpc_url, resolver_cache_location, progress)?;
+    let resolved = resolve_and_derive_cache_key(
+        tx_inputs,
+        rpc_url,
+        resolver_cache_location,
+        progress,
+        history_slot,
+    )?;
     let resolved_txs = resolved.resolved_txs;
     let mut parsed_txs: Vec<_> = resolved_txs.iter().map(|tx| tx.parsed_tx.clone()).collect();
     log::info!("Successfully parsed {} transactions", parsed_txs.len());
@@ -314,6 +329,7 @@ fn handle_bundle(
         refresh_cache,
         no_idl_fetch,
         rpc_batch_size,
+        history_slot,
     };
     let cached = resolve_cache_and_prepare(
         &cache_args,

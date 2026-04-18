@@ -14,7 +14,7 @@ use solana_transaction_status_client_types::{
 };
 
 use sonar_sim::internals::rpc_json::{RpcAccountInfo, RpcResultValue};
-use sonar_sim::internals::RpcTransport;
+use sonar_sim::internals::{HISTORICAL_RPC_METHOD, RpcTransport};
 
 /// Lightweight Solana JSON-RPC client backed by [`RpcTransport`].
 pub struct RpcClient {
@@ -79,6 +79,41 @@ impl RpcClient {
         self.transport.call(method, params).map_err(|e| anyhow!("{e}"))
     }
 
+    /// Fetch a single account, optionally at a historical slot.
+    ///
+    /// When `history_slot` is `Some`, uses the non-standard
+    /// `getMultipleAccountsDataBySlot` RPC method. Otherwise uses
+    /// standard `getAccountInfo`.
+    pub fn get_account_maybe_historical(
+        &self,
+        pubkey: &Pubkey,
+        history_slot: Option<u64>,
+    ) -> Result<Account> {
+        match history_slot {
+            Some(slot) => self.get_account_at_slot(pubkey, slot),
+            None => self.get_account(pubkey),
+        }
+    }
+
+    fn get_account_at_slot(&self, pubkey: &Pubkey, slot: u64) -> Result<Account> {
+        let result: RpcResultValue<Vec<Option<RpcAccountInfo>>> = self.call(
+            HISTORICAL_RPC_METHOD,
+            serde_json::json!([
+                [pubkey.to_string()],
+                slot,
+                {"encoding": "base64"}
+            ]),
+        )?;
+        result
+            .value
+            .into_iter()
+            .next()
+            .flatten()
+            .ok_or_else(|| anyhow!("AccountNotFound: {pubkey} at slot {slot}"))?
+            .into_account()
+            .map_err(|e| anyhow!("{e}"))
+    }
+
     pub fn get_account(&self, pubkey: &Pubkey) -> Result<Account> {
         let result: RpcResultValue<Option<RpcAccountInfo>> = self.call(
             "getAccountInfo",
@@ -100,23 +135,6 @@ impl RpcClient {
             .into_iter()
             .map(|opt| opt.map(|info| info.into_account().map_err(|e| anyhow!("{e}"))).transpose())
             .collect()
-    }
-
-    pub fn get_account_with_commitment(
-        &self,
-        pubkey: &Pubkey,
-        commitment: CommitmentConfig,
-    ) -> Result<RpcResponse<Option<Account>>> {
-        let result: RpcResultValue<Option<RpcAccountInfo>> = self.call(
-            "getAccountInfo",
-            serde_json::json!([
-                pubkey.to_string(),
-                {"encoding": "base64", "commitment": commitment_str(commitment)}
-            ]),
-        )?;
-        let value =
-            result.value.map(|info| info.into_account().map_err(|e| anyhow!("{e}"))).transpose()?;
-        Ok(RpcResponse { value })
     }
 
     pub fn send_transaction_with_config(

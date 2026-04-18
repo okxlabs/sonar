@@ -24,15 +24,17 @@ pub(crate) fn handle(args: ProgramDataArgs) -> Result<()> {
         .with_context(|| format!("Invalid address: {}", args.address))?;
 
     let client = RpcClient::new(&args.rpc.rpc_url);
+    let history_slot = args.rpc.history_slot;
     let input_account = client
-        .get_account(&address)
+        .get_account_maybe_historical(&address, history_slot)
         .with_context(|| format!("Failed to fetch account: {address}"))?;
     ensure_upgradeable_owner(address, &input_account.owner)?;
 
     let elf_data = match classify_upgradeable_account(address, &input_account.data)? {
         UpgradeableAccountKind::Program { programdata_address } => {
-            let programdata_account =
-                client.get_account(&programdata_address).with_context(|| {
+            let programdata_account = client
+                .get_account_maybe_historical(&programdata_address, history_slot)
+                .with_context(|| {
                     format!("Failed to fetch program data account: {programdata_address}")
                 })?;
             ensure_upgradeable_owner(programdata_address, &programdata_account.owner)?;
