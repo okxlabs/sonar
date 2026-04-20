@@ -11,6 +11,7 @@ use crate::error::SonarSimError;
 use crate::rpc_json::JsonRpcResponse;
 
 const RPC_TIMEOUT: Duration = Duration::from_secs(30);
+const MAX_RESPONSE_SIZE: u64 = 128 * 1024 * 1024; // 128MB
 const MAX_RETRIES: u32 = 5;
 const DEFAULT_RETRY_DELAY: Duration = Duration::from_secs(2);
 
@@ -47,9 +48,14 @@ impl RpcTransport {
         for attempt in 0..=MAX_RETRIES {
             match self.agent.post(&self.rpc_url).send_json(&body) {
                 Ok(mut response) => {
-                    let rpc: JsonRpcResponse<T> = response.body_mut().read_json().map_err(
-                        |e| SonarSimError::Rpc { reason: format!("parse response: {e}") },
-                    )?;
+                    let rpc: JsonRpcResponse<T> = response
+                        .body_mut()
+                        .with_config()
+                        .limit(MAX_RESPONSE_SIZE)
+                        .read_json()
+                        .map_err(|e| SonarSimError::Rpc {
+                            reason: format!("parse response: {e}"),
+                        })?;
 
                     if let Some(err) = rpc.error {
                         return Err(SonarSimError::Rpc { reason: err.to_string() });
