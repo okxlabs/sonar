@@ -18,6 +18,16 @@ use crate::types::{
     AccountAppender, PreparedTokenFunding, ResolvedAccounts, TokenAmount, TokenFunding,
 };
 
+struct TokenIdentity {
+    mint: Pubkey,
+    owner: Pubkey,
+}
+
+struct MintContext {
+    decimals: u8,
+    program_kind: TokenProgramKind,
+}
+
 pub fn prepare_token_fundings(
     loader: &mut dyn AccountAppender,
     resolved: &ResolvedAccounts,
@@ -67,64 +77,113 @@ fn prepare_single_token_funding(
         }
     })?;
 
-    let (mint, owner) = if let Some(account) = lookup_account(resolved, extras, &request.account) {
+    let identity = resolve_token_identity(resolved, extras, request)?;
+    let mint_context = load_mint_context(loader, resolved, extras, identity.mint)?;
+
+    let amount_raw = resolve_token_amount(&request.amount, mint_context.decimals).map_err(|e| {
+        SonarSimError::Token {
+            account: Some(request.account),
+            reason: format!("Failed to resolve token amount for {}: {e}", request.account),
+        }
+    })?;
+
+    if let Some(account) = lookup_account(resolved, extras, &request.account) {
+        ensure_same_program(
+            mint_context.program_kind,
+            account.owner(),
+            "token account",
+            request.account,
+        )?;
+    }
+
+    Ok(PreparedTokenFunding {
+        account: request.account,
+        mint: identity.mint,
+        owner: identity.owner,
+        decimals: mint_context.decimals,
+        amount_raw,
+        ui_amount: raw_to_ui_amount(amount_raw, mint_context.decimals),
+        program_kind: mint_context.program_kind,
+    })
+}
+
+fn resolve_token_identity(
+    resolved: &ResolvedAccounts,
+    extras: &HashMap<Pubkey, AccountSharedData>,
+    request: &TokenFunding,
+) -> Result<TokenIdentity> {
+    if let Some(account) = lookup_account(resolved, extras, &request.account) {
         let decoded = decode_existing_token_account(account, &request.account)?;
+        validate_requested_identity(request, decoded.mint, decoded.owner)?;
+        return Ok(TokenIdentity { mint: decoded.mint, owner: decoded.owner });
+    }
 
-        if let Some(requested_mint) = request.mint {
-            if decoded.mint != requested_mint {
-                return Err(SonarSimError::Token {
-                    account: Some(request.account),
-                    reason: format!(
-                        "Token account {} is associated with mint {}, but CLI requested mint {}",
-                        request.account, decoded.mint, requested_mint
-                    ),
-                });
-            }
+    let mint = request.mint.ok_or_else(|| SonarSimError::Token {
+        account: Some(request.account),
+        reason: format!(
+            "Token account {} does not exist on-chain; \
+             you must specify mint and owner using \
+             <ACCOUNT>:<MINT>:<OWNER>=<AMOUNT> format",
+            request.account
+        ),
+    })?;
+    let owner = request.owner.ok_or_else(|| SonarSimError::Token {
+        account: Some(request.account),
+        reason: format!(
+            "Token account {} does not exist on-chain; \
+             you must specify the owner using \
+             <ACCOUNT>:<MINT>:<OWNER>=<AMOUNT> format",
+            request.account
+        ),
+    })?;
+
+    Ok(TokenIdentity { mint, owner })
+}
+
+fn validate_requested_identity(
+    request: &TokenFunding,
+    actual_mint: Pubkey,
+    actual_owner: Pubkey,
+) -> Result<()> {
+    if let Some(requested_mint) = request.mint {
+        if actual_mint != requested_mint {
+            return Err(SonarSimError::Token {
+                account: Some(request.account),
+                reason: format!(
+                    "Token account {} is associated with mint {}, but CLI requested mint {}",
+                    request.account, actual_mint, requested_mint
+                ),
+            });
         }
+    }
 
-        if let Some(requested_owner) = request.owner {
-            if decoded.owner != requested_owner {
-                return Err(SonarSimError::Token {
-                    account: Some(request.account),
-                    reason: format!(
-                        "Token account {} has owner {}, but CLI specified owner {}",
-                        request.account, decoded.owner, requested_owner
-                    ),
-                });
-            }
+    if let Some(requested_owner) = request.owner {
+        if actual_owner != requested_owner {
+            return Err(SonarSimError::Token {
+                account: Some(request.account),
+                reason: format!(
+                    "Token account {} has owner {}, but CLI specified owner {}",
+                    request.account, actual_owner, requested_owner
+                ),
+            });
         }
+    }
 
-        (decoded.mint, decoded.owner)
-    } else {
-        let mint = request.mint.ok_or_else(|| SonarSimError::Token {
-            account: Some(request.account),
-            reason: format!(
-                "Token account {} does not exist on-chain; \
-                 you must specify mint and owner using \
-                 <ACCOUNT>:<MINT>:<OWNER>=<AMOUNT> format",
-                request.account
-            ),
-        })?;
-        let owner = request.owner.ok_or_else(|| SonarSimError::Token {
-            account: Some(request.account),
-            reason: format!(
-                "Token account {} does not exist on-chain; \
-                 you must specify the owner using \
-                 <ACCOUNT>:<MINT>:<OWNER>=<AMOUNT> format",
-                request.account
-            ),
-        })?;
+    Ok(())
+}
 
-        (mint, owner)
-    };
-
+fn load_mint_context(
+    loader: &mut dyn AccountAppender,
+    resolved: &ResolvedAccounts,
+    extras: &mut HashMap<Pubkey, AccountSharedData>,
+    mint: Pubkey,
+) -> Result<MintContext> {
     ensure_account_loaded(loader, resolved, extras, &mint).map_err(|e| SonarSimError::Token {
         account: Some(mint),
         reason: format!("Failed to load mint account {}: {e}", mint),
     })?;
     let mint_account = lookup_account(resolved, extras, &mint)
-        .ok_or(SonarSimError::AccountNotFound { pubkey: mint })?
-        .clone();
+        .ok_or(SonarSimError::AccountNotFound { pubkey: mint })?;
 
     let program_kind =
         TokenProgramKind::from_owner(mint_account.owner()).ok_or_else(|| SonarSimError::Token {
@@ -135,27 +194,9 @@ fn prepare_single_token_funding(
             ),
         })?;
 
-    let decimals = token_decode::read_mint_decimals(&mint_account)?;
+    let decimals = token_decode::read_mint_decimals(mint_account)?;
 
-    let amount_raw =
-        resolve_token_amount(&request.amount, decimals).map_err(|e| SonarSimError::Token {
-            account: Some(request.account),
-            reason: format!("Failed to resolve token amount for {}: {e}", request.account),
-        })?;
-
-    if let Some(account) = lookup_account(resolved, extras, &request.account) {
-        ensure_same_program(program_kind, account.owner(), "token account", request.account)?;
-    }
-
-    Ok(PreparedTokenFunding {
-        account: request.account,
-        mint,
-        owner,
-        decimals,
-        amount_raw,
-        ui_amount: raw_to_ui_amount(amount_raw, decimals),
-        program_kind,
-    })
+    Ok(MintContext { decimals, program_kind })
 }
 
 pub fn apply_token_fundings<B: SvmBackend + ?Sized>(
@@ -174,55 +215,70 @@ fn apply_single_token_funding<B: SvmBackend + ?Sized>(
     funding: &PreparedTokenFunding,
     resolved: &ResolvedAccounts,
 ) -> Result<()> {
-    let kind = funding.program_kind;
-
     let mut account = if let Some(existing) = svm.get_account(&funding.account) {
         existing
     } else {
-        let rent = read_rent_from_svm(svm)?;
-        let mint_account = resolved
-            .accounts
-            .get(&funding.mint)
-            .ok_or(SonarSimError::AccountNotFound { pubkey: funding.mint })?;
-        match kind {
-            TokenProgramKind::Legacy => token_legacy::build_token_account(
-                &funding.account,
-                &funding.mint,
-                &funding.owner,
-                &rent,
-            )?,
-            TokenProgramKind::Token2022 => token2022::build_token_account_with_extensions(
-                &funding.account,
-                &funding.mint,
-                &funding.owner,
-                mint_account,
-                &rent,
-            )?,
-        }
+        build_funding_account(svm, funding, resolved)?
     };
 
-    let _ = match kind {
-        TokenProgramKind::Legacy => token_legacy::update_token_balance_in_account(
-            &mut account,
-            &funding.account,
-            &funding.mint,
-            &funding.owner,
-            funding.amount_raw,
-            funding.decimals,
-        )?,
-        TokenProgramKind::Token2022 => token2022::update_token_balance_in_account(
-            &mut account,
-            &funding.account,
-            &funding.mint,
-            &funding.owner,
-            funding.amount_raw,
-            funding.decimals,
-        )?,
-    };
+    update_funding_account(&mut account, funding)?;
 
     svm.set_account(funding.account, account).map_err(|e| SonarSimError::Svm {
         reason: format!("Failed to set token funding account `{}`: {}", funding.account, e),
     })?;
+    Ok(())
+}
+
+fn build_funding_account<B: SvmBackend + ?Sized>(
+    svm: &B,
+    funding: &PreparedTokenFunding,
+    resolved: &ResolvedAccounts,
+) -> Result<AccountSharedData> {
+    let rent = read_rent_from_svm(svm)?;
+    let mint_account = resolved
+        .accounts
+        .get(&funding.mint)
+        .ok_or(SonarSimError::AccountNotFound { pubkey: funding.mint })?;
+
+    match funding.program_kind {
+        TokenProgramKind::Legacy => token_legacy::build_token_account(
+            &funding.account,
+            &funding.mint,
+            &funding.owner,
+            &rent,
+        ),
+        TokenProgramKind::Token2022 => token2022::build_token_account_with_extensions(
+            &funding.account,
+            &funding.mint,
+            &funding.owner,
+            mint_account,
+            &rent,
+        ),
+    }
+}
+
+fn update_funding_account(
+    account: &mut AccountSharedData,
+    funding: &PreparedTokenFunding,
+) -> Result<()> {
+    match funding.program_kind {
+        TokenProgramKind::Legacy => token_legacy::update_token_balance_in_account(
+            account,
+            &funding.account,
+            &funding.mint,
+            &funding.owner,
+            funding.amount_raw,
+            funding.decimals,
+        ),
+        TokenProgramKind::Token2022 => token2022::update_token_balance_in_account(
+            account,
+            &funding.account,
+            &funding.mint,
+            &funding.owner,
+            funding.amount_raw,
+            funding.decimals,
+        ),
+    }?;
     Ok(())
 }
 

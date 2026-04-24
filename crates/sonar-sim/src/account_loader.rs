@@ -102,29 +102,20 @@ impl AccountLoader {
         let initial = collect_initial_accounts(plans);
         let mut accounts = HashMap::with_capacity(initial.len());
 
-        self.fetcher.fetch_accounts(&initial, &mut accounts).map_err(|e| {
-            SonarSimError::AccountData {
-                pubkey: None,
-                reason: format!(
-                    "Failed to fetch initial accounts (static + sysvars + lookups): {e}"
-                ),
-            }
-        })?;
-        self.resolve_all_dependencies(&mut accounts)?;
+        self.fetch_then_resolve(
+            &initial,
+            &mut accounts,
+            "Failed to fetch initial accounts (static + sysvars + lookups)",
+        )?;
 
         let (lookups, lookup_pubkeys) = self.resolve_all_lookups(plans, &mut accounts)?;
 
         if !lookup_pubkeys.is_empty() {
-            self.fetcher.fetch_accounts(&lookup_pubkeys, &mut accounts).map_err(|e| {
-                SonarSimError::AccountData {
-                    pubkey: None,
-                    reason: format!(
-                        "Failed to load accounts from address lookup tables: [{}]: {e}",
-                        format_pubkeys(&lookup_pubkeys)
-                    ),
-                }
-            })?;
-            self.resolve_all_dependencies(&mut accounts)?;
+            self.fetch_then_resolve(
+                &lookup_pubkeys,
+                &mut accounts,
+                "Failed to load accounts from address lookup tables",
+            )?;
         }
 
         Ok(ResolvedAccounts { accounts, lookups })
@@ -164,17 +155,25 @@ impl AccountLoader {
         if pubkeys.is_empty() {
             return Ok(());
         }
-        self.fetcher.fetch_accounts(pubkeys, &mut resolved.accounts).map_err(|e| {
-            SonarSimError::AccountData {
-                pubkey: None,
-                reason: format!(
-                    "Failed to fetch appended accounts: [{}]: {e}",
-                    format_pubkeys(pubkeys)
-                ),
-            }
-        })?;
-        self.resolve_all_dependencies(&mut resolved.accounts)?;
+        self.fetch_then_resolve(
+            pubkeys,
+            &mut resolved.accounts,
+            "Failed to fetch appended accounts",
+        )?;
         Ok(())
+    }
+
+    fn fetch_then_resolve(
+        &mut self,
+        pubkeys: &[Pubkey],
+        accounts: &mut HashMap<Pubkey, AccountSharedData>,
+        context: &str,
+    ) -> Result<()> {
+        self.fetcher.fetch_accounts(pubkeys, accounts).map_err(|e| SonarSimError::AccountData {
+            pubkey: None,
+            reason: format!("{context}: [{}]: {e}", format_pubkeys(pubkeys)),
+        })?;
+        self.resolve_all_dependencies(accounts)
     }
 
     /// Runs built-in dependency rules in a loop until no new dependencies emerge.

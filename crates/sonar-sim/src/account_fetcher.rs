@@ -93,6 +93,49 @@ impl AccountFetcher {
         pubkeys: &[Pubkey],
         destination: &mut HashMap<Pubkey, AccountSharedData>,
     ) -> Result<()> {
+        let unique = Self::dedupe_requested(pubkeys, destination);
+        if unique.is_empty() {
+            return Ok(());
+        }
+
+        trace!("Preparing to fetch {} accounts: [{}]", unique.len(), format_pubkeys(&unique));
+
+        let mut to_fetch = self.resolve_from_cache(unique, destination);
+        if to_fetch.is_empty() {
+            return Ok(());
+        }
+
+        to_fetch = self.resolve_from_sources(to_fetch, destination)?;
+        if to_fetch.is_empty() {
+            return Ok(());
+        }
+
+        let Some(to_fetch) = self.filter_rpc_candidates(to_fetch) else {
+            return Ok(());
+        };
+
+        let total_count = to_fetch.len();
+        let chunks: Vec<&[Pubkey]> = to_fetch.chunks(self.rpc_batch_size).collect();
+        self.notify_batches_started(&chunks, total_count);
+
+        let batch_results = self.fetch_rpc_batches(&chunks);
+        let fetched_count =
+            self.apply_rpc_results(&chunks, batch_results, total_count, destination)?;
+
+        self.notify(FetchEvent::RpcFinished {
+            requested: total_count,
+            fetched: fetched_count,
+            missing: total_count.saturating_sub(fetched_count),
+        });
+
+        debug!("Successfully fetched {} accounts from RPC", total_count);
+        Ok(())
+    }
+
+    fn dedupe_requested(
+        pubkeys: &[Pubkey],
+        destination: &HashMap<Pubkey, AccountSharedData>,
+    ) -> Vec<Pubkey> {
         let mut unique = Vec::with_capacity(pubkeys.len());
         let mut seen = HashSet::with_capacity(pubkeys.len());
         for key in pubkeys {
@@ -106,13 +149,14 @@ impl AccountFetcher {
                 unique.push(*key);
             }
         }
+        unique
+    }
 
-        if unique.is_empty() {
-            return Ok(());
-        }
-
-        trace!("Preparing to fetch {} accounts: [{}]", unique.len(), format_pubkeys(&unique));
-
+    fn resolve_from_cache(
+        &self,
+        unique: Vec<Pubkey>,
+        destination: &mut HashMap<Pubkey, AccountSharedData>,
+    ) -> Vec<Pubkey> {
         let mut to_fetch = Vec::new();
         for key in unique {
             if let Some(account) = self.cache.get(&key) {
@@ -121,11 +165,14 @@ impl AccountFetcher {
                 to_fetch.push(key);
             }
         }
+        to_fetch
+    }
 
-        if to_fetch.is_empty() {
-            return Ok(());
-        }
-
+    fn resolve_from_sources(
+        &mut self,
+        mut to_fetch: Vec<Pubkey>,
+        destination: &mut HashMap<Pubkey, AccountSharedData>,
+    ) -> Result<Vec<Pubkey>> {
         for source in &self.sources {
             if to_fetch.is_empty() {
                 break;
@@ -148,26 +195,22 @@ impl AccountFetcher {
             }
             to_fetch = still_missing;
         }
+        Ok(to_fetch)
+    }
 
-        if to_fetch.is_empty() {
-            return Ok(());
-        }
-
+    fn filter_rpc_candidates(&self, mut to_fetch: Vec<Pubkey>) -> Option<Vec<Pubkey>> {
         if let Some(policy) = &self.policy {
             if policy.decide_rpc(&to_fetch) == RpcDecision::Deny {
                 self.notify(FetchEvent::RpcSkippedByPolicy { missing: to_fetch });
-                return Ok(());
+                return None;
             }
         }
 
         to_fetch.retain(|key| !self.missing_cache.contains(key));
-        if to_fetch.is_empty() {
-            return Ok(());
-        }
+        if to_fetch.is_empty() { None } else { Some(to_fetch) }
+    }
 
-        let total_count = to_fetch.len();
-        let chunks: Vec<&[Pubkey]> = to_fetch.chunks(self.rpc_batch_size).collect();
-
+    fn notify_batches_started(&self, chunks: &[&[Pubkey]], total_count: usize) {
         for (batch_index, chunk) in chunks.iter().enumerate() {
             self.notify(FetchEvent::RpcBatchStarted {
                 batch_index,
@@ -175,26 +218,39 @@ impl AccountFetcher {
                 total_requested: total_count,
             });
         }
+    }
 
-        // Fetch all batches in parallel when multiple chunks are needed.
-        // Single-batch case avoids thread overhead.
-        let batch_results: Vec<Result<Vec<Option<AccountSharedData>>>> = if chunks.len() <= 1 {
-            chunks.iter().map(|&chunk| self.provider.get_multiple_accounts(chunk)).collect()
-        } else {
-            let provider = &self.provider;
-            std::thread::scope(|s| {
-                let handles: Vec<_> = chunks
-                    .iter()
-                    .map(|&chunk| {
-                        let provider = Arc::clone(provider);
-                        s.spawn(move || provider.get_multiple_accounts(chunk))
-                    })
-                    .collect();
-                handles.into_iter().map(|h| h.join().expect("RPC batch thread panicked")).collect()
-            })
-        };
+    fn fetch_rpc_batches(
+        &self,
+        chunks: &[&[Pubkey]],
+    ) -> Vec<Result<Vec<Option<AccountSharedData>>>> {
+        if chunks.len() <= 1 {
+            return chunks
+                .iter()
+                .map(|&chunk| self.provider.get_multiple_accounts(chunk))
+                .collect();
+        }
 
-        // Process results and update caches
+        let provider = &self.provider;
+        std::thread::scope(|s| {
+            let handles: Vec<_> = chunks
+                .iter()
+                .map(|&chunk| {
+                    let provider = Arc::clone(provider);
+                    s.spawn(move || provider.get_multiple_accounts(chunk))
+                })
+                .collect();
+            handles.into_iter().map(|h| h.join().expect("RPC batch thread panicked")).collect()
+        })
+    }
+
+    fn apply_rpc_results(
+        &mut self,
+        chunks: &[&[Pubkey]],
+        batch_results: Vec<Result<Vec<Option<AccountSharedData>>>>,
+        total_count: usize,
+        destination: &mut HashMap<Pubkey, AccountSharedData>,
+    ) -> Result<usize> {
         let mut requested_count = 0usize;
         let mut fetched_count = 0usize;
         for (&chunk, result) in chunks.iter().zip(batch_results) {
@@ -232,15 +288,7 @@ impl AccountFetcher {
                 }
             }
         }
-
-        self.notify(FetchEvent::RpcFinished {
-            requested: total_count,
-            fetched: fetched_count,
-            missing: total_count.saturating_sub(fetched_count),
-        });
-
-        debug!("Successfully fetched {} accounts from RPC", total_count);
-        Ok(())
+        Ok(fetched_count)
     }
 
     fn notify(&self, event: FetchEvent) {
