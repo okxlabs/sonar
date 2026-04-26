@@ -3,8 +3,8 @@
 ## Simulate
 
 Simulate a Solana transaction locally using LiteSVM (`simulate`, alias: `sim`).
-`sonar simulate --help` groups options by `Input & RPC`, `State Preparation`,
-`Simulation Controls`, and `Output & Debug` for faster scanning.
+`sonar simulate --help` groups options into `Input & RPC`, `State Preparation`,
+`Simulation Controls`, and `Output & Debug`.
 
 ```bash
 # Simulate a transaction with raw Base58/Base64 data
@@ -191,7 +191,7 @@ sonar decode <TX_OR_SIGNATURE> --rpc-url <RPC_URL> --cache-dir /path/to/cache
 
 ## Replay
 
-Replay the historical execution of a confirmed transaction. Fetches the transaction by signature from RPC and reconstructs the execution trace from on-chain metadata — no local simulation needed.
+Replay a confirmed transaction. Fetches it by signature from RPC and reconstructs the execution trace from on-chain metadata (no local simulation).
 
 ```bash
 # Replay a confirmed transaction
