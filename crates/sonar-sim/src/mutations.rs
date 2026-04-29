@@ -5,15 +5,14 @@
 use solana_pubkey::Pubkey;
 
 use crate::types::{
-    AccountDataPatch, AccountOverride, InstructionAccountAppend, InstructionAccountPatch,
-    InstructionDataPatch, SolFunding, TokenFunding,
+    AccountDataPatch, AccountOverride, InstructionAccountOp, InstructionDataPatch, SolFunding,
+    TokenFunding,
 };
 
 /// Instruction-level mutations applied to the raw transaction before simulation.
 #[derive(Debug, Clone, Default)]
 pub struct TransactionMutations {
-    pub(crate) ix_account_patches: Vec<InstructionAccountPatch>,
-    pub(crate) ix_account_appends: Vec<InstructionAccountAppend>,
+    pub(crate) ix_account_ops: Vec<InstructionAccountOp>,
     pub(crate) ix_data_patches: Vec<InstructionDataPatch>,
 }
 
@@ -52,9 +51,7 @@ impl Mutations {
 
 impl TransactionMutations {
     pub fn is_empty(&self) -> bool {
-        self.ix_account_patches.is_empty()
-            && self.ix_account_appends.is_empty()
-            && self.ix_data_patches.is_empty()
+        self.ix_account_ops.is_empty() && self.ix_data_patches.is_empty()
     }
 }
 
@@ -100,13 +97,10 @@ impl MutationsBuilder {
         self
     }
 
-    pub fn patch_ix_account(mut self, patch: InstructionAccountPatch) -> Self {
-        self.inner.transaction.ix_account_patches.push(patch);
-        self
-    }
-
-    pub fn append_ix_account(mut self, append: InstructionAccountAppend) -> Self {
-        self.inner.transaction.ix_account_appends.push(append);
+    /// Append an instruction-account mutation. Operations apply in the order
+    /// added; positions are interpreted at apply time.
+    pub fn add_ix_account_op(mut self, op: InstructionAccountOp) -> Self {
+        self.inner.transaction.ix_account_ops.push(op);
         self
     }
 
@@ -148,6 +142,42 @@ mod tests {
         assert_eq!(m.state.sol_fundings.len(), 1);
         assert_eq!(m.state.sol_fundings[0].pubkey, pk);
         assert_eq!(m.state.sol_fundings[0].amount_lamports, 1_000_000);
+    }
+
+    #[test]
+    fn builder_add_ix_account_op_insert() {
+        let key = Pubkey::new_unique();
+        let m = Mutations::builder()
+            .add_ix_account_op(InstructionAccountOp::Insert {
+                instruction_index: 0,
+                account_position: 2,
+                new_pubkey: key,
+                writable: false,
+            })
+            .build();
+        assert_eq!(m.transaction.ix_account_ops.len(), 1);
+        assert!(matches!(
+            m.transaction.ix_account_ops[0],
+            InstructionAccountOp::Insert { account_position: 2, writable: false, .. }
+        ));
+        assert!(!m.is_empty());
+    }
+
+    #[test]
+    fn builder_add_ix_account_op_remove_preserves_order() {
+        let m = Mutations::builder()
+            .add_ix_account_op(InstructionAccountOp::Remove {
+                instruction_index: 0,
+                account_position: 3,
+            })
+            .add_ix_account_op(InstructionAccountOp::Remove {
+                instruction_index: 0,
+                account_position: 1,
+            })
+            .build();
+        assert_eq!(m.transaction.ix_account_ops.len(), 2);
+        assert_eq!(m.transaction.ix_account_ops[0].account_position(), 3);
+        assert_eq!(m.transaction.ix_account_ops[1].account_position(), 1);
     }
 
     #[test]

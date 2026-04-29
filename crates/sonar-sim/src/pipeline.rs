@@ -18,8 +18,7 @@ use crate::mutations::Mutations;
 use crate::result::SimulationResult;
 use crate::rpc_provider::RpcAccountProvider;
 use crate::transaction::{
-    ParsedTransaction, apply_ix_account_appends, apply_ix_account_patches, apply_ix_data_patches,
-    parse_raw_transaction,
+    ParsedTransaction, apply_ix_account_ops, apply_ix_data_patches, parse_raw_transaction,
 };
 use crate::types::{AccountSource, FetchObserver, FetchPolicy, ResolvedAccounts, RpcDecision};
 
@@ -237,11 +236,8 @@ impl Pipeline {
     /// Apply transaction-level mutations (instruction patches) to a single transaction.
     fn apply_tx_mutations(tx: &mut VersionedTransaction, mutations: &Mutations) -> Result<()> {
         let tx_m = &mutations.transaction;
-        if !tx_m.ix_account_patches.is_empty() {
-            apply_ix_account_patches(tx, &tx_m.ix_account_patches)?;
-        }
-        if !tx_m.ix_account_appends.is_empty() {
-            apply_ix_account_appends(tx, &tx_m.ix_account_appends)?;
+        if !tx_m.ix_account_ops.is_empty() {
+            apply_ix_account_ops(tx, &tx_m.ix_account_ops)?;
         }
         if !tx_m.ix_data_patches.is_empty() {
             apply_ix_data_patches(tx, &tx_m.ix_data_patches)?;

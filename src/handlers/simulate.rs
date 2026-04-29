@@ -8,8 +8,7 @@ use crate::utils::progress::Progress;
 use crate::{core::account_file, core::transaction, output};
 use sonar_sim::internals::{
     ExecutionOptions, PreparedSimulation, SimulationOptions, StateMutationOptions,
-    apply_ix_account_appends, apply_ix_account_patches, apply_ix_data_patches,
-    prepare_token_fundings,
+    apply_ix_account_ops, apply_ix_data_patches, prepare_token_fundings,
 };
 
 use super::common::{
@@ -26,28 +25,18 @@ fn parse_cli_args<T>(args: Vec<String>, parser: fn(&str) -> Result<T, String>) -
 /// the transaction summary so the renderer sees the updated state.
 fn apply_ix_mutations(
     parsed_tx: &mut transaction::ParsedTransaction,
-    ix_account_patches: &[sonar_sim::internals::InstructionAccountPatch],
-    ix_account_appends: &[sonar_sim::internals::InstructionAccountAppend],
+    ix_account_ops: &[sonar_sim::internals::InstructionAccountOp],
     ix_data_patches: &[sonar_sim::internals::InstructionDataPatch],
 ) -> Result<()> {
-    if !ix_account_patches.is_empty() {
-        parsed_tx.account_plan =
-            apply_ix_account_patches(&mut parsed_tx.transaction, ix_account_patches)
-                .context("Failed to apply instruction account patches")?;
-    }
-    if !ix_account_appends.is_empty() {
-        parsed_tx.account_plan =
-            apply_ix_account_appends(&mut parsed_tx.transaction, ix_account_appends)
-                .context("Failed to apply instruction account appends")?;
+    if !ix_account_ops.is_empty() {
+        parsed_tx.account_plan = apply_ix_account_ops(&mut parsed_tx.transaction, ix_account_ops)
+            .context("Failed to apply instruction account ops")?;
     }
     if !ix_data_patches.is_empty() {
         apply_ix_data_patches(&mut parsed_tx.transaction, ix_data_patches)
             .context("Failed to apply instruction data patches")?;
     }
-    if !ix_account_patches.is_empty()
-        || !ix_account_appends.is_empty()
-        || !ix_data_patches.is_empty()
-    {
+    if !ix_account_ops.is_empty() || !ix_data_patches.is_empty() {
         parsed_tx.summary = transaction::TransactionSummary::from_transaction(
             &parsed_tx.transaction,
             &parsed_tx.account_plan,
@@ -86,7 +75,8 @@ pub(crate) fn handle(args: SimulateArgs, json: bool) -> Result<()> {
         cache_dir,
         refresh_cache,
         no_idl_fetch,
-        ix_account_appends: ix_account_append_args,
+        ix_account_inserts: ix_account_insert_args,
+        ix_account_removes: ix_account_remove_args,
     } = args;
     // --cache-dir or --refresh-cache imply --cache
     let cache = cache || cache_dir.is_some() || refresh_cache;
@@ -101,8 +91,13 @@ pub(crate) fn handle(args: SimulateArgs, json: bool) -> Result<()> {
     let token_funding_requests = parse_cli_args(token_funding_args, cli::parse_token_funding)?;
     let account_data_patches = parse_cli_args(data_patch_args, cli::parse_data_patch)?;
     let account_closures = parse_cli_args(account_closure_args, cli::parse_close_account)?;
-    let ix_account_patches = parse_cli_args(ix_account_patch_args, cli::parse_ix_account_patch)?;
-    let ix_account_appends = parse_cli_args(ix_account_append_args, cli::parse_ix_account_append)?;
+    // CLI flags surface three families separately for ergonomics, but all feed
+    // into one ordered op list. Concatenate in flag-listed order: patches,
+    // inserts, removes. Within each family, CLI argument order is preserved.
+    let mut ix_account_ops: Vec<sonar_sim::internals::InstructionAccountOp> =
+        parse_cli_args(ix_account_patch_args, cli::parse_ix_account_patch)?;
+    ix_account_ops.extend(parse_cli_args(ix_account_insert_args, cli::parse_ix_account_insert)?);
+    ix_account_ops.extend(parse_cli_args(ix_account_remove_args, cli::parse_ix_account_remove)?);
     let ix_data_patches = parse_cli_args(ix_data_patch_args, cli::parse_ix_data_patch)?;
 
     // Build rendering options once; shared across all code paths.
@@ -136,8 +131,7 @@ pub(crate) fn handle(args: SimulateArgs, json: bool) -> Result<()> {
             &rpc_url,
             resolver_cache_location,
             token_funding_requests,
-            ix_account_patches,
-            ix_account_appends,
+            ix_account_ops,
             ix_data_patches,
             sim_opts,
             &render_opts,
@@ -162,7 +156,7 @@ pub(crate) fn handle(args: SimulateArgs, json: bool) -> Result<()> {
     let resolved_from = resolved_input.source.as_str().to_string();
     let mut parsed_tx = resolved_input.parsed_tx;
 
-    apply_ix_mutations(&mut parsed_tx, &ix_account_patches, &ix_account_appends, &ix_data_patches)?;
+    apply_ix_mutations(&mut parsed_tx, &ix_account_ops, &ix_data_patches)?;
 
     let cache_args = CachePrepareArgs {
         rpc_url: &rpc_url,
@@ -282,8 +276,7 @@ fn handle_bundle(
     rpc_url: &str,
     resolver_cache_location: Option<crate::core::cache::CacheLocation>,
     token_funding_requests: Vec<cli::TokenFunding>,
-    ix_account_patches: Vec<sonar_sim::internals::InstructionAccountPatch>,
-    ix_account_appends: Vec<sonar_sim::internals::InstructionAccountAppend>,
+    ix_account_ops: Vec<sonar_sim::internals::InstructionAccountOp>,
     ix_data_patches: Vec<sonar_sim::internals::InstructionDataPatch>,
     mut sim_opts: SimulationOptions,
     render_opts: &output::RenderOptions,
@@ -304,7 +297,7 @@ fn handle_bundle(
     log::info!("Successfully parsed {} transactions", parsed_txs.len());
 
     for parsed_tx in &mut parsed_txs {
-        apply_ix_mutations(parsed_tx, &ix_account_patches, &ix_account_appends, &ix_data_patches)?;
+        apply_ix_mutations(parsed_tx, &ix_account_ops, &ix_data_patches)?;
     }
 
     let cache_args = CachePrepareArgs {
