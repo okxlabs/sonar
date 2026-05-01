@@ -90,16 +90,27 @@ sonar simulate <TX> \
 sonar simulate <TX> --rpc-url <RPC_URL> \
   --patch-ix-account 2.3=<NEW_PUBKEY>:r
 
-# Append an account to instruction 1's account list
-# Format: <IX>=<PUBKEY>[:<w|r>] with a 1-based instruction index
-# :w is the default; use :r for read-only (useful for remaining_accounts)
+# Insert an account at a specific position within instruction 1's account list
+# Format: <IX>.<POSITION>=<PUBKEY>[:<w|r>] with 1-based indices
+# Existing accounts at and after POSITION shift right by one.
+# POSITION may equal current_count + 1 to insert at the end (push semantics).
 sonar simulate <TX> --rpc-url <RPC_URL> \
-  --append-ix-account 1=<PUBKEY>
+  --insert-ix-account 1.3=<PUBKEY>:r
 
-# Append multiple accounts (appended in order)
+# Remove an account at a specific position from instruction 1's account list
+# Format: <IX>.<POSITION> with 1-based indices
+# Subsequent accounts shift left by one. The static account_keys table is left
+# intact (unreferenced keys remain, mirroring --patch-ix-account behavior).
 sonar simulate <TX> --rpc-url <RPC_URL> \
-  --append-ix-account 1=<PUBKEY1> \
-  --append-ix-account 1=<PUBKEY2>:r
+  --remove-ix-account 1.4 \
+  --remove-ix-account 1.2
+
+# Ordering note for instruction-account ops:
+# Ops apply in flag order (all patches → all inserts → all removes); within each
+# flag, CLI argument order is preserved. Positions are interpreted at apply time
+# (not against the original list). To express positions relative to the
+# pre-mutation list, list ops in descending position order — e.g. above we
+# remove position 4 before position 2 so both refer to the original numbering.
 
 # Patch instruction data before simulation
 # Format: <IX>=<OFFSET>:<HEX_DATA> with a 1-based instruction index
