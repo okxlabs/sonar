@@ -38,7 +38,7 @@ fn print_subcommand_help(name: &str) -> Result<()> {
 fn run() -> Result<()> {
     init_logger();
 
-    // Load ~/.config/sonar/config.toml and inject values into env vars
+    // Load the resolved config file and inject values into env vars
     // before clap parses, so that CLI arg > env var > config file > default.
     crate::utils::config::load_and_apply();
 
