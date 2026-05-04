@@ -116,7 +116,7 @@ pub enum Commands {
     /// Serialize or deserialize data using Borsh-compatible type descriptors
     #[command(next_line_help = true)]
     Borsh(BorshArgs),
-    /// View or modify ~/.config/sonar/config.toml
+    /// View or modify the resolved config file
     #[command(next_line_help = true)]
     Config(ConfigArgs),
 }

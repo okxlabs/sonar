@@ -2,7 +2,7 @@
 
 use clap::{Args, Subcommand};
 
-/// View or modify `~/.config/sonar/config.toml`.
+/// View or modify the resolved config file (`SONAR_CONFIG` or the default path).
 #[derive(Args, Debug)]
 #[command(after_help = "\
 EXAMPLES:
