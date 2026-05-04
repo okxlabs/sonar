@@ -13,8 +13,8 @@ use solana_transaction_status_client_types::{
     EncodedTransaction, TransactionStatus, UiTransactionEncoding, UiTransactionStatusMeta,
 };
 
-use sonar_sim::internals::rpc_json::{RpcAccountInfo, RpcResultValue};
 use sonar_sim::internals::RpcTransport;
+use sonar_sim::internals::rpc_json::{RpcAccountInfo, RpcResultValue};
 
 /// Lightweight Solana JSON-RPC client backed by [`RpcTransport`].
 pub struct RpcClient {

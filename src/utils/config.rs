@@ -1,8 +1,13 @@
 //! Configuration file support for sonar.
 //!
-//! Loads settings from `~/.config/sonar/config.toml` and applies them as
-//! environment variables before CLI parsing, so that clap's built-in
-//! priority chain (CLI arg > env var > default) is preserved.
+//! Loads settings from a config file and applies them as environment variables
+//! before CLI parsing, so that clap's built-in priority chain
+//! (CLI arg > env var > default) is preserved.
+//!
+//! ## Config file location
+//!
+//! 1. `$SONAR_CONFIG` environment variable (with tilde expansion), or
+//! 2. `$HOME/.config/sonar/config.toml` (default)
 //!
 //! # Example config
 //!
@@ -21,7 +26,9 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use serde::Deserialize;
 
-/// User configuration loaded from `~/.config/sonar/config.toml`.
+/// User configuration loaded from the config file.
+///
+/// See [module-level docs](index.html#config-file-location) for path resolution.
 #[derive(Debug, Deserialize, Default)]
 pub struct SonarConfig {
     /// Default Solana RPC URL.  Maps to `RPC_URL` env var.
@@ -158,15 +165,23 @@ pub fn parse_config_key(key: &str) -> Option<ConfigKey> {
     }
 }
 
-/// Returns the default config file path: `$HOME/.config/sonar/config.toml`.
+/// Returns the config file path.
+///
+/// When the `SONAR_CONFIG` environment variable is set, its value is used
+/// (with tilde expansion). Otherwise falls back to `$HOME/.config/sonar/config.toml`.
 fn default_config_path() -> Option<PathBuf> {
+    if let Ok(custom) = std::env::var("SONAR_CONFIG") {
+        return Some(PathBuf::from(expand_tilde(&custom)));
+    }
     let home = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).ok()?;
     Some(PathBuf::from(home).join(".config").join("sonar").join("config.toml"))
 }
 
-/// Returns the default config file path as a fallible API.
+/// Returns the resolved config file path as a fallible API.
+///
+/// Respects `$SONAR_CONFIG`; falls back to `~/.config/sonar/config.toml`.
 pub fn config_path() -> Result<PathBuf> {
-    default_config_path().context("Unable to determine home directory for config file path")
+    default_config_path().context("Unable to determine config file path")
 }
 
 /// Expand a leading `~` to the user's home directory.
@@ -179,7 +194,9 @@ pub(crate) fn expand_tilde(path: &str) -> String {
     path.to_string()
 }
 
-/// Load config from the default location.
+/// Load config from the resolved config file path.
+///
+/// Respects `$SONAR_CONFIG`; falls back to `~/.config/sonar/config.toml`.
 ///
 /// Returns `SonarConfig::default()` when the file does not exist or cannot be parsed.
 pub fn load_config() -> SonarConfig {
@@ -462,6 +479,43 @@ mod tests {
                 .unwrap_err();
         assert!(err.to_string().contains("Failed to parse config file"));
 
+        cleanup_temp_path(&path);
+    }
+
+    #[test]
+    fn sonar_config_env_var_overrides_path() {
+        let custom = unique_temp_path("env-override");
+        std::env::set_var("SONAR_CONFIG", custom.to_str().unwrap());
+        let resolved = default_config_path().expect("path should resolve");
+        std::env::remove_var("SONAR_CONFIG");
+        assert_eq!(resolved, custom);
+        cleanup_temp_path(&custom);
+    }
+
+    #[test]
+    fn sonar_config_env_var_expands_tilde() {
+        if std::env::var("HOME").is_ok() {
+            let home = std::env::var("HOME").unwrap();
+            std::env::set_var("SONAR_CONFIG", "~/test-sonar-config.toml");
+            let resolved = default_config_path().expect("path should resolve");
+            std::env::remove_var("SONAR_CONFIG");
+            assert!(resolved.starts_with(&home));
+            assert!(resolved.ends_with("test-sonar-config.toml"));
+        }
+    }
+
+    #[test]
+    fn load_config_reads_from_sonar_config_env() {
+        let path = unique_temp_path("load-env");
+        // Write a config file with a custom rpc_url
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, "rpc_url = \"https://sonar-config-env.example.com\"\n").unwrap();
+
+        std::env::set_var("SONAR_CONFIG", path.to_str().unwrap());
+        let config = load_config();
+        std::env::remove_var("SONAR_CONFIG");
+
+        assert_eq!(config.rpc_url.as_deref(), Some("https://sonar-config-env.example.com"));
         cleanup_temp_path(&path);
     }
 
