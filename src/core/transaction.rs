@@ -6,6 +6,7 @@ use anyhow::{Context, Result, anyhow};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use serde::{Deserialize, Deserializer, Serialize};
+use sha2::{Digest, Sha256};
 use solana_commitment_config::CommitmentConfig;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_message::inner_instruction::InnerInstructionsList;
@@ -41,6 +42,19 @@ impl ParsedTransaction {
         let summary = TransactionSummary::from_transaction(&transaction, &account_plan, Vec::new());
         Self { encoding, version, transaction, summary, account_plan }
     }
+}
+
+/// Auto-funding amount for the default payer when no `--payer` is provided
+/// and the user did not fund it explicitly. Generous enough to cover any
+/// rent-exempt accounts the simulated program might create.
+pub const DEFAULT_PAYER_LAMPORTS: u64 = 1_000_000_000;
+
+/// Deterministic placeholder pubkey used as the fee payer when `--payer`
+/// is omitted in instruction input mode. The bytes are `sha256("sonar-payer")`,
+/// so the address is stable across runs and unmistakable in cache metadata.
+pub fn default_payer() -> Pubkey {
+    let digest = Sha256::digest(b"sonar-payer");
+    Pubkey::new_from_array(digest.into())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -879,5 +893,16 @@ mod tests {
         let raw = format!("program={program} data=b64:aGVsbG8=");
         parse_instruction_input_dsl(&raw)
             .expect_err("DSL no longer accepts base64 — `:` is not a hex character");
+    }
+
+    #[test]
+    fn default_payer_is_deterministic_sha256_of_sonar_payer() {
+        // Calling twice must yield the same address, and the bytes must
+        // be sha256(b"sonar-payer") so the placeholder is reproducible.
+        let a = default_payer();
+        let b = default_payer();
+        assert_eq!(a, b);
+        let expected: [u8; 32] = sha2::Sha256::digest(b"sonar-payer").into();
+        assert_eq!(a.to_bytes(), expected);
     }
 }

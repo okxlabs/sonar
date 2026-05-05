@@ -34,8 +34,10 @@ sonar simulate <TX> --rpc-url <RPC_URL> --json
 ### Instruction Input
 
 Use `--ix` to simulate one or more raw instructions without first building a
-signed transaction. Sonar creates one unsigned legacy transaction, using
-`--payer` as the fee payer, and then runs the normal simulation pipeline.
+signed transaction. Sonar creates one unsigned legacy transaction and runs
+the normal simulation pipeline. `--payer` is optional: when omitted, sonar
+uses a deterministic placeholder pubkey (`sha256("sonar-payer")`)
+auto-funded with 1 SOL for the run; pass `--payer <PUBKEY>` to override.
 Use one instruction input format per command. Mixing `--ix` and `--ix-json`
 is rejected because cross-format ordering is ambiguous after CLI parsing.
 
