@@ -21,6 +21,7 @@ solana-account.workspace = true
 solana-clock.workspace = true
 solana-epoch-schedule.workspace = true
 solana-hash.workspace = true
+solana-instruction.workspace = true
 solana-nonce.workspace = true
 solana-pubkey.workspace = true
 solana-keypair.workspace = true
