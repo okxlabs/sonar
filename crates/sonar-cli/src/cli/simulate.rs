@@ -29,7 +29,8 @@ pub struct SimulateArgs {
     #[command(flatten, next_help_heading = HELP_HEADING_INPUT_RPC)]
     pub rpc: RpcArgs,
     /// Fee payer for instruction input mode.
-    /// Required when using instruction input.
+    /// Optional: omitting it uses a deterministic placeholder pubkey
+    /// (`sha256("sonar-payer")`) auto-funded with 1 SOL for the simulation.
     #[arg(long = "payer", help_heading = HELP_HEADING_INPUT_RPC, value_name = "PUBKEY")]
     pub payer: Option<String>,
     /// Add an instruction from named-field DSL and synthesize a transaction for simulation.

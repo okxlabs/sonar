@@ -114,12 +114,12 @@ impl SimulateMode {
                         "--check-sig cannot be used with instruction input because synthesized transactions are unsigned"
                     );
                 }
-                let Some(raw_payer) = payer else {
-                    bail!("--payer is required when using instruction input");
+                let payer = match payer {
+                    Some(raw) => raw
+                        .parse::<Pubkey>()
+                        .with_context(|| format!("Failed to parse --payer pubkey `{raw}`"))?,
+                    None => transaction::default_payer(),
                 };
-                let payer = raw_payer
-                    .parse::<Pubkey>()
-                    .with_context(|| format!("Failed to parse --payer pubkey `{raw_payer}`"))?;
                 Ok(Self::Instructions { payer, source })
             }
             None => {
@@ -209,7 +209,19 @@ pub(crate) fn handle(args: SimulateArgs, json: bool) -> Result<()> {
     )?;
 
     let account_overrides = parse_cli_args(override_args, cli::parse_override)?;
-    let sol_fundings = parse_cli_args(funding_args, cli::parse_funding)?;
+    let mut sol_fundings = parse_cli_args(funding_args, cli::parse_funding)?;
+    // Auto-fund the placeholder payer when the user omitted --payer in ix mode.
+    // Skips the injection if the user already funded the address explicitly.
+    if let SimulateMode::Instructions { payer, .. } = &mode {
+        if *payer == transaction::default_payer()
+            && !sol_fundings.iter().any(|f| f.pubkey == *payer)
+        {
+            sol_fundings.push(cli::SolFunding {
+                pubkey: *payer,
+                amount_lamports: transaction::DEFAULT_PAYER_LAMPORTS,
+            });
+        }
+    }
     let token_funding_requests = parse_cli_args(token_funding_args, cli::parse_token_funding)?;
     let account_data_patches = parse_cli_args(data_patch_args, cli::parse_data_patch)?;
     let account_closures = parse_cli_args(account_closure_args, cli::parse_close_account)?;
