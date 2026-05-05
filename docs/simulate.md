@@ -17,6 +17,10 @@ sonar simulate 2gTzNX3zLNhhmJaY44LycEgF8UMadrKeDLHz8rgcQVbXWVU4bs8fLBzWKhvAqKBeo
 # Bundle simulation (multiple transactions)
 sonar simulate <TX1> <TX2> <TX3> --rpc-url https://api.mainnet-beta.solana.com
 
+# Instruction input mode (one synthesized transaction)
+sonar simulate --payer <PAYER_PUBKEY> \
+  --ix 'program=MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr data=0x68656c6c6f'
+
 # Read transaction from stdin (omit TX to read from pipe)
 cat ./transaction.txt | sonar simulate --rpc-url <RPC_URL>
 
@@ -26,6 +30,51 @@ sonar simulate <TX> --rpc-url <RPC_URL> -b -d
 # JSON output
 sonar simulate <TX> --rpc-url <RPC_URL> --json
 ```
+
+### Instruction Input
+
+Use `--ix` to simulate one or more raw instructions without first building a
+signed transaction. Sonar creates one unsigned legacy transaction, using
+`--payer` as the fee payer, and then runs the normal simulation pipeline.
+Use one instruction input format per command. Mixing `--ix` and `--ix-json`
+is rejected because cross-format ordering is ambiguous after CLI parsing.
+
+```bash
+# Single instruction. `data` is hex and may start with 0x.
+sonar simulate --payer <PAYER_PUBKEY> \
+  --ix 'program=<PROGRAM_ID> accounts=<ACCOUNT>:sw data=0x01020304'
+
+# Multiple instructions in one atomic transaction.
+sonar simulate --payer <PAYER_PUBKEY> \
+  --ix 'program=<PROGRAM_A> data=0x01' \
+  --ix 'program=<PROGRAM_B> accounts=<ACCOUNT>:w data=0x02'
+
+# Inline JSON when structured input is easier to generate.
+sonar simulate --payer <PAYER_PUBKEY> \
+  --ix-json '{"program":"<PROGRAM_ID>","accounts":[{"pubkey":"<ACCOUNT>","is_signer":true,"is_writable":true}],"data":"0x01020304"}'
+
+# Read JSON from a file (curl-style `@` prefix). `@/dev/stdin` works for piping.
+sonar simulate --payer <PAYER_PUBKEY> --ix-json @instructions.json
+```
+
+Inline `--ix` fields:
+
+- `program` (or `program_id`): program pubkey. Required.
+- `accounts`: optional comma-separated account metas.
+  Account flags are `s` (signer) and `w` (writable).
+  Omit the `:flags` suffix for a read-only non-signer.
+- `data`: optional instruction data. Hex only, with optional `0x`/`0X`
+  prefix. Empty data via omitting the field, `""`, or `"0x"`.
+
+Instruction JSON fields for `--ix-json` (inline or `@<path>`):
+
+- `program` (or `program_id`): program pubkey.
+- `accounts`: optional ordered account metas. Each account requires
+  `pubkey`, `is_signer`, and `is_writable` — same shape as Solana's
+  `AccountMeta` so an existing meta object copies over verbatim.
+- `data`: optional instruction data. A `0x`/`0X` prefix selects hex;
+  anything else is decoded as base64. Empty data via omitting the field,
+  `""`, or `"0x"`.
 
 ### Program & Account Override
 

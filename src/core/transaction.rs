@@ -5,10 +5,12 @@ use crate::core::rpc_client::{GetTransactionConfig, RpcClient};
 use anyhow::{Context, Result, anyhow};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
-use serde::Serialize;
+use serde::{Deserialize, Deserializer, Serialize};
 use solana_commitment_config::CommitmentConfig;
-use solana_message::VersionedMessage;
+use solana_instruction::{AccountMeta, Instruction};
 use solana_message::inner_instruction::InnerInstructionsList;
+use solana_message::{Message, VersionedMessage};
+use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_transaction::versioned::{TransactionVersion, VersionedTransaction};
 use solana_transaction_status_client_types::UiTransactionEncoding;
@@ -29,12 +31,25 @@ pub struct ParsedTransaction {
     pub account_plan: MessageAccountPlan,
 }
 
+impl ParsedTransaction {
+    pub fn from_versioned(
+        transaction: VersionedTransaction,
+        encoding: RawTransactionEncoding,
+    ) -> Self {
+        let version = transaction.version();
+        let account_plan = MessageAccountPlan::from_transaction(&transaction);
+        let summary = TransactionSummary::from_transaction(&transaction, &account_plan, Vec::new());
+        Self { encoding, version, transaction, summary, account_plan }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TxResolveSource {
     RawInput,
     Cache,
     Rpc,
+    Instructions,
 }
 
 impl TxResolveSource {
@@ -43,6 +58,7 @@ impl TxResolveSource {
             Self::RawInput => "raw_input",
             Self::Cache => "cache",
             Self::Rpc => "rpc",
+            Self::Instructions => "instructions",
         }
     }
 }
@@ -54,6 +70,25 @@ pub struct ResolvedTxInput {
     pub parsed_tx: ParsedTransaction,
     pub source: TxResolveSource,
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct InstructionInput {
+    #[serde(alias = "program_id", deserialize_with = "deserialize_pubkey")]
+    pub program: Pubkey,
+    #[serde(default)]
+    pub accounts: Vec<InstructionAccountInput>,
+    #[serde(default, deserialize_with = "deserialize_instruction_data")]
+    pub data: Vec<u8>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct InstructionAccountInput {
+    #[serde(deserialize_with = "deserialize_pubkey")]
+    pub pubkey: Pubkey,
+    pub is_signer: bool,
+    pub is_writable: bool,
+}
+
 
 #[derive(Debug, Clone)]
 pub struct TxInputResolver {
@@ -123,6 +158,38 @@ pub fn read_raw_transaction(inline: Option<String>) -> Result<String> {
     crate::utils::read_cli_input(inline.as_deref(), "transaction").map_err(|e| anyhow!(e))
 }
 
+fn deserialize_pubkey<'de, D>(deserializer: D) -> std::result::Result<Pubkey, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let raw = String::deserialize(deserializer)?;
+    Pubkey::from_str(raw.trim()).map_err(serde::de::Error::custom)
+}
+
+fn deserialize_instruction_data<'de, D>(deserializer: D) -> std::result::Result<Vec<u8>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let raw = String::deserialize(deserializer)?;
+    parse_optional_instruction_data(&raw).map_err(serde::de::Error::custom)
+}
+
+/// Parse optional instruction data. The `0x`/`0X` prefix is the explicit
+/// switch into hex; everything else is base64. Empty / `0x` / `0X` decode
+/// to empty bytes.
+fn parse_optional_instruction_data(raw: &str) -> std::result::Result<Vec<u8>, String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() || matches!(trimmed, "0x" | "0X") {
+        return Ok(Vec::new());
+    }
+    if trimmed.starts_with("0x") || trimmed.starts_with("0X") {
+        return crate::utils::parse_hex_data(trimmed);
+    }
+    BASE64_STANDARD
+        .decode(trimmed)
+        .map_err(|e| format!("invalid base64 instruction data: {e}"))
+}
+
 pub fn is_transaction_signature(s: &str) -> bool {
     let trimmed = s.trim();
     Signature::from_str(trimmed).is_ok()
@@ -131,6 +198,142 @@ pub fn is_transaction_signature(s: &str) -> bool {
 pub fn encode_transaction_to_base64(tx: &VersionedTransaction) -> Result<String> {
     let serialized = bincode::serialize(tx).context("Failed to serialize transaction")?;
     Ok(BASE64_STANDARD.encode(serialized))
+}
+
+pub fn parse_instruction_inputs_json(raw: &str) -> Result<Vec<InstructionInput>> {
+    // Dispatch on the first non-whitespace byte so serde reports precise
+    // per-field errors instead of a generic "did not match any variant" from
+    // an untagged enum.
+    let inputs = match raw.trim_start().as_bytes().first() {
+        Some(b'[') => serde_json::from_str::<Vec<InstructionInput>>(raw)
+            .context("Failed to parse instruction JSON array")?,
+        Some(b'{') => vec![
+            serde_json::from_str::<InstructionInput>(raw)
+                .context("Failed to parse instruction JSON object")?,
+        ],
+        _ => anyhow::bail!(
+            "Instruction JSON must be an object `{{...}}` or array `[...]` of objects"
+        ),
+    };
+    if inputs.is_empty() {
+        anyhow::bail!("Instruction input must contain at least one instruction");
+    }
+    Ok(inputs)
+}
+
+pub fn parse_instruction_input_dsl(raw: &str) -> Result<InstructionInput> {
+    let mut program = None;
+    let mut accounts = Vec::new();
+    let mut data = Vec::new();
+
+    for field in raw.split_whitespace() {
+        let (name, value) = field
+            .split_once('=')
+            .ok_or_else(|| anyhow!("Instruction field `{field}` must use name=value syntax"))?;
+        match name {
+            "program" | "program_id" => {
+                if program.is_some() {
+                    anyhow::bail!("Instruction DSL contains duplicate `{name}` field");
+                }
+                program =
+                    Some(Pubkey::from_str(value).with_context(|| {
+                        format!("Failed to parse instruction program `{value}`")
+                    })?);
+            }
+            "data" => {
+                data = parse_instruction_data_dsl(value)
+                    .with_context(|| format!("Failed to parse instruction data `{value}`"))?;
+            }
+            "accounts" => {
+                accounts = parse_instruction_accounts_dsl(value)
+                    .with_context(|| format!("Failed to parse instruction accounts `{value}`"))?;
+            }
+            _ => anyhow::bail!("Unknown instruction DSL field `{name}`"),
+        }
+    }
+
+    let program = program.ok_or_else(|| anyhow!("Instruction DSL requires program=<PUBKEY>"))?;
+    Ok(InstructionInput { program, accounts, data })
+}
+
+fn parse_instruction_data_dsl(raw: &str) -> Result<Vec<u8>> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() || matches!(trimmed, "0x" | "0X") {
+        return Ok(Vec::new());
+    }
+    crate::utils::parse_hex_data(trimmed).map_err(anyhow::Error::msg)
+}
+
+fn parse_instruction_accounts_dsl(raw: &str) -> Result<Vec<InstructionAccountInput>> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    trimmed.split(',').map(parse_instruction_account_dsl).collect()
+}
+
+fn parse_instruction_account_dsl(raw: &str) -> Result<InstructionAccountInput> {
+    let trimmed = raw.trim();
+    let (pubkey_str, flags) = trimmed.split_once(':').unwrap_or((trimmed, ""));
+    if pubkey_str.is_empty() {
+        anyhow::bail!("Instruction account entry is missing a pubkey");
+    }
+    let pubkey = Pubkey::from_str(pubkey_str)
+        .with_context(|| format!("Failed to parse instruction account `{pubkey_str}`"))?;
+
+    let mut is_signer = false;
+    let mut is_writable = false;
+    if trimmed.contains(':') && flags.is_empty() {
+        anyhow::bail!("Instruction account `{pubkey_str}` has empty account flags");
+    }
+    for flag in flags.chars() {
+        match flag {
+            's' => is_signer = true,
+            'w' => is_writable = true,
+            _ => anyhow::bail!(
+                "Unknown instruction account flag `{flag}` for `{pubkey_str}`; valid flags are `s` (signer) and `w` (writable)"
+            ),
+        }
+    }
+
+    Ok(InstructionAccountInput { pubkey, is_signer, is_writable })
+}
+
+pub fn build_transaction_from_instructions(
+    payer: Pubkey,
+    inputs: &[InstructionInput],
+) -> Result<ParsedTransaction> {
+    if inputs.is_empty() {
+        anyhow::bail!("Instruction input must contain at least one instruction");
+    }
+
+    let instructions: Vec<_> = inputs
+        .iter()
+        .map(|input| {
+            let accounts = input
+                .accounts
+                .iter()
+                .map(|account| {
+                    if account.is_writable {
+                        AccountMeta::new(account.pubkey, account.is_signer)
+                    } else {
+                        AccountMeta::new_readonly(account.pubkey, account.is_signer)
+                    }
+                })
+                .collect();
+            Instruction { program_id: input.program, accounts, data: input.data.clone() }
+        })
+        .collect();
+
+    let message = Message::new(&instructions, Some(&payer));
+    let signature_count = message.header.num_required_signatures as usize;
+    let transaction = VersionedTransaction {
+        signatures: vec![Signature::default(); signature_count],
+        message: VersionedMessage::Legacy(message),
+    };
+
+    Ok(ParsedTransaction::from_versioned(transaction, RawTransactionEncoding::Base64))
 }
 
 pub fn fetch_transaction_from_rpc(
@@ -166,18 +369,7 @@ pub fn fetch_transaction_from_rpc(
 
 pub fn parse_raw_transaction(raw: &str) -> Result<ParsedTransaction> {
     let sim_parsed = sonar_sim::internals::parse_raw_transaction(raw)?;
-    let summary = TransactionSummary::from_transaction(
-        &sim_parsed.transaction,
-        &sim_parsed.account_plan,
-        Vec::new(),
-    );
-    Ok(ParsedTransaction {
-        encoding: sim_parsed.encoding,
-        version: sim_parsed.version,
-        transaction: sim_parsed.transaction,
-        summary,
-        account_plan: sim_parsed.account_plan,
-    })
+    Ok(ParsedTransaction::from_versioned(sim_parsed.transaction, sim_parsed.encoding))
 }
 
 impl TxInputResolver {
@@ -543,5 +735,149 @@ mod tests {
         assert_eq!(resolved.len(), 1);
         assert_eq!(resolved[0].source, TxResolveSource::RawInput);
         assert_eq!(resolved[0].raw_tx_base64, raw_base64);
+    }
+
+    #[test]
+    fn build_transaction_from_instruction_inputs_keeps_all_instructions() {
+        let payer = Pubkey::new_unique();
+        let program = Pubkey::new_unique();
+        let first_account = Pubkey::new_unique();
+        let second_account = Pubkey::new_unique();
+        let inputs = vec![
+            InstructionInput {
+                program,
+                accounts: vec![InstructionAccountInput {
+                    pubkey: first_account,
+                    is_signer: true,
+                    is_writable: true,
+                }],
+                data: vec![1, 2],
+            },
+            InstructionInput {
+                program,
+                accounts: vec![InstructionAccountInput {
+                    pubkey: second_account,
+                    is_signer: false,
+                    is_writable: false,
+                }],
+                data: vec![3, 4],
+            },
+        ];
+
+        let parsed = build_transaction_from_instructions(payer, &inputs)
+            .expect("instruction inputs should build transaction");
+
+        assert_eq!(parsed.summary.signatures.len(), 2);
+        assert_eq!(parsed.summary.static_accounts[0].pubkey, payer.to_string());
+        assert_eq!(parsed.summary.instructions.len(), 2);
+        assert_eq!(
+            parsed.summary.instructions[0].program.pubkey.as_deref(),
+            Some(program.to_string().as_str())
+        );
+        assert_eq!(parsed.summary.instructions[0].data.as_ref(), &[1, 2]);
+        assert_eq!(parsed.summary.instructions[1].data.as_ref(), &[3, 4]);
+    }
+
+    #[test]
+    fn parse_instruction_inputs_json_accepts_single_object_and_defaults() {
+        let program = Pubkey::new_unique();
+        let raw = format!(r#"{{"program":"{program}"}}"#);
+
+        let inputs = parse_instruction_inputs_json(&raw).expect("single instruction parses");
+
+        assert_eq!(inputs.len(), 1);
+        assert_eq!(inputs[0].program, program);
+        assert!(inputs[0].accounts.is_empty());
+        assert!(inputs[0].data.is_empty());
+    }
+
+    #[test]
+    fn parse_instruction_inputs_json_accepts_arrays_and_hex_data() {
+        let first_program = Pubkey::new_unique();
+        let second_program = Pubkey::new_unique();
+        let account = Pubkey::new_unique();
+        let raw = format!(
+            r#"[{{"program":"{first_program}","data":"0x0102"}},{{"program_id":"{second_program}","accounts":[{{"pubkey":"{account}","is_signer":false,"is_writable":true}}],"data":"0x0304"}}]"#
+        );
+
+        let inputs = parse_instruction_inputs_json(&raw).expect("instruction array parses");
+
+        assert_eq!(inputs.len(), 2);
+        assert_eq!(inputs[0].data, vec![1, 2]);
+        assert_eq!(inputs[1].program, second_program);
+        assert_eq!(inputs[1].accounts[0].pubkey, account);
+        assert!(!inputs[1].accounts[0].is_signer);
+        assert!(inputs[1].accounts[0].is_writable);
+        assert_eq!(inputs[1].data, vec![3, 4]);
+    }
+
+    #[test]
+    fn parse_instruction_inputs_json_rejects_missing_account_flags() {
+        let program = Pubkey::new_unique();
+        let account = Pubkey::new_unique();
+        // Missing both is_signer and is_writable.
+        let raw = format!(
+            r#"{{"program":"{program}","accounts":[{{"pubkey":"{account}"}}]}}"#
+        );
+        let err = parse_instruction_inputs_json(&raw)
+            .expect_err("missing is_signer/is_writable should fail");
+        let chain = format!("{err:#}");
+        assert!(
+            chain.contains("is_signer") || chain.contains("is_writable"),
+            "expected serde error to mention the missing field, got: {chain}"
+        );
+    }
+
+    #[test]
+    fn parse_instruction_input_dsl_accepts_named_fields() {
+        let program = Pubkey::new_unique();
+        let signer_writable = Pubkey::new_unique();
+        let readonly = Pubkey::new_unique();
+        let raw = format!("data=0x0102 program={program} accounts={signer_writable}:sw,{readonly}");
+
+        let input = parse_instruction_input_dsl(&raw).expect("dsl instruction parses");
+
+        assert_eq!(input.program, program);
+        assert_eq!(input.data, vec![1, 2]);
+        assert_eq!(input.accounts.len(), 2);
+        assert_eq!(input.accounts[0].pubkey, signer_writable);
+        assert!(input.accounts[0].is_signer);
+        assert!(input.accounts[0].is_writable);
+        assert_eq!(input.accounts[1].pubkey, readonly);
+        assert!(!input.accounts[1].is_signer);
+        assert!(!input.accounts[1].is_writable);
+    }
+
+    #[test]
+    fn parse_instruction_inputs_json_decodes_base64_when_no_0x_prefix() {
+        let program = Pubkey::new_unique();
+        // "world" base64-encoded; no prefix needed — anything without `0x` is base64.
+        let raw = format!(r#"{{"program":"{program}","data":"d29ybGQ="}}"#);
+        let inputs = parse_instruction_inputs_json(&raw).expect("base64 data parses");
+        assert_eq!(inputs[0].data, b"world");
+    }
+
+    #[test]
+    fn parse_instruction_inputs_json_decodes_hex_with_0x_prefix() {
+        let program = Pubkey::new_unique();
+        let raw = format!(r#"{{"program":"{program}","data":"0xdeadbeef"}}"#);
+        let inputs = parse_instruction_inputs_json(&raw).expect("hex data parses");
+        assert_eq!(inputs[0].data, vec![0xde, 0xad, 0xbe, 0xef]);
+    }
+
+    #[test]
+    fn parse_instruction_input_dsl_accepts_hex_chars_without_prefix() {
+        let program = Pubkey::new_unique();
+        let raw = format!("program={program} data=f8c69e91e17587c8");
+        let input = parse_instruction_input_dsl(&raw).expect("hex parses");
+        assert_eq!(input.data, vec![0xf8, 0xc6, 0x9e, 0x91, 0xe1, 0x75, 0x87, 0xc8]);
+    }
+
+    #[test]
+    fn parse_instruction_input_dsl_rejects_b64_prefix() {
+        let program = Pubkey::new_unique();
+        let raw = format!("program={program} data=b64:aGVsbG8=");
+        parse_instruction_input_dsl(&raw)
+            .expect_err("DSL no longer accepts base64 — `:` is not a hex character");
     }
 }
