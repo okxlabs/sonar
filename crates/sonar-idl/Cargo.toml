@@ -6,11 +6,11 @@ rust-version.workspace = true
 description = "Anchor IDL parsing and type resolution for Solana programs"
 
 [dependencies]
-anyhow = "1.0"
-heck = "0.5"
-hex = "0.4"
-log = "0.4"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = { version = "1.0", features = ["preserve_order", "arbitrary_precision"] }
-sha2 = "0.10.9"
-solana-pubkey = "3.0"
+anyhow.workspace = true
+heck.workspace = true
+hex.workspace = true
+log.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+solana-pubkey.workspace = true

@@ -215,7 +215,7 @@ impl AccountFetcher {
                 });
             }
 
-            for (pubkey, maybe_account) in chunk.iter().zip(response.into_iter()) {
+            for (pubkey, maybe_account) in chunk.iter().zip(response) {
                 requested_count += 1;
                 self.notify(FetchEvent::RpcProgress {
                     pubkey: *pubkey,

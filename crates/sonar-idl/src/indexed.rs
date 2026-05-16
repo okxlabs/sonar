@@ -111,7 +111,7 @@ impl IndexedIdl {
             .filter_map(|(idx, instr)| Some((instr.discriminator.clone()?, idx)))
             .collect();
         // Sort longest first so matching prefers more-specific discriminators.
-        instruction_discriminators.sort_by(|a, b| b.0.len().cmp(&a.0.len()));
+        instruction_discriminators.sort_by_key(|disc| std::cmp::Reverse(disc.0.len()));
 
         let mut event_discriminators: Vec<(Vec<u8>, usize)> = Vec::new();
         if let Some(events) = &idl.events {
@@ -125,7 +125,7 @@ impl IndexedIdl {
                 }
             }
         }
-        event_discriminators.sort_by(|a, b| b.0.len().cmp(&a.0.len()));
+        event_discriminators.sort_by_key(|disc| std::cmp::Reverse(disc.0.len()));
 
         let mut account_discriminators: Vec<(Vec<u8>, usize)> = Vec::new();
         let mut types_by_name = HashMap::new();
@@ -143,7 +143,7 @@ impl IndexedIdl {
                 }
             }
         }
-        account_discriminators.sort_by(|a, b| b.0.len().cmp(&a.0.len()));
+        account_discriminators.sort_by_key(|disc| std::cmp::Reverse(disc.0.len()));
 
         Self {
             idl,

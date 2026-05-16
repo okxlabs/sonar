@@ -37,12 +37,9 @@ fn parse_memo_fields(data: &[u8]) -> Vec<ParsedField> {
         Err(_) => vec![
             ParsedField {
                 name: "memo".into(),
-                value: IdlValue::String(String::from_utf8_lossy(data).into_owned().into()),
+                value: IdlValue::String(String::from_utf8_lossy(data).into_owned()),
             },
-            ParsedField {
-                name: "memo_hex".into(),
-                value: IdlValue::String(hex_encode(data).into()),
-            },
+            ParsedField { name: "memo_hex".into(), value: IdlValue::String(hex_encode(data)) },
         ],
     }
 }

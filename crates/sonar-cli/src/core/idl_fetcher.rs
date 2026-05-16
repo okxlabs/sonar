@@ -9,6 +9,9 @@ use solana_pubkey::Pubkey;
 use crate::utils::progress::Progress;
 use sonar_sim::internals::{DEFAULT_RPC_BATCH_SIZE, RpcAccountProvider, SolanaRpcProvider};
 
+type PendingIdlEntry = (usize, Pubkey, Pubkey);
+type IdlFetchResultSlot = Option<Result<Option<String>>>;
+
 pub struct IdlFetcher {
     provider: Arc<dyn RpcAccountProvider>,
     progress: Option<Progress>,
@@ -169,12 +172,9 @@ impl IdlFetcher {
 /// Returns (pending_entries, results_slots) where each pending entry is
 /// `(original_index, program_id, idl_address)` and failed derivations are
 /// pre-filled in the results vec.
-fn prepare_idl_batch(
-    program_ids: &[Pubkey],
-) -> (Vec<(usize, Pubkey, Pubkey)>, Vec<Option<Result<Option<String>>>>) {
+fn prepare_idl_batch(program_ids: &[Pubkey]) -> (Vec<PendingIdlEntry>, Vec<IdlFetchResultSlot>) {
     let mut pending = Vec::with_capacity(program_ids.len());
-    let mut results: Vec<Option<Result<Option<String>>>> =
-        (0..program_ids.len()).map(|_| None).collect();
+    let mut results: Vec<IdlFetchResultSlot> = (0..program_ids.len()).map(|_| None).collect();
     for (idx, program_id) in program_ids.iter().enumerate() {
         match get_idl_address(program_id) {
             Ok(idl_address) => pending.push((idx, *program_id, idl_address)),
@@ -186,9 +186,9 @@ fn prepare_idl_batch(
 
 /// Process a single batch RPC response, parsing IDL data into the results vec.
 fn process_idl_chunk(
-    chunk: &[(usize, Pubkey, Pubkey)],
+    chunk: &[PendingIdlEntry],
     batch_result: Result<Vec<Option<AccountSharedData>>>,
-    results: &mut [Option<Result<Option<String>>>],
+    results: &mut [IdlFetchResultSlot],
 ) {
     match batch_result {
         Ok(response) => {
@@ -202,8 +202,7 @@ fn process_idl_chunk(
                     )));
                 }
             } else {
-                for (&(idx, program_id, _), maybe_account) in chunk.iter().zip(response.into_iter())
-                {
+                for (&(idx, program_id, _), maybe_account) in chunk.iter().zip(response) {
                     results[idx] = Some(match maybe_account {
                         Some(account) => {
                             parse_idl_account_data(account.data(), &program_id).map(Some)
