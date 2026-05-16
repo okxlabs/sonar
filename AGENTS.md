@@ -4,7 +4,7 @@ CLI for local Solana transaction simulation (LiteSVM) plus utility subcommands.
 
 ## Project Map
 
-### CLI (`src/`)
+### CLI (`crates/sonar-cli/src/`)
 
 - `main.rs` → `cli/` (arg definitions) → `handlers/` (execution logic)
 - `converters/`: bytes, integers, sol, text, types
@@ -12,7 +12,7 @@ CLI for local Solana transaction simulation (LiteSVM) plus utility subcommands.
 - `output/`: report, text, json, account_text, terminal
 - `parsers/`: `instruction/` (anchor_idl, system_program, compute_budget, memo, ata, token2022), log_parser, metaplex_metadata_decoder, token_account_decoder
 - `utils/`: config, progress
-- `tests/`: e2e_simulation, e2e_cli_output_streams, fixtures/
+- `crates/sonar-cli/tests/`: e2e_simulation, e2e_cli_output_streams, fixtures/
 
 ### Simulation Engine (`crates/sonar-sim/`)
 

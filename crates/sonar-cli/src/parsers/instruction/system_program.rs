@@ -157,7 +157,7 @@ fn parse_create_account_with_seed_instruction(
             name: "CreateAccountWithSeed".to_string(),
             fields: vec![
                 ParsedField { name: "base".into(), value: IdlValue::Pubkey(base) },
-                ParsedField { name: "seed".into(), value: IdlValue::String(seed.into()) },
+                ParsedField { name: "seed".into(), value: IdlValue::String(seed) },
                 ParsedField { name: "lamports".into(), value: IdlValue::U64(lamports) },
                 ParsedField { name: "space".into(), value: IdlValue::U64(space) },
                 ParsedField { name: "owner".into(), value: IdlValue::Pubkey(owner) },
@@ -301,7 +301,7 @@ fn parse_allocate_with_seed_instruction(
             name: "AllocateWithSeed".to_string(),
             fields: vec![
                 ParsedField { name: "base".into(), value: IdlValue::Pubkey(base) },
-                ParsedField { name: "seed".into(), value: IdlValue::String(seed.into()) },
+                ParsedField { name: "seed".into(), value: IdlValue::String(seed) },
                 ParsedField { name: "space".into(), value: IdlValue::U64(space) },
                 ParsedField { name: "owner".into(), value: IdlValue::Pubkey(owner) },
             ]
@@ -328,7 +328,7 @@ fn parse_assign_with_seed_instruction(
             name: "AssignWithSeed".to_string(),
             fields: vec![
                 ParsedField { name: "base".into(), value: IdlValue::Pubkey(base) },
-                ParsedField { name: "seed".into(), value: IdlValue::String(seed.into()) },
+                ParsedField { name: "seed".into(), value: IdlValue::String(seed) },
                 ParsedField { name: "owner".into(), value: IdlValue::Pubkey(owner) },
             ]
             .into(),
@@ -355,7 +355,7 @@ fn parse_transfer_with_seed_instruction(
             name: "TransferWithSeed".to_string(),
             fields: vec![
                 ParsedField { name: "lamports".into(), value: IdlValue::U64(lamports) },
-                ParsedField { name: "from_seed".into(), value: IdlValue::String(from_seed.into()) },
+                ParsedField { name: "from_seed".into(), value: IdlValue::String(from_seed) },
                 ParsedField { name: "from_owner".into(), value: IdlValue::Pubkey(from_owner) },
             ]
             .into(),

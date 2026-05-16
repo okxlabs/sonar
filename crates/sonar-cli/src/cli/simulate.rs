@@ -403,18 +403,16 @@ fn parse_ix_pos_prefix(raw: &str) -> Result<(usize, usize, Option<&str>), String
 
 pub fn parse_ix_account_patch(raw: &str) -> Result<InstructionAccountOp, String> {
     let (instruction_index, account_position, rest) = parse_ix_pos_prefix(raw)?;
-    let value_str = rest.ok_or_else(|| {
-        "Patch must be in <IX>.<ACCOUNT>=<NEW_PUBKEY>[:<w|r>] format".to_string()
-    })?;
+    let value_str = rest
+        .ok_or_else(|| "Patch must be in <IX>.<ACCOUNT>=<NEW_PUBKEY>[:<w|r>] format".to_string())?;
     let (new_pubkey, writable) = parse_pubkey_with_writable_flag(value_str)?;
     Ok(InstructionAccountOp::Patch { instruction_index, account_position, new_pubkey, writable })
 }
 
 pub fn parse_ix_account_insert(raw: &str) -> Result<InstructionAccountOp, String> {
     let (instruction_index, account_position, rest) = parse_ix_pos_prefix(raw)?;
-    let value_str = rest.ok_or_else(|| {
-        "Insert must be in <IX>.<POSITION>=<PUBKEY>[:<w|r>] format".to_string()
-    })?;
+    let value_str = rest
+        .ok_or_else(|| "Insert must be in <IX>.<POSITION>=<PUBKEY>[:<w|r>] format".to_string())?;
     let (new_pubkey, writable) = parse_pubkey_with_writable_flag(value_str)?;
     Ok(InstructionAccountOp::Insert { instruction_index, account_position, new_pubkey, writable })
 }
@@ -486,6 +484,23 @@ mod tests {
     use super::*;
     use crate::cli::{Cli, Commands};
     use clap::Parser;
+    use std::sync::Mutex;
+
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    struct EnvRestore {
+        key: &'static str,
+        value: Option<std::ffi::OsString>,
+    }
+
+    impl Drop for EnvRestore {
+        fn drop(&mut self) {
+            match &self.value {
+                Some(value) => std::env::set_var(self.key, value),
+                None => std::env::remove_var(self.key),
+            }
+        }
+    }
 
     fn unique_test_file_path(base_dir: &std::path::Path, ext: &str) -> PathBuf {
         let nanos = std::time::SystemTime::now()
@@ -497,10 +512,12 @@ mod tests {
 
     #[test]
     fn parse_override_expands_tilde_path() {
-        let home = std::env::var("HOME")
-            .or_else(|_| std::env::var("USERPROFILE"))
-            .expect("HOME or USERPROFILE should be set");
-        let absolute_path = unique_test_file_path(std::path::Path::new(&home), "so");
+        let _guard = ENV_LOCK.lock().expect("env lock should not be poisoned");
+        let _home_restore = EnvRestore { key: "HOME", value: std::env::var_os("HOME") };
+        let temp_home = tempfile::tempdir().expect("create temp home");
+        std::env::set_var("HOME", temp_home.path());
+
+        let absolute_path = unique_test_file_path(temp_home.path(), "so");
         std::fs::write(&absolute_path, b"fake-elf").expect("create override file");
 
         let file_name = absolute_path

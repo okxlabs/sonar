@@ -45,21 +45,11 @@ pub struct InstructionDataPatch {
 #[derive(Clone, Debug)]
 pub enum InstructionAccountOp {
     /// Replace the account at `account_position` with `new_pubkey`.
-    Patch {
-        instruction_index: usize,
-        account_position: usize,
-        new_pubkey: Pubkey,
-        writable: bool,
-    },
+    Patch { instruction_index: usize, account_position: usize, new_pubkey: Pubkey, writable: bool },
     /// Insert `new_pubkey` at `account_position`. Existing accounts at and
     /// after this position shift right by one. `account_position` may equal
     /// the current account count to insert at the end.
-    Insert {
-        instruction_index: usize,
-        account_position: usize,
-        new_pubkey: Pubkey,
-        writable: bool,
-    },
+    Insert { instruction_index: usize, account_position: usize, new_pubkey: Pubkey, writable: bool },
     /// Remove the account reference at `account_position`. Subsequent accounts
     /// shift left by one. The static `account_keys` table is left untouched:
     /// the underlying key may now be unreferenced but remains loadable by the
