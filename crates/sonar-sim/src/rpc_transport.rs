@@ -60,9 +60,9 @@ impl RpcTransport {
                     if let Some(err) = rpc.error {
                         return Err(SonarSimError::Rpc { reason: err.to_string() });
                     }
-                    return rpc.result.ok_or_else(|| SonarSimError::Rpc {
-                        reason: "empty result".into(),
-                    });
+                    return rpc
+                        .result
+                        .ok_or_else(|| SonarSimError::Rpc { reason: "empty result".into() });
                 }
                 Err(ureq::Error::StatusCode(status_code))
                     if (status_code == 429 || status_code == 503) && attempt < MAX_RETRIES =>
@@ -76,8 +76,7 @@ impl RpcTransport {
                         MAX_RETRIES,
                     );
                     thread::sleep(delay);
-                    last_err =
-                        Some(SonarSimError::Rpc { reason: format!("HTTP {status_code}") });
+                    last_err = Some(SonarSimError::Rpc { reason: format!("HTTP {status_code}") });
                 }
                 Err(e) => {
                     return Err(SonarSimError::Rpc { reason: e.to_string() });

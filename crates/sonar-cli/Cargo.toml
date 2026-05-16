@@ -1,0 +1,62 @@
+[package]
+name = "sonar"
+version = "0.5.0"
+edition = "2021"
+rust-version.workspace = true
+
+[dependencies]
+sonar-idl.workspace = true
+sonar-sim.workspace = true
+anyhow.workspace = true
+base64.workspace = true
+bs58.workspace = true
+bincode.workspace = true
+clap.workspace = true
+clap_complete.workspace = true
+env_logger.workspace = true
+log.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+solana-account.workspace = true
+solana-clock.workspace = true
+solana-epoch-schedule.workspace = true
+solana-hash.workspace = true
+solana-instruction.workspace = true
+solana-nonce.workspace = true
+solana-pubkey.workspace = true
+solana-keypair.workspace = true
+solana-transaction.workspace = true
+solana-transaction-status-client-types.workspace = true
+ureq.workspace = true
+solana-message.workspace = true
+solana-address-lookup-table-interface.workspace = true
+solana-commitment-config.workspace = true
+solana-slot-hashes.workspace = true
+solana-loader-v3-interface.workspace = true
+solana-rent.workspace = true
+solana-sdk-ids.workspace = true
+solana-sysvar-id.workspace = true
+solana-signature.workspace = true
+solana-signer.workspace = true
+solana-system-interface.workspace = true
+hex.workspace = true
+colored.workspace = true
+spl-token.workspace = true
+spl-token-2022.workspace = true
+sha2.workspace = true
+flate2.workspace = true
+indicatif.workspace = true
+num-bigint.workspace = true
+spl-pod.workspace = true
+spl-token-metadata-interface.workspace = true
+spl-token-group-interface.workspace = true
+toml.workspace = true
+terminal_size.workspace = true
+unicode-width.workspace = true
+chrono.workspace = true
+
+[dev-dependencies]
+assert_cmd.workspace = true
+insta.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true

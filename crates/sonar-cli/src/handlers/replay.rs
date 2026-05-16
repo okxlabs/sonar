@@ -127,6 +127,7 @@ pub(crate) fn handle(args: ReplayArgs, json: bool) -> Result<()> {
 /// Fetch outer instruction program accounts for IDL parsing, then mark
 /// CPI program accounts as executable using inner instruction data already
 /// in memory (zero extra RPC calls for the executable flag).
+#[allow(clippy::too_many_arguments)]
 fn load_accounts_and_idls(
     client: &RpcClient,
     rpc_url: &str,

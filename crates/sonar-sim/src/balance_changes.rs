@@ -66,7 +66,7 @@ pub fn compute_sol_changes(
         }
     }
 
-    changes.sort_by(|a, b| b.change.abs().cmp(&a.change.abs()));
+    changes.sort_by_key(|change| std::cmp::Reverse(change.change.abs()));
     changes
 }
 
@@ -130,7 +130,7 @@ pub fn compute_token_changes(
         }
     }
 
-    changes.sort_by(|a, b| b.change.abs().cmp(&a.change.abs()));
+    changes.sort_by_key(|change| std::cmp::Reverse(change.change.abs()));
     changes
 }
 

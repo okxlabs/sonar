@@ -103,7 +103,6 @@ pub struct InstructionAccountInput {
     pub is_writable: bool,
 }
 
-
 #[derive(Debug, Clone)]
 pub struct TxInputResolver {
     rpc_url: String,
@@ -199,9 +198,7 @@ fn parse_optional_instruction_data(raw: &str) -> std::result::Result<Vec<u8>, St
     if trimmed.starts_with("0x") || trimmed.starts_with("0X") {
         return crate::utils::parse_hex_data(trimmed);
     }
-    BASE64_STANDARD
-        .decode(trimmed)
-        .map_err(|e| format!("invalid base64 instruction data: {e}"))
+    BASE64_STANDARD.decode(trimmed).map_err(|e| format!("invalid base64 instruction data: {e}"))
 }
 
 pub fn is_transaction_signature(s: &str) -> bool {
@@ -830,9 +827,7 @@ mod tests {
         let program = Pubkey::new_unique();
         let account = Pubkey::new_unique();
         // Missing both is_signer and is_writable.
-        let raw = format!(
-            r#"{{"program":"{program}","accounts":[{{"pubkey":"{account}"}}]}}"#
-        );
+        let raw = format!(r#"{{"program":"{program}","accounts":[{{"pubkey":"{account}"}}]}}"#);
         let err = parse_instruction_inputs_json(&raw)
             .expect_err("missing is_signer/is_writable should fail");
         let chain = format!("{err:#}");

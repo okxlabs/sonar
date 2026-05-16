@@ -6,39 +6,39 @@ rust-version.workspace = true
 description = "Solana transaction simulation engine powered by LiteSVM"
 
 [dependencies]
-base64 = "0.22"
-bincode = "1.3"
-bs58 = "0.5"
-log = "0.4"
-serde = { version = "1.0", features = ["derive"] }
+base64.workspace = true
+bincode.workspace = true
+bs58.workspace = true
+log.workspace = true
+serde.workspace = true
 
 # Simulation engine
-litesvm = "0.10.0"
+litesvm.workspace = true
 
 # Solana SDK
-solana-account = "3.0"
-solana-address-lookup-table-interface = "3.0"
-serde_json = "1.0"
-ureq = { version = "3", features = ["json"] }
-solana-clock = "3.0"
-solana-hash = "3.0"
-solana-loader-v3-interface = "6.1.0"
-solana-message = "3.0"
-solana-native-token = "3.0"
-solana-pubkey = "3.0"
-solana-rent = "3.0"
-solana-sdk-ids = "3.0"
-solana-signature = "3.0"
-solana-slot-hashes = "3.0"
-solana-sysvar-id = "3.0"
-solana-transaction = "3.0"
-solana-system-interface = { version = "3.0", features = ["bincode"] }
+solana-account.workspace = true
+solana-address-lookup-table-interface.workspace = true
+serde_json.workspace = true
+ureq.workspace = true
+solana-clock.workspace = true
+solana-hash.workspace = true
+solana-loader-v3-interface.workspace = true
+solana-message.workspace = true
+solana-native-token.workspace = true
+solana-pubkey.workspace = true
+solana-rent.workspace = true
+solana-sdk-ids.workspace = true
+solana-signature.workspace = true
+solana-slot-hashes.workspace = true
+solana-sysvar-id.workspace = true
+solana-transaction.workspace = true
+solana-system-interface.workspace = true
 
 # SPL Token (funding + balance_changes + account_loader)
-spl-token = "9.0.0"
-spl-token-2022 = "10.0.0"
-thiserror = "2.0.18"
+spl-token.workspace = true
+spl-token-2022.workspace = true
+thiserror.workspace = true
 
 [dev-dependencies]
-solana-keypair = "3.0"
-solana-signer = "3.0"
+solana-keypair.workspace = true
+solana-signer.workspace = true

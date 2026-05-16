@@ -48,7 +48,7 @@ sonar account <PUBKEY> --rpc-url https://api.mainnet-beta.solana.com
 | `borsh` | Serialize JSON to Borsh bytes or deserialize Borsh bytes to JSON |
 | `convert` | Format conversion |
 | `pda` | Derive a PDA from seeds |
-| `config` | Inspect or update `~/.config/sonar/config.toml` |
+| `config` | Inspect or update the config file (`SONAR_CONFIG` or `~/.config/sonar/config.toml`) |
 | `cache` | List, clean, or inspect cached account data |
 | `completions` | Generate shell completion scripts |
 

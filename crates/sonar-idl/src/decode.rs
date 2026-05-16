@@ -392,8 +392,7 @@ pub(crate) fn parse_type_definition(
                     let variant = &variants[variant_index];
                     return Ok(match variant.fields.as_ref() {
                         Some(fields) => {
-                            let payload =
-                                parse_idl_fields_value(data, offset, fields, indexed)?;
+                            let payload = parse_idl_fields_value(data, offset, fields, indexed)?;
                             IdlValue::Struct(vec![(variant.name.clone(), payload)])
                         }
                         None => IdlValue::EnumUnit(variant.name.clone()),

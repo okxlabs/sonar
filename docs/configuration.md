@@ -2,7 +2,8 @@
 
 ## Config File
 
-Sonar reads configuration from `~/.config/sonar/config.toml`:
+Sonar reads configuration from `$SONAR_CONFIG` when set, otherwise from
+`~/.config/sonar/config.toml`:
 
 ```toml
 rpc_url = "https://api.mainnet-beta.solana.com"
@@ -29,10 +30,12 @@ cache_dir = "~/.sonar/cache"
 ```
 
 Priority: CLI arguments > environment variables > config file > defaults.
+`SONAR_CONFIG` may be an absolute path, relative path, or `~/` path.
 
 ## Config Command
 
-View or modify `~/.config/sonar/config.toml`:
+View or modify the resolved config file (`$SONAR_CONFIG` when set, otherwise
+`~/.config/sonar/config.toml`):
 
 ```bash
 # List all supported config items

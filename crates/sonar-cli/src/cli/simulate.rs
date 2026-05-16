@@ -517,6 +517,23 @@ mod tests {
     use super::*;
     use crate::cli::{Cli, Commands};
     use clap::Parser;
+    use std::sync::Mutex;
+
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    struct EnvRestore {
+        key: &'static str,
+        value: Option<std::ffi::OsString>,
+    }
+
+    impl Drop for EnvRestore {
+        fn drop(&mut self) {
+            match &self.value {
+                Some(value) => std::env::set_var(self.key, value),
+                None => std::env::remove_var(self.key),
+            }
+        }
+    }
 
     fn unique_test_file_path(base_dir: &std::path::Path, ext: &str) -> PathBuf {
         let nanos = std::time::SystemTime::now()
@@ -528,10 +545,12 @@ mod tests {
 
     #[test]
     fn parse_override_expands_tilde_path() {
-        let home = std::env::var("HOME")
-            .or_else(|_| std::env::var("USERPROFILE"))
-            .expect("HOME or USERPROFILE should be set");
-        let absolute_path = unique_test_file_path(std::path::Path::new(&home), "so");
+        let _guard = ENV_LOCK.lock().expect("env lock should not be poisoned");
+        let _home_restore = EnvRestore { key: "HOME", value: std::env::var_os("HOME") };
+        let temp_home = tempfile::tempdir().expect("create temp home");
+        std::env::set_var("HOME", temp_home.path());
+
+        let absolute_path = unique_test_file_path(temp_home.path(), "so");
         std::fs::write(&absolute_path, b"fake-elf").expect("create override file");
 
         let file_name = absolute_path

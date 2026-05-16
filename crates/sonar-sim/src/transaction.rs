@@ -1120,8 +1120,14 @@ mod tests {
 
         // Remove positions 3 then 1 (sequentially): drops original[3] and original[1].
         let removes = vec![
-            crate::types::InstructionAccountOp::Remove { instruction_index: 0, account_position: 3 },
-            crate::types::InstructionAccountOp::Remove { instruction_index: 0, account_position: 1 },
+            crate::types::InstructionAccountOp::Remove {
+                instruction_index: 0,
+                account_position: 3,
+            },
+            crate::types::InstructionAccountOp::Remove {
+                instruction_index: 0,
+                account_position: 1,
+            },
         ];
         apply_ix_account_ops(&mut tx, &removes).unwrap();
         let ix = &tx.message.instructions()[0];

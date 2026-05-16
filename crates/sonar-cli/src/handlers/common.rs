@@ -300,6 +300,7 @@ pub(crate) fn run_idl_pipeline(
 }
 
 /// Loads accounts for parsed transactions and runs the shared IDL pipeline.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn prepare_accounts_and_idls(
     rpc_url: &str,
     cache_dir: Option<PathBuf>,
