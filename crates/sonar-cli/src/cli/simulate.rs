@@ -20,6 +20,7 @@ const HELP_HEADING_OUTPUT_DEBUG: &str = "Output & Debug";
 EXAMPLES:
   sonar simulate <TX>                           Single transaction
   sonar simulate <TX1> <TX2>                    Bundle (atomic multi-tx)
+  sonar simulate --payer <PUBKEY> --ix <DSL>    Instruction input
   sonar simulate <TX> --fund-sol ALICE=1sol     Fund account before sim
   sonar simulate <TX> --override PROG=prog.so   Override on-chain program")]
 pub struct SimulateArgs {
@@ -27,6 +28,38 @@ pub struct SimulateArgs {
     pub transaction: TransactionInputArgs,
     #[command(flatten, next_help_heading = HELP_HEADING_INPUT_RPC)]
     pub rpc: RpcArgs,
+    /// Fee payer for instruction input mode.
+    /// Optional: omitting it uses a deterministic placeholder pubkey
+    /// (`sha256("sonar-payer")`) auto-funded with 1 SOL for the simulation.
+    #[arg(long = "payer", help_heading = HELP_HEADING_INPUT_RPC, value_name = "PUBKEY")]
+    pub payer: Option<String>,
+    /// Add an instruction from named-field DSL and synthesize a transaction for simulation.
+    /// Repeat to run multiple instructions in one atomic transaction.
+    /// Format: program=<PUBKEY> data=0x... accounts=<PUBKEY>:sw,<PUBKEY>
+    #[arg(
+        long = "ix",
+        alias = "instruction",
+        help_heading = HELP_HEADING_INPUT_RPC,
+        value_name = "DSL",
+        num_args = 1..,
+        group = "ix_format",
+        value_parser = clap::builder::NonEmptyStringValueParser::new()
+    )]
+    pub instructions: Vec<String>,
+    /// Add an instruction from JSON. The value can be inline JSON or
+    /// `@<path>` to read from a file (e.g. `@instructions.json`,
+    /// `@/dev/stdin` to pipe).
+    /// Format: {"program":"<PUBKEY>","accounts":[{"pubkey":"<PUBKEY>","is_signer":false,"is_writable":false}],"data":"0x..."}
+    #[arg(
+        long = "ix-json",
+        alias = "instruction-json",
+        help_heading = HELP_HEADING_INPUT_RPC,
+        value_name = "JSON|@PATH",
+        num_args = 1..,
+        group = "ix_format",
+        value_parser = clap::builder::NonEmptyStringValueParser::new()
+    )]
+    pub instruction_jsons: Vec<String>,
     /// Override an on-chain program or account with a local file.
     /// Format: <PUBKEY>=<PATH> (.so/.elf for programs, .json for accounts)
     #[arg(
@@ -947,6 +980,59 @@ mod tests {
         };
 
         assert!(args.transaction.tx.is_empty());
+    }
+
+    #[test]
+    fn simulate_accepts_repeated_ix_dsl_flags() {
+        let payer = Pubkey::new_unique();
+        let program = Pubkey::new_unique();
+        let account = Pubkey::new_unique();
+        let first = format!("program={program} accounts={account}:sw data=0x01");
+        let second = format!("program={program} data=0x02");
+
+        let cli = Cli::try_parse_from([
+            "sonar",
+            "simulate",
+            "--payer",
+            &payer.to_string(),
+            "--ix",
+            &first,
+            "--ix",
+            &second,
+        ])
+        .expect("repeated --ix should parse");
+
+        let Some(Commands::Simulate(args)) = cli.command else {
+            panic!("expected simulate subcommand");
+        };
+        assert!(args.transaction.tx.is_empty());
+        assert_eq!(args.payer.as_deref(), Some(payer.to_string().as_str()));
+        assert_eq!(args.instructions, vec![first, second]);
+        assert!(args.instruction_jsons.is_empty());
+    }
+
+    #[test]
+    fn simulate_rejects_mixed_instruction_input_formats_via_arg_group() {
+        let payer = Pubkey::new_unique();
+        let program = Pubkey::new_unique();
+        let instruction = format!("program={program} data=0x01");
+        let instruction_json = format!(r#"{{"program":"{program}","data":"0x02"}}"#);
+
+        let err = Cli::try_parse_from([
+            "sonar",
+            "simulate",
+            "--payer",
+            &payer.to_string(),
+            "--ix",
+            &instruction,
+            "--ix-json",
+            &instruction_json,
+        ])
+        .expect_err("ArgGroup should reject mixed --ix and --ix-json");
+        assert!(
+            err.to_string().contains("--ix") && err.to_string().contains("--ix-json"),
+            "expected clap conflict error, got: {err}"
+        );
     }
 
     #[test]

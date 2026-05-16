@@ -2,7 +2,7 @@
 
 A CLI for local Solana transaction simulation (LiteSVM) plus developer utilities.
 
-- Simulate transactions locally without deploying programs (raw tx, signature, or bundle)
+- Simulate transactions locally without deploying programs (raw tx, signature, bundle, or raw instructions)
 - Override programs/accounts, fund SOL or tokens, patch data
 - Store accounts once, replay without hitting RPC
 - Serialize/deserialize Borsh with a type descriptor DSL
@@ -25,6 +25,10 @@ sonar simulate <BASE58_OR_BASE64_TX> --rpc-url https://api.mainnet-beta.solana.c
 
 # Or fetch by signature (auto-detected)
 sonar simulate <SIGNATURE> --rpc-url https://api.mainnet-beta.solana.com
+
+# Or synthesize a transaction from one or more instruction specs
+sonar simulate --payer <PUBKEY> \
+  --ix 'program=MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr data=0x68656c6c6f'
 
 # Decode an account
 sonar account <PUBKEY> --rpc-url https://api.mainnet-beta.solana.com
