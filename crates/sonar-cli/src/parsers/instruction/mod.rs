@@ -77,11 +77,16 @@ pub trait InstructionParser: Send + Sync {
 
 // ── Program parsers ──
 
+mod spl_token_common;
+
 mod system_program;
 pub use system_program::SystemProgramParser;
 
 mod token2022_program;
 pub use token2022_program::Token2022ProgramParser;
+
+mod token_program;
+pub use token_program::TokenProgramParser;
 
 mod compute_budget_program;
 pub use compute_budget_program::ComputeBudgetProgramParser;
