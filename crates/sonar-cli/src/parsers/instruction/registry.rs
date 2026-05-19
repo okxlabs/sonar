@@ -11,7 +11,7 @@ use sonar_sim::internals::ResolvedAccounts;
 use super::types::ParsedInstruction;
 use super::{
     AssociatedTokenProgramParser, ComputeBudgetProgramParser, InstructionParser, MemoProgramParser,
-    SystemProgramParser, Token2022ProgramParser, anchor_idl,
+    SystemProgramParser, Token2022ProgramParser, TokenProgramParser, anchor_idl,
 };
 
 /// Registry of instruction parsers for well-known programs
@@ -31,9 +31,7 @@ impl ParserRegistry {
 
         registry.register(SystemProgramParser::new());
         registry.register(Token2022ProgramParser::new());
-        registry.register(Token2022ProgramParser::with_program_id(Pubkey::from_str_const(
-            "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
-        )));
+        registry.register(TokenProgramParser::new());
         registry.register(ComputeBudgetProgramParser::new());
         registry.register(AssociatedTokenProgramParser::new());
         registry.register(MemoProgramParser::new());
@@ -202,6 +200,7 @@ mod tests {
     use std::collections::HashMap;
     use std::path::PathBuf;
 
+    use crate::core::transaction::{AccountReferenceSummary, AccountSourceSummary};
     use sonar_idl::IdlValue;
 
     #[test]
@@ -252,6 +251,56 @@ mod tests {
         let expected_id = Pubkey::from_str_const("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb");
 
         assert_eq!(*parser.program_id(), expected_id);
+    }
+
+    #[test]
+    fn registry_parses_pinocchio_unwrap_lamports_for_legacy_token_program() {
+        let token_program = Pubkey::from_str_const("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+        let mut data = vec![45, 1];
+        data.extend_from_slice(&42u64.to_le_bytes());
+        let instruction = legacy_token_instruction(data, 3);
+        let mut registry = ParserRegistry::new(None);
+
+        let parsed = registry
+            .parse_instruction(&instruction, &token_program)
+            .expect("legacy token unwrap lamports should parse");
+
+        assert_eq!(parsed.name, "UnwrapLamports");
+        assert_eq!(parsed.account_names, vec!["source", "destination", "authority"]);
+        assert!(parsed.fields.iter().any(|field| field.name == "amount" && field.value == "42"));
+    }
+
+    #[test]
+    fn registry_rejects_token2022_only_instructions_for_legacy_token_program() {
+        let token_program = Pubkey::from_str_const("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+        let instruction = legacy_token_instruction(vec![25, 0], 1);
+        let mut registry = ParserRegistry::new(None);
+
+        let parsed = registry.parse_instruction(&instruction, &token_program);
+
+        assert!(parsed.is_none());
+    }
+
+    #[test]
+    fn registry_parses_pinocchio_batch_for_legacy_token_program() {
+        let token_program = Pubkey::from_str_const("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+        let instruction = legacy_token_instruction(vec![255, 3, 2, 17, 0], 3);
+        let mut registry = ParserRegistry::new(None);
+
+        let parsed = registry
+            .parse_instruction(&instruction, &token_program)
+            .expect("legacy token batch should parse");
+
+        assert_eq!(parsed.name, "Batch");
+        assert!(
+            parsed
+                .fields
+                .iter()
+                .any(|field| field.name == "instruction_count" && field.value == "1")
+        );
+        assert!(
+            parsed.fields.iter().any(|field| field.name == "account_count" && field.value == "3")
+        );
     }
 
     #[test]
@@ -400,5 +449,28 @@ mod tests {
 
         std::fs::remove_file(idl_path).ok();
         std::fs::remove_dir_all(test_dir).ok();
+    }
+
+    fn legacy_token_instruction(data: Vec<u8>, account_count: usize) -> InstructionSummary {
+        InstructionSummary {
+            index: 0,
+            program: AccountReferenceSummary {
+                index: 0,
+                pubkey: Some("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA".to_string()),
+                signer: false,
+                writable: false,
+                source: AccountSourceSummary::Static,
+            },
+            accounts: (0..account_count)
+                .map(|index| AccountReferenceSummary {
+                    index,
+                    pubkey: Some(Pubkey::new_unique().to_string()),
+                    signer: index == 0,
+                    writable: true,
+                    source: AccountSourceSummary::Static,
+                })
+                .collect(),
+            data: data.into_boxed_slice(),
+        }
     }
 }
