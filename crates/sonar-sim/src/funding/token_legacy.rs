@@ -60,11 +60,12 @@ pub(super) fn update_token_balance_in_account(
 
 #[cfg(test)]
 mod tests {
-    use solana_account::ReadableAccount;
+    use solana_account::{Account, ReadableAccount};
     use solana_pubkey::Pubkey;
     use solana_rent::Rent;
+    use spl_token::solana_program::program_option::COption;
     use spl_token::solana_program::program_pack::Pack;
-    use spl_token::state::Account as SplAccount;
+    use spl_token::state::{Account as SplAccount, AccountState};
 
     use crate::token_decode::token2022_program_id;
 
@@ -128,5 +129,56 @@ mod tests {
         let account = build_token_account(&token, &mint, &owner, &rent).unwrap();
         let parsed = SplAccount::unpack(&account.data()[..SplAccount::LEN]).unwrap();
         assert_eq!(Pubkey::new_from_array(parsed.owner.to_bytes()), owner);
+    }
+
+    #[test]
+    fn update_native_wsol_syncs_lamports() {
+        let mint = Pubkey::new_unique();
+        let token = Pubkey::new_unique();
+        let owner = Pubkey::new_unique();
+        let reserve = Rent::default().minimum_balance(SplAccount::LEN);
+
+        let state = spl_token::state::Account {
+            mint: crate::token_decode::to_program_pubkey(&mint),
+            owner: crate::token_decode::to_program_pubkey(&owner),
+            amount: 1_000,
+            delegate: COption::None,
+            state: AccountState::Initialized,
+            is_native: COption::Some(reserve),
+            delegated_amount: 0,
+            close_authority: COption::None,
+        };
+        let mut data = vec![0u8; SplAccount::LEN];
+        SplAccount::pack(state, &mut data).unwrap();
+        let mut account = AccountSharedData::from(Account {
+            lamports: reserve + 1_000,
+            data,
+            owner: legacy_program_id(),
+            executable: false,
+            rent_epoch: 0,
+        });
+
+        update_token_balance_in_account(&mut account, &token, &mint, &owner, 5_000_000_000, 9)
+            .unwrap();
+
+        assert_eq!(account.lamports(), reserve + 5_000_000_000);
+        let parsed = SplAccount::unpack(&account.data()[..SplAccount::LEN]).unwrap();
+        assert_eq!(parsed.amount, 5_000_000_000);
+        assert_eq!(parsed.is_native, COption::Some(reserve));
+    }
+
+    #[test]
+    fn update_non_native_token_leaves_lamports_alone() {
+        let mint = Pubkey::new_unique();
+        let token = Pubkey::new_unique();
+        let owner = Pubkey::new_unique();
+        let rent = Rent::default();
+        let mut account = build_token_account(&token, &mint, &owner, &rent).unwrap();
+        let lamports_before = account.lamports();
+
+        update_token_balance_in_account(&mut account, &token, &mint, &owner, 42_000_000, 6)
+            .unwrap();
+
+        assert_eq!(account.lamports(), lamports_before);
     }
 }

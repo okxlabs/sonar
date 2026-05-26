@@ -99,7 +99,7 @@ pub(super) fn update_token_balance_in_account(
 
 #[cfg(test)]
 mod tests {
-    use solana_account::{Account, ReadableAccount};
+    use solana_account::{Account, ReadableAccount, WritableAccount};
     use solana_pubkey::Pubkey;
     use solana_rent::Rent;
     use spl_token::solana_program::program_option::COption;
@@ -250,5 +250,38 @@ mod tests {
         let state =
             StateWithExtensions::<Token2022Account>::unpack(account.data()).expect("unpack");
         assert_eq!(to_pubkey(&state.base.owner), owner);
+    }
+
+    #[test]
+    fn update_native_wsol_syncs_lamports() {
+        let mint = Pubkey::new_unique();
+        let token = Pubkey::new_unique();
+        let owner = Pubkey::new_unique();
+        let mint_account = mint_account_base_only();
+        let rent = Rent::default();
+        let mut account =
+            build_token_account_with_extensions(&token, &mint, &owner, &mint_account, &rent)
+                .unwrap();
+        let reserve = rent.minimum_balance(Token2022Account::LEN);
+
+        // Mark the freshly built account as native (wSOL) with the rent reserve.
+        {
+            let mut state =
+                StateWithExtensionsMut::<Token2022Account>::unpack(account.data_as_mut_slice())
+                    .expect("unpack");
+            state.base.is_native = COption::Some(reserve);
+            state.base.amount = 1_000;
+            state.pack_base();
+        }
+        account.set_lamports(reserve + 1_000);
+
+        update_token_balance_in_account(&mut account, &token, &mint, &owner, 7_000_000_000, 9)
+            .unwrap();
+
+        assert_eq!(account.lamports(), reserve + 7_000_000_000);
+        let state =
+            StateWithExtensions::<Token2022Account>::unpack(account.data()).expect("unpack");
+        assert_eq!(state.base.amount, 7_000_000_000);
+        assert_eq!(state.base.is_native, COption::Some(reserve));
     }
 }
