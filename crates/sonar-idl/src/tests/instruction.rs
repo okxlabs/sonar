@@ -115,6 +115,7 @@ fn indexed_idl_parse_instruction_exposes_flat_account_names() {
         }],
         types: None,
         events: None,
+        accounts: None,
     });
 
     let parsed = indexed

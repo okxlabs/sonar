@@ -230,6 +230,14 @@ pub(crate) struct IdlMetadata {
 
 // ── Top-level IDL ──
 
+/// Anchor 0.30+ account entry: links a type name to its on-chain discriminator.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct IdlAccountEntry {
+    pub name: String,
+    #[serde(default)]
+    pub discriminator: Option<Vec<u8>>,
+}
+
 /// Complete IDL structure including types for full type resolution.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct Idl {
@@ -239,6 +247,8 @@ pub(crate) struct Idl {
     pub types: Option<Vec<IdlTypeDefinition>>,
     #[serde(default)]
     pub events: Option<Vec<IdlEvent>>,
+    #[serde(default)]
+    pub accounts: Option<Vec<IdlAccountEntry>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -335,6 +345,7 @@ impl LegacyIdl {
             instructions: self.instructions,
             types: if types.is_empty() { None } else { Some(types) },
             events: self.events,
+            accounts: None,
         }
     }
 }
