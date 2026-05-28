@@ -94,6 +94,54 @@ fn parse_current_idl_tuple_fields_with_nested_types() {
 }
 
 #[test]
+fn idl_type_tuple_serde_and_decode() {
+    use crate::discriminator::sighash;
+
+    let parsed: IdlType = serde_json::from_str(r#"{"tuple":["u8","u32"]}"#).unwrap();
+    assert_eq!(
+        parsed,
+        IdlType::Tuple {
+            tuple: vec![IdlType::Simple("u8".into()), IdlType::Simple("u32".into())],
+        }
+    );
+
+    // Decode an instruction with a Vec<(u8, u32)> arg — the shape mpl-core uses.
+    let indexed: IndexedIdl = serde_json::from_str(
+        r#"{
+            "address": "11111111111111111111111111111111",
+            "metadata": { "name": "tuple_prog", "version": "0.1.0", "spec": "0.1.0" },
+            "instructions": [{
+                "name": "submit",
+                "accounts": [],
+                "args": [{
+                    "name": "pairs",
+                    "type": { "vec": { "tuple": ["u8", "u32"] } }
+                }]
+            }]
+        }"#,
+    )
+    .unwrap();
+
+    let mut data = sighash("global", "submit").to_vec();
+    data.extend_from_slice(&2u32.to_le_bytes()); // vec length = 2
+    data.push(1); // (1u8, 1000u32)
+    data.extend_from_slice(&1000u32.to_le_bytes());
+    data.push(2); // (2u8, 2000u32)
+    data.extend_from_slice(&2000u32.to_le_bytes());
+
+    let parsed = indexed.parse_instruction(&data).unwrap().expect("should parse");
+    assert_eq!(parsed.name, "submit");
+    assert_eq!(parsed.fields.len(), 1);
+    assert_eq!(
+        parsed.fields[0].value,
+        IdlValue::Array(vec![
+            IdlValue::Array(vec![IdlValue::U8(1), IdlValue::U32(1000)]),
+            IdlValue::Array(vec![IdlValue::U8(2), IdlValue::U32(2000)]),
+        ])
+    );
+}
+
+#[test]
 fn parse_current_idl_format() {
     let indexed: IndexedIdl = serde_json::from_str(
         r#"{

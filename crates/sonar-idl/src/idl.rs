@@ -16,6 +16,7 @@ pub(crate) enum IdlType {
     Option { option: Box<IdlType> },
     Array { array: IdlArrayType },
     Defined { defined: DefinedType },
+    Tuple { tuple: Vec<IdlType> },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
