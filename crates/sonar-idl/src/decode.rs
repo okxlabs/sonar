@@ -116,7 +116,21 @@ fn parse_type(
         IdlType::Option { option } => parse_option_type(data, offset, option, indexed),
         IdlType::Array { array } => parse_array_type(data, offset, array, indexed),
         IdlType::Defined { defined } => parse_defined_type(data, offset, defined, indexed),
+        IdlType::Tuple { tuple } => parse_tuple_type(data, offset, tuple, indexed),
     }
+}
+
+pub(crate) fn parse_tuple_type(
+    data: &[u8],
+    offset: &mut usize,
+    element_types: &[IdlType],
+    indexed: &IndexedIdl,
+) -> Result<IdlValue> {
+    let mut elements = Vec::with_capacity(element_types.len());
+    for element_type in element_types {
+        elements.push(parse_type(data, offset, element_type, indexed)?);
+    }
+    Ok(IdlValue::Array(elements))
 }
 
 pub(crate) fn parse_simple_type(

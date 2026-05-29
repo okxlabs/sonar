@@ -127,11 +127,31 @@ impl IndexedIdl {
         }
         event_discriminators.sort_by_key(|disc| std::cmp::Reverse(disc.0.len()));
 
-        let mut account_discriminators: Vec<(Vec<u8>, usize)> = Vec::new();
         let mut types_by_name = HashMap::new();
         if let Some(types) = &idl.types {
             for (idx, type_def) in types.iter().enumerate() {
                 types_by_name.insert(type_def.name.clone(), idx);
+            }
+        }
+
+        // Anchor 0.30+ lists accounts at the top level with their real
+        // discriminators; legacy IDLs fold discriminators into `types[]`.
+        // Prefer top-level `accounts[]` when present so we don't pollute
+        // the lookup with sighash-fallback entries for unrelated structs.
+        let mut account_discriminators: Vec<(Vec<u8>, usize)> = Vec::new();
+        if let Some(accounts) = &idl.accounts {
+            for entry in accounts {
+                let Some(&idx) = types_by_name.get(&entry.name) else { continue };
+                let disc = entry
+                    .discriminator
+                    .clone()
+                    .unwrap_or_else(|| sighash("account", &entry.name).to_vec());
+                if !disc.is_empty() {
+                    account_discriminators.push((disc, idx));
+                }
+            }
+        } else if let Some(types) = &idl.types {
+            for (idx, type_def) in types.iter().enumerate() {
                 if type_def.type_.kind == IdlTypeDefinitionKind::Struct {
                     let disc = type_def
                         .discriminator
@@ -191,7 +211,12 @@ impl IndexedIdl {
             return Ok(None);
         };
 
-        let mut offset = disc_len;
+        // Anchor accounts use an 8-byte sighash that is *separate* from the
+        // struct's fields. Shank / mpl-core style accounts use a short tag
+        // (typically 1 byte) that *is* the struct's first field, so the
+        // discriminator must not be skipped or we would misalign every
+        // subsequent field.
+        let mut offset = if disc_len >= 8 { disc_len } else { 0 };
         let parsed_value = parse_type_definition(account_data, &mut offset, type_def, self)?;
 
         Ok(Some((type_def.name.clone(), parsed_value)))
