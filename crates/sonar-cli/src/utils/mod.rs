@@ -61,3 +61,54 @@ pub fn parse_hex_data(raw: &str) -> Result<Vec<u8>, String> {
         })
         .collect()
 }
+
+/// An account reference with its `AccountMeta` flags, parsed from the shared
+/// `<PUBKEY>[:<flags>]` mini-syntax used across the `simulate` instruction flags.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AccountMetaFlags {
+    pub pubkey: solana_pubkey::Pubkey,
+    pub is_signer: bool,
+    pub is_writable: bool,
+}
+
+/// Parse `<PUBKEY>[:<flags>]` where `<flags>` is any combination of `s`
+/// (signer) and `w` (writable). An absent suffix means a read-only non-signer,
+/// matching Solana's `AccountMeta` defaults. Flags are order-independent and
+/// may repeat. The same grammar is shared by `--ix accounts=`,
+/// `--patch-ix-account`, and `--insert-ix-account` so a suffix means the same
+/// thing everywhere.
+pub fn parse_account_meta_flags(raw: &str) -> Result<AccountMetaFlags, String> {
+    use std::str::FromStr;
+
+    let trimmed = raw.trim();
+    let (pubkey_str, flags, had_colon) = match trimmed.split_once(':') {
+        Some((pubkey_str, flags)) => (pubkey_str, flags, true),
+        None => (trimmed, "", false),
+    };
+    if pubkey_str.is_empty() {
+        return Err("Account entry is missing a pubkey".to_string());
+    }
+    if had_colon && flags.is_empty() {
+        return Err(format!("Account `{pubkey_str}` has an empty `:` flag suffix"));
+    }
+
+    let pubkey = solana_pubkey::Pubkey::from_str(pubkey_str)
+        .map_err(|err| format!("Failed to parse account pubkey `{pubkey_str}`: {err}"))?;
+
+    let mut is_signer = false;
+    let mut is_writable = false;
+    for flag in flags.chars() {
+        match flag {
+            's' => is_signer = true,
+            'w' => is_writable = true,
+            _ => {
+                return Err(format!(
+                    "Unknown account flag `{flag}` for `{pubkey_str}`; \
+                     valid flags are `s` (signer) and `w` (writable)"
+                ));
+            }
+        }
+    }
+
+    Ok(AccountMetaFlags { pubkey, is_signer, is_writable })
+}

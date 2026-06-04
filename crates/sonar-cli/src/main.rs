@@ -79,7 +79,10 @@ fn run() -> Result<()> {
 
     match command {
         Commands::Simulate(args) => {
-            if args.transaction.tx.is_empty() && std::io::stdin().is_terminal() {
+            if args.transaction.tx.is_empty()
+                && args.instructions.is_empty()
+                && std::io::stdin().is_terminal()
+            {
                 print_subcommand_help("simulate")?;
             }
             handlers::simulate::handle(*args, json)?

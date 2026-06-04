@@ -1,6 +1,8 @@
+use std::borrow::Cow;
 use std::path::PathBuf;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
+use solana_pubkey::Pubkey;
 
 use crate::cli::{self, SimulateArgs, TransactionInputArgs};
 use crate::parsers::instruction::ParserRegistry;
@@ -13,10 +15,100 @@ use sonar_sim::internals::{
 
 use super::common::{
     CachePrepareArgs, build_cache_location, resolve_and_derive_cache_key,
-    resolve_cache_and_prepare, warn_unmatched_addresses,
+    resolve_cache_and_prepare, resolve_from_instructions, warn_unmatched_addresses,
 };
 
-/// Parse a vector of raw CLI strings using the given parser function.
+/// Parse every `--ix` value into `InstructionInput`s, in CLI order. Each value
+/// is auto-detected: `@<path>` reads a file (`~` expanded, `@/dev/stdin` to
+/// pipe), then the inline-or-file content is treated as JSON when it starts
+/// with `{`/`[` and as named-field DSL otherwise.
+fn load_instruction_args(args: &[String]) -> Result<Vec<transaction::InstructionInput>> {
+    let mut inputs = Vec::new();
+    for raw in args {
+        inputs.extend(load_instruction_arg(raw)?);
+    }
+    Ok(inputs)
+}
+
+fn load_instruction_arg(raw: &str) -> Result<Vec<transaction::InstructionInput>> {
+    // Resolve `@<path>` to file content; otherwise borrow the value inline.
+    let (content, file_path): (Cow<str>, Option<&str>) =
+        if let Some(path_str) = raw.strip_prefix('@') {
+            if path_str.is_empty() {
+                bail!("--ix `@` requires a file path (e.g. `@instructions.json`)");
+            }
+            let expanded = crate::utils::config::expand_tilde(path_str);
+            let content = std::fs::read_to_string(&expanded)
+                .with_context(|| format!("Failed to read instruction file `{path_str}`"))?;
+            (Cow::Owned(content), Some(path_str))
+        } else {
+            (Cow::Borrowed(raw), None)
+        };
+
+    // Names the source for error context; only built on the failure path.
+    let context = |format_name: &str| match file_path {
+        Some(path) => format!("Failed to parse instruction file `{path}` as {format_name}"),
+        None => format!("Failed to parse --ix value as {format_name}"),
+    };
+
+    if transaction::looks_like_json(&content) {
+        transaction::parse_instruction_inputs_json(&content).with_context(|| context("JSON"))
+    } else {
+        transaction::parse_instruction_input_dsl(&content)
+            .map(|input| vec![input])
+            .with_context(|| context("instruction DSL"))
+    }
+}
+
+/// What kind of simulation the user asked for, validated up front. Each
+/// variant carries exactly the inputs that mode needs — unrelated combinations
+/// (e.g. `--payer` without `--ix*`) are unrepresentable.
+enum SimulateMode {
+    /// Multiple positional TXs — atomic bundle simulation.
+    Bundle(Vec<String>),
+    /// At most one positional TX; an empty vec defers to stdin downstream.
+    Single(Vec<String>),
+    /// Synthesize a transaction from instruction inputs and a fee payer.
+    /// `instructions` holds the raw `--ix` values, parsed lazily by
+    /// `load_instruction_args`.
+    Instructions { payer: Pubkey, instructions: Vec<String> },
+}
+
+impl SimulateMode {
+    fn from_args(
+        tx: Vec<String>,
+        payer: Option<String>,
+        instructions: Vec<String>,
+        verify_signatures: bool,
+    ) -> Result<Self> {
+        if instructions.is_empty() {
+            if payer.is_some() {
+                bail!("--payer can only be used with instruction input");
+            }
+            return if tx.len() > 1 { Ok(Self::Bundle(tx)) } else { Ok(Self::Single(tx)) };
+        }
+
+        // Belt-and-suspenders: clap's `conflicts_with = "tx"` on `--ix` already
+        // rejects this combination before we get here, but `from_args` is a
+        // standalone unit and validates its own inputs.
+        if !tx.is_empty() {
+            bail!("--ix cannot be combined with TX positional arguments");
+        }
+        if verify_signatures {
+            bail!(
+                "--check-sig cannot be used with --ix because synthesized transactions are unsigned"
+            );
+        }
+        let payer = match payer {
+            Some(raw) => raw
+                .parse::<Pubkey>()
+                .with_context(|| format!("Failed to parse --payer pubkey `{raw}`"))?,
+            None => transaction::default_payer(),
+        };
+        Ok(Self::Instructions { payer, instructions })
+    }
+}
+
 fn parse_cli_args<T>(args: Vec<String>, parser: fn(&str) -> Result<T, String>) -> Result<Vec<T>> {
     args.iter().map(|raw| parser(raw).map_err(anyhow::Error::msg)).collect()
 }
@@ -47,15 +139,12 @@ fn apply_ix_mutations(
 }
 
 pub(crate) fn handle(args: SimulateArgs, json: bool) -> Result<()> {
-    // Initialize instruction parser registry (uses configured/default IDL directory).
-    let idl_dir = args.idl_dir.clone();
-    let mut parser_registry = ParserRegistry::new(idl_dir);
-
-    log::debug!("Created parser registry with lazy IDL loading support");
     let progress = Progress::new();
     let SimulateArgs {
         transaction,
         rpc,
+        payer: payer_arg,
+        instructions: instruction_args,
         overrides: override_args,
         fundings: funding_args,
         token_fundings: token_funding_args,
@@ -63,7 +152,7 @@ pub(crate) fn handle(args: SimulateArgs, json: bool) -> Result<()> {
         ix_data_patches: ix_data_patch_args,
         ix_data,
         verify_signatures,
-        idl_dir: _,
+        idl_dir,
         show_balance_change,
         raw_log,
         show_ix_detail,
@@ -83,11 +172,26 @@ pub(crate) fn handle(args: SimulateArgs, json: bool) -> Result<()> {
     let rpc_batch_size = rpc.rpc_batch_size;
     let rpc_url = rpc.rpc_url;
     let resolver_cache_location = Some(build_cache_location(&cache_dir));
+    let mut parser_registry = ParserRegistry::new(idl_dir);
+    log::debug!("Created parser registry with lazy IDL loading support");
 
     let TransactionInputArgs { tx } = transaction;
+    let mode = SimulateMode::from_args(tx, payer_arg, instruction_args, verify_signatures)?;
 
     let account_overrides = parse_cli_args(override_args, cli::parse_override)?;
-    let sol_fundings = parse_cli_args(funding_args, cli::parse_funding)?;
+    let mut sol_fundings = parse_cli_args(funding_args, cli::parse_funding)?;
+    // Auto-fund the placeholder payer when the user omitted --payer in ix mode.
+    // Skips the injection if the user already funded the address explicitly.
+    if let SimulateMode::Instructions { payer, .. } = &mode {
+        if *payer == transaction::default_payer()
+            && !sol_fundings.iter().any(|f| f.pubkey == *payer)
+        {
+            sol_fundings.push(cli::SolFunding {
+                pubkey: *payer,
+                amount_lamports: transaction::DEFAULT_PAYER_LAMPORTS,
+            });
+        }
+    }
     let token_funding_requests = parse_cli_args(token_funding_args, cli::parse_token_funding)?;
     let account_data_patches = parse_cli_args(data_patch_args, cli::parse_data_patch)?;
     let account_closures = parse_cli_args(account_closure_args, cli::parse_close_account)?;
@@ -110,42 +214,48 @@ pub(crate) fn handle(args: SimulateArgs, json: bool) -> Result<()> {
         log_opts: output::LogDisplayOptions { raw_log },
     };
 
-    // Check if this is a bundle (multiple positional TX arguments)
-    if tx.len() > 1 {
-        let sim_opts = SimulationOptions {
-            execution: ExecutionOptions {
-                signature_verification: verify_signatures.into(),
-                slot,
-                timestamp,
-            },
-            mutations: StateMutationOptions {
-                account_closures,
-                account_overrides,
-                sol_fundings,
-                account_data_patches,
-                ..Default::default()
-            },
-        };
-        return handle_bundle(
-            tx,
-            &rpc_url,
-            resolver_cache_location,
-            token_funding_requests,
-            ix_account_ops,
-            ix_data_patches,
-            sim_opts,
-            &render_opts,
-            &mut parser_registry,
-            cache,
-            cache_dir,
-            refresh_cache,
-            no_idl_fetch,
-            rpc_batch_size,
-            &progress,
-        );
-    }
-
-    let resolved = resolve_and_derive_cache_key(tx, &rpc_url, resolver_cache_location, &progress)?;
+    let resolved = match mode {
+        SimulateMode::Bundle(txs) => {
+            let sim_opts = SimulationOptions {
+                execution: ExecutionOptions {
+                    signature_verification: verify_signatures.into(),
+                    slot,
+                    timestamp,
+                },
+                mutations: StateMutationOptions {
+                    account_closures,
+                    account_overrides,
+                    sol_fundings,
+                    account_data_patches,
+                    ..Default::default()
+                },
+            };
+            return handle_bundle(
+                txs,
+                &rpc_url,
+                resolver_cache_location,
+                token_funding_requests,
+                ix_account_ops,
+                ix_data_patches,
+                sim_opts,
+                &render_opts,
+                &mut parser_registry,
+                cache,
+                cache_dir,
+                refresh_cache,
+                no_idl_fetch,
+                rpc_batch_size,
+                &progress,
+            );
+        }
+        SimulateMode::Single(tx) => {
+            resolve_and_derive_cache_key(tx, &rpc_url, resolver_cache_location, &progress)?
+        }
+        SimulateMode::Instructions { payer, instructions } => {
+            let inputs = load_instruction_args(&instructions)?;
+            resolve_from_instructions(payer, inputs)?
+        }
+    };
     let resolved_input = resolved
         .resolved_txs
         .into_iter()

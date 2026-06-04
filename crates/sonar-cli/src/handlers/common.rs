@@ -134,6 +134,31 @@ pub(crate) fn resolve_and_derive_cache_key(
     Ok(ResolvedWithCacheKey { resolved_txs, cache_key })
 }
 
+/// Build a [`ResolvedWithCacheKey`] from raw instruction inputs synthesized at
+/// the CLI. Mirrors [`resolve_and_derive_cache_key`] but for the instruction
+/// input mode where there is no upstream raw transaction to fetch or parse.
+pub(crate) fn resolve_from_instructions(
+    payer: Pubkey,
+    inputs: Vec<transaction::InstructionInput>,
+) -> Result<ResolvedWithCacheKey> {
+    let source = transaction::TxResolveSource::Instructions;
+    let parsed_tx = transaction::build_transaction_from_instructions(payer, &inputs)
+        .context("Failed to build transaction from instruction inputs")?;
+    let raw_tx_base64 = transaction::encode_transaction_to_base64(&parsed_tx.transaction)?;
+    Ok(ResolvedWithCacheKey {
+        cache_key: crate::core::cache::derive_cache_key_single(
+            source.as_str(),
+            &parsed_tx.transaction,
+        ),
+        resolved_txs: vec![transaction::ResolvedTxInput {
+            original_input: source.as_str().to_string(),
+            raw_tx_base64,
+            parsed_tx,
+            source,
+        }],
+    })
+}
+
 /// Resolves cache state and prepares accounts/IDLs. This is the second phase of
 /// the shared handler setup — called after any simulate-specific mutations have
 /// been applied to the parsed transactions.
@@ -181,10 +206,6 @@ pub(crate) fn collect_program_ids(resolved_accounts: &ResolvedAccounts) -> Vec<P
 
     program_ids.sort();
     program_ids.dedup();
-
-    if program_ids.is_empty() {
-        log::error!("No executable accounts found; IDL parsers will not be loaded");
-    }
 
     program_ids
 }
@@ -252,7 +273,7 @@ pub(crate) fn run_idl_pipeline(
 ) {
     let program_ids = collect_program_ids(resolved_accounts);
     if program_ids.is_empty() {
-        log::error!("No executable accounts found after RPC load; skipping IDL parsing");
+        log::debug!("No executable program accounts found; skipping optional IDL parser loading");
         return;
     }
 
@@ -443,11 +464,50 @@ mod tests {
         find_unmatched_sol_fundings, find_unmatched_token_fundings,
     };
     use crate::cli;
+    use log::{Level, LevelFilter, Metadata, Record};
     use solana_account::{Account, AccountSharedData};
     use solana_pubkey::Pubkey;
     use solana_sdk_ids::system_program;
     use sonar_sim::internals::ResolvedAccounts;
+    use std::cell::RefCell;
     use std::collections::{HashMap, HashSet};
+    use std::sync::Once;
+
+    thread_local! {
+        static CAPTURED: RefCell<Option<Vec<(Level, String)>>> = const { RefCell::new(None) };
+    }
+
+    struct TestLogger;
+
+    impl log::Log for TestLogger {
+        fn enabled(&self, _metadata: &Metadata) -> bool {
+            true
+        }
+
+        fn log(&self, record: &Record) {
+            CAPTURED.with(|cell| {
+                if let Some(buf) = cell.borrow_mut().as_mut() {
+                    buf.push((record.level(), record.args().to_string()));
+                }
+            });
+        }
+
+        fn flush(&self) {}
+    }
+
+    static TEST_LOGGER: TestLogger = TestLogger;
+    static LOGGER_INIT: Once = Once::new();
+
+    fn capture_logs(run: impl FnOnce()) -> Vec<(Level, String)> {
+        LOGGER_INIT.call_once(|| {
+            log::set_logger(&TEST_LOGGER).expect("test logger should initialize once");
+            log::set_max_level(LevelFilter::Trace);
+        });
+
+        CAPTURED.with(|cell| *cell.borrow_mut() = Some(Vec::new()));
+        run();
+        CAPTURED.with(|cell| cell.borrow_mut().take().unwrap_or_default())
+    }
 
     fn executable_account() -> AccountSharedData {
         AccountSharedData::from(Account {
@@ -500,6 +560,25 @@ mod tests {
         let program_ids = collect_program_ids(&resolved);
 
         assert!(program_ids.is_empty());
+    }
+
+    #[test]
+    fn collect_program_ids_does_not_log_error_when_no_executable_accounts() {
+        let mut accounts = HashMap::new();
+        accounts.insert(Pubkey::new_unique(), non_executable_account());
+
+        let resolved = ResolvedAccounts { accounts, lookups: vec![] };
+
+        let records = capture_logs(|| {
+            let program_ids = collect_program_ids(&resolved);
+            assert!(program_ids.is_empty());
+        });
+
+        assert!(
+            records.iter().all(|(level, message)| *level != Level::Error
+                || !message.contains("No executable accounts found")),
+            "empty executable-account set should not be logged as an error: {records:?}"
+        );
     }
 
     #[test]

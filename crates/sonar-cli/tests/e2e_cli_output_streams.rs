@@ -188,6 +188,36 @@ fn simulate_omitted_tx_empty_stdin_fails_with_actionable_message() {
 }
 
 #[test]
+fn simulate_ix_accepts_mixed_dsl_and_json_in_one_invocation() {
+    // The merged --ix flag auto-detects each value's format, so a JSON value and
+    // a DSL value coexist under repeated --ix flags instead of conflicting.
+    let instruction_json = format!(r#"{{"program":"{VALID_PUBKEY}","data":"0x01"}}"#);
+    let instruction_dsl = format!("program={VALID_PUBKEY} data=0x02");
+
+    let mut cmd = cargo_bin_cmd!("sonar");
+    cmd.arg("simulate")
+        .arg("--rpc-url")
+        .arg("http://127.0.0.1:1")
+        .arg("--payer")
+        .arg(VALID_PUBKEY)
+        .arg("--ix")
+        .arg(instruction_json)
+        .arg("--ix")
+        .arg(instruction_dsl);
+
+    let assert = cmd.assert().failure();
+    let output = assert.get_output();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    // Both instructions parse; failure now comes from the unreachable RPC, not
+    // a CLI argument conflict.
+    assert!(
+        !stderr.contains("cannot be used with"),
+        "expected no CLI conflict between --ix formats, got: {stderr}"
+    );
+}
+
+#[test]
 fn decode_omitted_tx_empty_stdin_fails_with_actionable_message() {
     let mut cmd = cargo_bin_cmd!("sonar");
     cmd.arg("decode").arg("--rpc-url").arg("https://api.mainnet-beta.solana.com").write_stdin("");

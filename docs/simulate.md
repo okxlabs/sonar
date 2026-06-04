@@ -17,6 +17,10 @@ sonar simulate 2gTzNX3zLNhhmJaY44LycEgF8UMadrKeDLHz8rgcQVbXWVU4bs8fLBzWKhvAqKBeo
 # Bundle simulation (multiple transactions)
 sonar simulate <TX1> <TX2> <TX3> --rpc-url https://api.mainnet-beta.solana.com
 
+# Instruction input mode (one synthesized transaction)
+sonar simulate --payer <PAYER_PUBKEY> \
+  --ix 'program=MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr data=0x68656c6c6f'
+
 # Read transaction from stdin (omit TX to read from pipe)
 cat ./transaction.txt | sonar simulate --rpc-url <RPC_URL>
 
@@ -26,6 +30,72 @@ sonar simulate <TX> --rpc-url <RPC_URL> -b -d
 # JSON output
 sonar simulate <TX> --rpc-url <RPC_URL> --json
 ```
+
+### Instruction Input
+
+Use `--ix` to simulate one or more raw instructions without first building a
+signed transaction. Sonar creates one unsigned legacy transaction and runs
+the normal simulation pipeline. `--payer` is optional: when omitted, sonar
+uses a deterministic placeholder pubkey (`sha256("sonar-payer")`)
+auto-funded with 1 SOL for the run; pass `--payer <PUBKEY>` to override.
+
+`--ix` auto-detects each value's format, so you can mix DSL, JSON, and files
+freely across repeated flags (they apply in CLI order):
+
+- **named-field DSL** — anything that isn't JSON or a file path
+- **inline JSON** — values starting with `{` or `[`
+- **`@<path>`** — read from a file; the file's contents may themselves be
+  either JSON or DSL. `~` is expanded and `@/dev/stdin` works for piping.
+
+```bash
+# Single instruction via DSL. `data` is hex and may start with 0x.
+sonar simulate --payer <PAYER_PUBKEY> \
+  --ix 'program=<PROGRAM_ID> accounts=<ACCOUNT>:sw data=0x01020304'
+
+# Multiple instructions in one atomic transaction.
+sonar simulate --payer <PAYER_PUBKEY> \
+  --ix 'program=<PROGRAM_A> data=0x01' \
+  --ix 'program=<PROGRAM_B> accounts=<ACCOUNT>:w data=0x02'
+
+# Inline JSON when structured input is easier to generate.
+sonar simulate --payer <PAYER_PUBKEY> \
+  --ix '{"program":"<PROGRAM_ID>","accounts":[{"pubkey":"<ACCOUNT>","is_signer":true,"is_writable":true}],"data":"0x01020304"}'
+
+# Base64 / base58 data via the encoding field (works in DSL and JSON).
+# base58 matches how Solana RPC encodes compiled-instruction data.
+sonar simulate --payer <PAYER_PUBKEY> \
+  --ix 'program=<PROGRAM_ID> data=AQIDBA== encoding=base64'
+sonar simulate --payer <PAYER_PUBKEY> \
+  --ix '{"program":"<PROGRAM_ID>","data":"<BASE58_DATA>","encoding":"base58"}'
+
+# Read from a file (curl-style `@` prefix). `@/dev/stdin` works for piping.
+sonar simulate --payer <PAYER_PUBKEY> --ix @instructions.json
+```
+
+Instruction `data` is decoded as **hex** by default in both forms; set the
+optional `encoding` field to `hex`, `base64`, or `base58` to choose otherwise.
+A leading `0x`/`0X` is accepted (and stripped) for hex; it is not a format
+switch, so base64/base58 must be selected explicitly via `encoding`.
+
+DSL fields (the non-JSON, non-`@` form):
+
+- `program` (or `program_id`): program pubkey. Required.
+- `accounts`: optional comma-separated account metas.
+  Account flags are `s` (signer) and `w` (writable).
+  Omit the `:flags` suffix for a read-only non-signer.
+- `data`: optional instruction data. Decoded per `encoding` (default hex).
+  Empty data via omitting the field, or `data=0x`.
+- `encoding`: optional `hex` (default), `base64`, or `base58`.
+
+JSON fields (inline or from an `@<path>` file):
+
+- `program` (or `program_id`): program pubkey.
+- `accounts`: optional ordered account metas. Each account requires
+  `pubkey`, `is_signer`, and `is_writable` — same shape as Solana's
+  `AccountMeta` so an existing meta object copies over verbatim.
+- `data`: optional instruction data. Decoded per `encoding` (default hex).
+  Empty data via omitting the field, `""`, or `"0x"`.
+- `encoding`: optional `"hex"` (default), `"base64"`, or `"base58"`.
 
 ### Program & Account Override
 
@@ -85,17 +155,19 @@ sonar simulate <TX> \
 
 ```bash
 # Patch an account inside instruction 2, account 3
-# Format: <IX>.<ACCOUNT>=<NEW_PUBKEY>[:<w|r>] with 1-based indices
-# :w is the default; use :r to force read-only
+# Format: <IX>.<ACCOUNT>=<NEW_PUBKEY>[:w] with 1-based indices
+# Account flags follow the same grammar as `--ix accounts=`: append `:w` for
+# writable, omit the suffix for read-only (the default). The signer flag `s` is
+# rejected here — declare signers when building the instruction with `--ix`.
 sonar simulate <TX> --rpc-url <RPC_URL> \
-  --patch-ix-account 2.3=<NEW_PUBKEY>:r
+  --patch-ix-account 2.3=<NEW_PUBKEY>:w
 
 # Insert an account at a specific position within instruction 1's account list
-# Format: <IX>.<POSITION>=<PUBKEY>[:<w|r>] with 1-based indices
+# Format: <IX>.<POSITION>=<PUBKEY>[:w] with 1-based indices
 # Existing accounts at and after POSITION shift right by one.
 # POSITION may equal current_count + 1 to insert at the end (push semantics).
 sonar simulate <TX> --rpc-url <RPC_URL> \
-  --insert-ix-account 1.3=<PUBKEY>:r
+  --insert-ix-account 1.3=<PUBKEY>:w
 
 # Remove an account at a specific position from instruction 1's account list
 # Format: <IX>.<POSITION> with 1-based indices
