@@ -164,16 +164,26 @@ pub(super) fn parse_base_instruction(
     match instruction_id {
         INITIALIZE_MINT_DISCRIMINATOR => parse_initialize_mint_instruction(data),
         INITIALIZE_ACCOUNT_DISCRIMINATOR => parse_initialize_account_instruction(instruction),
-        INITIALIZE_MULTISIG_DISCRIMINATOR => parse_initialize_multisig_instruction(data, instruction),
+        INITIALIZE_MULTISIG_DISCRIMINATOR => {
+            parse_initialize_multisig_instruction(data, instruction)
+        }
         SET_AUTHORITY_DISCRIMINATOR => parse_set_authority_instruction(data, instruction),
-        INITIALIZE_ACCOUNT2_DISCRIMINATOR => parse_initialize_account2_instruction(data, instruction),
-        INITIALIZE_ACCOUNT3_DISCRIMINATOR => parse_initialize_account3_instruction(data, instruction),
+        INITIALIZE_ACCOUNT2_DISCRIMINATOR => {
+            parse_initialize_account2_instruction(data, instruction)
+        }
+        INITIALIZE_ACCOUNT3_DISCRIMINATOR => {
+            parse_initialize_account3_instruction(data, instruction)
+        }
         INITIALIZE_MULTISIG2_DISCRIMINATOR => {
             parse_initialize_multisig2_instruction(data, instruction)
         }
         INITIALIZE_MINT2_DISCRIMINATOR => parse_initialize_mint2_instruction(data),
-        AMOUNT_TO_UI_AMOUNT_DISCRIMINATOR => parse_amount_to_ui_amount_instruction(data, instruction),
-        UI_AMOUNT_TO_AMOUNT_DISCRIMINATOR => parse_ui_amount_to_amount_instruction(data, instruction),
+        AMOUNT_TO_UI_AMOUNT_DISCRIMINATOR => {
+            parse_amount_to_ui_amount_instruction(data, instruction)
+        }
+        UI_AMOUNT_TO_AMOUNT_DISCRIMINATOR => {
+            parse_ui_amount_to_amount_instruction(data, instruction)
+        }
         WITHDRAW_EXCESS_LAMPORTS_DISCRIMINATOR => {
             parse_withdraw_excess_lamports_instruction(instruction)
         }

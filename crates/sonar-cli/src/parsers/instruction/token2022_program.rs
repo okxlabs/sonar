@@ -546,10 +546,7 @@ mod tests {
 
         let parsed = parser.parse_instruction(&instruction).unwrap().unwrap();
         assert_eq!(parsed.name, "InitializeAccount");
-        assert_eq!(
-            parsed.account_names,
-            vec!["account", "mint", "owner", "rent_sysvar"]
-        );
+        assert_eq!(parsed.account_names, vec!["account", "mint", "owner", "rent_sysvar"]);
     }
 
     #[test]
@@ -569,10 +566,7 @@ mod tests {
 
         let parsed = parser.parse_instruction(&instruction).unwrap().unwrap();
         assert_eq!(parsed.name, "InitializeMultisig");
-        assert_eq!(
-            parsed.account_names,
-            vec!["multisig", "signer_1", "signer_2", "rent_sysvar"]
-        );
+        assert_eq!(parsed.account_names, vec!["multisig", "signer_1", "signer_2", "rent_sysvar"]);
         assert!(parsed.fields.iter().any(|field| field.name == "m" && field.value == "2"));
     }
 

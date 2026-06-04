@@ -45,6 +45,7 @@ pub(crate) struct CachePrepareArgs<'a> {
     pub refresh_cache: bool,
     pub no_idl_fetch: bool,
     pub rpc_batch_size: usize,
+    pub history_slot: Option<u64>,
 }
 
 /// Result of resolving cache state and preparing accounts/IDLs.
@@ -114,6 +115,7 @@ pub(crate) fn resolve_and_derive_cache_key(
     rpc_url: &str,
     resolver_cache_location: Option<CacheLocation>,
     progress: &Progress,
+    history_slot: Option<u64>,
 ) -> Result<ResolvedWithCacheKey> {
     let is_bundle = tx_inputs.len() > 1;
     let parsed_inputs =
@@ -124,11 +126,12 @@ pub(crate) fn resolve_and_derive_cache_key(
         crate::core::cache::derive_cache_key_single(
             &resolved_txs[0].original_input,
             &resolved_txs[0].parsed_tx.transaction,
+            history_slot,
         )
     } else {
         let inputs: Vec<_> = resolved_txs.iter().map(|tx| tx.original_input.clone()).collect();
         let parsed_txs: Vec<_> = resolved_txs.iter().map(|tx| tx.parsed_tx.clone()).collect();
-        crate::core::cache::derive_cache_key_bundle(&inputs, &parsed_txs)
+        crate::core::cache::derive_cache_key_bundle(&inputs, &parsed_txs, history_slot)
     };
 
     Ok(ResolvedWithCacheKey { resolved_txs, cache_key })
@@ -140,6 +143,7 @@ pub(crate) fn resolve_and_derive_cache_key(
 pub(crate) fn resolve_from_instructions(
     payer: Pubkey,
     inputs: Vec<transaction::InstructionInput>,
+    history_slot: Option<u64>,
 ) -> Result<ResolvedWithCacheKey> {
     let source = transaction::TxResolveSource::Instructions;
     let parsed_tx = transaction::build_transaction_from_instructions(payer, &inputs)
@@ -149,6 +153,7 @@ pub(crate) fn resolve_from_instructions(
         cache_key: crate::core::cache::derive_cache_key_single(
             source.as_str(),
             &parsed_tx.transaction,
+            history_slot,
         ),
         resolved_txs: vec![transaction::ResolvedTxInput {
             original_input: source.as_str().to_string(),
@@ -178,14 +183,12 @@ pub(crate) fn resolve_cache_and_prepare(
     let cache_read_dir_for_load = cache_read_dir(resolved_cache_dir.clone(), args.refresh_cache);
 
     let prepared = prepare_accounts_and_idls(
-        args.rpc_url,
+        args,
         cache_read_dir_for_load,
         offline,
         parsed_txs,
         parser_registry,
-        args.no_idl_fetch,
         progress,
-        args.rpc_batch_size,
     )?;
 
     Ok(CachePreparedContext { cache_dir: resolved_cache_dir, offline, prepared })
@@ -302,21 +305,20 @@ pub(crate) fn run_idl_pipeline(
 /// Loads accounts for parsed transactions and runs the shared IDL pipeline.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn prepare_accounts_and_idls(
-    rpc_url: &str,
+    args: &CachePrepareArgs,
     cache_dir: Option<PathBuf>,
     offline: bool,
     parsed_txs: &[transaction::ParsedTransaction],
     parser_registry: &mut ParserRegistry,
-    no_idl_fetch: bool,
     progress: &Progress,
-    rpc_batch_size: usize,
 ) -> Result<PreparedPipelineContext> {
     let mut account_loader = account_loader::create_loader(
-        rpc_url.to_string(),
+        args.rpc_url.to_string(),
         cache_dir,
         offline,
         Some(progress.clone()),
-        rpc_batch_size,
+        args.rpc_batch_size,
+        args.history_slot,
     )?;
     let resolved_accounts = if parsed_txs.len() == 1 {
         account_loader.load_for_transaction(&parsed_txs[0].transaction)?
@@ -329,7 +331,7 @@ pub(crate) fn prepare_accounts_and_idls(
         &account_loader,
         parser_registry,
         &resolved_accounts,
-        no_idl_fetch,
+        args.no_idl_fetch,
         offline,
         Some(progress),
     );

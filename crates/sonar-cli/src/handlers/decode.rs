@@ -23,12 +23,19 @@ pub(crate) fn handle(args: DecodeArgs, json: bool) -> Result<()> {
         refresh_cache,
     } = args;
     let rpc_batch_size = rpc.rpc_batch_size;
+    let history_slot = rpc.history_slot;
     let rpc_url = rpc.rpc_url;
     let resolver_cache_location =
         if refresh_cache { None } else { Some(super::common::build_cache_location(&cache_dir)) };
     let TransactionInputArgs { tx } = transaction;
 
-    let resolved = resolve_and_derive_cache_key(tx, &rpc_url, resolver_cache_location, &progress)?;
+    let resolved = resolve_and_derive_cache_key(
+        tx,
+        &rpc_url,
+        resolver_cache_location,
+        &progress,
+        history_slot,
+    )?;
     let is_bundle = resolved.resolved_txs.len() > 1;
     let parsed_txs: Vec<_> =
         resolved.resolved_txs.into_iter().map(|entry| entry.parsed_tx).collect();
@@ -40,6 +47,7 @@ pub(crate) fn handle(args: DecodeArgs, json: bool) -> Result<()> {
         refresh_cache,
         no_idl_fetch,
         rpc_batch_size,
+        history_slot,
     };
     let cached = resolve_cache_and_prepare(
         &cache_args,

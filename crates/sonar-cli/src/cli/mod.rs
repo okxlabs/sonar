@@ -46,6 +46,12 @@ pub struct RpcArgs {
     /// Commercial RPC providers often support higher values.
     #[arg(long = "rpc-batch-size", env = "SONAR_RPC_BATCH_SIZE", default_value = "100")]
     pub rpc_batch_size: usize,
+
+    /// Fetch account state from a historical slot via the non-standard
+    /// getMultipleAccountsDataBySlot RPC method. Requires an RPC node that
+    /// supports this method (e.g. certain archival providers).
+    #[arg(long = "history-slot", value_name = "SLOT")]
+    pub history_slot: Option<u64>,
 }
 
 #[derive(Parser, Debug)]
