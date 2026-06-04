@@ -85,21 +85,114 @@ pub struct ResolvedTxInput {
     pub source: TxResolveSource,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InstructionInput {
-    #[serde(alias = "program_id", deserialize_with = "deserialize_pubkey")]
     pub program: Pubkey,
-    #[serde(default)]
     pub accounts: Vec<InstructionAccountInput>,
-    #[serde(default, deserialize_with = "deserialize_instruction_data")]
     pub data: Vec<u8>,
+}
+
+/// Encoding for an instruction's `data` field. Defaults to hex; set it
+/// explicitly (the JSON `encoding` field or the DSL `encoding=` field) to
+/// decode base64 or base58 instead. Base58 matches how Solana RPC encodes
+/// compiled-instruction data, so values copied from `getTransaction` decode
+/// with `encoding=base58`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(try_from = "String")]
+pub enum DataEncoding {
+    #[default]
+    Hex,
+    Base64,
+    Base58,
+}
+
+impl FromStr for DataEncoding {
+    type Err = String;
+
+    /// Single source of truth for encoding names: drives both the DSL
+    /// `encoding=` field and JSON deserialization (via `TryFrom<String>`).
+    fn from_str(raw: &str) -> std::result::Result<Self, String> {
+        match raw.trim() {
+            "hex" => Ok(Self::Hex),
+            "base64" => Ok(Self::Base64),
+            "base58" => Ok(Self::Base58),
+            other => Err(format!(
+                "Unknown data encoding `{other}`; expected `hex`, `base64`, or `base58`"
+            )),
+        }
+    }
+}
+
+impl TryFrom<String> for DataEncoding {
+    type Error = String;
+
+    fn try_from(value: String) -> std::result::Result<Self, String> {
+        value.parse()
+    }
+}
+
+impl DataEncoding {
+    /// Decode `data` bytes under this encoding. Empty input decodes to empty
+    /// bytes; for hex a bare `0x`/`0X` is also treated as empty.
+    fn decode(self, raw: &str) -> std::result::Result<Vec<u8>, String> {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            return Ok(Vec::new());
+        }
+        match self {
+            Self::Hex => {
+                if matches!(trimmed, "0x" | "0X") {
+                    return Ok(Vec::new());
+                }
+                crate::utils::parse_hex_data(trimmed)
+            }
+            Self::Base64 => BASE64_STANDARD
+                .decode(trimmed)
+                .map_err(|e| format!("invalid base64 instruction data: {e}")),
+            Self::Base58 => bs58::decode(trimmed)
+                .into_vec()
+                .map_err(|e| format!("invalid base58 instruction data: {e}")),
+        }
+    }
+}
+
+/// Serde-facing form of `InstructionInput`. `data` is decoded into bytes via
+/// `encoding` (default hex) once all sibling fields are known — a per-field
+/// `deserialize_with` on `data` alone cannot see the `encoding` field.
+#[derive(Deserialize)]
+struct RawInstructionInput {
+    #[serde(alias = "program_id", deserialize_with = "deserialize_pubkey")]
+    program: Pubkey,
+    #[serde(default)]
+    accounts: Vec<InstructionAccountInput>,
+    #[serde(default)]
+    data: Option<String>,
+    #[serde(default)]
+    encoding: Option<DataEncoding>,
+}
+
+impl TryFrom<RawInstructionInput> for InstructionInput {
+    type Error = anyhow::Error;
+
+    fn try_from(raw: RawInstructionInput) -> Result<Self> {
+        let data = raw
+            .encoding
+            .unwrap_or_default()
+            .decode(raw.data.as_deref().unwrap_or(""))
+            .map_err(|e| anyhow!("Failed to decode instruction data: {e}"))?;
+        Ok(Self { program: raw.program, accounts: raw.accounts, data })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct InstructionAccountInput {
     #[serde(deserialize_with = "deserialize_pubkey")]
     pub pubkey: Pubkey,
+    // Accept both snake_case and camelCase so account metas copied from either
+    // Rust (`AccountMeta`) or JS/TS (`@solana/web3.js`) sources work verbatim.
+    #[serde(alias = "isSigner")]
     pub is_signer: bool,
+    #[serde(alias = "isWritable")]
     pub is_writable: bool,
 }
 
@@ -180,30 +273,6 @@ where
     Pubkey::from_str(raw.trim()).map_err(serde::de::Error::custom)
 }
 
-fn deserialize_instruction_data<'de, D>(deserializer: D) -> std::result::Result<Vec<u8>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let raw = String::deserialize(deserializer)?;
-    parse_optional_instruction_data(&raw).map_err(serde::de::Error::custom)
-}
-
-/// Parse optional instruction data. The `0x`/`0X` prefix is the explicit
-/// switch into hex; everything else is base64. Empty / `0x` / `0X` decode
-/// to empty bytes.
-fn parse_optional_instruction_data(raw: &str) -> std::result::Result<Vec<u8>, String> {
-    let trimmed = raw.trim();
-    if trimmed.is_empty() || matches!(trimmed, "0x" | "0X") {
-        return Ok(Vec::new());
-    }
-    if trimmed.starts_with("0x") || trimmed.starts_with("0X") {
-        return crate::utils::parse_hex_data(trimmed);
-    }
-    BASE64_STANDARD
-        .decode(trimmed)
-        .map_err(|e| format!("invalid base64 instruction data: {e}"))
-}
-
 pub fn is_transaction_signature(s: &str) -> bool {
     let trimmed = s.trim();
     Signature::from_str(trimmed).is_ok()
@@ -214,31 +283,39 @@ pub fn encode_transaction_to_base64(tx: &VersionedTransaction) -> Result<String>
     Ok(BASE64_STANDARD.encode(serialized))
 }
 
+/// Whether a raw instruction value should be parsed as JSON rather than the
+/// named-field DSL. JSON inputs lead with `{` (object) or `[` (array) after
+/// optional whitespace; the DSL always leads with a `name=` field.
+pub fn looks_like_json(raw: &str) -> bool {
+    raw.trim_start().starts_with(['{', '['])
+}
+
 pub fn parse_instruction_inputs_json(raw: &str) -> Result<Vec<InstructionInput>> {
     // Dispatch on the first non-whitespace byte so serde reports precise
     // per-field errors instead of a generic "did not match any variant" from
     // an untagged enum.
-    let inputs = match raw.trim_start().as_bytes().first() {
-        Some(b'[') => serde_json::from_str::<Vec<InstructionInput>>(raw)
+    let raw_inputs = match raw.trim_start().as_bytes().first() {
+        Some(b'[') => serde_json::from_str::<Vec<RawInstructionInput>>(raw)
             .context("Failed to parse instruction JSON array")?,
         Some(b'{') => vec![
-            serde_json::from_str::<InstructionInput>(raw)
+            serde_json::from_str::<RawInstructionInput>(raw)
                 .context("Failed to parse instruction JSON object")?,
         ],
         _ => anyhow::bail!(
             "Instruction JSON must be an object `{{...}}` or array `[...]` of objects"
         ),
     };
-    if inputs.is_empty() {
+    if raw_inputs.is_empty() {
         anyhow::bail!("Instruction input must contain at least one instruction");
     }
-    Ok(inputs)
+    raw_inputs.into_iter().map(InstructionInput::try_from).collect()
 }
 
 pub fn parse_instruction_input_dsl(raw: &str) -> Result<InstructionInput> {
     let mut program = None;
     let mut accounts = Vec::new();
-    let mut data = Vec::new();
+    let mut data_raw: Option<&str> = None;
+    let mut encoding = None;
 
     for field in raw.split_whitespace() {
         let (name, value) = field
@@ -255,8 +332,16 @@ pub fn parse_instruction_input_dsl(raw: &str) -> Result<InstructionInput> {
                     })?);
             }
             "data" => {
-                data = parse_instruction_data_dsl(value)
-                    .with_context(|| format!("Failed to parse instruction data `{value}`"))?;
+                if data_raw.is_some() {
+                    anyhow::bail!("Instruction DSL contains duplicate `data` field");
+                }
+                data_raw = Some(value);
+            }
+            "encoding" => {
+                if encoding.is_some() {
+                    anyhow::bail!("Instruction DSL contains duplicate `encoding` field");
+                }
+                encoding = Some(value.parse::<DataEncoding>().map_err(|e| anyhow!(e))?);
             }
             "accounts" => {
                 accounts = parse_instruction_accounts_dsl(value)
@@ -267,15 +352,12 @@ pub fn parse_instruction_input_dsl(raw: &str) -> Result<InstructionInput> {
     }
 
     let program = program.ok_or_else(|| anyhow!("Instruction DSL requires program=<PUBKEY>"))?;
+    let data_raw = data_raw.unwrap_or("");
+    let data = encoding
+        .unwrap_or_default()
+        .decode(data_raw)
+        .map_err(|e| anyhow!("Failed to parse instruction data `{data_raw}`: {e}"))?;
     Ok(InstructionInput { program, accounts, data })
-}
-
-fn parse_instruction_data_dsl(raw: &str) -> Result<Vec<u8>> {
-    let trimmed = raw.trim();
-    if trimmed.is_empty() || matches!(trimmed, "0x" | "0X") {
-        return Ok(Vec::new());
-    }
-    crate::utils::parse_hex_data(trimmed).map_err(anyhow::Error::msg)
 }
 
 fn parse_instruction_accounts_dsl(raw: &str) -> Result<Vec<InstructionAccountInput>> {
@@ -288,30 +370,14 @@ fn parse_instruction_accounts_dsl(raw: &str) -> Result<Vec<InstructionAccountInp
 }
 
 fn parse_instruction_account_dsl(raw: &str) -> Result<InstructionAccountInput> {
-    let trimmed = raw.trim();
-    let (pubkey_str, flags) = trimmed.split_once(':').unwrap_or((trimmed, ""));
-    if pubkey_str.is_empty() {
-        anyhow::bail!("Instruction account entry is missing a pubkey");
-    }
-    let pubkey = Pubkey::from_str(pubkey_str)
-        .with_context(|| format!("Failed to parse instruction account `{pubkey_str}`"))?;
-
-    let mut is_signer = false;
-    let mut is_writable = false;
-    if trimmed.contains(':') && flags.is_empty() {
-        anyhow::bail!("Instruction account `{pubkey_str}` has empty account flags");
-    }
-    for flag in flags.chars() {
-        match flag {
-            's' => is_signer = true,
-            'w' => is_writable = true,
-            _ => anyhow::bail!(
-                "Unknown instruction account flag `{flag}` for `{pubkey_str}`; valid flags are `s` (signer) and `w` (writable)"
-            ),
-        }
-    }
-
-    Ok(InstructionAccountInput { pubkey, is_signer, is_writable })
+    // Shares the `<PUBKEY>[:<s|w>]` grammar with --patch-ix-account /
+    // --insert-ix-account so a suffix means the same thing across the command.
+    let meta = crate::utils::parse_account_meta_flags(raw).map_err(|err| anyhow!(err))?;
+    Ok(InstructionAccountInput {
+        pubkey: meta.pubkey,
+        is_signer: meta.is_signer,
+        is_writable: meta.is_writable,
+    })
 }
 
 pub fn build_transaction_from_instructions(
@@ -826,6 +892,22 @@ mod tests {
     }
 
     #[test]
+    fn parse_instruction_inputs_json_accepts_camelcase_account_flags() {
+        // camelCase aliases (`@solana/web3.js` style) must parse the same as
+        // snake_case, including a single instruction mixing both spellings.
+        let program = Pubkey::new_unique();
+        let account = Pubkey::new_unique();
+        let raw = format!(
+            r#"{{"program":"{program}","accounts":[{{"pubkey":"{account}","isSigner":true,"isWritable":false}}]}}"#
+        );
+
+        let inputs = parse_instruction_inputs_json(&raw).expect("camelCase flags parse");
+
+        assert!(inputs[0].accounts[0].is_signer);
+        assert!(!inputs[0].accounts[0].is_writable);
+    }
+
+    #[test]
     fn parse_instruction_inputs_json_rejects_missing_account_flags() {
         let program = Pubkey::new_unique();
         let account = Pubkey::new_unique();
@@ -863,12 +945,32 @@ mod tests {
     }
 
     #[test]
-    fn parse_instruction_inputs_json_decodes_base64_when_no_0x_prefix() {
+    fn parse_instruction_inputs_json_decodes_base64_with_encoding_field() {
         let program = Pubkey::new_unique();
-        // "world" base64-encoded; no prefix needed — anything without `0x` is base64.
-        let raw = format!(r#"{{"program":"{program}","data":"d29ybGQ="}}"#);
+        // "world" base64-encoded, selected explicitly via the encoding field.
+        let raw =
+            format!(r#"{{"program":"{program}","data":"d29ybGQ=","encoding":"base64"}}"#);
         let inputs = parse_instruction_inputs_json(&raw).expect("base64 data parses");
         assert_eq!(inputs[0].data, b"world");
+    }
+
+    #[test]
+    fn parse_instruction_inputs_json_decodes_base58_with_encoding_field() {
+        let program = Pubkey::new_unique();
+        let encoded = bs58::encode(b"world").into_string();
+        let raw =
+            format!(r#"{{"program":"{program}","data":"{encoded}","encoding":"base58"}}"#);
+        let inputs = parse_instruction_inputs_json(&raw).expect("base58 data parses");
+        assert_eq!(inputs[0].data, b"world");
+    }
+
+    #[test]
+    fn parse_instruction_inputs_json_defaults_to_hex_without_encoding() {
+        let program = Pubkey::new_unique();
+        // No encoding field and no 0x prefix: decoded as hex by default.
+        let raw = format!(r#"{{"program":"{program}","data":"deadbeef"}}"#);
+        let inputs = parse_instruction_inputs_json(&raw).expect("hex default parses");
+        assert_eq!(inputs[0].data, vec![0xde, 0xad, 0xbe, 0xef]);
     }
 
     #[test]
@@ -877,6 +979,15 @@ mod tests {
         let raw = format!(r#"{{"program":"{program}","data":"0xdeadbeef"}}"#);
         let inputs = parse_instruction_inputs_json(&raw).expect("hex data parses");
         assert_eq!(inputs[0].data, vec![0xde, 0xad, 0xbe, 0xef]);
+    }
+
+    #[test]
+    fn parse_instruction_inputs_json_rejects_unknown_encoding() {
+        let program = Pubkey::new_unique();
+        let raw = format!(r#"{{"program":"{program}","data":"00","encoding":"base32"}}"#);
+        let err = parse_instruction_inputs_json(&raw).expect_err("unknown encoding rejected");
+        let chain = format!("{err:#}");
+        assert!(chain.contains("base32") || chain.contains("variant"), "got: {chain}");
     }
 
     #[test]
@@ -892,7 +1003,32 @@ mod tests {
         let program = Pubkey::new_unique();
         let raw = format!("program={program} data=b64:aGVsbG8=");
         parse_instruction_input_dsl(&raw)
-            .expect_err("DSL no longer accepts base64 — `:` is not a hex character");
+            .expect_err("`b64:` prefix is invalid hex; use encoding=base64 instead");
+    }
+
+    #[test]
+    fn parse_instruction_input_dsl_decodes_base64_with_encoding_field() {
+        let program = Pubkey::new_unique();
+        let raw = format!("program={program} data=d29ybGQ= encoding=base64");
+        let input = parse_instruction_input_dsl(&raw).expect("base64 DSL parses");
+        assert_eq!(input.data, b"world");
+    }
+
+    #[test]
+    fn parse_instruction_input_dsl_decodes_base58_with_encoding_field() {
+        let program = Pubkey::new_unique();
+        let encoded = bs58::encode(b"world").into_string();
+        let raw = format!("program={program} data={encoded} encoding=base58");
+        let input = parse_instruction_input_dsl(&raw).expect("base58 DSL parses");
+        assert_eq!(input.data, b"world");
+    }
+
+    #[test]
+    fn parse_instruction_input_dsl_rejects_unknown_encoding() {
+        let program = Pubkey::new_unique();
+        let raw = format!("program={program} data=00 encoding=base32");
+        let err = parse_instruction_input_dsl(&raw).expect_err("unknown encoding rejected");
+        assert!(format!("{err:#}").contains("base32"), "got: {err:#}");
     }
 
     #[test]

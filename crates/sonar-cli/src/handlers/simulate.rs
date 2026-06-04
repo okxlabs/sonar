@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail};
@@ -17,59 +18,45 @@ use super::common::{
     resolve_cache_and_prepare, resolve_from_instructions, warn_unmatched_addresses,
 };
 
-/// Where instruction inputs come from. The clap `ix_format` ArgGroup guarantees
-/// at most one variant is populated; `SimulateMode::from_args` picks it up.
-enum InstructionSource {
-    Dsl(Vec<String>),
-    Json(Vec<String>),
+/// Parse every `--ix` value into `InstructionInput`s, in CLI order. Each value
+/// is auto-detected: `@<path>` reads a file (`~` expanded, `@/dev/stdin` to
+/// pipe), then the inline-or-file content is treated as JSON when it starts
+/// with `{`/`[` and as named-field DSL otherwise.
+fn load_instruction_args(args: &[String]) -> Result<Vec<transaction::InstructionInput>> {
+    let mut inputs = Vec::new();
+    for raw in args {
+        inputs.extend(load_instruction_arg(raw)?);
+    }
+    Ok(inputs)
 }
 
-impl InstructionSource {
-    /// Parse all entries into `InstructionInput`s. The `Json` variant accepts
-    /// inline JSON or `@<path>` (curl-style) for file input.
-    fn load(self) -> Result<Vec<transaction::InstructionInput>> {
-        match self {
-            Self::Dsl(args) => args
-                .iter()
-                .map(|raw| {
-                    transaction::parse_instruction_input_dsl(raw)
-                        .context("Failed to parse --ix instruction DSL")
-                })
-                .collect(),
-            Self::Json(args) => {
-                let mut inputs = Vec::new();
-                for raw in &args {
-                    let resolved = resolve_ix_json_value(raw)?;
-                    let parsed = transaction::parse_instruction_inputs_json(&resolved)
-                        .with_context(|| ix_json_parse_context(raw))?;
-                    inputs.extend(parsed);
-                }
-                Ok(inputs)
+fn load_instruction_arg(raw: &str) -> Result<Vec<transaction::InstructionInput>> {
+    // Resolve `@<path>` to file content; otherwise borrow the value inline.
+    let (content, file_path): (Cow<str>, Option<&str>) =
+        if let Some(path_str) = raw.strip_prefix('@') {
+            if path_str.is_empty() {
+                bail!("--ix `@` requires a file path (e.g. `@instructions.json`)");
             }
-        }
-    }
-}
+            let expanded = crate::utils::config::expand_tilde(path_str);
+            let content = std::fs::read_to_string(&expanded)
+                .with_context(|| format!("Failed to read instruction file `{path_str}`"))?;
+            (Cow::Owned(content), Some(path_str))
+        } else {
+            (Cow::Borrowed(raw), None)
+        };
 
-/// Resolve a `--ix-json` value. `@<path>` reads the file at that path
-/// (with `~` expansion, including `@/dev/stdin` for piping); everything
-/// else is inline JSON.
-fn resolve_ix_json_value(raw: &str) -> Result<String> {
-    if let Some(path_str) = raw.strip_prefix('@') {
-        if path_str.is_empty() {
-            bail!("--ix-json `@` requires a file path (e.g. `@instructions.json`)");
-        }
-        let expanded = crate::utils::config::expand_tilde(path_str);
-        return std::fs::read_to_string(&expanded)
-            .with_context(|| format!("Failed to read instruction file `{path_str}`"));
-    }
-    Ok(raw.to_string())
-}
+    // Names the source for error context; only built on the failure path.
+    let context = |format_name: &str| match file_path {
+        Some(path) => format!("Failed to parse instruction file `{path}` as {format_name}"),
+        None => format!("Failed to parse --ix value as {format_name}"),
+    };
 
-fn ix_json_parse_context(raw: &str) -> String {
-    if let Some(path) = raw.strip_prefix('@') {
-        format!("Failed to parse instruction file `{path}`")
+    if transaction::looks_like_json(&content) {
+        transaction::parse_instruction_inputs_json(&content).with_context(|| context("JSON"))
     } else {
-        "Failed to parse --ix-json instruction JSON".to_string()
+        transaction::parse_instruction_input_dsl(&content)
+            .map(|input| vec![input])
+            .with_context(|| context("instruction DSL"))
     }
 }
 
@@ -82,7 +69,9 @@ enum SimulateMode {
     /// At most one positional TX; an empty vec defers to stdin downstream.
     Single(Vec<String>),
     /// Synthesize a transaction from instruction inputs and a fee payer.
-    Instructions { payer: Pubkey, source: InstructionSource },
+    /// `instructions` holds the raw `--ix` values, parsed lazily by
+    /// `load_instruction_args`.
+    Instructions { payer: Pubkey, instructions: Vec<String> },
 }
 
 impl SimulateMode {
@@ -90,45 +79,33 @@ impl SimulateMode {
         tx: Vec<String>,
         payer: Option<String>,
         instructions: Vec<String>,
-        instruction_jsons: Vec<String>,
         verify_signatures: bool,
     ) -> Result<Self> {
-        // The clap `ix_format` ArgGroup ensures at most one of the two is non-empty.
-        let source = if !instructions.is_empty() {
-            Some(InstructionSource::Dsl(instructions))
-        } else if !instruction_jsons.is_empty() {
-            Some(InstructionSource::Json(instruction_jsons))
-        } else {
-            None
-        };
-
-        match source {
-            Some(source) => {
-                if !tx.is_empty() {
-                    bail!(
-                        "instruction input flags cannot be combined with TX positional arguments"
-                    );
-                }
-                if verify_signatures {
-                    bail!(
-                        "--check-sig cannot be used with instruction input because synthesized transactions are unsigned"
-                    );
-                }
-                let payer = match payer {
-                    Some(raw) => raw
-                        .parse::<Pubkey>()
-                        .with_context(|| format!("Failed to parse --payer pubkey `{raw}`"))?,
-                    None => transaction::default_payer(),
-                };
-                Ok(Self::Instructions { payer, source })
+        if instructions.is_empty() {
+            if payer.is_some() {
+                bail!("--payer can only be used with instruction input");
             }
-            None => {
-                if payer.is_some() {
-                    bail!("--payer can only be used with instruction input");
-                }
-                if tx.len() > 1 { Ok(Self::Bundle(tx)) } else { Ok(Self::Single(tx)) }
-            }
+            return if tx.len() > 1 { Ok(Self::Bundle(tx)) } else { Ok(Self::Single(tx)) };
         }
+
+        // Belt-and-suspenders: clap's `conflicts_with = "tx"` on `--ix` already
+        // rejects this combination before we get here, but `from_args` is a
+        // standalone unit and validates its own inputs.
+        if !tx.is_empty() {
+            bail!("--ix cannot be combined with TX positional arguments");
+        }
+        if verify_signatures {
+            bail!(
+                "--check-sig cannot be used with --ix because synthesized transactions are unsigned"
+            );
+        }
+        let payer = match payer {
+            Some(raw) => raw
+                .parse::<Pubkey>()
+                .with_context(|| format!("Failed to parse --payer pubkey `{raw}`"))?,
+            None => transaction::default_payer(),
+        };
+        Ok(Self::Instructions { payer, instructions })
     }
 }
 
@@ -168,7 +145,6 @@ pub(crate) fn handle(args: SimulateArgs, json: bool) -> Result<()> {
         rpc,
         payer: payer_arg,
         instructions: instruction_args,
-        instruction_jsons: instruction_json_args,
         overrides: override_args,
         fundings: funding_args,
         token_fundings: token_funding_args,
@@ -200,13 +176,7 @@ pub(crate) fn handle(args: SimulateArgs, json: bool) -> Result<()> {
     log::debug!("Created parser registry with lazy IDL loading support");
 
     let TransactionInputArgs { tx } = transaction;
-    let mode = SimulateMode::from_args(
-        tx,
-        payer_arg,
-        instruction_args,
-        instruction_json_args,
-        verify_signatures,
-    )?;
+    let mode = SimulateMode::from_args(tx, payer_arg, instruction_args, verify_signatures)?;
 
     let account_overrides = parse_cli_args(override_args, cli::parse_override)?;
     let mut sol_fundings = parse_cli_args(funding_args, cli::parse_funding)?;
@@ -281,8 +251,8 @@ pub(crate) fn handle(args: SimulateArgs, json: bool) -> Result<()> {
         SimulateMode::Single(tx) => {
             resolve_and_derive_cache_key(tx, &rpc_url, resolver_cache_location, &progress)?
         }
-        SimulateMode::Instructions { payer, source } => {
-            let inputs = source.load()?;
+        SimulateMode::Instructions { payer, instructions } => {
+            let inputs = load_instruction_args(&instructions)?;
             resolve_from_instructions(payer, inputs)?
         }
     };

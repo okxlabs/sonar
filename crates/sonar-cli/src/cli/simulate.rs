@@ -33,33 +33,37 @@ pub struct SimulateArgs {
     /// (`sha256("sonar-payer")`) auto-funded with 1 SOL for the simulation.
     #[arg(long = "payer", help_heading = HELP_HEADING_INPUT_RPC, value_name = "PUBKEY")]
     pub payer: Option<String>,
-    /// Add an instruction from named-field DSL and synthesize a transaction for simulation.
-    /// Repeat to run multiple instructions in one atomic transaction.
-    /// Format: program=<PUBKEY> data=0x... accounts=<PUBKEY>:sw,<PUBKEY>
+    /// Synthesize a transaction from raw instructions and simulate it (conflicts with TX).
+    ///
+    /// Repeat --ix for multiple instructions in one atomic transaction. Each
+    /// value's format is auto-detected:
+    ///   DSL    program=<PUBKEY> [accounts=<PUBKEY>[:sw],...] [data=0x..] [encoding=..]
+    ///   JSON   starts with `{` or `[`, e.g. {"program":"<PUBKEY>","data":"0x.."}
+    ///   @path  read from a file holding JSON or DSL (~ expands, @/dev/stdin pipes)
+    ///
+    /// Account flags: `s`=signer, `w`=writable; no suffix = read-only non-signer.
+    /// JSON accounts take pubkey + is_signer/isSigner + is_writable/isWritable.
+    /// data: hex by default (leading 0x optional); set encoding=base64|base58 otherwise.
     #[arg(
         long = "ix",
         alias = "instruction",
         help_heading = HELP_HEADING_INPUT_RPC,
-        value_name = "DSL",
-        num_args = 1..,
-        group = "ix_format",
+        value_name = "IX|JSON|@PATH",
+        // Preserve the aligned DSL/JSON/@path layout above in `--help`;
+        // without this clap collapses it into one unreadable paragraph.
+        verbatim_doc_comment,
+        // Exactly one value per occurrence; repeat the flag for multiple
+        // instructions. A greedy `num_args = 1..` would swallow a trailing
+        // positional TX into this list, turning the "cannot combine --ix with
+        // TX" guard into a confusing DSL parse error.
+        num_args = 1,
+        // Instruction input and positional TXs are mutually exclusive input
+        // modes — clap rejects the combination directly (the `tx` arg id is the
+        // flattened `TransactionInputArgs::tx` positional).
+        conflicts_with = "tx",
         value_parser = clap::builder::NonEmptyStringValueParser::new()
     )]
     pub instructions: Vec<String>,
-    /// Add an instruction from JSON. The value can be inline JSON or
-    /// `@<path>` to read from a file (e.g. `@instructions.json`,
-    /// `@/dev/stdin` to pipe).
-    /// Format: {"program":"<PUBKEY>","accounts":[{"pubkey":"<PUBKEY>","is_signer":false,"is_writable":false}],"data":"0x..."}
-    #[arg(
-        long = "ix-json",
-        alias = "instruction-json",
-        help_heading = HELP_HEADING_INPUT_RPC,
-        value_name = "JSON|@PATH",
-        num_args = 1..,
-        group = "ix_format",
-        value_parser = clap::builder::NonEmptyStringValueParser::new()
-    )]
-    pub instruction_jsons: Vec<String>,
     /// Override an on-chain program or account with a local file.
     /// Format: <PUBKEY>=<PATH> (.so/.elf for programs, .json for accounts)
     #[arg(
@@ -98,9 +102,9 @@ pub struct SimulateArgs {
     )]
     pub token_fundings: Vec<String>,
     /// Patch an account pubkey within a specific instruction.
-    /// Format: <IX>.<ACCOUNT>=<NEW_PUBKEY>[:<w|r>] (1-based indices)
-    /// Append :w (default) for writable, :r for read-only.
-    /// Example: --patch-ix-account 1.3=So11111111111111111111111111111111111111112:r
+    /// Format: <IX>.<ACCOUNT>=<NEW_PUBKEY>[:w] (1-based indices)
+    /// Append :w for writable; omit the suffix for read-only (the default).
+    /// Example: --patch-ix-account 1.3=So11111111111111111111111111111111111111112:w
     /// Ordering: see --insert-ix-account.
     #[arg(
         short = 'A',
@@ -112,11 +116,11 @@ pub struct SimulateArgs {
     )]
     pub ix_account_patches: Vec<String>,
     /// Insert an account at a specific position within an instruction's account list.
-    /// Format: <IX>.<POSITION>=<PUBKEY>[:<w|r>] (1-based indices)
+    /// Format: <IX>.<POSITION>=<PUBKEY>[:w] (1-based indices)
     /// Existing accounts at and after POSITION shift right by one.
     /// To insert at the end, pass POSITION = current_count + 1.
-    /// Append :w (default) for writable, :r for read-only.
-    /// Example: --insert-ix-account 1.3=So11111111111111111111111111111111111111112:r
+    /// Append :w for writable; omit the suffix for read-only (the default).
+    /// Example: --insert-ix-account 1.3=So11111111111111111111111111111111111111112:w
     /// Ordering: instruction-account ops apply in flag order — all --patch-ix-account
     /// first, then --insert-ix-account, then --remove-ix-account; within each flag,
     /// CLI argument order is preserved. Positions are interpreted at apply time, so
@@ -255,20 +259,22 @@ pub use sonar_sim::internals::{
     TokenAmount, TokenFunding,
 };
 
-/// Parse a pubkey string with an optional `:w` (writable) or `:r` (read-only)
-/// suffix.  Defaults to writable when no suffix is present.
-fn parse_pubkey_with_writable_flag(value_str: &str) -> Result<(Pubkey, bool), String> {
-    let value_str = value_str.trim();
-    let (pubkey_str, writable) = if let Some(pk) = value_str.strip_suffix(":w") {
-        (pk, true)
-    } else if let Some(pk) = value_str.strip_suffix(":r") {
-        (pk, false)
-    } else {
-        (value_str, true)
-    };
-    let pubkey = Pubkey::from_str(pubkey_str)
-        .map_err(|err| format!("Failed to parse pubkey `{pubkey_str}`: {err}"))?;
-    Ok((pubkey, writable))
+/// Parse the `<NEW_PUBKEY>[:<flags>]` value of an instruction-account op using
+/// the shared `<PUBKEY>[:<s|w>]` grammar (absent suffix = read-only non-signer).
+///
+/// Signer (`s`) is rejected: `--patch-ix-account` / `--insert-ix-account` only
+/// rewrite an account's writability in an existing instruction, whereas
+/// declaring a signer requires building the instruction from scratch with
+/// `--ix`. Returns the pubkey and whether it is writable.
+fn parse_ix_account_op_value(value_str: &str, flag: &str) -> Result<(Pubkey, bool), String> {
+    let meta = crate::utils::parse_account_meta_flags(value_str)?;
+    if meta.is_signer {
+        return Err(format!(
+            "{flag} cannot set the signer flag `s`; signer accounts can only be \
+             declared with --ix. Use `:w` for writable, or omit the suffix for read-only."
+        ));
+    }
+    Ok((meta.pubkey, meta.is_writable))
 }
 
 pub fn parse_override(raw: &str) -> Result<AccountOverride, String> {
@@ -437,16 +443,16 @@ fn parse_ix_pos_prefix(raw: &str) -> Result<(usize, usize, Option<&str>), String
 pub fn parse_ix_account_patch(raw: &str) -> Result<InstructionAccountOp, String> {
     let (instruction_index, account_position, rest) = parse_ix_pos_prefix(raw)?;
     let value_str = rest
-        .ok_or_else(|| "Patch must be in <IX>.<ACCOUNT>=<NEW_PUBKEY>[:<w|r>] format".to_string())?;
-    let (new_pubkey, writable) = parse_pubkey_with_writable_flag(value_str)?;
+        .ok_or_else(|| "Patch must be in <IX>.<ACCOUNT>=<NEW_PUBKEY>[:w] format".to_string())?;
+    let (new_pubkey, writable) = parse_ix_account_op_value(value_str, "--patch-ix-account")?;
     Ok(InstructionAccountOp::Patch { instruction_index, account_position, new_pubkey, writable })
 }
 
 pub fn parse_ix_account_insert(raw: &str) -> Result<InstructionAccountOp, String> {
     let (instruction_index, account_position, rest) = parse_ix_pos_prefix(raw)?;
     let value_str = rest
-        .ok_or_else(|| "Insert must be in <IX>.<POSITION>=<PUBKEY>[:<w|r>] format".to_string())?;
-    let (new_pubkey, writable) = parse_pubkey_with_writable_flag(value_str)?;
+        .ok_or_else(|| "Insert must be in <IX>.<POSITION>=<PUBKEY>[:w] format".to_string())?;
+    let (new_pubkey, writable) = parse_ix_account_op_value(value_str, "--insert-ix-account")?;
     Ok(InstructionAccountOp::Insert { instruction_index, account_position, new_pubkey, writable })
 }
 
@@ -1008,31 +1014,51 @@ mod tests {
         assert!(args.transaction.tx.is_empty());
         assert_eq!(args.payer.as_deref(), Some(payer.to_string().as_str()));
         assert_eq!(args.instructions, vec![first, second]);
-        assert!(args.instruction_jsons.is_empty());
     }
 
     #[test]
-    fn simulate_rejects_mixed_instruction_input_formats_via_arg_group() {
+    fn simulate_ix_conflicts_with_positional_tx() {
+        // `--ix` takes exactly one value per occurrence (so a trailing token is
+        // not swallowed as a second instruction) and is declared mutually
+        // exclusive with the positional TX, so clap rejects the combination
+        // directly regardless of flag/positional ordering.
+        let program = Pubkey::new_unique();
+        let ix = format!("program={program} data=0x01");
+
+        for order in [
+            vec!["sonar", "simulate", "--ix", ix.as_str(), "SOME_TX_VALUE"],
+            vec!["sonar", "simulate", "SOME_TX_VALUE", "--ix", ix.as_str()],
+        ] {
+            let err = Cli::try_parse_from(order).expect_err("--ix + TX must conflict");
+            assert_eq!(err.kind(), clap::error::ErrorKind::ArgumentConflict);
+        }
+    }
+
+    #[test]
+    fn simulate_ix_collects_mixed_dsl_and_json_into_one_list() {
         let payer = Pubkey::new_unique();
         let program = Pubkey::new_unique();
-        let instruction = format!("program={program} data=0x01");
-        let instruction_json = format!(r#"{{"program":"{program}","data":"0x02"}}"#);
+        let dsl = format!("program={program} data=0x01");
+        let json = format!(r#"{{"program":"{program}","data":"0x02"}}"#);
 
-        let err = Cli::try_parse_from([
+        // Repeated --ix flags accept a mix of DSL and JSON values; they feed
+        // the same list in CLI order with no conflict between formats.
+        let cli = Cli::try_parse_from([
             "sonar",
             "simulate",
             "--payer",
             &payer.to_string(),
             "--ix",
-            &instruction,
-            "--ix-json",
-            &instruction_json,
+            &dsl,
+            "--ix",
+            &json,
         ])
-        .expect_err("ArgGroup should reject mixed --ix and --ix-json");
-        assert!(
-            err.to_string().contains("--ix") && err.to_string().contains("--ix-json"),
-            "expected clap conflict error, got: {err}"
-        );
+        .expect("mixed --ix formats should coexist");
+
+        let Some(Commands::Simulate(args)) = cli.command else {
+            panic!("expected simulate subcommand");
+        };
+        assert_eq!(args.instructions, vec![dsl, json]);
     }
 
     #[test]
@@ -1150,7 +1176,7 @@ mod tests {
     #[test]
     fn parse_ix_account_patch_rejects_invalid_pubkey() {
         let err = parse_ix_account_patch("1.2=notakey").unwrap_err();
-        assert!(err.contains("Failed to parse pubkey"));
+        assert!(err.contains("Failed to parse account pubkey"));
     }
 
     #[test]
@@ -1164,9 +1190,10 @@ mod tests {
     }
 
     #[test]
-    fn parse_ix_account_patch_readonly_suffix() {
+    fn parse_ix_account_patch_default_readonly() {
+        // No suffix means read-only, matching the shared --ix account grammar.
         let key = Pubkey::new_unique();
-        let parsed = parse_ix_account_patch(&format!("1.1={key}:r")).expect("parses");
+        let parsed = parse_ix_account_patch(&format!("1.1={key}")).expect("parses");
         assert!(matches!(
             parsed,
             InstructionAccountOp::Patch { writable: false, new_pubkey, .. } if new_pubkey == key
@@ -1174,10 +1201,19 @@ mod tests {
     }
 
     #[test]
-    fn parse_ix_account_patch_default_writable() {
+    fn parse_ix_account_patch_rejects_signer_flag() {
         let key = Pubkey::new_unique();
-        let parsed = parse_ix_account_patch(&format!("1.1={key}")).expect("parses");
-        assert!(matches!(parsed, InstructionAccountOp::Patch { writable: true, .. }));
+        let err = parse_ix_account_patch(&format!("1.1={key}:s")).unwrap_err();
+        assert!(err.contains("signer"), "expected signer rejection, got: {err}");
+    }
+
+    #[test]
+    fn parse_ix_account_patch_rejects_legacy_readonly_suffix() {
+        // `:r` was the old read-only marker; the unified grammar drops it
+        // (read-only is now the no-suffix default).
+        let key = Pubkey::new_unique();
+        let err = parse_ix_account_patch(&format!("1.1={key}:r")).unwrap_err();
+        assert!(err.contains("Unknown account flag"), "got: {err}");
     }
 
     #[test]
@@ -1302,22 +1338,30 @@ mod tests {
         assert_eq!(instruction_index, 1);
         assert_eq!(account_position, 2);
         assert_eq!(new_pubkey, key);
-        assert!(writable);
+        // No suffix => read-only, matching the shared --ix account grammar.
+        assert!(!writable);
     }
 
     #[test]
-    fn parse_ix_account_insert_readonly_suffix() {
+    fn parse_ix_account_insert_writable_suffix() {
         let key = Pubkey::new_unique();
-        let parsed = parse_ix_account_insert(&format!("1.1={key}:r")).unwrap();
+        let parsed = parse_ix_account_insert(&format!("1.1={key}:w")).unwrap();
         assert!(matches!(
             parsed,
             InstructionAccountOp::Insert {
                 instruction_index: 0,
                 account_position: 0,
-                writable: false,
+                writable: true,
                 ..
             }
         ));
+    }
+
+    #[test]
+    fn parse_ix_account_insert_rejects_signer_flag() {
+        let key = Pubkey::new_unique();
+        let err = parse_ix_account_insert(&format!("1.1={key}:s")).unwrap_err();
+        assert!(err.contains("signer"), "expected signer rejection, got: {err}");
     }
 
     #[test]
@@ -1339,7 +1383,7 @@ mod tests {
     #[test]
     fn parse_ix_account_insert_rejects_invalid_pubkey() {
         let err = parse_ix_account_insert("1.1=notakey").unwrap_err();
-        assert!(err.contains("Failed to parse pubkey"));
+        assert!(err.contains("Failed to parse account pubkey"));
     }
 
     #[test]
@@ -1371,7 +1415,7 @@ mod tests {
             "--insert-ix-account",
             &format!("1.1={key1}"),
             "--insert-ix-account",
-            &format!("2.3={key2}:r"),
+            &format!("2.3={key2}:w"),
         ])
         .expect("should parse --insert-ix-account multiple times");
 

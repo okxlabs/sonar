@@ -81,7 +81,6 @@ fn run() -> Result<()> {
         Commands::Simulate(args) => {
             if args.transaction.tx.is_empty()
                 && args.instructions.is_empty()
-                && args.instruction_jsons.is_empty()
                 && std::io::stdin().is_terminal()
             {
                 print_subcommand_help("simulate")?;
