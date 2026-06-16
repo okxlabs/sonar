@@ -211,9 +211,9 @@ fn indexed_idl_parse_instruction_multiple_primitive_args() {
     assert_eq!(parsed.fields[3].value, IdlValue::String("hello".into()));
 }
 
-#[test]
-fn indexed_idl_parse_instruction_marks_fields_unparsed_when_a_required_arg_is_missing() {
-    let indexed: IndexedIdl = serde_json::from_str(
+/// IDL with two required `u32` args, used by the trailing-arg boundary tests below.
+fn pair_idl() -> IndexedIdl {
+    serde_json::from_str(
         r#"{
             "address": "11111111111111111111111111111111",
             "metadata": { "name": "t", "version": "0.1.0", "spec": "0.1.0" },
@@ -229,17 +229,46 @@ fn indexed_idl_parse_instruction_marks_fields_unparsed_when_a_required_arg_is_mi
             "types": []
         }"#,
     )
-    .unwrap();
+    .unwrap()
+}
 
+#[test]
+fn indexed_idl_parse_instruction_decodes_absent_trailing_arg_as_null() {
+    let indexed = pair_idl();
+
+    // Data ends exactly on an arg boundary: `left` consumes all of it, leaving
+    // `right` absent. Programs commonly add optional trailing args that callers
+    // omit, so an absent trailing arg decodes as null rather than failing the
+    // whole instruction.
     let mut data = vec![4, 5, 6, 7, 8, 9, 10, 11];
     data.extend_from_slice(&123u32.to_le_bytes());
 
     let parsed = indexed.parse_instruction(&data).unwrap().unwrap();
     assert_eq!(parsed.name, "pair");
     assert_eq!(parsed.account_names, Vec::<String>::new());
+    let fields = parsed.fields.parsed_fields().expect("trailing absent arg should still parse");
+    assert_eq!(fields[0].name, "left");
+    assert_eq!(fields[0].value, IdlValue::U32(123));
+    assert_eq!(fields[1].name, "right");
+    assert_eq!(fields[1].value, IdlValue::Null);
+}
+
+#[test]
+fn indexed_idl_parse_instruction_marks_fields_unparsed_when_a_trailing_arg_is_truncated() {
+    let indexed = pair_idl();
+
+    // `right` is present but truncated mid-arg (2 of 4 bytes). This is not a
+    // clean arg boundary, so it is a genuine decode failure: the whole
+    // instruction falls back to raw hex.
+    let mut data = vec![4, 5, 6, 7, 8, 9, 10, 11];
+    data.extend_from_slice(&123u32.to_le_bytes());
+    data.extend_from_slice(&[0x09, 0x09]);
+
+    let parsed = indexed.parse_instruction(&data).unwrap().unwrap();
+    assert_eq!(parsed.name, "pair");
     assert!(matches!(
         parsed.fields,
-        IdlInstructionFields::Unparsed(raw_args_hex) if raw_args_hex == "7b000000"
+        IdlInstructionFields::Unparsed(raw_args_hex) if raw_args_hex == "7b0000000909"
     ));
 }
 
