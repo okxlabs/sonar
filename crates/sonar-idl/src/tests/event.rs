@@ -101,7 +101,7 @@ fn indexed_idl_parse_cpi_event_data_marks_fields_unparsed_on_decode_failure() {
     assert_eq!(parsed.account_names, vec!["event_authority"]);
     assert!(matches!(
         parsed.fields,
-        IdlInstructionFields::Unparsed(ref hex) if hex == &hex::encode(&42u64.to_le_bytes())
+        IdlInstructionFields::Unparsed(ref hex) if hex == &hex::encode(42u64.to_le_bytes())
     ));
 }
 
