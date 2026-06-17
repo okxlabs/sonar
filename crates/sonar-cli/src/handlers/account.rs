@@ -16,7 +16,8 @@ use solana_sdk_ids::{address_lookup_table, bpf_loader_upgradeable};
 use crate::cli::AccountArgs;
 use crate::parsers::instruction::anchor_idl::IndexedIdl;
 use crate::{
-    core::idl_fetcher, parsers::metaplex_metadata_decoder, parsers::token_account_decoder,
+    core::idl_dir, core::idl_fetcher, parsers::metaplex_metadata_decoder,
+    parsers::token_account_decoder,
 };
 
 pub(crate) fn handle(args: AccountArgs, json: bool) -> Result<()> {
@@ -437,19 +438,17 @@ fn detect_token_type(account: &solana_account::Account, token_json: &Value) -> S
 }
 
 /// Try to load IDL from local directory (if specified).
-/// IDL files are expected to be named `<PROGRAM_ID>.json`.
+///
+/// IDL files named `<PROGRAM_ID>.json` are matched directly; files with other
+/// names are matched by the Anchor `address` field declared inside them.
 fn try_load_idl_from_dir(idl_dir: &Option<PathBuf>, owner: &Pubkey) -> Option<String> {
-    let path = idl_dir.as_ref()?;
-    let idl_file = path.join(format!("{}.json", owner));
+    let dir = idl_dir.as_ref()?;
+    let idl_file = idl_dir::resolve_idl_path(dir, owner)?;
 
     match fs::read_to_string(&idl_file) {
         Ok(content) => {
             log::debug!("Loaded IDL from {}", idl_file.display());
             Some(content)
-        }
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            log::debug!("IDL file not found: {}", idl_file.display());
-            None
         }
         Err(e) => {
             log::warn!("Failed to read IDL file {}: {}", idl_file.display(), e);

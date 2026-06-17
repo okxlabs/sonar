@@ -11,7 +11,9 @@ sonar acc <PUBKEY> --rpc-url <RPC_URL>
 # Output raw account data as base64 JSON (skip all decoding)
 sonar account <PUBKEY> --rpc-url <RPC_URL> --raw
 
-# Load local IDLs first (<OWNER_PROGRAM_ID>.json), then fallback to on-chain fetch
+# Load local IDLs first, then fallback to on-chain fetch.
+# Files are matched by name (<PROGRAM_ID>.json) or by the `address` field
+# declared inside them, so arbitrarily-named IDL files work too.
 sonar account <PUBKEY> --rpc-url <RPC_URL> --idl-dir /path/to/idls
 ```
 

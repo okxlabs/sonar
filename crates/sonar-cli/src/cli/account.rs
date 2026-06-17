@@ -16,7 +16,10 @@ pub struct AccountArgs {
     #[command(flatten)]
     pub rpc: RpcArgs,
 
-    /// Local IDL directory. Falls back to fetching from chain if not found.
+    /// Local IDL directory. IDL files are matched by filename
+    /// (`<PROGRAM_ID>.json`) or by the `address` field declared inside them, so
+    /// arbitrarily-named files work too. Falls back to fetching from chain if
+    /// not found.
     #[arg(long = "idl-dir", env = "SONAR_IDL_DIR")]
     pub idl_dir: Option<PathBuf>,
 
