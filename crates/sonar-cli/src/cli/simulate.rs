@@ -211,7 +211,8 @@ pub struct SimulateArgs {
     /// Verify transaction signatures during simulation
     #[arg(long = "check-sig", help_heading = HELP_HEADING_SIMULATION_CONTROLS, env = "SONAR_VERIFY_SIGNATURES")]
     pub verify_signatures: bool,
-    /// Directory containing Anchor IDL JSON files
+    /// Directory containing Anchor IDL JSON files (matched by `<PROGRAM_ID>.json`
+    /// filename or the `address` field declared inside each file)
     #[arg(
         long = "idl-dir",
         help_heading = HELP_HEADING_SIMULATION_CONTROLS,

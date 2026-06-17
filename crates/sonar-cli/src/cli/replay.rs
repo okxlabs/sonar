@@ -12,7 +12,8 @@ pub struct ReplayArgs {
     pub signature: String,
     #[command(flatten)]
     pub rpc: RpcArgs,
-    /// Directory containing Anchor IDL JSON files
+    /// Directory containing Anchor IDL JSON files (matched by `<PROGRAM_ID>.json`
+    /// filename or the `address` field declared inside each file)
     #[arg(long = "idl-dir", value_name = "DIR", env = "SONAR_IDL_DIR")]
     pub idl_dir: Option<PathBuf>,
     /// Skip auto-fetching missing IDLs from chain

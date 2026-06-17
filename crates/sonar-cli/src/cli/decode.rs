@@ -16,7 +16,8 @@ pub struct DecodeArgs {
     /// Always print raw instruction data, even when parser succeeds
     #[arg(long = "raw-ix-data", env = "SONAR_RAW_IX_DATA")]
     pub ix_data: bool,
-    /// Directory containing Anchor IDL JSON files
+    /// Directory containing Anchor IDL JSON files (matched by `<PROGRAM_ID>.json`
+    /// filename or the `address` field declared inside each file)
     #[arg(long = "idl-dir", value_name = "DIR", env = "SONAR_IDL_DIR")]
     pub idl_dir: Option<PathBuf>,
     /// Skip auto-fetching missing IDLs from chain

@@ -1,10 +1,13 @@
+use std::cell::OnceCell;
 use std::collections::HashMap;
+use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use solana_account::ReadableAccount;
 use solana_pubkey::Pubkey;
 use solana_sdk_ids::bpf_loader_upgradeable;
 
+use crate::core::idl_dir;
 use crate::core::transaction::InstructionSummary;
 use sonar_sim::internals::ResolvedAccounts;
 
@@ -19,6 +22,10 @@ pub struct ParserRegistry {
     parsers: HashMap<Pubkey, Box<dyn InstructionParser>>,
     /// Optional IDL directory path for lazy loading IDL parsers
     idl_directory: Option<std::path::PathBuf>,
+    /// Lazily-built index of arbitrarily-named IDL files in `idl_directory`,
+    /// keyed by the program address declared in each file. Canonical
+    /// `<PROGRAM_ID>.json` files are resolved directly and not stored here.
+    idl_address_index: OnceCell<HashMap<Pubkey, PathBuf>>,
 }
 
 impl ParserRegistry {
@@ -27,6 +34,7 @@ impl ParserRegistry {
         let mut registry = Self {
             parsers: HashMap::new(),
             idl_directory: idl_directory.or_else(default_idl_cache_dir),
+            idl_address_index: OnceCell::new(),
         };
 
         registry.register(SystemProgramParser::new());
@@ -49,21 +57,33 @@ impl ParserRegistry {
         self.idl_directory.as_deref()
     }
 
+    /// Resolve the local IDL file for `program_id`, if one exists.
+    ///
+    /// Considers the canonical `<PROGRAM_ID>.json` name and arbitrarily-named
+    /// files matched by their Anchor `address` field (indexed once and cached
+    /// for the lifetime of the registry), returning whichever was modified most
+    /// recently.
+    fn resolve_local_idl(&self, program_id: &Pubkey) -> Option<PathBuf> {
+        let idl_dir = self.idl_directory()?;
+        let index = self.idl_address_index.get_or_init(|| idl_dir::build_address_index(idl_dir));
+        idl_dir::resolve_with_index(idl_dir, program_id, index)
+    }
+
     /// Returns program IDs that can be fetched from chain for IDL auto-download.
     pub fn find_fetchable_programs(
         &self,
         program_ids: &[Pubkey],
         resolved_accounts: &ResolvedAccounts,
     ) -> Vec<Pubkey> {
-        let Some(idl_dir) = self.idl_directory() else {
+        if self.idl_directory().is_none() {
             return Vec::new();
-        };
+        }
 
         program_ids
             .iter()
             .filter(|program_id| {
                 !self.parsers.contains_key(program_id)
-                    && !idl_dir.join(format!("{}.json", program_id)).exists()
+                    && self.resolve_local_idl(program_id).is_none()
                     && resolved_accounts
                         .accounts
                         .get(program_id)
@@ -106,15 +126,10 @@ impl ParserRegistry {
             return Ok(false);
         }
 
-        let idl_dir = match &self.idl_directory {
-            Some(dir) => dir,
+        let idl_file_path = match self.resolve_local_idl(program_id) {
+            Some(path) => path,
             None => return Ok(false),
         };
-
-        let idl_file_path = idl_dir.join(format!("{}.json", program_id));
-        if !idl_file_path.exists() {
-            return Ok(false);
-        }
 
         log::info!("Lazy-loading IDL for program: {}", program_id);
 
@@ -446,6 +461,71 @@ mod tests {
         assert_eq!(fields[0].value, IdlValue::U64(0x003cca0866a12500));
         assert_eq!(fields[1].name, "slippage_bps");
         assert_eq!(fields[1].value, IdlValue::Null);
+
+        std::fs::remove_file(idl_path).ok();
+        std::fs::remove_dir_all(test_dir).ok();
+    }
+
+    #[test]
+    fn parser_registry_loads_idl_from_arbitrarily_named_file() {
+        let test_dir = std::env::temp_dir().join(format!(
+            "sonar-idl-named-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock should be valid")
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&test_dir).expect("create temp idl dir");
+
+        let program_id = Pubkey::new_unique();
+        // File is NOT named `<program_id>.json`; it must be matched by the
+        // Anchor `address` field declared inside instead.
+        let idl_path = test_dir.join("my_program.json");
+        std::fs::write(
+            &idl_path,
+            format!(
+                r#"{{
+                    "address": "{program_id}",
+                    "metadata": {{ "name": "demo", "version": "0.1.0", "spec": "0.1.0" }},
+                    "instructions": [{{
+                        "name": "ping",
+                        "discriminator": [173, 0, 94, 236, 73, 132, 213, 36],
+                        "accounts": [{{ "name": "payer", "writable": true, "signer": true }}],
+                        "args": []
+                    }}],
+                    "types": []
+                }}"#
+            ),
+        )
+        .expect("write temp idl");
+
+        let instruction = crate::core::transaction::InstructionSummary {
+            index: 0,
+            program: crate::core::transaction::AccountReferenceSummary {
+                index: 0,
+                pubkey: Some(program_id.to_string()),
+                signer: false,
+                writable: false,
+                source: crate::core::transaction::AccountSourceSummary::Static,
+            },
+            accounts: vec![crate::core::transaction::AccountReferenceSummary {
+                index: 1,
+                pubkey: Some(Pubkey::new_unique().to_string()),
+                signer: true,
+                writable: true,
+                source: crate::core::transaction::AccountSourceSummary::Static,
+            }],
+            data: vec![173, 0, 94, 236, 73, 132, 213, 36].into_boxed_slice(),
+        };
+
+        let mut registry = ParserRegistry::new(Some(test_dir.clone()));
+        let parsed = registry
+            .parse_instruction(&instruction, &program_id)
+            .expect("expected parser registry to match IDL by address field");
+
+        assert_eq!(parsed.name, "ping");
+        assert_eq!(parsed.account_names, vec!["payer"]);
 
         std::fs::remove_file(idl_path).ok();
         std::fs::remove_dir_all(test_dir).ok();

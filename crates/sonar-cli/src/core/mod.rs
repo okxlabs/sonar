@@ -2,6 +2,7 @@
 pub mod account_file;
 pub mod account_loader;
 pub mod cache;
+pub mod idl_dir;
 pub mod idl_fetcher;
 pub mod rpc_client;
 pub mod transaction;
