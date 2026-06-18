@@ -23,6 +23,7 @@ const TRANSFER_FEE_EXTENSION_DISCRIMINATOR: u8 = 26;
 const REALLOCATE_DISCRIMINATOR: u8 = 29;
 const CREATE_NATIVE_MINT_DISCRIMINATOR: u8 = 31;
 const INITIALIZE_PERMANENT_DELEGATE_DISCRIMINATOR: u8 = 35;
+const SCALED_UI_AMOUNT_EXTENSION_DISCRIMINATOR: u8 = 43;
 
 /// Token-2022-only "extension prefix" instructions: discriminator selects the
 /// extension family; sub-tag selects the specific instruction inside that
@@ -44,7 +45,6 @@ static EXTENSION_PREFIX_INSTRUCTIONS: &[ExtensionPrefixDef] = &[
     ExtensionPrefixDef { discriminator: 40, name: "GroupPointerExtension" },
     ExtensionPrefixDef { discriminator: 41, name: "GroupMemberPointerExtension" },
     ExtensionPrefixDef { discriminator: 42, name: "ConfidentialMintBurnExtension" },
-    ExtensionPrefixDef { discriminator: 43, name: "ScaledUiAmountExtension" },
     ExtensionPrefixDef { discriminator: 44, name: "PausableExtension" },
 ];
 
@@ -89,6 +89,9 @@ impl InstructionParser for Token2022ProgramParser {
             CREATE_NATIVE_MINT_DISCRIMINATOR => parse_create_native_mint_instruction(instruction),
             INITIALIZE_PERMANENT_DELEGATE_DISCRIMINATOR => {
                 parse_initialize_permanent_delegate_instruction(data, instruction)
+            }
+            SCALED_UI_AMOUNT_EXTENSION_DISCRIMINATOR => {
+                parse_scaled_ui_amount_extension_instruction(data, instruction)
             }
             INITIALIZE_NON_TRANSFERABLE_MINT_DISCRIMINATOR => {
                 parse_initialize_non_transferable_mint_instruction(instruction)
@@ -374,6 +377,87 @@ fn parse_initialize_permanent_delegate_instruction(
             "InitializePermanentDelegate",
             vec![ParsedField { name: "delegate".into(), value: IdlValue::String(delegate) }],
             owned_account_names(&["mint"]),
+        ))
+    })
+}
+
+/// `ScaledUiAmountMint` extension (discriminator 43). The first payload byte is
+/// a sub-tag selecting `Initialize` (0) or `UpdateMultiplier` (1).
+fn parse_scaled_ui_amount_extension_instruction(
+    data: &[u8],
+    instruction: &InstructionSummary,
+) -> Result<Option<ParsedInstruction>> {
+    if data.is_empty() {
+        return Ok(None);
+    }
+
+    let (sub_tag, payload) = data.split_first().unwrap();
+    match sub_tag {
+        0 => parse_scaled_ui_amount_initialize_instruction(payload, instruction),
+        1 => parse_scaled_ui_amount_update_multiplier_instruction(payload, instruction),
+        unknown => Ok(Some(parsed_instruction(
+            &format!("ScaledUiAmountExtension({unknown})"),
+            vec![ParsedField {
+                name: "raw_extension_data".into(),
+                value: IdlValue::String(hex::encode(payload)),
+            }],
+            generate_generic_account_names(instruction.accounts.len()),
+        ))),
+    }
+}
+
+fn parse_scaled_ui_amount_initialize_instruction(
+    data: &[u8],
+    instruction: &InstructionSummary,
+) -> Result<Option<ParsedInstruction>> {
+    if instruction.accounts.len() != 1 {
+        return Ok(None);
+    }
+    binary_reader::try_parse(data, |reader| {
+        let authority = reader.read_optional_non_zero_pubkey()?;
+        let multiplier = reader.read_f64()?;
+        Ok(parsed_instruction(
+            "InitializeScaledUiAmountConfig",
+            vec![
+                ParsedField {
+                    name: "authority".into(),
+                    value: IdlValue::String(option_pubkey_string(authority)),
+                },
+                ParsedField {
+                    name: "multiplier".into(),
+                    value: IdlValue::String(multiplier.to_string()),
+                },
+            ],
+            owned_account_names(&["mint"]),
+        ))
+    })
+}
+
+fn parse_scaled_ui_amount_update_multiplier_instruction(
+    data: &[u8],
+    instruction: &InstructionSummary,
+) -> Result<Option<ParsedInstruction>> {
+    if instruction.accounts.is_empty() {
+        return Ok(None);
+    }
+    binary_reader::try_parse(data, |reader| {
+        let multiplier = reader.read_f64()?;
+        let effective_timestamp = reader.read_i64()?;
+        let base_account_names: &[&str] =
+            if instruction.accounts.len() >= 2 { &["mint", "authority"] } else { &["mint"] };
+        Ok(parsed_instruction(
+            "UpdateMultiplier",
+            vec![
+                ParsedField {
+                    name: "multiplier".into(),
+                    value: IdlValue::String(multiplier.to_string()),
+                },
+                ParsedField {
+                    name: "effective_timestamp".into(),
+                    value: IdlValue::I64(effective_timestamp),
+                },
+            ],
+            account_names_with_signers(base_account_names, instruction.accounts.len()),
         ))
     })
 }
@@ -913,5 +997,56 @@ mod tests {
                 .iter()
                 .any(|field| field.name == "raw_extension_data" && field.value == "abcd")
         );
+    }
+
+    #[test]
+    fn test_scaled_ui_amount_update_multiplier_parsing() {
+        let parser = Token2022ProgramParser::new();
+        let accounts = vec![
+            create_test_account(0, "MintPubkey11111111111111111111111111111111111", false, true),
+            create_test_account(
+                1,
+                "AuthorityPubkey11111111111111111111111111111",
+                true,
+                false,
+            ),
+        ];
+        // discriminator 43, sub-tag 1 (UpdateMultiplier), f64 multiplier, i64 timestamp.
+        let mut data = vec![43, 1];
+        data.extend_from_slice(&2.5_f64.to_le_bytes());
+        data.extend_from_slice(&1_000_i64.to_le_bytes());
+        let instruction = create_test_instruction(data, accounts);
+
+        let parsed = parser.parse_instruction(&instruction).unwrap().unwrap();
+        assert_eq!(parsed.name, "UpdateMultiplier");
+        assert_eq!(parsed.account_names, vec!["mint", "authority"]);
+        assert!(parsed.fields.iter().any(|f| f.name == "multiplier" && f.value == "2.5"));
+        assert!(
+            parsed.fields.iter().any(|f| f.name == "effective_timestamp" && f.value == "1000")
+        );
+        // Should NOT fall back to the raw dump.
+        assert!(!parsed.fields.iter().any(|f| f.name == "raw_extension_data"));
+    }
+
+    #[test]
+    fn test_scaled_ui_amount_initialize_parsing() {
+        let parser = Token2022ProgramParser::new();
+        let accounts = vec![create_test_account(
+            0,
+            "MintPubkey11111111111111111111111111111111111",
+            false,
+            true,
+        )];
+        // discriminator 43, sub-tag 0 (Initialize), all-zero authority (None), f64 multiplier.
+        let mut data = vec![43, 0];
+        data.extend_from_slice(&[0u8; 32]);
+        data.extend_from_slice(&1.0_f64.to_le_bytes());
+        let instruction = create_test_instruction(data, accounts);
+
+        let parsed = parser.parse_instruction(&instruction).unwrap().unwrap();
+        assert_eq!(parsed.name, "InitializeScaledUiAmountConfig");
+        assert_eq!(parsed.account_names, vec!["mint"]);
+        assert!(parsed.fields.iter().any(|f| f.name == "authority" && f.value == "none"));
+        assert!(parsed.fields.iter().any(|f| f.name == "multiplier" && f.value == "1"));
     }
 }

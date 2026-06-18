@@ -86,6 +86,20 @@ impl<'a> BinaryReader<'a> {
         Ok(u64::from_le_bytes(buf))
     }
 
+    /// Read a little-endian `i64`.
+    pub fn read_i64(&mut self) -> Result<i64> {
+        let mut buf = [0u8; 8];
+        buf.copy_from_slice(self.read_exact(8)?);
+        Ok(i64::from_le_bytes(buf))
+    }
+
+    /// Read a little-endian `f64`.
+    pub fn read_f64(&mut self) -> Result<f64> {
+        let mut buf = [0u8; 8];
+        buf.copy_from_slice(self.read_exact(8)?);
+        Ok(f64::from_le_bytes(buf))
+    }
+
     /// Read 32 bytes as a `Pubkey`.
     pub fn read_pubkey(&mut self) -> Result<Pubkey> {
         let mut bytes = [0u8; 32];
@@ -111,6 +125,19 @@ impl<'a> BinaryReader<'a> {
             return Ok(None);
         }
         Ok(Some(self.read_pubkey()?))
+    }
+
+    /// Read an `OptionalNonZeroPubkey` (32-byte Pod pubkey, all-zeros = `None`).
+    ///
+    /// Unlike [`read_option_pubkey`], there is no leading tag byte: the value is
+    /// always 32 bytes and an all-zero pubkey encodes the absent case.
+    pub fn read_optional_non_zero_pubkey(&mut self) -> Result<Option<Pubkey>> {
+        let pubkey = self.read_pubkey()?;
+        if pubkey == Pubkey::default() {
+            Ok(None)
+        } else {
+            Ok(Some(pubkey))
+        }
     }
 }
 
