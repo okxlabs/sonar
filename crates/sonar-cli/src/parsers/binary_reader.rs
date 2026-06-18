@@ -86,6 +86,13 @@ impl<'a> BinaryReader<'a> {
         Ok(u64::from_le_bytes(buf))
     }
 
+    /// Read a little-endian `i16`.
+    pub fn read_i16(&mut self) -> Result<i16> {
+        let mut buf = [0u8; 2];
+        buf.copy_from_slice(self.read_exact(2)?);
+        Ok(i16::from_le_bytes(buf))
+    }
+
     /// Read a little-endian `i64`.
     pub fn read_i64(&mut self) -> Result<i64> {
         let mut buf = [0u8; 8];
@@ -137,6 +144,19 @@ impl<'a> BinaryReader<'a> {
             Ok(None)
         } else {
             Ok(Some(pubkey))
+        }
+    }
+
+    /// Read 32 raw bytes where an all-zero value encodes the absent case
+    /// (e.g. an `OptionalNonZero*` Pod field). The bytes are returned as-is so
+    /// the caller can apply the appropriate encoding.
+    pub fn read_optional_non_zero_bytes32(&mut self) -> Result<Option<[u8; 32]>> {
+        let mut bytes = [0u8; 32];
+        bytes.copy_from_slice(self.read_exact(32)?);
+        if bytes == [0u8; 32] {
+            Ok(None)
+        } else {
+            Ok(Some(bytes))
         }
     }
 }
