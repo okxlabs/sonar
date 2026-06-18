@@ -917,7 +917,7 @@ fn parse_token_metadata_interface_instruction(
     let decoded = TokenMetadataInstruction::unpack(&instruction.data).ok()?;
     let (name, fields, base_account_names): (&str, Vec<ParsedField>, &[&str]) = match decoded {
         TokenMetadataInstruction::Initialize(data) => (
-            "TokenMetadataInitialize",
+            "InitializeTokenMetadata",
             vec![
                 ParsedField { name: "name".into(), value: IdlValue::String(data.name) },
                 ParsedField { name: "symbol".into(), value: IdlValue::String(data.symbol) },
@@ -926,7 +926,7 @@ fn parse_token_metadata_interface_instruction(
             &["metadata", "update_authority", "mint", "mint_authority"],
         ),
         TokenMetadataInstruction::UpdateField(data) => (
-            "TokenMetadataUpdateField",
+            "UpdateTokenMetadataField",
             vec![
                 ParsedField {
                     name: "field".into(),
@@ -937,7 +937,7 @@ fn parse_token_metadata_interface_instruction(
             &["metadata", "update_authority"],
         ),
         TokenMetadataInstruction::RemoveKey(data) => (
-            "TokenMetadataRemoveKey",
+            "RemoveTokenMetadataKey",
             vec![
                 ParsedField { name: "idempotent".into(), value: IdlValue::Bool(data.idempotent) },
                 ParsedField { name: "key".into(), value: IdlValue::String(data.key) },
@@ -945,7 +945,7 @@ fn parse_token_metadata_interface_instruction(
             &["metadata", "update_authority"],
         ),
         TokenMetadataInstruction::UpdateAuthority(data) => (
-            "TokenMetadataUpdateAuthority",
+            "UpdateTokenMetadataAuthority",
             vec![ParsedField {
                 name: "new_authority".into(),
                 value: IdlValue::String(option_pubkey_string(Option::<Pubkey>::from(
@@ -955,7 +955,7 @@ fn parse_token_metadata_interface_instruction(
             &["metadata", "update_authority"],
         ),
         TokenMetadataInstruction::Emit(data) => (
-            "TokenMetadataEmit",
+            "EmitTokenMetadata",
             vec![
                 ParsedField {
                     name: "start".into(),
@@ -1714,7 +1714,7 @@ mod tests {
         .pack();
         let instruction = create_test_instruction(data, accounts);
         let parsed = parser.parse_instruction(&instruction).unwrap().unwrap();
-        assert_eq!(parsed.name, "TokenMetadataInitialize");
+        assert_eq!(parsed.name, "InitializeTokenMetadata");
         assert_eq!(parsed.account_names, vec!["metadata", "update_authority", "mint", "mint_authority"]);
         assert!(parsed.fields.iter().any(|f| f.name == "name" && f.value == "My Token"));
         assert!(parsed.fields.iter().any(|f| f.name == "symbol" && f.value == "MTK"));
