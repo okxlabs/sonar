@@ -196,7 +196,6 @@ pub struct InstructionAccountInput {
     pub is_writable: bool,
 }
 
-
 #[derive(Debug, Clone)]
 pub struct TxInputResolver {
     rpc_url: String,
@@ -912,9 +911,7 @@ mod tests {
         let program = Pubkey::new_unique();
         let account = Pubkey::new_unique();
         // Missing both is_signer and is_writable.
-        let raw = format!(
-            r#"{{"program":"{program}","accounts":[{{"pubkey":"{account}"}}]}}"#
-        );
+        let raw = format!(r#"{{"program":"{program}","accounts":[{{"pubkey":"{account}"}}]}}"#);
         let err = parse_instruction_inputs_json(&raw)
             .expect_err("missing is_signer/is_writable should fail");
         let chain = format!("{err:#}");
@@ -948,8 +945,7 @@ mod tests {
     fn parse_instruction_inputs_json_decodes_base64_with_encoding_field() {
         let program = Pubkey::new_unique();
         // "world" base64-encoded, selected explicitly via the encoding field.
-        let raw =
-            format!(r#"{{"program":"{program}","data":"d29ybGQ=","encoding":"base64"}}"#);
+        let raw = format!(r#"{{"program":"{program}","data":"d29ybGQ=","encoding":"base64"}}"#);
         let inputs = parse_instruction_inputs_json(&raw).expect("base64 data parses");
         assert_eq!(inputs[0].data, b"world");
     }
@@ -958,8 +954,7 @@ mod tests {
     fn parse_instruction_inputs_json_decodes_base58_with_encoding_field() {
         let program = Pubkey::new_unique();
         let encoded = bs58::encode(b"world").into_string();
-        let raw =
-            format!(r#"{{"program":"{program}","data":"{encoded}","encoding":"base58"}}"#);
+        let raw = format!(r#"{{"program":"{program}","data":"{encoded}","encoding":"base58"}}"#);
         let inputs = parse_instruction_inputs_json(&raw).expect("base58 data parses");
         assert_eq!(inputs[0].data, b"world");
     }

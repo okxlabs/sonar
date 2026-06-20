@@ -275,6 +275,7 @@ fn decode_clock_sysvar(
 }
 
 /// Decode a Rent sysvar account.
+#[allow(deprecated)]
 fn decode_rent_sysvar(
     account_pubkey: &Pubkey,
     account: &solana_account::Account,

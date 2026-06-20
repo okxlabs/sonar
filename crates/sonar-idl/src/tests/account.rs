@@ -79,10 +79,9 @@ fn indexed_idl_uses_top_level_accounts_discriminator() {
     assert_eq!(name, "AssetV1");
     assert_eq!(
         value,
-        IdlValue::Struct(vec![
-            ("key".into(), IdlValue::U8(1)),
-            ("owner".into(), IdlValue::U8(42)),
-        ])
+        IdlValue::Struct(
+            vec![("key".into(), IdlValue::U8(1)), ("owner".into(), IdlValue::U8(42)),]
+        )
     );
 
     // Royalties only lives in `types[]`, so it must not be findable as an account.
