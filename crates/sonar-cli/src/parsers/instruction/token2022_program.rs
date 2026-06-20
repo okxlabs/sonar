@@ -98,12 +98,9 @@ impl InstructionParser for Token2022ProgramParser {
             INITIALIZE_PERMANENT_DELEGATE_DISCRIMINATOR => {
                 parse_initialize_permanent_delegate_instruction(data, instruction)
             }
-            TRANSFER_HOOK_EXTENSION_DISCRIMINATOR => parse_pointer_extension_instruction(
-                "TransferHook",
-                "program_id",
-                data,
-                instruction,
-            ),
+            TRANSFER_HOOK_EXTENSION_DISCRIMINATOR => {
+                parse_pointer_extension_instruction("TransferHook", "program_id", data, instruction)
+            }
             CONFIDENTIAL_TRANSFER_FEE_EXTENSION_DISCRIMINATOR => {
                 parse_confidential_extension_instruction(
                     "ConfidentialTransferFee",
@@ -1190,10 +1187,7 @@ mod tests {
 
         let parsed = parser.parse_instruction(&instruction).unwrap().unwrap();
         assert_eq!(parsed.name, "InitializeAccount");
-        assert_eq!(
-            parsed.account_names,
-            vec!["account", "mint", "owner", "rent_sysvar"]
-        );
+        assert_eq!(parsed.account_names, vec!["account", "mint", "owner", "rent_sysvar"]);
     }
 
     #[test]
@@ -1213,10 +1207,7 @@ mod tests {
 
         let parsed = parser.parse_instruction(&instruction).unwrap().unwrap();
         assert_eq!(parsed.name, "InitializeMultisig");
-        assert_eq!(
-            parsed.account_names,
-            vec!["multisig", "signer_1", "signer_2", "rent_sysvar"]
-        );
+        assert_eq!(parsed.account_names, vec!["multisig", "signer_1", "signer_2", "rent_sysvar"]);
         assert!(parsed.fields.iter().any(|field| field.name == "m" && field.value == "2"));
     }
 
@@ -1564,8 +1555,12 @@ mod tests {
     #[test]
     fn test_confidential_transfer_initialize_mint_parsing() {
         let parser = Token2022ProgramParser::new();
-        let accounts =
-            vec![create_test_account(0, "MintPubkey11111111111111111111111111111111111", false, true)];
+        let accounts = vec![create_test_account(
+            0,
+            "MintPubkey11111111111111111111111111111111111",
+            false,
+            true,
+        )];
         let authority = Pubkey::new_unique();
         // discriminator 27, sub-tag 0 (InitializeMint): authority (32),
         // auto_approve_new_accounts (1 byte), auditor_elgamal_pubkey (32, zero = none).
@@ -1578,9 +1573,14 @@ mod tests {
         // Action-first name, distinct from the base InitializeMint instruction.
         assert_eq!(parsed.name, "InitializeConfidentialTransferMint");
         assert_eq!(parsed.account_names, vec!["mint"]);
-        assert!(parsed.fields.iter().any(|f| f.name == "authority" && f.value == authority.to_string()));
         assert!(
-            parsed.fields.iter().any(|f| f.name == "auto_approve_new_accounts" && f.value == "true")
+            parsed.fields.iter().any(|f| f.name == "authority" && f.value == authority.to_string())
+        );
+        assert!(
+            parsed
+                .fields
+                .iter()
+                .any(|f| f.name == "auto_approve_new_accounts" && f.value == "true")
         );
         assert!(
             parsed.fields.iter().any(|f| f.name == "auditor_elgamal_pubkey" && f.value == "none")
@@ -1591,8 +1591,12 @@ mod tests {
     #[test]
     fn test_metadata_pointer_initialize_parsing() {
         let parser = Token2022ProgramParser::new();
-        let accounts =
-            vec![create_test_account(0, "MintPubkey11111111111111111111111111111111111", false, true)];
+        let accounts = vec![create_test_account(
+            0,
+            "MintPubkey11111111111111111111111111111111111",
+            false,
+            true,
+        )];
         let authority = Pubkey::new_unique();
         let metadata = Pubkey::new_unique();
         // discriminator 39, sub-tag 0 (Initialize), authority, metadata_address.
@@ -1603,9 +1607,14 @@ mod tests {
         let parsed = parser.parse_instruction(&instruction).unwrap().unwrap();
         assert_eq!(parsed.name, "InitializeMetadataPointer");
         assert_eq!(parsed.account_names, vec!["mint"]);
-        assert!(parsed.fields.iter().any(|f| f.name == "authority" && f.value == authority.to_string()));
         assert!(
-            parsed.fields.iter().any(|f| f.name == "metadata_address" && f.value == metadata.to_string())
+            parsed.fields.iter().any(|f| f.name == "authority" && f.value == authority.to_string())
+        );
+        assert!(
+            parsed
+                .fields
+                .iter()
+                .any(|f| f.name == "metadata_address" && f.value == metadata.to_string())
         );
     }
 
@@ -1629,8 +1638,12 @@ mod tests {
     #[test]
     fn test_default_account_state_initialize_parsing() {
         let parser = Token2022ProgramParser::new();
-        let accounts =
-            vec![create_test_account(0, "MintPubkey11111111111111111111111111111111111", false, true)];
+        let accounts = vec![create_test_account(
+            0,
+            "MintPubkey11111111111111111111111111111111111",
+            false,
+            true,
+        )];
         // discriminator 28, sub-tag 0 (Initialize), state 2 (Frozen).
         let data = vec![28, 0, 2];
         let instruction = create_test_instruction(data, accounts);
@@ -1642,8 +1655,12 @@ mod tests {
     #[test]
     fn test_interest_bearing_initialize_parsing() {
         let parser = Token2022ProgramParser::new();
-        let accounts =
-            vec![create_test_account(0, "MintPubkey11111111111111111111111111111111111", false, true)];
+        let accounts = vec![create_test_account(
+            0,
+            "MintPubkey11111111111111111111111111111111111",
+            false,
+            true,
+        )];
         // discriminator 33, sub-tag 0 (Initialize), all-zero authority, rate -500.
         let mut data = vec![33, 0];
         data.extend_from_slice(&[0u8; 32]);
@@ -1663,10 +1680,13 @@ mod tests {
         // Initialize (sub-tag 0) carries a 32-byte authority.
         let mut init_data = vec![44, 0];
         init_data.extend_from_slice(authority.as_ref());
-        let init = create_test_instruction(init_data, vec![create_test_account(0, mint, false, true)]);
+        let init =
+            create_test_instruction(init_data, vec![create_test_account(0, mint, false, true)]);
         let parsed = parser.parse_instruction(&init).unwrap().unwrap();
         assert_eq!(parsed.name, "InitializePausableConfig");
-        assert!(parsed.fields.iter().any(|f| f.name == "authority" && f.value == authority.to_string()));
+        assert!(
+            parsed.fields.iter().any(|f| f.name == "authority" && f.value == authority.to_string())
+        );
 
         // Pause (sub-tag 1) carries no data, accounts [mint, authority].
         let pause = create_test_instruction(
@@ -1715,7 +1735,10 @@ mod tests {
         let instruction = create_test_instruction(data, accounts);
         let parsed = parser.parse_instruction(&instruction).unwrap().unwrap();
         assert_eq!(parsed.name, "InitializeTokenMetadata");
-        assert_eq!(parsed.account_names, vec!["metadata", "update_authority", "mint", "mint_authority"]);
+        assert_eq!(
+            parsed.account_names,
+            vec!["metadata", "update_authority", "mint", "mint_authority"]
+        );
         assert!(parsed.fields.iter().any(|f| f.name == "name" && f.value == "My Token"));
         assert!(parsed.fields.iter().any(|f| f.name == "symbol" && f.value == "MTK"));
         assert!(parsed.fields.iter().any(|f| f.name == "uri" && f.value == "https://example.com"));
@@ -1726,12 +1749,7 @@ mod tests {
         let parser = Token2022ProgramParser::new();
         let accounts = vec![
             create_test_account(0, "MintPubkey11111111111111111111111111111111111", false, true),
-            create_test_account(
-                1,
-                "AuthorityPubkey11111111111111111111111111111",
-                true,
-                false,
-            ),
+            create_test_account(1, "AuthorityPubkey11111111111111111111111111111", true, false),
         ];
         // discriminator 43, sub-tag 1 (UpdateMultiplier), f64 multiplier, i64 timestamp.
         let mut data = vec![43, 1];
@@ -1743,9 +1761,7 @@ mod tests {
         assert_eq!(parsed.name, "UpdateMultiplier");
         assert_eq!(parsed.account_names, vec!["mint", "authority"]);
         assert!(parsed.fields.iter().any(|f| f.name == "multiplier" && f.value == "2.5"));
-        assert!(
-            parsed.fields.iter().any(|f| f.name == "effective_timestamp" && f.value == "1000")
-        );
+        assert!(parsed.fields.iter().any(|f| f.name == "effective_timestamp" && f.value == "1000"));
         // Should NOT fall back to the raw dump.
         assert!(!parsed.fields.iter().any(|f| f.name == "raw_extension_data"));
     }

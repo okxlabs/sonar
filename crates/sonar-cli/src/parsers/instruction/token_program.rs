@@ -104,14 +104,8 @@ fn parse_batch_instruction(
         }
 
         sub_instructions.push(IdlValue::Struct(vec![
-            (
-                "account_count".to_string(),
-                IdlValue::U8(instruction_account_count as u8),
-            ),
-            (
-                "data".to_string(),
-                IdlValue::String(hex::encode(&data[data_start..data_end])),
-            ),
+            ("account_count".to_string(), IdlValue::U8(instruction_account_count as u8)),
+            ("data".to_string(), IdlValue::String(hex::encode(&data[data_start..data_end]))),
         ]));
         account_count = account_count.saturating_add(instruction_account_count);
         offset = data_end;
@@ -134,10 +128,7 @@ fn parse_batch_instruction(
                 name: "account_count".into(),
                 value: IdlValue::U32(account_count as u32),
             },
-            ParsedField {
-                name: "instructions".into(),
-                value: IdlValue::Array(sub_instructions),
-            },
+            ParsedField { name: "instructions".into(), value: IdlValue::Array(sub_instructions) },
         ],
         generate_generic_account_names(instruction.accounts.len()),
     )))
