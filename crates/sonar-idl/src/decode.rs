@@ -174,13 +174,7 @@ pub(crate) fn parse_simple_type(
             (IdlValue::Bool(value), 1)
         }
         "string" => {
-            check_data_len(data, start, 4)?;
-            let length = u32::from_le_bytes([
-                data[start],
-                data[start + 1],
-                data[start + 2],
-                data[start + 3],
-            ]) as usize;
+            let length = read_len_prefix(data, start)?;
             let content_start = start + 4;
             check_data_len(data, content_start, length)?;
             let string_data = &data[content_start..content_start + length];
@@ -188,23 +182,13 @@ pub(crate) fn parse_simple_type(
             (IdlValue::String(value), 4 + length)
         }
         "bytes" => {
-            check_data_len(data, start, 4)?;
-            let length = u32::from_le_bytes([
-                data[start],
-                data[start + 1],
-                data[start + 2],
-                data[start + 3],
-            ]) as usize;
+            let length = read_len_prefix(data, start)?;
             let content_start = start + 4;
             check_data_len(data, content_start, length)?;
             let bytes = data[content_start..content_start + length].to_vec();
             (IdlValue::Bytes(bytes), 4 + length)
         }
-        _ => {
-            let remaining = &data[start..];
-            let bytes_read = remaining.len().min(32);
-            (raw_unparsed_value("simple_type", type_name, &remaining[..bytes_read]), bytes_read)
-        }
+        _ => (consume_raw_fallback(data, &mut *offset, "simple_type", type_name), 0),
     };
 
     *offset += bytes_read;
@@ -217,12 +201,7 @@ pub(crate) fn parse_vec_type(
     element_type: &IdlType,
     indexed: &IndexedIdl,
 ) -> Result<IdlValue> {
-    let start = *offset;
-    check_data_len(data, start, 4)?;
-
-    let length =
-        u32::from_le_bytes([data[start], data[start + 1], data[start + 2], data[start + 3]])
-            as usize;
+    let length = read_len_prefix(data, *offset)?;
     *offset += 4;
 
     let mut elements = Vec::with_capacity(length);
@@ -278,11 +257,7 @@ fn parse_defined_type(
         return parse_type_definition(data, offset, type_def, indexed);
     }
 
-    let start = *offset;
-    let remaining = &data[start..];
-    let bytes_read = remaining.len().min(32);
-    *offset += bytes_read;
-    Ok(raw_unparsed_value("defined_type", defined.name(), &remaining[..bytes_read]))
+    Ok(consume_raw_fallback(data, offset, "defined_type", defined.name()))
 }
 
 pub(crate) fn parse_type_definition(
@@ -318,11 +293,7 @@ pub(crate) fn parse_type_definition(
         IdlTypeDefinitionKind::Other(_) => {}
     }
 
-    let start = *offset;
-    let remaining = &data[start..];
-    let bytes_read = remaining.len().min(32);
-    *offset += bytes_read;
-    Ok(raw_unparsed_value("type_definition", &type_def.name, &remaining[..bytes_read]))
+    Ok(consume_raw_fallback(data, offset, "type_definition", &type_def.name))
 }
 
 fn check_data_len(data: &[u8], offset: usize, required: usize) -> Result<()> {
@@ -336,4 +307,25 @@ fn check_data_len(data: &[u8], offset: usize, required: usize) -> Result<()> {
     } else {
         Ok(())
     }
+}
+
+/// Read a 4-byte little-endian length prefix at `offset` (Borsh `Vec`/`String`/bytes layout).
+fn read_len_prefix(data: &[u8], offset: usize) -> Result<usize> {
+    check_data_len(data, offset, 4)?;
+    Ok(u32::from_le_bytes([data[offset], data[offset + 1], data[offset + 2], data[offset + 3]])
+        as usize)
+}
+
+/// Decode failure fallback: cap remaining bytes at 32, advance the offset, and
+/// emit an `IdlValue::Struct` carrying context + type hint + raw hex.
+fn consume_raw_fallback(
+    data: &[u8],
+    offset: &mut usize,
+    context: &str,
+    type_name: &str,
+) -> IdlValue {
+    let remaining = &data[*offset..];
+    let bytes_read = remaining.len().min(32);
+    *offset += bytes_read;
+    raw_unparsed_value(context, type_name, &remaining[..bytes_read])
 }

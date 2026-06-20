@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::ops::Deref;
 
 use crate::decode::{
     parse_idl_fields_as_parsed_fields, parse_instruction_args, parse_type_definition,
@@ -55,20 +54,6 @@ impl IdlInstructionFields {
         match self {
             Self::Unparsed(raw_args_hex) => Some(raw_args_hex),
             _ => None,
-        }
-    }
-}
-
-/// **Caution:** Returns an empty slice for `Unparsed`, which is indistinguishable from a
-/// zero-arg instruction. Use [`IdlInstructionFields::parsed_fields`] when you need to
-/// differentiate between "no arguments" and "failed to decode".
-impl Deref for IdlInstructionFields {
-    type Target = [IdlParsedField];
-
-    fn deref(&self) -> &Self::Target {
-        match self {
-            Self::Parsed(fields) => fields.as_slice(),
-            Self::Unparsed(_) => &[],
         }
     }
 }
@@ -279,41 +264,21 @@ impl IndexedIdl {
     }
 
     pub(crate) fn find_instruction_by_discriminator(&self, data: &[u8]) -> Option<&IdlInstruction> {
-        for (disc, idx) in &self.instruction_discriminators {
-            if data.len() >= disc.len() && data[..disc.len()] == disc[..] {
-                return self.idl.instructions.get(*idx);
-            }
-        }
-        None
+        let (idx, _) = match_disc(&self.instruction_discriminators, data)?;
+        self.idl.instructions.get(idx)
     }
 
     fn find_event_by_discriminator(&self, data: &[u8]) -> Option<(&IdlEvent, usize)> {
-        for (disc, idx) in &self.event_discriminators {
-            if data.len() >= disc.len() && &data[..disc.len()] == disc.as_slice() {
-                return self
-                    .idl
-                    .events
-                    .as_ref()
-                    .and_then(|events| events.get(*idx).map(|e| (e, disc.len())));
-            }
-        }
-        None
+        let (idx, disc_len) = match_disc(&self.event_discriminators, data)?;
+        self.idl.events.as_ref().and_then(|events| events.get(idx).map(|e| (e, disc_len)))
     }
 
     fn find_account_type_by_discriminator(
         &self,
         data: &[u8],
     ) -> Option<(&IdlTypeDefinition, usize)> {
-        for (disc, idx) in &self.account_discriminators {
-            if data.len() >= disc.len() && &data[..disc.len()] == disc.as_slice() {
-                return self
-                    .idl
-                    .types
-                    .as_ref()
-                    .and_then(|types| types.get(*idx).map(|td| (td, disc.len())));
-            }
-        }
-        None
+        let (idx, disc_len) = match_disc(&self.account_discriminators, data)?;
+        self.idl.types.as_ref().and_then(|types| types.get(idx).map(|td| (td, disc_len)))
     }
 
     pub(crate) fn find_type_definition(&self, name: &str) -> Option<&IdlTypeDefinition> {
@@ -346,6 +311,20 @@ pub fn is_cpi_event_data(data: &[u8]) -> bool {
 }
 
 // ── Internal helpers ──
+
+/// Longest-prefix match against a discriminator table.
+///
+/// Tables are sorted longest-first by the caller so the first prefix hit is
+/// the most specific one. Returns the matched index into the source collection
+/// plus the discriminator length (so callers can skip it).
+fn match_disc(discs: &[(Vec<u8>, usize)], data: &[u8]) -> Option<(usize, usize)> {
+    for (disc, idx) in discs {
+        if data.len() >= disc.len() && data[..disc.len()] == disc[..] {
+            return Some((*idx, disc.len()));
+        }
+    }
+    None
+}
 
 fn flatten_account_names(accounts: &[IdlAccountItem]) -> Vec<String> {
     let mut names = Vec::new();
