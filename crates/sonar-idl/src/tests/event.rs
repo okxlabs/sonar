@@ -62,9 +62,10 @@ fn indexed_idl_parse_cpi_event_data_parses_event_fields() {
     let parsed = result.expect("should parse event");
 
     assert_eq!(parsed.name, "TransferDone");
-    assert_eq!(parsed.fields.len(), 1);
-    assert_eq!(parsed.fields[0].name, "amount");
-    assert_eq!(parsed.fields[0].value, IdlValue::U64(500));
+    let fields = parsed.fields.parsed_fields().expect("should parse");
+    assert_eq!(fields.len(), 1);
+    assert_eq!(fields[0].name, "amount");
+    assert_eq!(fields[0].value, IdlValue::U64(500));
     assert_eq!(parsed.account_names, vec!["event_authority"]);
 }
 
@@ -134,10 +135,11 @@ fn indexed_idl_parse_cpi_event_data_parses_tuple_event_fields() {
     let parsed = result.expect("should parse tuple event");
 
     assert_eq!(parsed.name, "PairEvent");
-    assert_eq!(parsed.fields.len(), 2);
-    assert_eq!(parsed.fields[0].name, "field_0");
-    assert_eq!(parsed.fields[0].value, IdlValue::U32(9));
-    assert_eq!(parsed.fields[1].name, "field_1");
-    assert_eq!(parsed.fields[1].value, IdlValue::U16(7));
+    let fields = parsed.fields.parsed_fields().expect("should parse tuple event");
+    assert_eq!(fields.len(), 2);
+    assert_eq!(fields[0].name, "field_0");
+    assert_eq!(fields[0].value, IdlValue::U32(9));
+    assert_eq!(fields[1].name, "field_1");
+    assert_eq!(fields[1].value, IdlValue::U16(7));
     assert_eq!(parsed.account_names, vec!["event_authority"]);
 }

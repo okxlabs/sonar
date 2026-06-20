@@ -131,9 +131,10 @@ fn idl_type_tuple_serde_and_decode() {
 
     let parsed = indexed.parse_instruction(&data).unwrap().expect("should parse");
     assert_eq!(parsed.name, "submit");
-    assert_eq!(parsed.fields.len(), 1);
+    let fields = parsed.fields.parsed_fields().expect("should parse");
+    assert_eq!(fields.len(), 1);
     assert_eq!(
-        parsed.fields[0].value,
+        fields[0].value,
         IdlValue::Array(vec![
             IdlValue::Array(vec![IdlValue::U8(1), IdlValue::U32(1000)]),
             IdlValue::Array(vec![IdlValue::U8(2), IdlValue::U32(2000)]),
@@ -183,9 +184,10 @@ fn parse_current_idl_format() {
     let parsed = indexed.parse_instruction(&data).unwrap().expect("should parse");
 
     assert_eq!(parsed.name, "initialize");
-    assert_eq!(parsed.fields.len(), 1);
-    assert_eq!(parsed.fields[0].name, "data");
-    assert_eq!(parsed.fields[0].value, IdlValue::U64(42));
+    let fields = parsed.fields.parsed_fields().expect("should parse");
+    assert_eq!(fields.len(), 1);
+    assert_eq!(fields[0].name, "data");
+    assert_eq!(fields[0].value, IdlValue::U64(42));
 }
 
 #[test]
@@ -209,7 +211,7 @@ fn current_idl_instruction_gets_auto_discriminator() {
     let parsed = indexed.parse_instruction(&data).unwrap().expect("should parse");
 
     assert_eq!(parsed.name, "doSomething");
-    assert!(parsed.fields.is_empty());
+    assert!(parsed.fields.parsed_fields().expect("should parse").is_empty());
 }
 
 #[test]
@@ -238,9 +240,10 @@ fn current_idl_event_gets_auto_discriminator() {
     let parsed = indexed.parse_cpi_event_data(&data).unwrap().expect("should parse event");
 
     assert_eq!(parsed.name, "TransferEvent");
-    assert_eq!(parsed.fields.len(), 1);
-    assert_eq!(parsed.fields[0].name, "amount");
-    assert_eq!(parsed.fields[0].value, IdlValue::U64(7));
+    let fields = parsed.fields.parsed_fields().expect("should parse");
+    assert_eq!(fields.len(), 1);
+    assert_eq!(fields[0].name, "amount");
+    assert_eq!(fields[0].value, IdlValue::U64(7));
     assert!(is_cpi_event_data(&data));
 }
 
@@ -271,11 +274,12 @@ fn current_idl_event_fields_support_tuple_types() {
     let parsed = indexed.parse_cpi_event_data(&data).unwrap().expect("should parse tuple event");
 
     assert_eq!(parsed.name, "PairEvent");
-    assert_eq!(parsed.fields.len(), 2);
-    assert_eq!(parsed.fields[0].name, "field_0");
-    assert_eq!(parsed.fields[0].value, IdlValue::U32(9));
-    assert_eq!(parsed.fields[1].name, "field_1");
-    assert_eq!(parsed.fields[1].value, IdlValue::U16(7));
+    let fields = parsed.fields.parsed_fields().expect("should parse tuple event");
+    assert_eq!(fields.len(), 2);
+    assert_eq!(fields[0].name, "field_0");
+    assert_eq!(fields[0].value, IdlValue::U32(9));
+    assert_eq!(fields[1].name, "field_1");
+    assert_eq!(fields[1].value, IdlValue::U16(7));
 }
 
 #[test]
@@ -318,9 +322,10 @@ fn parse_legacy_idl_and_into_indexed_idl() {
     let parsed = indexed.parse_instruction(&data).unwrap().expect("should parse");
 
     assert_eq!(parsed.name, "doSomething");
-    assert_eq!(parsed.fields.len(), 1);
-    assert_eq!(parsed.fields[0].name, "amount");
-    assert_eq!(parsed.fields[0].value, IdlValue::U64(123));
+    let fields = parsed.fields.parsed_fields().expect("should parse");
+    assert_eq!(fields.len(), 1);
+    assert_eq!(fields[0].name, "amount");
+    assert_eq!(fields[0].value, IdlValue::U64(123));
 }
 
 #[test]
@@ -368,7 +373,8 @@ fn legacy_event_gets_auto_discriminator() {
     let parsed = indexed.parse_cpi_event_data(&data).unwrap().expect("should parse event");
 
     assert_eq!(parsed.name, "TransferEvent");
-    assert_eq!(parsed.fields.len(), 1);
-    assert_eq!(parsed.fields[0].name, "amount");
-    assert_eq!(parsed.fields[0].value, IdlValue::U64(7));
+    let fields = parsed.fields.parsed_fields().expect("should parse event");
+    assert_eq!(fields.len(), 1);
+    assert_eq!(fields[0].name, "amount");
+    assert_eq!(fields[0].value, IdlValue::U64(7));
 }

@@ -354,10 +354,11 @@ fn parse_instruction_with_defined_tuple_struct_arg_supports_nested_types() {
 
     let parsed = indexed.parse_instruction(&data).unwrap().unwrap();
 
-    assert_eq!(parsed.fields.len(), 1);
-    assert_eq!(parsed.fields[0].name, "payload");
+    let fields = parsed.fields.parsed_fields().expect("should parse");
+    assert_eq!(fields.len(), 1);
+    assert_eq!(fields[0].name, "payload");
     assert_eq!(
-        parsed.fields[0].value,
+        fields[0].value,
         IdlValue::Array(vec![
             IdlValue::U32(777),
             IdlValue::Struct(vec![("amount".into(), IdlValue::U16(42))]),
@@ -403,7 +404,8 @@ fn parse_enum_with_struct_variant() {
     data.extend_from_slice(&100u16.to_le_bytes());
 
     let parsed = indexed.parse_instruction(&data).unwrap().unwrap();
-    let val = &parsed.fields[0].value;
+    let fields = parsed.fields.parsed_fields().expect("should parse");
+    let val = &fields[0].value;
     assert_eq!(
         *val,
         IdlValue::Struct(vec![(
@@ -448,7 +450,8 @@ fn parse_enum_with_tuple_variant() {
     data.extend_from_slice(&222u32.to_le_bytes());
 
     let parsed = indexed.parse_instruction(&data).unwrap().unwrap();
-    let val = &parsed.fields[0].value;
+    let fields = parsed.fields.parsed_fields().expect("should parse");
+    let val = &fields[0].value;
     assert_eq!(
         *val,
         IdlValue::Struct(vec![(
@@ -485,7 +488,8 @@ fn parse_enum_out_of_range_variant_index_falls_through() {
     data.push(99);
 
     let parsed = indexed.parse_instruction(&data).unwrap().unwrap();
-    if let IdlValue::Struct(entries) = &parsed.fields[0].value {
+    let fields = parsed.fields.parsed_fields().expect("should parse");
+    if let IdlValue::Struct(entries) = &fields[0].value {
         let keys: Vec<&str> = entries.iter().map(|(k, _)| k.as_str()).collect();
         assert!(keys.contains(&"raw_hex"));
     } else {
