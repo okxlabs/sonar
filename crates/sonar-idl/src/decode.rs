@@ -141,17 +141,19 @@ pub(crate) fn parse_simple_type(
     let start = *offset;
 
     // Decode a fixed-width little-endian integer. `check_data_len` guards the
-    // slice, so the `try_into` over the exact-width range is infallible.
+    // slice, so the `try_into` over the exact-width range is infallible. Each
+    // arm advances `offset` directly so callers never track byte counts.
     macro_rules! int {
         ($t:ty, $variant:ident) => {{
             const N: usize = std::mem::size_of::<$t>();
             check_data_len(data, start, N)?;
             let bytes: [u8; N] = data[start..start + N].try_into().unwrap();
-            (IdlValue::$variant(<$t>::from_le_bytes(bytes)), N)
+            *offset += N;
+            IdlValue::$variant(<$t>::from_le_bytes(bytes))
         }};
     }
 
-    let (value, bytes_read) = match type_name {
+    Ok(match type_name {
         "u8" => int!(u8, U8),
         "i8" => int!(i8, I8),
         "u16" => int!(u16, U16),
@@ -166,33 +168,32 @@ pub(crate) fn parse_simple_type(
             check_data_len(data, start, 32)?;
             let pubkey = Pubkey::try_from(&data[start..start + 32])
                 .map_err(|_| anyhow!("Invalid pubkey data"))?;
-            (IdlValue::Pubkey(pubkey), 32)
+            *offset += 32;
+            IdlValue::Pubkey(pubkey)
         }
         "bool" => {
             check_data_len(data, start, 1)?;
-            let value = data[start] != 0;
-            (IdlValue::Bool(value), 1)
+            *offset += 1;
+            IdlValue::Bool(data[start] != 0)
         }
         "string" => {
             let length = read_len_prefix(data, start)?;
             let content_start = start + 4;
             check_data_len(data, content_start, length)?;
             let string_data = &data[content_start..content_start + length];
-            let value = String::from_utf8_lossy(string_data).to_string();
-            (IdlValue::String(value), 4 + length)
+            *offset += 4 + length;
+            IdlValue::String(String::from_utf8_lossy(string_data).into_owned())
         }
         "bytes" => {
             let length = read_len_prefix(data, start)?;
             let content_start = start + 4;
             check_data_len(data, content_start, length)?;
             let bytes = data[content_start..content_start + length].to_vec();
-            (IdlValue::Bytes(bytes), 4 + length)
+            *offset += 4 + length;
+            IdlValue::Bytes(bytes)
         }
-        _ => (consume_raw_fallback(data, &mut *offset, "simple_type", type_name), 0),
-    };
-
-    *offset += bytes_read;
-    Ok(value)
+        _ => consume_raw_fallback(data, offset, "simple_type", type_name),
+    })
 }
 
 pub(crate) fn parse_vec_type(

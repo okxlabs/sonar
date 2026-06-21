@@ -89,73 +89,13 @@ impl IndexedIdl {
     }
 
     pub(crate) fn from_normalized_idl(idl: Idl) -> Self {
-        let mut instruction_discriminators: Vec<(Vec<u8>, usize)> = idl
-            .instructions
-            .iter()
-            .enumerate()
-            .filter_map(|(idx, instr)| Some((instr.discriminator.clone()?, idx)))
-            .collect();
-        // Sort longest first so matching prefers more-specific discriminators.
-        instruction_discriminators.sort_by_key(|disc| std::cmp::Reverse(disc.0.len()));
-
-        let mut event_discriminators: Vec<(Vec<u8>, usize)> = Vec::new();
-        if let Some(events) = &idl.events {
-            for (idx, event) in events.iter().enumerate() {
-                let disc = event
-                    .discriminator
-                    .clone()
-                    .unwrap_or_else(|| sighash("event", &event.name).to_vec());
-                if !disc.is_empty() {
-                    event_discriminators.push((disc, idx));
-                }
-            }
-        }
-        event_discriminators.sort_by_key(|disc| std::cmp::Reverse(disc.0.len()));
-
-        let mut types_by_name = HashMap::new();
-        if let Some(types) = &idl.types {
-            for (idx, type_def) in types.iter().enumerate() {
-                types_by_name.insert(type_def.name.clone(), idx);
-            }
-        }
-
-        // Anchor 0.30+ lists accounts at the top level with their real
-        // discriminators; legacy IDLs fold discriminators into `types[]`.
-        // Prefer top-level `accounts[]` when present so we don't pollute
-        // the lookup with sighash-fallback entries for unrelated structs.
-        let mut account_discriminators: Vec<(Vec<u8>, usize)> = Vec::new();
-        if let Some(accounts) = &idl.accounts {
-            for entry in accounts {
-                let Some(&idx) = types_by_name.get(&entry.name) else { continue };
-                let disc = entry
-                    .discriminator
-                    .clone()
-                    .unwrap_or_else(|| sighash("account", &entry.name).to_vec());
-                if !disc.is_empty() {
-                    account_discriminators.push((disc, idx));
-                }
-            }
-        } else if let Some(types) = &idl.types {
-            for (idx, type_def) in types.iter().enumerate() {
-                if type_def.type_.kind == IdlTypeDefinitionKind::Struct {
-                    let disc = type_def
-                        .discriminator
-                        .clone()
-                        .unwrap_or_else(|| sighash("account", &type_def.name).to_vec());
-                    if !disc.is_empty() {
-                        account_discriminators.push((disc, idx));
-                    }
-                }
-            }
-        }
-        account_discriminators.sort_by_key(|disc| std::cmp::Reverse(disc.0.len()));
-
+        let types_by_name = build_types_by_name(&idl);
         Self {
-            idl,
-            instruction_discriminators,
-            account_discriminators,
-            event_discriminators,
+            instruction_discriminators: build_instruction_table(&idl),
+            event_discriminators: build_event_table(&idl),
+            account_discriminators: build_account_table(&idl, &types_by_name),
             types_by_name,
+            idl,
         }
     }
 
@@ -164,23 +104,16 @@ impl IndexedIdl {
             return Ok(None);
         };
 
-        let mut offset = idl_instruction.discriminator.as_ref().map_or(0, |d| d.len());
-        let args_offset = offset;
+        let args_offset = idl_instruction.discriminator.as_ref().map_or(0, |d| d.len());
         let fields = if idl_instruction.args.is_empty() {
             IdlInstructionFields::Parsed(Vec::new())
         } else {
-            match parse_instruction_args(data, &mut offset, &idl_instruction.args, self) {
-                Ok(fields) => IdlInstructionFields::Parsed(fields),
-                Err(err) => {
-                    log::warn!(
-                        "IDL arg decode failed for instruction '{}': {err:#}",
-                        idl_instruction.name
-                    );
-                    IdlInstructionFields::Unparsed(hex::encode(
-                        data.get(args_offset..).unwrap_or_default(),
-                    ))
-                }
-            }
+            let mut offset = args_offset;
+            fields_or_unparsed(
+                parse_instruction_args(data, &mut offset, &idl_instruction.args, self),
+                data.get(args_offset..).unwrap_or_default(),
+                &format!("instruction '{}'", idl_instruction.name),
+            )
         };
         let account_names = flatten_account_names(&idl_instruction.accounts);
 
@@ -229,20 +162,11 @@ impl IndexedIdl {
 
         let mut offset = 8 + disc_len;
         let fields = match type_fields.as_ref() {
-            Some(fields) => {
-                match parse_idl_fields_as_parsed_fields(data, &mut offset, fields, self) {
-                    Ok(fields) => IdlInstructionFields::Parsed(fields),
-                    Err(err) => {
-                        log::warn!(
-                            "IDL field decode failed for event '{}': {err:#}",
-                            event_def.name
-                        );
-                        IdlInstructionFields::Unparsed(hex::encode(
-                            data.get(8 + disc_len..).unwrap_or_default(),
-                        ))
-                    }
-                }
-            }
+            Some(fields) => fields_or_unparsed(
+                parse_idl_fields_as_parsed_fields(data, &mut offset, fields, self),
+                data.get(8 + disc_len..).unwrap_or_default(),
+                &format!("event '{}'", event_def.name),
+            ),
             None => {
                 let mut raw_fields = Vec::new();
                 if offset < data.len() {
@@ -335,4 +259,97 @@ fn flatten_account_names(accounts: &[IdlAccountItem]) -> Vec<String> {
         }
     }
     names
+}
+
+// ── IDL index construction ──
+
+/// Sort a discriminator table longest-first so the first prefix hit is the
+/// most specific discriminator.
+fn sorted_table(mut table: Vec<(Vec<u8>, usize)>) -> Vec<(Vec<u8>, usize)> {
+    table.sort_by_key(|(disc, _)| std::cmp::Reverse(disc.len()));
+    table
+}
+
+/// Resolve a discriminator, falling back to `sighash(namespace, name)`. Returns
+/// `None` for empty discriminators (which would otherwise match any data).
+fn resolve_disc(raw: &Option<Vec<u8>>, name: &str, namespace: &str) -> Option<Vec<u8>> {
+    let disc = raw.clone().unwrap_or_else(|| sighash(namespace, name).to_vec());
+    (!disc.is_empty()).then_some(disc)
+}
+
+fn build_types_by_name(idl: &Idl) -> HashMap<String, usize> {
+    idl.types
+        .iter()
+        .flatten()
+        .enumerate()
+        .map(|(idx, type_def)| (type_def.name.clone(), idx))
+        .collect()
+}
+
+fn build_instruction_table(idl: &Idl) -> Vec<(Vec<u8>, usize)> {
+    let entries: Vec<_> = idl
+        .instructions
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, instr)| Some((instr.discriminator.clone()?, idx)))
+        .collect();
+    sorted_table(entries)
+}
+
+fn build_event_table(idl: &Idl) -> Vec<(Vec<u8>, usize)> {
+    let entries: Vec<_> = idl
+        .events
+        .iter()
+        .flatten()
+        .enumerate()
+        .filter_map(|(idx, event)| {
+            Some((resolve_disc(&event.discriminator, &event.name, "event")?, idx))
+        })
+        .collect();
+    sorted_table(entries)
+}
+
+/// Anchor 0.30+ lists accounts at the top level with their real discriminators;
+/// legacy IDLs fold discriminators into `types[]`. Prefer top-level `accounts[]`
+/// when present so we don't pollute the lookup with sighash-fallback entries
+/// for unrelated structs.
+fn build_account_table(idl: &Idl, types_by_name: &HashMap<String, usize>) -> Vec<(Vec<u8>, usize)> {
+    let entries: Vec<_> = if let Some(accounts) = &idl.accounts {
+        accounts
+            .iter()
+            .filter_map(|entry| {
+                let &idx = types_by_name.get(&entry.name)?;
+                Some((resolve_disc(&entry.discriminator, &entry.name, "account")?, idx))
+            })
+            .collect()
+    } else {
+        idl.types
+            .iter()
+            .flatten()
+            .enumerate()
+            .filter_map(|(idx, type_def)| {
+                if type_def.type_.kind != IdlTypeDefinitionKind::Struct {
+                    return None;
+                }
+                Some((resolve_disc(&type_def.discriminator, &type_def.name, "account")?, idx))
+            })
+            .collect()
+    };
+    sorted_table(entries)
+}
+
+/// Decode helper: turn a parse result into parsed fields, or fall back to raw
+/// hex when decoding fails (logging a warning tagged with `label`).
+fn fields_or_unparsed(
+    result: Result<Vec<IdlParsedField>>,
+    raw_args: &[u8],
+    label: &str,
+) -> IdlInstructionFields {
+    match result {
+        Ok(fields) => IdlInstructionFields::Parsed(fields),
+        Err(err) => {
+            log::warn!("IDL decode failed for {label}: {err:#}");
+            IdlInstructionFields::Unparsed(hex::encode(raw_args))
+        }
+    }
 }
