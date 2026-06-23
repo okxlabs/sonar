@@ -2,7 +2,9 @@
 use anyhow::{Context, Result, bail};
 use serde_json::Value;
 
-use super::borsh_type::BorshType;
+use super::borsh_type::{
+    BorshType, KEY_RESULT_ERR, KEY_RESULT_OK, KEY_VALUE, KEY_VARIANT, supports_total_order,
+};
 
 /// Encode a JSON value into Borsh binary format according to the given type descriptor.
 pub fn encode_borsh(ty: &BorshType, value: &Value) -> Result<Vec<u8>> {
@@ -149,12 +151,12 @@ fn encode_into(ty: &BorshType, value: &Value, buf: &mut Vec<u8>) -> Result<()> {
         BorshType::Enum(variants) => {
             let obj = value.as_object().ok_or_else(|| {
                 anyhow::anyhow!(
-                    "expected object with \"variant\" field for enum, got {}",
+                    "expected object with \"{KEY_VARIANT}\" field for enum, got {}",
                     value_type_name(value)
                 )
             })?;
-            let idx = obj.get("variant").and_then(|v| v.as_u64()).ok_or_else(|| {
-                anyhow::anyhow!("enum object must have a numeric \"variant\" field")
+            let idx = obj.get(KEY_VARIANT).and_then(|v| v.as_u64()).ok_or_else(|| {
+                anyhow::anyhow!("enum object must have a numeric \"{KEY_VARIANT}\" field")
             })? as usize;
             if idx >= variants.len() {
                 bail!("enum variant index {idx} out of range (0..{})", variants.len());
@@ -165,8 +167,8 @@ fn encode_into(ty: &BorshType, value: &Value, buf: &mut Vec<u8>) -> Result<()> {
             buf.push(idx as u8);
             let variant_ty = &variants[idx];
             if !matches!(variant_ty, BorshType::Unit) {
-                let payload = obj.get("value").ok_or_else(|| {
-                    anyhow::anyhow!("enum variant {idx} requires a \"value\" field")
+                let payload = obj.get(KEY_VALUE).ok_or_else(|| {
+                    anyhow::anyhow!("enum variant {idx} requires a \"{KEY_VALUE}\" field")
                 })?;
                 encode_into(variant_ty, payload, buf)
                     .with_context(|| format!("in enum variant {idx}"))?;
@@ -261,18 +263,20 @@ fn encode_into(ty: &BorshType, value: &Value, buf: &mut Vec<u8>) -> Result<()> {
         BorshType::Result(ok_ty, err_ty) => {
             let obj = value.as_object().ok_or_else(|| {
                 anyhow::anyhow!(
-                    "expected object with \"ok\" or \"err\" field for result, got {}",
+                    "expected object with \"{KEY_RESULT_OK}\" or \"{KEY_RESULT_ERR}\" field for result, got {}",
                     value_type_name(value)
                 )
             })?;
-            if let Some(ok_val) = obj.get("ok") {
+            if let Some(ok_val) = obj.get(KEY_RESULT_OK) {
                 buf.push(0);
                 encode_into(ok_ty, ok_val, buf).context("in result ok")?;
-            } else if let Some(err_val) = obj.get("err") {
+            } else if let Some(err_val) = obj.get(KEY_RESULT_ERR) {
                 buf.push(1);
                 encode_into(err_ty, err_val, buf).context("in result err")?;
             } else {
-                bail!("result object must have either \"ok\" or \"err\" field");
+                bail!(
+                    "result object must have either \"{KEY_RESULT_OK}\" or \"{KEY_RESULT_ERR}\" field"
+                );
             }
         }
     }
@@ -320,34 +324,6 @@ fn as_i128(value: &Value, type_name: &str) -> Result<i128> {
         return s.parse::<i128>().with_context(|| format!("cannot parse '{s}' as {type_name}"));
     }
     bail!("expected number or string for {type_name}, got {}", value_type_name(value))
-}
-
-fn supports_total_order(ty: &BorshType) -> bool {
-    match ty {
-        BorshType::U8
-        | BorshType::U16
-        | BorshType::U32
-        | BorshType::U64
-        | BorshType::U128
-        | BorshType::I8
-        | BorshType::I16
-        | BorshType::I32
-        | BorshType::I64
-        | BorshType::I128
-        | BorshType::Bool
-        | BorshType::String
-        | BorshType::Pubkey
-        | BorshType::Unit => true,
-        BorshType::Vec(inner) | BorshType::Option(inner) | BorshType::Array(inner, _) => {
-            supports_total_order(inner)
-        }
-        BorshType::Tuple(types) | BorshType::Enum(types) => types.iter().all(supports_total_order),
-        BorshType::Result(ok, err) => supports_total_order(ok) && supports_total_order(err),
-        BorshType::Struct(fields) => {
-            fields.iter().all(|(_, field_ty)| supports_total_order(field_ty))
-        }
-        BorshType::HashSet(_) | BorshType::HashMap(_, _) => false,
-    }
 }
 
 /// Compare two JSON values according to the canonical Ord for the given BorshType.
@@ -479,14 +455,14 @@ fn cmp_values(ty: &BorshType, a: &Value, b: &Value) -> std::cmp::Ordering {
             // Enum Ord: by variant index, then by variant value
             match (a.as_object(), b.as_object()) {
                 (Some(a_obj), Some(b_obj)) => {
-                    let a_idx = a_obj.get("variant").and_then(|v| v.as_u64()).unwrap_or(0);
-                    let b_idx = b_obj.get("variant").and_then(|v| v.as_u64()).unwrap_or(0);
+                    let a_idx = a_obj.get(KEY_VARIANT).and_then(|v| v.as_u64()).unwrap_or(0);
+                    let b_idx = b_obj.get(KEY_VARIANT).and_then(|v| v.as_u64()).unwrap_or(0);
                     match a_idx.cmp(&b_idx) {
                         Ordering::Equal => {
                             let idx = a_idx as usize;
                             if idx < variants.len() && !matches!(&variants[idx], BorshType::Unit) {
-                                let av = a_obj.get("value").unwrap_or(&Value::Null);
-                                let bv = b_obj.get("value").unwrap_or(&Value::Null);
+                                let av = a_obj.get(KEY_VALUE).unwrap_or(&Value::Null);
+                                let bv = b_obj.get(KEY_VALUE).unwrap_or(&Value::Null);
                                 cmp_values(&variants[idx], av, bv)
                             } else {
                                 Ordering::Equal
@@ -502,17 +478,17 @@ fn cmp_values(ty: &BorshType, a: &Value, b: &Value) -> std::cmp::Ordering {
             // Result Ord: Ok < Err (variant index 0 < 1), then compare inner
             match (a.as_object(), b.as_object()) {
                 (Some(a_obj), Some(b_obj)) => {
-                    let a_is_ok = a_obj.contains_key("ok");
-                    let b_is_ok = b_obj.contains_key("ok");
+                    let a_is_ok = a_obj.contains_key(KEY_RESULT_OK);
+                    let b_is_ok = b_obj.contains_key(KEY_RESULT_OK);
                     match (a_is_ok, b_is_ok) {
                         (true, true) => {
-                            let av = a_obj.get("ok").unwrap_or(&Value::Null);
-                            let bv = b_obj.get("ok").unwrap_or(&Value::Null);
+                            let av = a_obj.get(KEY_RESULT_OK).unwrap_or(&Value::Null);
+                            let bv = b_obj.get(KEY_RESULT_OK).unwrap_or(&Value::Null);
                             cmp_values(ok_ty, av, bv)
                         }
                         (false, false) => {
-                            let av = a_obj.get("err").unwrap_or(&Value::Null);
-                            let bv = b_obj.get("err").unwrap_or(&Value::Null);
+                            let av = a_obj.get(KEY_RESULT_ERR).unwrap_or(&Value::Null);
+                            let bv = b_obj.get(KEY_RESULT_ERR).unwrap_or(&Value::Null);
                             cmp_values(err_ty, av, bv)
                         }
                         (true, false) => Ordering::Less,
@@ -523,11 +499,10 @@ fn cmp_values(ty: &BorshType, a: &Value, b: &Value) -> std::cmp::Ordering {
             }
         }
         BorshType::HashSet(_) | BorshType::HashMap(_, _) => {
-            // HashSet/HashMap don't implement Ord in Rust, so they shouldn't
-            // appear as keys. Fall back to serialized bytes as a best effort.
-            let a_bytes = encode_borsh(ty, a).unwrap_or_default();
-            let b_bytes = encode_borsh(ty, b).unwrap_or_default();
-            a_bytes.cmp(&b_bytes)
+            // HashSet/HashMap don't implement Ord, so they can never be a
+            // hash-collection key/element: `supports_total_order` rejects any
+            // type containing them before sorting ever calls `cmp_values`.
+            unreachable!("non-Ord types are rejected by supports_total_order before sorting")
         }
     }
 }

@@ -77,6 +77,8 @@ pub trait InstructionParser: Send + Sync {
 
 // ── Program parsers ──
 
+mod fixed_layout;
+
 mod spl_token_common;
 
 mod system_program;

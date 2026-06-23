@@ -140,11 +140,7 @@ impl<'a> BinaryReader<'a> {
     /// always 32 bytes and an all-zero pubkey encodes the absent case.
     pub fn read_optional_non_zero_pubkey(&mut self) -> Result<Option<Pubkey>> {
         let pubkey = self.read_pubkey()?;
-        if pubkey == Pubkey::default() {
-            Ok(None)
-        } else {
-            Ok(Some(pubkey))
-        }
+        if pubkey == Pubkey::default() { Ok(None) } else { Ok(Some(pubkey)) }
     }
 
     /// Read 32 raw bytes where an all-zero value encodes the absent case
@@ -153,11 +149,7 @@ impl<'a> BinaryReader<'a> {
     pub fn read_optional_non_zero_bytes32(&mut self) -> Result<Option<[u8; 32]>> {
         let mut bytes = [0u8; 32];
         bytes.copy_from_slice(self.read_exact(32)?);
-        if bytes == [0u8; 32] {
-            Ok(None)
-        } else {
-            Ok(Some(bytes))
-        }
+        if bytes == [0u8; 32] { Ok(None) } else { Ok(Some(bytes)) }
     }
 }
 

@@ -1,7 +1,12 @@
-//! Low-level building blocks for advanced consumers.
+//! Low-level building blocks for callers that drive the simulation stages
+//! themselves instead of using the high-level [`Pipeline`](crate::Pipeline).
+//!
+//! This is the primary API the `sonar-cli` binary is built on: it composes the
+//! parse → load → prepare → run stages directly so it can interleave its own
+//! caching, IDL fetching, and progress reporting between them. `Pipeline` is the
+//! convenience facade over the same pieces for callers that don't need that.
 //!
 //! Items here carry **no semver guarantees** — they may change in any release.
-//! Prefer the top-level `Pipeline` API for stable usage.
 
 // ── Transaction parsing ──
 

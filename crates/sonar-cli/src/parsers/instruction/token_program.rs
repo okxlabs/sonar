@@ -1,17 +1,11 @@
 use anyhow::Result;
 use solana_pubkey::Pubkey;
-use sonar_idl::IdlValue;
 
-use super::spl_token_common::{
-    self, WITHDRAW_EXCESS_LAMPORTS_DISCRIMINATOR, account_names_with_signers,
-    generate_generic_account_names, parse_base_instruction, parsed_instruction,
-};
-use super::{InstructionParser, ParsedField, ParsedInstruction};
+use super::spl_token_common::parse_base_instruction;
+use super::{InstructionParser, ParsedInstruction};
 use crate::core::transaction::InstructionSummary;
 
 const TOKEN_PROGRAM_ID: &str = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
-const UNWRAP_LAMPORTS_DISCRIMINATOR: u8 = 45;
-const BATCH_DISCRIMINATOR: u8 = 255;
 
 define_parser!(TokenProgramParser, TOKEN_PROGRAM_ID);
 
@@ -20,6 +14,9 @@ impl InstructionParser for TokenProgramParser {
         &self.program_id
     }
 
+    /// The Legacy Token instruction set is exactly the shared base set
+    /// (Token-2022 is a superset), so dispatch is entirely delegated to
+    /// [`parse_base_instruction`].
     fn parse_instruction(
         &self,
         instruction: &InstructionSummary,
@@ -30,123 +27,15 @@ impl InstructionParser for TokenProgramParser {
 
         let instruction_id = instruction.data[0];
         let data = &instruction.data[1..];
-
-        if let Some(parsed) = parse_base_instruction(instruction_id, data, instruction)? {
-            return Ok(Some(parsed));
-        }
-
-        match instruction_id {
-            WITHDRAW_EXCESS_LAMPORTS_DISCRIMINATOR => {
-                spl_token_common::parse_withdraw_excess_lamports_instruction(instruction)
-            }
-            UNWRAP_LAMPORTS_DISCRIMINATOR => parse_unwrap_lamports_instruction(data, instruction),
-            BATCH_DISCRIMINATOR => parse_batch_instruction(data, instruction),
-            _ => Ok(None),
-        }
+        parse_base_instruction(instruction_id, data, instruction)
     }
-}
-
-/// Pinocchio SPL Token extension: UnwrapLamports (discriminator 45).
-///
-/// Body is a 1-byte amount discriminant followed by either nothing
-/// (amount = "all") or 8 bytes (amount = u64). Anything else is rejected.
-fn parse_unwrap_lamports_instruction(
-    data: &[u8],
-    instruction: &InstructionSummary,
-) -> Result<Option<ParsedInstruction>> {
-    if instruction.accounts.len() < 3 {
-        return Ok(None);
-    }
-
-    let amount = match data {
-        [0] => IdlValue::String("all".to_string()),
-        [1, rest @ ..] if rest.len() == 8 => {
-            IdlValue::U64(u64::from_le_bytes(rest.try_into().unwrap()))
-        }
-        _ => return Ok(None),
-    };
-
-    Ok(Some(parsed_instruction(
-        "UnwrapLamports",
-        vec![ParsedField { name: "amount".into(), value: amount }],
-        account_names_with_signers(
-            &["source", "destination", "authority"],
-            instruction.accounts.len(),
-        ),
-    )))
-}
-
-/// Pinocchio SPL Token extension: Batch (discriminator 255).
-///
-/// Body is a sequence of `(account_count: u8, data_len: u8, data: [u8; data_len])`
-/// tuples. We validate the framing and emit structured sub-instructions so
-/// callers don't need to re-parse the raw bytes.
-fn parse_batch_instruction(
-    data: &[u8],
-    instruction: &InstructionSummary,
-) -> Result<Option<ParsedInstruction>> {
-    let mut offset = 0usize;
-    let mut sub_instructions: Vec<IdlValue> = Vec::new();
-    let mut account_count = 0usize;
-
-    while offset < data.len() {
-        if offset + 2 > data.len() {
-            return Ok(None);
-        }
-
-        let instruction_account_count = data[offset] as usize;
-        let instruction_data_len = data[offset + 1] as usize;
-        let data_start = offset + 2;
-        let data_end = data_start + instruction_data_len;
-
-        if data_end > data.len() {
-            return Ok(None);
-        }
-
-        sub_instructions.push(IdlValue::Struct(vec![
-            (
-                "account_count".to_string(),
-                IdlValue::U8(instruction_account_count as u8),
-            ),
-            (
-                "data".to_string(),
-                IdlValue::String(hex::encode(&data[data_start..data_end])),
-            ),
-        ]));
-        account_count = account_count.saturating_add(instruction_account_count);
-        offset = data_end;
-    }
-
-    if account_count != instruction.accounts.len() {
-        return Ok(None);
-    }
-
-    let instruction_count = sub_instructions.len() as u32;
-
-    Ok(Some(parsed_instruction(
-        "Batch",
-        vec![
-            ParsedField {
-                name: "instruction_count".into(),
-                value: IdlValue::U32(instruction_count),
-            },
-            ParsedField {
-                name: "account_count".into(),
-                value: IdlValue::U32(account_count as u32),
-            },
-            ParsedField {
-                name: "instructions".into(),
-                value: IdlValue::Array(sub_instructions),
-            },
-        ],
-        generate_generic_account_names(instruction.accounts.len()),
-    )))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::core::transaction::{AccountReferenceSummary, AccountSourceSummary};
+    use sonar_idl::IdlValue;
 
     fn create_test_instruction(data: Vec<u8>, account_count: usize) -> InstructionSummary {
         InstructionSummary {

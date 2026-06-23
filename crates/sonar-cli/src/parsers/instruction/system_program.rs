@@ -2,6 +2,7 @@ use anyhow::{Context, Result};
 use solana_pubkey::Pubkey;
 use sonar_idl::IdlValue;
 
+use super::fixed_layout::{self, AccountRule, FieldDef, FieldType, InstructionDef};
 use super::{InstructionParser, ParsedField, ParsedInstruction};
 use crate::core::transaction::InstructionSummary;
 use crate::parsers::binary_reader::{self, BinaryReader};
@@ -30,25 +31,105 @@ impl InstructionParser for SystemProgramParser {
         ]);
         let data = &instruction.data[4..];
 
+        // Fixed-layout instructions (primitive fields, no seeds) are described
+        // declaratively in SYSTEM_FIXED; the rest keep bespoke parsers because
+        // their data is variable-length (seeds) or absent.
+        if let Some(parsed) = fixed_layout::parse(SYSTEM_FIXED, instruction)? {
+            return Ok(Some(parsed));
+        }
+
         match instruction_id {
-            0 => parse_create_account_instruction(data, instruction),
-            1 => parse_assign_instruction(data, instruction),
-            2 => parse_transfer_instruction(data, instruction),
             3 => parse_create_account_with_seed_instruction(data, instruction),
             4 => parse_advance_nonce_account_instruction(data, instruction),
-            5 => parse_withdraw_nonce_account_instruction(data, instruction),
-            6 => parse_initialize_nonce_account_instruction(data, instruction),
-            7 => parse_authorize_nonce_account_instruction(data, instruction),
-            8 => parse_allocate_instruction(data, instruction),
             9 => parse_allocate_with_seed_instruction(data, instruction),
             10 => parse_assign_with_seed_instruction(data, instruction),
             11 => parse_transfer_with_seed_instruction(data, instruction),
             12 => parse_upgrade_nonce_account_instruction(data, instruction),
-            13 => parse_create_account_allow_prefund_instruction(data, instruction),
             _ => Ok(None), // Unknown system instruction
         }
     }
 }
+
+/// Fixed-layout System instructions (primitive-field data, fixed account
+/// lists). Variable-length instructions — those with bincode seeds (3, 9, 10,
+/// 11), the nonce advance/upgrade ops (4, 12) — stay in the bespoke match.
+///
+/// Discriminators are 4-byte little-endian, so e.g. instruction 13 is
+/// `&[13, 0, 0, 0]`. System instructions don't validate account count, hence
+/// [`AccountRule::Verbatim`].
+static SYSTEM_FIXED: &[InstructionDef] = &[
+    InstructionDef {
+        discriminator: &[0, 0, 0, 0],
+        name: "CreateAccount",
+        fields: &[
+            FieldDef { name: "lamports", ty: FieldType::U64 },
+            FieldDef { name: "space", ty: FieldType::U64 },
+            FieldDef { name: "owner", ty: FieldType::Pubkey },
+        ],
+        account_names: &["funding_account", "new_account"],
+        account_rule: AccountRule::Verbatim,
+    },
+    InstructionDef {
+        discriminator: &[1, 0, 0, 0],
+        name: "Assign",
+        fields: &[FieldDef { name: "owner", ty: FieldType::Pubkey }],
+        account_names: &["assigned_account"],
+        account_rule: AccountRule::Verbatim,
+    },
+    InstructionDef {
+        discriminator: &[2, 0, 0, 0],
+        name: "Transfer",
+        fields: &[FieldDef { name: "lamports", ty: FieldType::U64 }],
+        account_names: &["funding_account", "recipient_account"],
+        account_rule: AccountRule::Verbatim,
+    },
+    InstructionDef {
+        discriminator: &[5, 0, 0, 0],
+        name: "WithdrawNonceAccount",
+        fields: &[FieldDef { name: "lamports", ty: FieldType::U64 }],
+        account_names: &[
+            "nonce_account",
+            "recipient_account",
+            "recent_blockhashes_sysvar",
+            "rent_sysvar",
+            "nonce_authority",
+        ],
+        account_rule: AccountRule::Verbatim,
+    },
+    InstructionDef {
+        discriminator: &[6, 0, 0, 0],
+        name: "InitializeNonceAccount",
+        fields: &[FieldDef { name: "authorized", ty: FieldType::Pubkey }],
+        account_names: &["nonce_account", "recent_blockhashes_sysvar", "rent_sysvar"],
+        account_rule: AccountRule::Verbatim,
+    },
+    InstructionDef {
+        discriminator: &[7, 0, 0, 0],
+        name: "AuthorizeNonceAccount",
+        fields: &[FieldDef { name: "new_authorized", ty: FieldType::Pubkey }],
+        account_names: &["nonce_account", "nonce_authority"],
+        account_rule: AccountRule::Verbatim,
+    },
+    InstructionDef {
+        discriminator: &[8, 0, 0, 0],
+        name: "Allocate",
+        fields: &[FieldDef { name: "space", ty: FieldType::U64 }],
+        account_names: &["allocated_account"],
+        account_rule: AccountRule::Verbatim,
+    },
+    InstructionDef {
+        discriminator: &[13, 0, 0, 0],
+        name: "CreateAccountAllowPrefund",
+        // Same layout as CreateAccount; differs only in account roles.
+        fields: &[
+            FieldDef { name: "lamports", ty: FieldType::U64 },
+            FieldDef { name: "space", ty: FieldType::U64 },
+            FieldDef { name: "owner", ty: FieldType::Pubkey },
+        ],
+        account_names: &["new_account", "(optional) funding_account"],
+        account_rule: AccountRule::Verbatim,
+    },
+];
 
 /// Read a bincode-encoded seed from the reader: base pubkey (32 bytes) + u64 seed length + seed bytes.
 fn read_seed_args(reader: &mut BinaryReader) -> Result<(Pubkey, String)> {
@@ -70,72 +151,6 @@ fn read_seed(reader: &mut BinaryReader) -> Result<String> {
     }
     let seed_bytes = reader.read_exact(seed_length)?;
     String::from_utf8(seed_bytes.to_vec()).context("invalid utf8 seed")
-}
-
-fn parse_transfer_instruction(
-    data: &[u8],
-    _instruction: &InstructionSummary,
-) -> Result<Option<ParsedInstruction>> {
-    // System Transfer instruction: 8 bytes lamports (u64)
-    if data.len() != 8 {
-        return Ok(None);
-    }
-
-    binary_reader::try_parse(data, |reader| {
-        let lamports = reader.read_u64()?;
-        Ok(ParsedInstruction {
-            name: "Transfer".to_string(),
-            fields: vec![ParsedField { name: "lamports".into(), value: IdlValue::U64(lamports) }]
-                .into(),
-            account_names: vec!["funding_account".to_string(), "recipient_account".to_string()],
-        })
-    })
-}
-
-fn parse_create_account_instruction(
-    data: &[u8],
-    _instruction: &InstructionSummary,
-) -> Result<Option<ParsedInstruction>> {
-    // System CreateAccount instruction: 8 bytes lamports, 8 bytes space, 32 bytes owner pubkey
-    if data.len() != 48 {
-        return Ok(None);
-    }
-
-    binary_reader::try_parse(data, |reader| {
-        let lamports = reader.read_u64()?;
-        let space = reader.read_u64()?;
-        let owner = reader.read_pubkey()?;
-        Ok(ParsedInstruction {
-            name: "CreateAccount".to_string(),
-            fields: vec![
-                ParsedField { name: "lamports".into(), value: IdlValue::U64(lamports) },
-                ParsedField { name: "space".into(), value: IdlValue::U64(space) },
-                ParsedField { name: "owner".into(), value: IdlValue::Pubkey(owner) },
-            ]
-            .into(),
-            account_names: vec!["funding_account".to_string(), "new_account".to_string()],
-        })
-    })
-}
-
-fn parse_assign_instruction(
-    data: &[u8],
-    _instruction: &InstructionSummary,
-) -> Result<Option<ParsedInstruction>> {
-    // System Assign instruction: 32 bytes owner pubkey
-    if data.len() != 32 {
-        return Ok(None);
-    }
-
-    binary_reader::try_parse(data, |reader| {
-        let owner = reader.read_pubkey()?;
-        Ok(ParsedInstruction {
-            name: "Assign".to_string(),
-            fields: vec![ParsedField { name: "owner".into(), value: IdlValue::Pubkey(owner) }]
-                .into(),
-            account_names: vec!["assigned_account".to_string()],
-        })
-    })
 }
 
 fn parse_create_account_with_seed_instruction(
@@ -186,101 +201,6 @@ fn parse_advance_nonce_account_instruction(
             "nonce_authority".to_string(),
         ],
     }))
-}
-
-fn parse_withdraw_nonce_account_instruction(
-    data: &[u8],
-    _instruction: &InstructionSummary,
-) -> Result<Option<ParsedInstruction>> {
-    // WithdrawNonceAccount: 8 bytes lamports
-    if data.len() != 8 {
-        return Ok(None);
-    }
-
-    binary_reader::try_parse(data, |reader| {
-        let lamports = reader.read_u64()?;
-        Ok(ParsedInstruction {
-            name: "WithdrawNonceAccount".to_string(),
-            fields: vec![ParsedField { name: "lamports".into(), value: IdlValue::U64(lamports) }]
-                .into(),
-            account_names: vec![
-                "nonce_account".to_string(),
-                "recipient_account".to_string(),
-                "recent_blockhashes_sysvar".to_string(),
-                "rent_sysvar".to_string(),
-                "nonce_authority".to_string(),
-            ],
-        })
-    })
-}
-
-fn parse_initialize_nonce_account_instruction(
-    data: &[u8],
-    _instruction: &InstructionSummary,
-) -> Result<Option<ParsedInstruction>> {
-    // InitializeNonceAccount: 32 bytes authorized pubkey
-    if data.len() != 32 {
-        return Ok(None);
-    }
-
-    binary_reader::try_parse(data, |reader| {
-        let authorized = reader.read_pubkey()?;
-        Ok(ParsedInstruction {
-            name: "InitializeNonceAccount".to_string(),
-            fields: vec![ParsedField {
-                name: "authorized".into(),
-                value: IdlValue::Pubkey(authorized),
-            }]
-            .into(),
-            account_names: vec![
-                "nonce_account".to_string(),
-                "recent_blockhashes_sysvar".to_string(),
-                "rent_sysvar".to_string(),
-            ],
-        })
-    })
-}
-
-fn parse_authorize_nonce_account_instruction(
-    data: &[u8],
-    _instruction: &InstructionSummary,
-) -> Result<Option<ParsedInstruction>> {
-    // AuthorizeNonceAccount: 32 bytes new authorized pubkey
-    if data.len() != 32 {
-        return Ok(None);
-    }
-
-    binary_reader::try_parse(data, |reader| {
-        let authorized = reader.read_pubkey()?;
-        Ok(ParsedInstruction {
-            name: "AuthorizeNonceAccount".to_string(),
-            fields: vec![ParsedField {
-                name: "new_authorized".into(),
-                value: IdlValue::Pubkey(authorized),
-            }]
-            .into(),
-            account_names: vec!["nonce_account".to_string(), "nonce_authority".to_string()],
-        })
-    })
-}
-
-fn parse_allocate_instruction(
-    data: &[u8],
-    _instruction: &InstructionSummary,
-) -> Result<Option<ParsedInstruction>> {
-    // Allocate: 8 bytes space
-    if data.len() != 8 {
-        return Ok(None);
-    }
-
-    binary_reader::try_parse(data, |reader| {
-        let space = reader.read_u64()?;
-        Ok(ParsedInstruction {
-            name: "Allocate".to_string(),
-            fields: vec![ParsedField { name: "space".into(), value: IdlValue::U64(space) }].into(),
-            account_names: vec!["allocated_account".to_string()],
-        })
-    })
 }
 
 fn parse_allocate_with_seed_instruction(
@@ -378,35 +298,6 @@ fn parse_upgrade_nonce_account_instruction(
         fields: vec![].into(),
         account_names: vec!["nonce_account".to_string()],
     }))
-}
-
-fn parse_create_account_allow_prefund_instruction(
-    data: &[u8],
-    _instruction: &InstructionSummary,
-) -> Result<Option<ParsedInstruction>> {
-    // CreateAccountAllowPrefund: Same as CreateAccount - 8 bytes lamports, 8 bytes space, 32 bytes owner
-    if data.len() != 48 {
-        return Ok(None);
-    }
-
-    binary_reader::try_parse(data, |reader| {
-        let lamports = reader.read_u64()?;
-        let space = reader.read_u64()?;
-        let owner = reader.read_pubkey()?;
-        Ok(ParsedInstruction {
-            name: "CreateAccountAllowPrefund".to_string(),
-            fields: vec![
-                ParsedField { name: "lamports".into(), value: IdlValue::U64(lamports) },
-                ParsedField { name: "space".into(), value: IdlValue::U64(space) },
-                ParsedField { name: "owner".into(), value: IdlValue::Pubkey(owner) },
-            ]
-            .into(),
-            account_names: vec![
-                "new_account".to_string(),
-                "(optional) funding_account".to_string(),
-            ],
-        })
-    })
 }
 
 #[cfg(test)]

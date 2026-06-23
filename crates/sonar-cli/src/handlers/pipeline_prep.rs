@@ -424,32 +424,22 @@ pub(crate) fn warn_unmatched_addresses(
 
     let tx_keys = collect_transaction_account_keys(parsed_txs, resolved_accounts);
 
-    for pubkey in find_unmatched_overrides(overrides, &tx_keys) {
-        log::warn!(
-            "--override target {} is not referenced in the transaction's account keys. Did you mean a different address?",
-            pubkey,
-        );
-    }
+    // Single source of truth for the typo warning; each flag only supplies its
+    // label and the addresses it referenced that the transaction never mentions.
+    let groups = [
+        ("--override target", find_unmatched_overrides(overrides, &tx_keys)),
+        ("--fund-sol address", find_unmatched_sol_fundings(fundings, &tx_keys)),
+        ("--fund-token address", find_unmatched_token_fundings(token_fundings, &tx_keys)),
+        ("--close-account target", find_unmatched_closures(account_closures, &tx_keys)),
+    ];
 
-    for pubkey in find_unmatched_sol_fundings(fundings, &tx_keys) {
-        log::warn!(
-            "--fund-sol address {} is not referenced in the transaction's account keys. Did you mean a different address?",
-            pubkey,
-        );
-    }
-
-    for pubkey in find_unmatched_token_fundings(token_fundings, &tx_keys) {
-        log::warn!(
-            "--fund-token address {} is not referenced in the transaction's account keys. Did you mean a different address?",
-            pubkey,
-        );
-    }
-
-    for pubkey in find_unmatched_closures(account_closures, &tx_keys) {
-        log::warn!(
-            "--close-account target {} is not referenced in the transaction's account keys. Did you mean a different address?",
-            pubkey,
-        );
+    for (label, unmatched) in groups {
+        for pubkey in unmatched {
+            log::warn!(
+                "{label} {pubkey} is not referenced in the transaction's account keys. \
+                 Did you mean a different address?",
+            );
+        }
     }
 }
 

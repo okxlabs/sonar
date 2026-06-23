@@ -5,7 +5,9 @@ use crate::output;
 use crate::parsers::instruction::ParserRegistry;
 use crate::utils::progress::Progress;
 
-use super::common::{CachePrepareArgs, resolve_and_derive_cache_key, resolve_cache_and_prepare};
+use super::pipeline_prep::{
+    CachePrepareArgs, resolve_and_derive_cache_key, resolve_cache_and_prepare,
+};
 
 pub(crate) fn handle(args: DecodeArgs, json: bool) -> Result<()> {
     let idl_dir = args.idl_dir.clone();
@@ -24,8 +26,11 @@ pub(crate) fn handle(args: DecodeArgs, json: bool) -> Result<()> {
     } = args;
     let rpc_batch_size = rpc.rpc_batch_size;
     let rpc_url = rpc.rpc_url;
-    let resolver_cache_location =
-        if refresh_cache { None } else { Some(super::common::build_cache_location(&cache_dir)) };
+    let resolver_cache_location = if refresh_cache {
+        None
+    } else {
+        Some(super::pipeline_prep::build_cache_location(&cache_dir))
+    };
     let TransactionInputArgs { tx } = transaction;
 
     let resolved = resolve_and_derive_cache_key(tx, &rpc_url, resolver_cache_location, &progress)?;

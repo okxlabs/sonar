@@ -193,7 +193,8 @@ fn render_bundle_summary_header(bundle: &BundleReport, total_count: usize, w: &m
             SimulationStatusReport::Failed { .. } => "✗",
         };
         let cu_used = tx_report.simulation.compute_units_consumed;
-        let cu_limit = extract_compute_unit_limit(&tx_report.transaction).unwrap_or(200_000);
+        let cu_limit = extract_compute_unit_limit(&tx_report.transaction)
+            .unwrap_or(DEFAULT_COMPUTE_UNIT_LIMIT);
         let percentage =
             if cu_limit > 0 { (cu_used as f64 / cu_limit as f64 * 100.0) as u32 } else { 0 };
         let sig = tx_report
@@ -245,7 +246,7 @@ fn render_summary_header(
         SimulationStatusReport::Failed { .. } => "✗ FAILED".to_string(),
     };
 
-    let cu_limit = extract_compute_unit_limit(transaction).unwrap_or(200_000);
+    let cu_limit = extract_compute_unit_limit(transaction).unwrap_or(DEFAULT_COMPUTE_UNIT_LIMIT);
     let cu_used = simulation.compute_units_consumed;
     let percentage =
         if cu_limit > 0 { (cu_used as f64 / cu_limit as f64 * 100.0) as u32 } else { 0 };
@@ -260,6 +261,10 @@ fn render_summary_header(
     );
     write_section_title(w, &result_text);
 }
+
+/// Compute-unit limit assumed when a transaction does not set one explicitly,
+/// used only to render the "CU used / limit" percentage.
+const DEFAULT_COMPUTE_UNIT_LIMIT: u64 = 200_000;
 
 fn extract_compute_unit_limit(transaction: &TransactionSection) -> Option<u64> {
     use sonar_idl::IdlValue;
@@ -313,22 +318,17 @@ pub(super) fn render_logs_structured(logs: &[String], w: &mut impl Write) {
         if idx > 0 {
             let _ = writeln!(w);
         }
-        let program_name = get_program_display_name(&inst_logs.program);
         let _ = writeln!(
             w,
             "{} {} instruction",
             format!("#{}", inst_logs.instruction_index + 1).bold(),
-            program_name.bold()
+            inst_logs.program.bold()
         );
 
         for entry_with_depth in &inst_logs.entries {
             render_log_entry(entry_with_depth, w);
         }
     }
-}
-
-fn get_program_display_name(pubkey: &str) -> &str {
-    pubkey
 }
 
 fn render_log_entry(entry_with_depth: &LogEntryWithDepth, w: &mut impl Write) {
@@ -338,8 +338,7 @@ fn render_log_entry(entry_with_depth: &LogEntryWithDepth, w: &mut impl Write) {
     match &entry_with_depth.entry {
         LogEntry::Invoke { program, depth: invoke_depth } => {
             if *invoke_depth > 1 {
-                let program_name = get_program_display_name(program);
-                let _ = writeln!(w, "{}{} {}", indent, "> Invoking".cyan(), program_name.cyan());
+                let _ = writeln!(w, "{}{} {}", indent, "> Invoking".cyan(), program.cyan());
             }
         }
         LogEntry::Log { message } => {
@@ -425,8 +424,8 @@ pub(super) fn render_sol_balance_changes(
         .column(Align::Left);
 
     for c in sol_changes {
-        let sol_before = c.before as f64 / 1_000_000_000.0;
-        let sol_after = c.after as f64 / 1_000_000_000.0;
+        let sol_before = c.before_sol();
+        let sol_after = c.after_sol();
         let sign = if c.change >= 0 { "+" } else { "" };
         let color = if c.change >= 0 { COLOR_GREEN } else { COLOR_RED };
 
@@ -465,9 +464,8 @@ pub(super) fn render_token_balance_changes(
         .column(Align::Left);
 
     for c in token_changes {
-        let divisor = 10f64.powi(c.decimals as i32);
-        let ui_before = c.before as f64 / divisor;
-        let ui_after = c.after as f64 / divisor;
+        let ui_before = c.ui_before();
+        let ui_after = c.ui_after();
         let prec = c.decimals as usize;
         let sign = if c.change >= 0 { "+" } else { "" };
         let color = if c.change >= 0 { COLOR_GREEN } else { COLOR_RED };

@@ -3,7 +3,7 @@ use anyhow::{Context, Result, bail};
 use serde_json::Value;
 use solana_pubkey::Pubkey;
 
-use super::borsh_type::BorshType;
+use super::borsh_type::{BorshType, KEY_RESULT_ERR, KEY_RESULT_OK, KEY_VALUE, KEY_VARIANT};
 
 /// Decode Borsh-encoded bytes into a JSON value according to the given type descriptor.
 /// Returns the decoded value and the number of bytes consumed.
@@ -122,11 +122,11 @@ pub fn decode_borsh(ty: &BorshType, data: &[u8], offset: &mut usize) -> Result<V
             }
             let variant_ty = &variants[idx];
             if matches!(variant_ty, BorshType::Unit) {
-                Ok(serde_json::json!({ "variant": idx }))
+                Ok(serde_json::json!({ KEY_VARIANT: idx }))
             } else {
                 let value = decode_borsh(variant_ty, data, offset)
                     .with_context(|| format!("in enum variant {idx}"))?;
-                Ok(serde_json::json!({ "variant": idx, "value": value }))
+                Ok(serde_json::json!({ KEY_VARIANT: idx, KEY_VALUE: value }))
             }
         }
         BorshType::HashSet(inner) => {
@@ -167,11 +167,11 @@ pub fn decode_borsh(ty: &BorshType, data: &[u8], offset: &mut usize) -> Result<V
             match tag[0] {
                 0 => {
                     let value = decode_borsh(ok_ty, data, offset).context("in result ok")?;
-                    Ok(serde_json::json!({ "ok": value }))
+                    Ok(serde_json::json!({ KEY_RESULT_OK: value }))
                 }
                 1 => {
                     let value = decode_borsh(err_ty, data, offset).context("in result err")?;
-                    Ok(serde_json::json!({ "err": value }))
+                    Ok(serde_json::json!({ KEY_RESULT_ERR: value }))
                 }
                 other => bail!("invalid result tag {other} at byte offset {}", *offset - 1),
             }

@@ -16,6 +16,9 @@ use sonar_sim::internals::{
     AccountOverride, ExecutionResult, ExecutionStatus, ResolvedAccounts, ResolvedLookup,
     SimulationMetadata, compute_sol_changes, compute_token_changes, extract_mint_decimals_combined,
 };
+use sonar_sim::{SolBalanceChange, TokenBalanceChange};
+
+use crate::converters::sol::{lamports_to_sol, raw_to_ui_amount};
 
 use super::{BalanceChangeOptions, SimulationContext};
 
@@ -43,6 +46,28 @@ pub(crate) struct SolBalanceChangeSection {
     pub(crate) change_sol: f64,
 }
 
+impl SolBalanceChangeSection {
+    fn from_change(c: &SolBalanceChange) -> Self {
+        Self {
+            account: c.account.to_string(),
+            before: c.before,
+            after: c.after,
+            change: c.change,
+            change_sol: lamports_to_sol(c.change),
+        }
+    }
+
+    /// `before` balance expressed in display SOL units.
+    pub(crate) fn before_sol(&self) -> f64 {
+        lamports_to_sol(self.before as i128)
+    }
+
+    /// `after` balance expressed in display SOL units.
+    pub(crate) fn after_sol(&self) -> f64 {
+        lamports_to_sol(self.after as i128)
+    }
+}
+
 #[derive(Serialize)]
 pub(crate) struct TokenBalanceChangeSection {
     pub(crate) owner: String,
@@ -53,6 +78,31 @@ pub(crate) struct TokenBalanceChangeSection {
     pub(crate) change: i128,
     pub(crate) decimals: u8,
     pub(crate) ui_change: f64,
+}
+
+impl TokenBalanceChangeSection {
+    fn from_change(c: &TokenBalanceChange) -> Self {
+        Self {
+            owner: c.owner.to_string(),
+            token_account: c.account.to_string(),
+            mint: c.mint.to_string(),
+            before: c.before,
+            after: c.after,
+            change: c.change,
+            decimals: c.decimals,
+            ui_change: raw_to_ui_amount(c.change, c.decimals),
+        }
+    }
+
+    /// `before` balance expressed in display (UI) token units.
+    pub(crate) fn ui_before(&self) -> f64 {
+        raw_to_ui_amount(self.before as i128, self.decimals)
+    }
+
+    /// `after` balance expressed in display (UI) token units.
+    pub(crate) fn ui_after(&self) -> f64 {
+        raw_to_ui_amount(self.after as i128, self.decimals)
+    }
 }
 
 /// Report structure for bundle simulation (multiple transactions).
@@ -109,29 +159,8 @@ impl BundleReport {
             })
             .collect();
 
-        let account_closures = closures_to_sections(ctx.account_closures);
-        let overrides = ctx.account_overrides.iter().map(override_to_section).collect();
-
-        let fundings = ctx
-            .fundings
-            .iter()
-            .map(|entry| SolFundingSection {
-                pubkey: entry.pubkey.to_string(),
-                amount_lamports: entry.amount_lamports,
-            })
-            .collect();
-
-        let token_fundings = ctx
-            .token_fundings
-            .iter()
-            .map(|entry| TokenSolFundingSection {
-                account: entry.account.to_string(),
-                mint: entry.mint.to_string(),
-                decimals: entry.decimals,
-                ui_amount: entry.ui_amount,
-                amount_raw: entry.amount_raw,
-            })
-            .collect();
+        let ContextSections { account_closures, overrides, fundings, token_fundings } =
+            context_sections(ctx);
 
         let (sol_balance_changes, token_balance_changes) =
             if balance_opts.show_balance_change && !simulations.is_empty() {
@@ -149,6 +178,42 @@ impl BundleReport {
             sol_balance_changes,
             token_balance_changes,
         }
+    }
+}
+
+/// The four context-derived section lists shared by both report builders.
+struct ContextSections {
+    account_closures: Vec<AccountClosureSection>,
+    overrides: Vec<AccountOverrideSection>,
+    fundings: Vec<SolFundingSection>,
+    token_fundings: Vec<TokenSolFundingSection>,
+}
+
+/// Builds the closures/overrides/fundings/token-funding sections from the
+/// simulation context. Single source of truth for both `Report` and `BundleReport`.
+fn context_sections(ctx: &SimulationContext) -> ContextSections {
+    ContextSections {
+        account_closures: closures_to_sections(ctx.account_closures),
+        overrides: ctx.account_overrides.iter().map(override_to_section).collect(),
+        fundings: ctx
+            .fundings
+            .iter()
+            .map(|entry| SolFundingSection {
+                pubkey: entry.pubkey.to_string(),
+                amount_lamports: entry.amount_lamports,
+            })
+            .collect(),
+        token_fundings: ctx
+            .token_fundings
+            .iter()
+            .map(|entry| TokenSolFundingSection {
+                account: entry.account.to_string(),
+                mint: entry.mint.to_string(),
+                decimals: entry.decimals,
+                ui_amount: entry.ui_amount,
+                amount_raw: entry.amount_raw,
+            })
+            .collect(),
     }
 }
 
@@ -171,8 +236,8 @@ impl Report {
             verify_signatures,
         );
         let simulation_section = SimulationSection::from_result(simulation);
-        let account_closures = closures_to_sections(ctx.account_closures);
-        let overrides = ctx.account_overrides.iter().map(override_to_section).collect();
+        let ContextSections { account_closures, overrides, fundings, token_fundings } =
+            context_sections(ctx);
         let (sol_balance_changes, token_balance_changes) =
             if matches!(simulation.status, ExecutionStatus::Succeeded)
                 && balance_opts.show_balance_change
@@ -181,26 +246,6 @@ impl Report {
             } else {
                 (Vec::new(), Vec::new())
             };
-
-        let fundings = ctx
-            .fundings
-            .iter()
-            .map(|entry| SolFundingSection {
-                pubkey: entry.pubkey.to_string(),
-                amount_lamports: entry.amount_lamports,
-            })
-            .collect();
-        let token_fundings = ctx
-            .token_fundings
-            .iter()
-            .map(|entry| TokenSolFundingSection {
-                account: entry.account.to_string(),
-                mint: entry.mint.to_string(),
-                decimals: entry.decimals,
-                ui_amount: entry.ui_amount,
-                amount_raw: entry.amount_raw,
-            })
-            .collect();
 
         Self {
             transaction,
@@ -258,36 +303,12 @@ fn compute_balance_changes_for_single_tx(
         let pre_accounts = &simulation.pre_accounts;
 
         let changes = compute_sol_changes(pre_accounts, &simulation.post_accounts);
-        sol_changes = changes
-            .into_iter()
-            .map(|c| SolBalanceChangeSection {
-                account: c.account.to_string(),
-                before: c.before,
-                after: c.after,
-                change: c.change,
-                change_sol: c.change as f64 / 1_000_000_000.0,
-            })
-            .collect();
+        sol_changes = changes.iter().map(SolBalanceChangeSection::from_change).collect();
 
         let mint_decimals = extract_mint_decimals_combined(pre_accounts, &simulation.post_accounts);
         let changes =
             compute_token_changes(pre_accounts, &simulation.post_accounts, &mint_decimals);
-        token_changes = changes
-            .into_iter()
-            .map(|c| {
-                let divisor = 10f64.powi(c.decimals as i32);
-                TokenBalanceChangeSection {
-                    owner: c.owner.to_string(),
-                    token_account: c.account.to_string(),
-                    mint: c.mint.to_string(),
-                    before: c.before,
-                    after: c.after,
-                    change: c.change,
-                    decimals: c.decimals,
-                    ui_change: c.change as f64 / divisor,
-                }
-            })
-            .collect();
+        token_changes = changes.iter().map(TokenBalanceChangeSection::from_change).collect();
     }
 
     (sol_changes, token_changes)
@@ -337,34 +358,16 @@ fn compute_bundle_overall_balance_changes(
     // Compute SOL balance changes
     let sol_changes: Vec<SolBalanceChangeSection> =
         compute_sol_changes(&pre_accounts, &post_accounts)
-            .into_iter()
-            .map(|c| SolBalanceChangeSection {
-                account: c.account.to_string(),
-                before: c.before,
-                after: c.after,
-                change: c.change,
-                change_sol: c.change as f64 / 1_000_000_000.0,
-            })
+            .iter()
+            .map(SolBalanceChangeSection::from_change)
             .collect();
 
     // Extract mint decimals from both resolved accounts and merged post accounts
     let mint_decimals = extract_mint_decimals_combined(&resolved.accounts, &post_accounts);
     let token_changes: Vec<TokenBalanceChangeSection> =
         compute_token_changes(&pre_accounts, &post_accounts, &mint_decimals)
-            .into_iter()
-            .map(|c| {
-                let divisor = 10f64.powi(c.decimals as i32);
-                TokenBalanceChangeSection {
-                    owner: c.owner.to_string(),
-                    token_account: c.account.to_string(),
-                    mint: c.mint.to_string(),
-                    before: c.before,
-                    after: c.after,
-                    change: c.change,
-                    decimals: c.decimals,
-                    ui_change: c.change as f64 / divisor,
-                }
-            })
+            .iter()
+            .map(TokenBalanceChangeSection::from_change)
             .collect();
 
     (sol_changes, token_changes)

@@ -1,6 +1,13 @@
 // crates/sonar-sim/src/pipeline.rs
 
 //! Fluent pipeline API for Solana transaction simulation.
+//!
+//! The pipeline is a typestate: each stage returns a distinct type that only
+//! exposes the methods legal at that point. `parse` → `load_accounts` →
+//! `execute` ordering is enforced by the compiler, so the illegal sequences
+//! (executing before parsing, loading before parsing) are unrepresentable
+//! rather than runtime errors. Single-transaction and bundle pipelines are
+//! likewise separate types, so `execute`/`execute_bundle` can't be mismatched.
 
 use std::sync::Arc;
 
@@ -11,7 +18,7 @@ use crate::error::{Result, SonarSimError};
 use crate::executor::BundleResult;
 use crate::executor::{
     ExecutionOptions, PreparedSimulation, SignatureVerification, SimulationOptions,
-    StateMutationOptions,
+    SimulationRunner, StateMutationOptions,
 };
 use crate::funding::prepare_token_fundings;
 use crate::mutations::Mutations;
@@ -32,27 +39,13 @@ impl FetchPolicy for OfflinePolicy {
     }
 }
 
-// ── Parsed state ──
+// ── Shared configuration ──
 
-enum ParsedState {
-    Single(ParsedTransaction),
-    Bundle(Vec<ParsedTransaction>),
-}
-
-// ── Pipeline ──
-
-/// Fluent API for configuring and executing Solana transaction simulations.
-///
-/// # Usage
-///
-/// ```ignore
-/// let result = Pipeline::new(rpc_url)
-///     .parse(raw_tx)?
-///     .load_accounts()?
-///     .with_mutations(mutations)
-///     .execute()?;
-/// ```
-pub struct Pipeline {
+/// RPC and execution configuration, captured before parsing and threaded
+/// through every stage. The setters live on [`Pipeline`]; later stages only
+/// read it.
+#[derive(Default)]
+struct PipelineConfig {
     // RPC config
     rpc_url: Option<String>,
     provider: Option<Arc<dyn RpcAccountProvider>>,
@@ -64,134 +57,11 @@ pub struct Pipeline {
     verify_signatures: bool,
     slot: Option<u64>,
     timestamp: Option<i64>,
-
-    // Stage state
-    parsed: Option<ParsedState>,
-    loader: Option<AccountLoader>,
-    resolved: Option<ResolvedAccounts>,
-    mutations: Option<Mutations>,
 }
 
-impl std::fmt::Debug for Pipeline {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Pipeline")
-            .field("rpc_url", &self.rpc_url)
-            .field("offline", &self.offline)
-            .field("verify_signatures", &self.verify_signatures)
-            .field("slot", &self.slot)
-            .field("timestamp", &self.timestamp)
-            .finish_non_exhaustive()
-    }
-}
-
-impl Pipeline {
-    fn default_state() -> Self {
-        Self {
-            rpc_url: None,
-            provider: None,
-            source: None,
-            observer: None,
-            offline: false,
-            verify_signatures: false,
-            slot: None,
-            timestamp: None,
-            parsed: None,
-            loader: None,
-            resolved: None,
-            mutations: None,
-        }
-    }
-
-    /// Create a new pipeline with the given RPC URL.
-    pub fn new(rpc_url: String) -> Self {
-        Self { rpc_url: Some(rpc_url), ..Self::default_state() }
-    }
-
-    /// Create a pipeline with a custom RPC account provider (useful for testing).
-    pub fn with_provider(provider: Arc<dyn RpcAccountProvider>) -> Self {
-        Self { provider: Some(provider), ..Self::default_state() }
-    }
-
-    // ── Config methods ──
-
-    /// Add a local account source (checked before RPC).
-    pub fn with_source(mut self, source: Arc<dyn AccountSource>) -> Self {
-        self.source = Some(source);
-        self
-    }
-
-    /// Add a fetch observer for progress reporting.
-    pub fn with_observer(mut self, observer: Arc<dyn FetchObserver>) -> Self {
-        self.observer = Some(observer);
-        self
-    }
-
-    /// Enable offline mode (blocks all RPC calls).
-    pub fn offline(mut self, offline: bool) -> Self {
-        self.offline = offline;
-        self
-    }
-
-    /// Enable/disable signature verification (default: disabled).
-    pub fn verify_signatures(mut self, verify: bool) -> Self {
-        self.verify_signatures = verify;
-        self
-    }
-
-    /// Set the SVM slot for simulation.
-    pub fn slot(mut self, slot: u64) -> Self {
-        self.slot = Some(slot);
-        self
-    }
-
-    /// Set the SVM clock timestamp for simulation.
-    pub fn timestamp(mut self, ts: i64) -> Self {
-        self.timestamp = Some(ts);
-        self
-    }
-
-    // ── Parse stage ──
-
-    /// Parse a single raw transaction (base64 or base58 encoded).
-    pub fn parse(mut self, raw_tx: &str) -> Result<Self> {
-        let parsed = parse_raw_transaction(raw_tx)?;
-        self.parsed = Some(ParsedState::Single(parsed));
-        Ok(self)
-    }
-
-    /// Parse multiple raw transactions as a bundle.
-    pub fn parse_bundle(mut self, raw_txs: &[&str]) -> Result<Self> {
-        let mut parsed = Vec::with_capacity(raw_txs.len());
-        for raw in raw_txs {
-            parsed.push(parse_raw_transaction(raw)?);
-        }
-        self.parsed = Some(ParsedState::Bundle(parsed));
-        Ok(self)
-    }
-
-    // ── Accessors ──
-
-    /// Access the parsed transaction (single-tx pipelines only).
-    pub fn parsed(&self) -> Option<&ParsedTransaction> {
-        match &self.parsed {
-            Some(ParsedState::Single(p)) => Some(p),
-            _ => None,
-        }
-    }
-
-    /// Access the resolved accounts (available after `load_accounts()`).
-    pub fn resolved(&self) -> Option<&ResolvedAccounts> {
-        self.resolved.as_ref()
-    }
-
-    // ── Load stage ──
-
-    /// Fetch all accounts referenced by the parsed transaction(s).
-    pub fn load_accounts(mut self) -> Result<Self> {
-        let parsed = self.parsed.as_ref().ok_or(SonarSimError::Validation {
-            reason: "parse() must be called before load_accounts()".into(),
-        })?;
-
+impl PipelineConfig {
+    /// Build a configured [`AccountLoader`] from the provider/RPC settings.
+    fn build_loader(&self) -> Result<AccountLoader> {
         let mut loader = if let Some(provider) = self.provider.clone() {
             AccountLoader::with_provider(provider)
         } else {
@@ -209,60 +79,13 @@ impl Pipeline {
         if let Some(observer) = &self.observer {
             loader = loader.with_observer(observer.clone());
         }
-
-        let resolved = match parsed {
-            ParsedState::Single(p) => loader.load_for_transaction(&p.transaction)?,
-            ParsedState::Bundle(txs) => {
-                let refs: Vec<&VersionedTransaction> = txs.iter().map(|t| &t.transaction).collect();
-                loader.load_for_transactions(&refs)?
-            }
-        };
-
-        self.loader = Some(loader);
-        self.resolved = Some(resolved);
-        Ok(self)
+        Ok(loader)
     }
 
-    // ── Mutations ──
-
-    /// Set mutations to apply before execution.
-    pub fn with_mutations(mut self, mutations: Mutations) -> Self {
-        self.mutations = Some(mutations);
-        self
-    }
-
-    // ── Private helpers ──
-
-    /// Apply transaction-level mutations (instruction patches) to a single transaction.
-    fn apply_tx_mutations(tx: &mut VersionedTransaction, mutations: &Mutations) -> Result<()> {
-        let tx_m = &mutations.transaction;
-        if !tx_m.ix_account_ops.is_empty() {
-            apply_ix_account_ops(tx, &tx_m.ix_account_ops)?;
-        }
-        if !tx_m.ix_data_patches.is_empty() {
-            apply_ix_data_patches(tx, &tx_m.ix_data_patches)?;
-        }
-        Ok(())
-    }
-
-    /// Extract and validate the execution-stage state from the pipeline.
-    fn take_execution_state(&mut self) -> Result<(ParsedState, ResolvedAccounts, AccountLoader)> {
-        let parsed = self.parsed.take().ok_or(SonarSimError::Validation {
-            reason: "parse() or parse_bundle() must be called before execution".into(),
-        })?;
-        let resolved = self.resolved.take().ok_or(SonarSimError::Validation {
-            reason: "load_accounts() must be called before execution".into(),
-        })?;
-        let loader = self.loader.take().ok_or(SonarSimError::Validation {
-            reason: "load_accounts() must be called before execution".into(),
-        })?;
-        Ok((parsed, resolved, loader))
-    }
-
-    /// Build SimulationOptions from pipeline config and user-facing Mutations.
+    /// Build [`SimulationOptions`] from config and user-facing [`Mutations`].
     ///
-    /// Handles token funding preparation and maps Mutations fields into
-    /// the executor's StateMutationOptions.
+    /// Handles token funding preparation and maps `Mutations` fields into the
+    /// executor's [`StateMutationOptions`].
     fn build_sim_options(
         &self,
         mutations: Mutations,
@@ -291,63 +114,257 @@ impl Pipeline {
             },
         })
     }
+}
 
-    // ── Execute stage ──
+/// Apply transaction-level mutations (instruction patches) to a transaction.
+fn apply_tx_mutations(tx: &mut VersionedTransaction, mutations: &Mutations) -> Result<()> {
+    let tx_m = &mutations.transaction;
+    if !tx_m.ix_account_ops.is_empty() {
+        apply_ix_account_ops(tx, &tx_m.ix_account_ops)?;
+    }
+    if !tx_m.ix_data_patches.is_empty() {
+        apply_ix_data_patches(tx, &tx_m.ix_data_patches)?;
+    }
+    Ok(())
+}
 
-    /// Execute a single transaction simulation.
-    pub fn execute(mut self) -> Result<SimulationResult> {
-        let (parsed_state, resolved, mut loader) = self.take_execution_state()?;
+/// Prepare a ready-to-run [`SimulationRunner`] from resolved accounts and
+/// mutations. Shared by single and bundle execution.
+fn build_runner(
+    config: &PipelineConfig,
+    mut loader: AccountLoader,
+    resolved: ResolvedAccounts,
+    mutations: Mutations,
+) -> Result<SimulationRunner> {
+    let sim_opts = config.build_sim_options(mutations, &mut loader, &resolved)?;
+    let prepared = PreparedSimulation::prepare(resolved, sim_opts)?;
+    Ok(prepared.into_runner())
+}
 
-        let parsed = match parsed_state {
-            ParsedState::Single(p) => p,
-            ParsedState::Bundle(_) => {
-                return Err(SonarSimError::Validation {
-                    reason: "use execute_bundle() for bundle pipelines".into(),
-                });
-            }
-        };
+// ── Stage 0: Pipeline (config + parse) ──
 
-        let mutations = self.mutations.take().unwrap_or_default();
-        let mut tx = parsed.transaction;
-        Self::apply_tx_mutations(&mut tx, &mutations)?;
+/// Entry point: configure RPC/execution settings, then `parse` (single) or
+/// `parse_bundle` to advance to the next stage.
+///
+/// # Usage
+///
+/// ```ignore
+/// let result = Pipeline::new(rpc_url)
+///     .parse(raw_tx)?
+///     .load_accounts()?
+///     .with_mutations(mutations)
+///     .execute()?;
+/// ```
+#[derive(Default)]
+pub struct Pipeline {
+    config: PipelineConfig,
+}
 
-        let sim_opts = self.build_sim_options(mutations, &mut loader, &resolved)?;
-        let prepared = PreparedSimulation::prepare(resolved, sim_opts)?;
-        let mut runner = prepared.into_runner();
-        let exec_result = runner.execute(&tx)?;
+impl std::fmt::Debug for Pipeline {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Pipeline")
+            .field("rpc_url", &self.config.rpc_url)
+            .field("offline", &self.config.offline)
+            .field("verify_signatures", &self.config.verify_signatures)
+            .field("slot", &self.config.slot)
+            .field("timestamp", &self.config.timestamp)
+            .finish_non_exhaustive()
+    }
+}
 
-        Ok(SimulationResult::from_execution(exec_result))
+impl Pipeline {
+    /// Create a new pipeline with the given RPC URL.
+    pub fn new(rpc_url: String) -> Self {
+        Self { config: PipelineConfig { rpc_url: Some(rpc_url), ..Default::default() } }
     }
 
-    /// Execute a bundle of transactions sequentially.
+    /// Create a pipeline with a custom RPC account provider (useful for testing).
+    pub fn with_provider(provider: Arc<dyn RpcAccountProvider>) -> Self {
+        Self { config: PipelineConfig { provider: Some(provider), ..Default::default() } }
+    }
+
+    // ── Config methods ──
+
+    /// Add a local account source (checked before RPC).
+    pub fn with_source(mut self, source: Arc<dyn AccountSource>) -> Self {
+        self.config.source = Some(source);
+        self
+    }
+
+    /// Add a fetch observer for progress reporting.
+    pub fn with_observer(mut self, observer: Arc<dyn FetchObserver>) -> Self {
+        self.config.observer = Some(observer);
+        self
+    }
+
+    /// Enable offline mode (blocks all RPC calls).
+    pub fn offline(mut self, offline: bool) -> Self {
+        self.config.offline = offline;
+        self
+    }
+
+    /// Enable/disable signature verification (default: disabled).
+    pub fn verify_signatures(mut self, verify: bool) -> Self {
+        self.config.verify_signatures = verify;
+        self
+    }
+
+    /// Set the SVM slot for simulation.
+    pub fn slot(mut self, slot: u64) -> Self {
+        self.config.slot = Some(slot);
+        self
+    }
+
+    /// Set the SVM clock timestamp for simulation.
+    pub fn timestamp(mut self, ts: i64) -> Self {
+        self.config.timestamp = Some(ts);
+        self
+    }
+
+    // ── Parse stage ──
+
+    /// Parse a single raw transaction (base64 or base58 encoded).
+    pub fn parse(self, raw_tx: &str) -> Result<ParsedPipeline> {
+        let parsed = parse_raw_transaction(raw_tx)?;
+        Ok(ParsedPipeline { config: self.config, parsed })
+    }
+
+    /// Parse multiple raw transactions as a bundle.
+    pub fn parse_bundle(self, raw_txs: &[&str]) -> Result<ParsedBundlePipeline> {
+        let mut parsed = Vec::with_capacity(raw_txs.len());
+        for raw in raw_txs {
+            parsed.push(parse_raw_transaction(raw)?);
+        }
+        Ok(ParsedBundlePipeline { config: self.config, parsed })
+    }
+}
+
+// ── Stage 1: parsed (single) ──
+
+/// A parsed single-transaction pipeline. Call `load_accounts` to advance.
+pub struct ParsedPipeline {
+    config: PipelineConfig,
+    parsed: ParsedTransaction,
+}
+
+impl ParsedPipeline {
+    /// Access the parsed transaction.
+    pub fn parsed(&self) -> &ParsedTransaction {
+        &self.parsed
+    }
+
+    /// Fetch all accounts referenced by the parsed transaction.
+    pub fn load_accounts(self) -> Result<LoadedPipeline> {
+        let mut loader = self.config.build_loader()?;
+        let resolved = loader.load_for_transaction(&self.parsed.transaction)?;
+        Ok(LoadedPipeline {
+            config: self.config,
+            parsed: self.parsed,
+            loader,
+            resolved,
+            mutations: None,
+        })
+    }
+}
+
+// ── Stage 1: parsed (bundle) ──
+
+/// A parsed bundle pipeline. Call `load_accounts` to advance.
+pub struct ParsedBundlePipeline {
+    config: PipelineConfig,
+    parsed: Vec<ParsedTransaction>,
+}
+
+impl ParsedBundlePipeline {
+    /// Fetch all accounts referenced by every transaction in the bundle.
+    pub fn load_accounts(self) -> Result<LoadedBundlePipeline> {
+        let mut loader = self.config.build_loader()?;
+        let refs: Vec<&VersionedTransaction> = self.parsed.iter().map(|t| &t.transaction).collect();
+        let resolved = loader.load_for_transactions(&refs)?;
+        Ok(LoadedBundlePipeline {
+            config: self.config,
+            parsed: self.parsed,
+            loader,
+            resolved,
+            mutations: None,
+        })
+    }
+}
+
+// ── Stage 2: loaded (single) ──
+
+/// A single-transaction pipeline with accounts loaded; ready to `execute`.
+pub struct LoadedPipeline {
+    config: PipelineConfig,
+    parsed: ParsedTransaction,
+    loader: AccountLoader,
+    resolved: ResolvedAccounts,
+    mutations: Option<Mutations>,
+}
+
+impl LoadedPipeline {
+    /// Access the resolved accounts.
+    pub fn resolved(&self) -> &ResolvedAccounts {
+        &self.resolved
+    }
+
+    /// Set mutations to apply before execution.
+    pub fn with_mutations(mut self, mutations: Mutations) -> Self {
+        self.mutations = Some(mutations);
+        self
+    }
+
+    /// Execute the transaction simulation.
+    pub fn execute(self) -> Result<SimulationResult> {
+        let mutations = self.mutations.unwrap_or_default();
+        let mut tx = self.parsed.transaction;
+        apply_tx_mutations(&mut tx, &mutations)?;
+
+        let mut runner = build_runner(&self.config, self.loader, self.resolved, mutations)?;
+        let exec_result = runner.execute(&tx)?;
+        Ok(SimulationResult::from_execution(exec_result))
+    }
+}
+
+// ── Stage 2: loaded (bundle) ──
+
+/// A bundle pipeline with accounts loaded; ready to `execute_bundle`.
+pub struct LoadedBundlePipeline {
+    config: PipelineConfig,
+    parsed: Vec<ParsedTransaction>,
+    loader: AccountLoader,
+    resolved: ResolvedAccounts,
+    mutations: Option<Mutations>,
+}
+
+impl LoadedBundlePipeline {
+    /// Access the resolved accounts.
+    pub fn resolved(&self) -> &ResolvedAccounts {
+        &self.resolved
+    }
+
+    /// Set mutations to apply before execution.
+    pub fn with_mutations(mut self, mutations: Mutations) -> Self {
+        self.mutations = Some(mutations);
+        self
+    }
+
+    /// Execute the bundle of transactions sequentially.
     ///
     /// Returns a [`BundleResult`] containing results for all executed
     /// transactions and the total count. Check [`BundleResult::skipped_count`]
     /// to detect transactions that were never attempted due to a prior failure.
-    pub fn execute_bundle(mut self) -> Result<BundleResult<Result<SimulationResult>>> {
-        let (parsed_state, resolved, mut loader) = self.take_execution_state()?;
+    pub fn execute_bundle(self) -> Result<BundleResult<Result<SimulationResult>>> {
+        let mutations = self.mutations.unwrap_or_default();
 
-        let parsed_txs = match parsed_state {
-            ParsedState::Bundle(txs) => txs,
-            ParsedState::Single(_) => {
-                return Err(SonarSimError::Validation {
-                    reason: "use execute() for single-tx pipelines".into(),
-                });
-            }
-        };
-
-        let mutations = self.mutations.take().unwrap_or_default();
-
-        let mut txs: Vec<VersionedTransaction> = Vec::with_capacity(parsed_txs.len());
-        for parsed in &parsed_txs {
+        let mut txs: Vec<VersionedTransaction> = Vec::with_capacity(self.parsed.len());
+        for parsed in &self.parsed {
             let mut tx = parsed.transaction.clone();
-            Self::apply_tx_mutations(&mut tx, &mutations)?;
+            apply_tx_mutations(&mut tx, &mutations)?;
             txs.push(tx);
         }
 
-        let sim_opts = self.build_sim_options(mutations, &mut loader, &resolved)?;
-        let prepared = PreparedSimulation::prepare(resolved, sim_opts)?;
-        let mut runner = prepared.into_runner();
+        let mut runner = build_runner(&self.config, self.loader, self.resolved, mutations)?;
 
         let tx_refs: Vec<&VersionedTransaction> = txs.iter().collect();
         let bundle = runner.execute_bundle(&tx_refs);
@@ -370,45 +387,23 @@ mod tests {
     // Base64-encoded SOL transfer transaction (deterministic: payer=[1;32], recipient=[2;32])
     const TEST_TX_BASE64: &str = "AYXl4tu2q/qsjwA+woUaYKC+uPuAozXJHsgxsZLux/8uXuN2z8P1tLt0wHkQImIfxXBjg3dT8ryk8D5BA6g+/QABAAEDiojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1wCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAgIAAQwCAAAAgJaYAAAAAAA=";
 
+    // Note: the staged typestate makes "execute before parse", "execute before
+    // load", "load before parse", and single/bundle execute mismatches into
+    // compile errors rather than runtime `Validation` errors — so those former
+    // negative tests no longer exist (the illegal states can't be constructed).
+
     #[test]
-    fn execute_before_parse_returns_validation_error() {
-        let pipeline = Pipeline::new("http://localhost:8899".into());
-        let result = pipeline.execute();
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert!(matches!(err, SonarSimError::Validation { .. }));
+    fn parse_exposes_transaction() {
+        let parsed = Pipeline::new("http://localhost:8899".into()).parse(TEST_TX_BASE64).unwrap();
+        // `parsed()` is available on the parsed stage and returns the tx.
+        let _ = parsed.parsed();
     }
 
     #[test]
-    fn execute_before_load_returns_validation_error() {
-        let pipeline = Pipeline::new("http://localhost:8899".into()).parse(TEST_TX_BASE64).unwrap();
-        let result = pipeline.execute();
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert!(matches!(err, SonarSimError::Validation { .. }));
-    }
-
-    #[test]
-    fn load_before_parse_returns_validation_error() {
-        let pipeline = Pipeline::new("http://localhost:8899".into());
-        let result = pipeline.load_accounts();
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert!(matches!(err, SonarSimError::Validation { .. }));
-    }
-
-    #[test]
-    fn parse_stores_transaction() {
-        let pipeline = Pipeline::new("http://localhost:8899".into()).parse(TEST_TX_BASE64).unwrap();
-        assert!(pipeline.parsed().is_some());
-    }
-
-    #[test]
-    fn execute_bundle_on_single_returns_error() {
-        let pipeline = Pipeline::new("http://localhost:8899".into()).parse(TEST_TX_BASE64).unwrap();
-        let result = pipeline.execute_bundle();
-        assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), SonarSimError::Validation { .. }));
+    fn parse_bundle_succeeds() {
+        let bundle = Pipeline::new("http://localhost:8899".into())
+            .parse_bundle(&[TEST_TX_BASE64, TEST_TX_BASE64]);
+        assert!(bundle.is_ok());
     }
 
     #[test]
@@ -423,28 +418,5 @@ mod tests {
         let br_full = crate::executor::BundleResult::new(vec![Ok::<_, String>(())], 1);
         assert_eq!(br_full.skipped_count(), 0);
         assert!(br_full.is_complete());
-    }
-
-    #[test]
-    fn execute_on_bundle_returns_error() {
-        let pipeline = Pipeline::new("http://localhost:8899".into())
-            .parse_bundle(&[TEST_TX_BASE64, TEST_TX_BASE64])
-            .unwrap();
-        let result = pipeline.execute();
-        assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), SonarSimError::Validation { .. }));
-    }
-
-    #[test]
-    fn parsed_returns_none_for_bundle() {
-        let pipeline =
-            Pipeline::new("http://localhost:8899".into()).parse_bundle(&[TEST_TX_BASE64]).unwrap();
-        assert!(pipeline.parsed().is_none());
-    }
-
-    #[test]
-    fn resolved_returns_none_before_load() {
-        let pipeline = Pipeline::new("http://localhost:8899".into()).parse(TEST_TX_BASE64).unwrap();
-        assert!(pipeline.resolved().is_none());
     }
 }

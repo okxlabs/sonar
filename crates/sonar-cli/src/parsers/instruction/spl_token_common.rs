@@ -1,12 +1,16 @@
 //! Shared SPL Token instruction parsing used by both Legacy Token and Token-2022.
 //!
-//! Both program IDs accept the same base instruction set (discriminators 0–24, 38).
-//! This module owns the dispatch table, the per-instruction parsers, and the
-//! account-naming helpers that both flavors depend on.
+//! Token-2022 is a superset of Legacy Token: every Legacy instruction is also
+//! valid under Token-2022. This module owns that shared set — the base
+//! instructions (discriminators 0–24, 38) plus the Pinocchio extensions
+//! UnwrapLamports (45) and Batch (255) — so both flavors decode them
+//! identically through [`parse_base_instruction`]. Token-2022 adds its own
+//! extension instructions on top in `token2022_program`.
 
 use anyhow::Result;
 use sonar_idl::IdlValue;
 
+use super::fixed_layout::{self, AccountRule, FieldDef, FieldType, InstructionDef};
 use super::{ParsedField, ParsedInstruction};
 use crate::core::transaction::InstructionSummary;
 use crate::parsers::binary_reader;
@@ -22,131 +26,135 @@ const INITIALIZE_MINT2_DISCRIMINATOR: u8 = 20;
 const AMOUNT_TO_UI_AMOUNT_DISCRIMINATOR: u8 = 23;
 const UI_AMOUNT_TO_AMOUNT_DISCRIMINATOR: u8 = 24;
 pub(super) const WITHDRAW_EXCESS_LAMPORTS_DISCRIMINATOR: u8 = 38;
+const UNWRAP_LAMPORTS_DISCRIMINATOR: u8 = 45;
+const BATCH_DISCRIMINATOR: u8 = 255;
 
-enum DataLayout {
-    Amount,
-    AmountDecimals,
-    NoData,
-    SingleAccount,
-}
-
-struct InstructionDef {
-    discriminator: u8,
-    name: &'static str,
-    layout: DataLayout,
-    min_accounts: usize,
-    account_names: &'static [&'static str],
-}
-
-static INSTRUCTIONS: &[InstructionDef] = &[
-    // Amount (u64 only)
+/// The fixed-layout subset of the base SPL Token instruction set, shared by
+/// Legacy Token and Token-2022. Variable-length instructions (InitializeMint,
+/// SetAuthority, UiAmountToAmount, multisig, the Pinocchio extensions, …) are
+/// handled by the bespoke match in [`parse_base_instruction`].
+///
+/// Discriminators are the single leading byte. The `*Checked` instructions
+/// carry a trailing `decimals` byte; the rest are either a bare `amount` or
+/// have no data. All but `SyncNative`/`GetAccountDataSize`/`InitializeImmutableOwner`
+/// (single-account) allow trailing multisig signer accounts.
+static TOKEN_BASE: &[InstructionDef] = &[
     InstructionDef {
-        discriminator: 3,
+        discriminator: &[3],
         name: "Transfer",
-        layout: DataLayout::Amount,
-        min_accounts: 3,
+        fields: &[FieldDef { name: "amount", ty: FieldType::U64 }],
         account_names: &["source", "destination", "owner"],
+        account_rule: AccountRule::MinWithSigners,
     },
     InstructionDef {
-        discriminator: 4,
+        discriminator: &[4],
         name: "Approve",
-        layout: DataLayout::Amount,
-        min_accounts: 3,
+        fields: &[FieldDef { name: "amount", ty: FieldType::U64 }],
         account_names: &["source", "delegate", "owner"],
+        account_rule: AccountRule::MinWithSigners,
     },
     InstructionDef {
-        discriminator: 7,
+        discriminator: &[7],
         name: "MintTo",
-        layout: DataLayout::Amount,
-        min_accounts: 3,
+        fields: &[FieldDef { name: "amount", ty: FieldType::U64 }],
         account_names: &["mint", "account", "owner"],
+        account_rule: AccountRule::MinWithSigners,
     },
     InstructionDef {
-        discriminator: 8,
+        discriminator: &[8],
         name: "Burn",
-        layout: DataLayout::Amount,
-        min_accounts: 3,
+        fields: &[FieldDef { name: "amount", ty: FieldType::U64 }],
         account_names: &["account", "mint", "owner"],
+        account_rule: AccountRule::MinWithSigners,
     },
-    // AmountDecimals (u64 + u8)
     InstructionDef {
-        discriminator: 12,
+        discriminator: &[12],
         name: "TransferChecked",
-        layout: DataLayout::AmountDecimals,
-        min_accounts: 4,
+        fields: &[
+            FieldDef { name: "amount", ty: FieldType::U64 },
+            FieldDef { name: "decimals", ty: FieldType::U8 },
+        ],
         account_names: &["source", "mint", "destination", "owner"],
+        account_rule: AccountRule::MinWithSigners,
     },
     InstructionDef {
-        discriminator: 13,
+        discriminator: &[13],
         name: "ApproveChecked",
-        layout: DataLayout::AmountDecimals,
-        min_accounts: 4,
+        fields: &[
+            FieldDef { name: "amount", ty: FieldType::U64 },
+            FieldDef { name: "decimals", ty: FieldType::U8 },
+        ],
         account_names: &["source", "mint", "delegate", "owner"],
+        account_rule: AccountRule::MinWithSigners,
     },
     InstructionDef {
-        discriminator: 14,
+        discriminator: &[14],
         name: "MintToChecked",
-        layout: DataLayout::AmountDecimals,
-        min_accounts: 3,
+        fields: &[
+            FieldDef { name: "amount", ty: FieldType::U64 },
+            FieldDef { name: "decimals", ty: FieldType::U8 },
+        ],
         account_names: &["mint", "account", "owner"],
+        account_rule: AccountRule::MinWithSigners,
     },
     InstructionDef {
-        discriminator: 15,
+        discriminator: &[15],
         name: "BurnChecked",
-        layout: DataLayout::AmountDecimals,
-        min_accounts: 3,
+        fields: &[
+            FieldDef { name: "amount", ty: FieldType::U64 },
+            FieldDef { name: "decimals", ty: FieldType::U8 },
+        ],
         account_names: &["account", "mint", "owner"],
+        account_rule: AccountRule::MinWithSigners,
     },
-    // NoData
     InstructionDef {
-        discriminator: 5,
+        discriminator: &[5],
         name: "Revoke",
-        layout: DataLayout::NoData,
-        min_accounts: 2,
+        fields: &[],
         account_names: &["source", "owner"],
+        account_rule: AccountRule::MinWithSigners,
     },
     InstructionDef {
-        discriminator: 9,
+        discriminator: &[9],
         name: "CloseAccount",
-        layout: DataLayout::NoData,
-        min_accounts: 3,
+        fields: &[],
         account_names: &["account", "destination", "owner"],
+        account_rule: AccountRule::MinWithSigners,
     },
     InstructionDef {
-        discriminator: 10,
+        discriminator: &[10],
         name: "FreezeAccount",
-        layout: DataLayout::NoData,
-        min_accounts: 3,
+        fields: &[],
         account_names: &["account", "mint", "freeze_authority"],
+        account_rule: AccountRule::MinWithSigners,
     },
     InstructionDef {
-        discriminator: 11,
+        discriminator: &[11],
         name: "ThawAccount",
-        layout: DataLayout::NoData,
-        min_accounts: 3,
+        fields: &[],
         account_names: &["account", "mint", "freeze_authority"],
+        account_rule: AccountRule::MinWithSigners,
     },
-    // SingleAccount
     InstructionDef {
-        discriminator: 17,
+        discriminator: &[17],
         name: "SyncNative",
-        layout: DataLayout::SingleAccount,
-        min_accounts: 1,
+        fields: &[],
         account_names: &["account"],
+        account_rule: AccountRule::Exact,
     },
     InstructionDef {
-        discriminator: 21,
+        discriminator: &[21],
         name: "GetAccountDataSize",
-        layout: DataLayout::SingleAccount,
-        min_accounts: 1,
+        fields: &[],
         account_names: &["mint"],
+        account_rule: AccountRule::Exact,
     },
     InstructionDef {
-        discriminator: 22,
+        discriminator: &[22],
         name: "InitializeImmutableOwner",
-        layout: DataLayout::SingleAccount,
-        min_accounts: 1,
+        fields: &[],
         account_names: &["account"],
+        account_rule: AccountRule::Exact,
     },
 ];
 
@@ -157,82 +165,39 @@ pub(super) fn parse_base_instruction(
     data: &[u8],
     instruction: &InstructionSummary,
 ) -> Result<Option<ParsedInstruction>> {
-    if let Some(def) = INSTRUCTIONS.iter().find(|d| d.discriminator == instruction_id) {
-        return dispatch_table_instruction(def, data, instruction);
+    if let Some(parsed) = fixed_layout::parse(TOKEN_BASE, instruction)? {
+        return Ok(Some(parsed));
     }
 
     match instruction_id {
         INITIALIZE_MINT_DISCRIMINATOR => parse_initialize_mint_instruction(data),
         INITIALIZE_ACCOUNT_DISCRIMINATOR => parse_initialize_account_instruction(instruction),
-        INITIALIZE_MULTISIG_DISCRIMINATOR => parse_initialize_multisig_instruction(data, instruction),
+        INITIALIZE_MULTISIG_DISCRIMINATOR => {
+            parse_initialize_multisig_instruction(data, instruction)
+        }
         SET_AUTHORITY_DISCRIMINATOR => parse_set_authority_instruction(data, instruction),
-        INITIALIZE_ACCOUNT2_DISCRIMINATOR => parse_initialize_account2_instruction(data, instruction),
-        INITIALIZE_ACCOUNT3_DISCRIMINATOR => parse_initialize_account3_instruction(data, instruction),
+        INITIALIZE_ACCOUNT2_DISCRIMINATOR => {
+            parse_initialize_account2_instruction(data, instruction)
+        }
+        INITIALIZE_ACCOUNT3_DISCRIMINATOR => {
+            parse_initialize_account3_instruction(data, instruction)
+        }
         INITIALIZE_MULTISIG2_DISCRIMINATOR => {
             parse_initialize_multisig2_instruction(data, instruction)
         }
         INITIALIZE_MINT2_DISCRIMINATOR => parse_initialize_mint2_instruction(data),
-        AMOUNT_TO_UI_AMOUNT_DISCRIMINATOR => parse_amount_to_ui_amount_instruction(data, instruction),
-        UI_AMOUNT_TO_AMOUNT_DISCRIMINATOR => parse_ui_amount_to_amount_instruction(data, instruction),
+        AMOUNT_TO_UI_AMOUNT_DISCRIMINATOR => {
+            parse_amount_to_ui_amount_instruction(data, instruction)
+        }
+        UI_AMOUNT_TO_AMOUNT_DISCRIMINATOR => {
+            parse_ui_amount_to_amount_instruction(data, instruction)
+        }
         WITHDRAW_EXCESS_LAMPORTS_DISCRIMINATOR => {
             parse_withdraw_excess_lamports_instruction(instruction)
         }
+        UNWRAP_LAMPORTS_DISCRIMINATOR => parse_unwrap_lamports_instruction(data, instruction),
+        BATCH_DISCRIMINATOR => parse_batch_instruction(data, instruction),
         _ => Ok(None),
-    }
-}
-
-fn dispatch_table_instruction(
-    def: &InstructionDef,
-    data: &[u8],
-    instruction: &InstructionSummary,
-) -> Result<Option<ParsedInstruction>> {
-    match def.layout {
-        DataLayout::Amount => {
-            if data.len() != 8 || instruction.accounts.len() < def.min_accounts {
-                return Ok(None);
-            }
-            binary_reader::try_parse(data, |reader| {
-                let amount = reader.read_u64()?;
-                Ok(parsed_instruction(
-                    def.name,
-                    vec![ParsedField { name: "amount".into(), value: IdlValue::U64(amount) }],
-                    account_names_with_signers(def.account_names, instruction.accounts.len()),
-                ))
-            })
-        }
-        DataLayout::AmountDecimals => {
-            if data.len() != 9 || instruction.accounts.len() < def.min_accounts {
-                return Ok(None);
-            }
-            binary_reader::try_parse(data, |reader| {
-                let amount = reader.read_u64()?;
-                let decimals = reader.read_u8()?;
-                Ok(parsed_instruction(
-                    def.name,
-                    vec![
-                        ParsedField { name: "amount".into(), value: IdlValue::U64(amount) },
-                        ParsedField { name: "decimals".into(), value: IdlValue::U8(decimals) },
-                    ],
-                    account_names_with_signers(def.account_names, instruction.accounts.len()),
-                ))
-            })
-        }
-        DataLayout::NoData => {
-            if instruction.accounts.len() < def.min_accounts {
-                return Ok(None);
-            }
-            Ok(Some(parsed_instruction(
-                def.name,
-                vec![],
-                account_names_with_signers(def.account_names, instruction.accounts.len()),
-            )))
-        }
-        DataLayout::SingleAccount => {
-            if instruction.accounts.len() != 1 {
-                return Ok(None);
-            }
-            Ok(Some(parsed_instruction(def.name, vec![], owned_account_names(def.account_names))))
-        }
     }
 }
 
@@ -400,6 +365,94 @@ pub(super) fn parse_withdraw_excess_lamports_instruction(
             &["source", "destination", "authority"],
             instruction.accounts.len(),
         ),
+    )))
+}
+
+/// Pinocchio SPL Token extension: UnwrapLamports (discriminator 45).
+///
+/// Body is a 1-byte amount discriminant followed by either nothing
+/// (amount = "all") or 8 bytes (amount = u64). Anything else is rejected.
+fn parse_unwrap_lamports_instruction(
+    data: &[u8],
+    instruction: &InstructionSummary,
+) -> Result<Option<ParsedInstruction>> {
+    if instruction.accounts.len() < 3 {
+        return Ok(None);
+    }
+
+    let amount = match data {
+        [0] => IdlValue::String("all".to_string()),
+        [1, rest @ ..] if rest.len() == 8 => {
+            IdlValue::U64(u64::from_le_bytes(rest.try_into().unwrap()))
+        }
+        _ => return Ok(None),
+    };
+
+    Ok(Some(parsed_instruction(
+        "UnwrapLamports",
+        vec![ParsedField { name: "amount".into(), value: amount }],
+        account_names_with_signers(
+            &["source", "destination", "authority"],
+            instruction.accounts.len(),
+        ),
+    )))
+}
+
+/// Pinocchio SPL Token extension: Batch (discriminator 255).
+///
+/// Body is a sequence of `(account_count: u8, data_len: u8, data: [u8; data_len])`
+/// tuples. We validate the framing and emit structured sub-instructions so
+/// callers don't need to re-parse the raw bytes.
+fn parse_batch_instruction(
+    data: &[u8],
+    instruction: &InstructionSummary,
+) -> Result<Option<ParsedInstruction>> {
+    let mut offset = 0usize;
+    let mut sub_instructions: Vec<IdlValue> = Vec::new();
+    let mut account_count = 0usize;
+
+    while offset < data.len() {
+        if offset + 2 > data.len() {
+            return Ok(None);
+        }
+
+        let instruction_account_count = data[offset] as usize;
+        let instruction_data_len = data[offset + 1] as usize;
+        let data_start = offset + 2;
+        let data_end = data_start + instruction_data_len;
+
+        if data_end > data.len() {
+            return Ok(None);
+        }
+
+        sub_instructions.push(IdlValue::Struct(vec![
+            ("account_count".to_string(), IdlValue::U8(instruction_account_count as u8)),
+            ("data".to_string(), IdlValue::String(hex::encode(&data[data_start..data_end]))),
+        ]));
+        account_count = account_count.saturating_add(instruction_account_count);
+        offset = data_end;
+    }
+
+    if account_count != instruction.accounts.len() {
+        return Ok(None);
+    }
+
+    let instruction_count = sub_instructions.len() as u32;
+
+    Ok(Some(parsed_instruction(
+        "Batch",
+        vec![
+            ParsedField {
+                name: "instruction_count".into(),
+                value: IdlValue::U32(instruction_count),
+            },
+            ParsedField {
+                name: "account_count".into(),
+                value: IdlValue::U32(account_count as u32),
+            },
+            ParsedField { name: "instructions".into(), value: IdlValue::Array(sub_instructions) },
+        ],
+        generate_generic_account_names(instruction.accounts.len()),
     )))
 }
 

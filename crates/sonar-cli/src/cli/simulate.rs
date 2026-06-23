@@ -9,6 +9,7 @@ use solana_account::Account;
 use solana_pubkey::Pubkey;
 
 use super::RpcArgs;
+use crate::converters::sol::LAMPORTS_PER_SOL;
 
 const HELP_HEADING_INPUT_RPC: &str = "Input & RPC";
 const HELP_HEADING_STATE_PREPARATION: &str = "State Preparation";
@@ -313,8 +314,6 @@ pub(crate) fn parse_account_json(path: &Path) -> Result<Account, String> {
     crate::core::account_file::parse_account_json(path)
 }
 
-const LAMPORTS_PER_SOL: u64 = 1_000_000_000;
-
 pub fn parse_funding(raw: &str) -> Result<SolFunding, String> {
     let (pubkey_str, amount_str) = raw
         .split_once('=')
@@ -340,12 +339,14 @@ pub fn parse_funding(raw: &str) -> Result<SolFunding, String> {
     Ok(SolFunding { pubkey, amount_lamports })
 }
 
+/// Accepted shapes for a `--fund-token` value. Single source of truth for the
+/// usage message, referenced wherever the grammar is rejected.
+const TOKEN_FUNDING_FORMAT: &str = "Token funding must be in <ACCOUNT>=<AMOUNT>, \
+     <ACCOUNT>:<MINT>=<AMOUNT>, or <ACCOUNT>:<MINT>:<OWNER>=<AMOUNT> format";
+
 pub fn parse_token_funding(raw: &str) -> Result<TokenFunding, String> {
-    let (target, amount_str) = raw.split_once('=').ok_or_else(|| {
-        "Token funding must be in <ACCOUNT>=<AMOUNT>, <ACCOUNT>:<MINT>=<AMOUNT>, \
-         or <ACCOUNT>:<MINT>:<OWNER>=<AMOUNT> format"
-            .to_string()
-    })?;
+    let (target, amount_str) =
+        raw.split_once('=').ok_or_else(|| TOKEN_FUNDING_FORMAT.to_string())?;
 
     let parts: Vec<&str> = target.split(':').collect();
     let (token_str, mint, owner) = match parts.len() {
@@ -363,9 +364,7 @@ pub fn parse_token_funding(raw: &str) -> Result<TokenFunding, String> {
             (parts[0], Some(mint), Some(owner))
         }
         _ => {
-            return Err("Token funding must be in <ACCOUNT>=<AMOUNT>, <ACCOUNT>:<MINT>=<AMOUNT>, \
-                 or <ACCOUNT>:<MINT>:<OWNER>=<AMOUNT> format"
-                .to_string());
+            return Err(TOKEN_FUNDING_FORMAT.to_string());
         }
     };
 
@@ -443,16 +442,16 @@ fn parse_ix_pos_prefix(raw: &str) -> Result<(usize, usize, Option<&str>), String
 
 pub fn parse_ix_account_patch(raw: &str) -> Result<InstructionAccountOp, String> {
     let (instruction_index, account_position, rest) = parse_ix_pos_prefix(raw)?;
-    let value_str = rest
-        .ok_or_else(|| "Patch must be in <IX>.<ACCOUNT>=<NEW_PUBKEY>[:w] format".to_string())?;
+    let value_str =
+        rest.ok_or_else(|| "Patch must be in <IX>.<ACCOUNT>=<NEW_PUBKEY>[:w] format".to_string())?;
     let (new_pubkey, writable) = parse_ix_account_op_value(value_str, "--patch-ix-account")?;
     Ok(InstructionAccountOp::Patch { instruction_index, account_position, new_pubkey, writable })
 }
 
 pub fn parse_ix_account_insert(raw: &str) -> Result<InstructionAccountOp, String> {
     let (instruction_index, account_position, rest) = parse_ix_pos_prefix(raw)?;
-    let value_str = rest
-        .ok_or_else(|| "Insert must be in <IX>.<POSITION>=<PUBKEY>[:w] format".to_string())?;
+    let value_str =
+        rest.ok_or_else(|| "Insert must be in <IX>.<POSITION>=<PUBKEY>[:w] format".to_string())?;
     let (new_pubkey, writable) = parse_ix_account_op_value(value_str, "--insert-ix-account")?;
     Ok(InstructionAccountOp::Insert { instruction_index, account_position, new_pubkey, writable })
 }

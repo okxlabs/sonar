@@ -33,6 +33,8 @@ pub(crate) mod types;
 pub use balance_changes::{SolBalanceChange, TokenBalanceChange};
 pub use error::{Result, SonarSimError};
 pub use mutations::{Mutations, MutationsBuilder, StateMutations, TransactionMutations};
-pub use pipeline::Pipeline;
+pub use pipeline::{
+    LoadedBundlePipeline, LoadedPipeline, ParsedBundlePipeline, ParsedPipeline, Pipeline,
+};
 pub use result::SimulationResult;
 pub use types::{AccountSource, FetchEvent, FetchObserver};

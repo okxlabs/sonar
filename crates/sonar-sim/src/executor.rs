@@ -505,17 +505,27 @@ impl fmt::Display for ExecutionStatus {
     }
 }
 
-fn account_priority(account: &AccountSharedData) -> u8 {
+/// Relative order in which accounts must be loaded into the SVM. A Program
+/// account references its ProgramData, so ProgramData must be set first;
+/// everything else is order-independent and sits in between.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum LoadPriority {
+    ProgramData = 0,
+    Other = 1,
+    Program = 2,
+}
+
+fn account_priority(account: &AccountSharedData) -> LoadPriority {
     if *account.owner() == bpf_loader_upgradeable::id() {
         if let Ok(state) = bincode::deserialize::<UpgradeableLoaderState>(account.data()) {
             return match state {
-                UpgradeableLoaderState::ProgramData { .. } => 0,
-                UpgradeableLoaderState::Program { .. } => 2,
-                _ => 1,
+                UpgradeableLoaderState::ProgramData { .. } => LoadPriority::ProgramData,
+                UpgradeableLoaderState::Program { .. } => LoadPriority::Program,
+                _ => LoadPriority::Other,
             };
         }
     }
-    1
+    LoadPriority::Other
 }
 
 #[cfg(test)]
