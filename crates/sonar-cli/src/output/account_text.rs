@@ -41,7 +41,7 @@ pub(crate) fn render_account_text(
 fn render_account_info(pubkey: &str, account: &solana_account::Account, w: &mut impl Write) {
     write_section_title(w, "Account Info");
 
-    let sol = account.lamports as f64 / 1_000_000_000.0;
+    let sol = crate::converters::sol::lamports_to_sol(account.lamports as i128);
     let owner_str = account.owner.to_string();
     let owner_display = match known_program_name(&owner_str) {
         Some(name) => format!("{} ({})", owner_str, name),

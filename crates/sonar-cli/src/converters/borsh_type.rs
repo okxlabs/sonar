@@ -31,6 +31,21 @@ pub enum BorshType {
     HashMap(Box<BorshType>, Box<BorshType>),
 }
 
+// ── JSON representation convention ──
+//
+// Single source of truth for the object keys used to represent Borsh enums and
+// results as JSON. The encoder, decoder, and canonical comparator all reference
+// these so the wire-facing convention lives in exactly one place.
+
+/// Key holding the (numeric) enum variant index.
+pub(crate) const KEY_VARIANT: &str = "variant";
+/// Key holding the payload of a non-unit enum variant.
+pub(crate) const KEY_VALUE: &str = "value";
+/// Key marking (and holding) the `Ok` branch of a result.
+pub(crate) const KEY_RESULT_OK: &str = "ok";
+/// Key marking (and holding) the `Err` branch of a result.
+pub(crate) const KEY_RESULT_ERR: &str = "err";
+
 impl std::fmt::Display for BorshType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -249,9 +264,11 @@ fn parse_struct(input: &str, pos: &mut usize) -> Result<BorshType, String> {
     Ok(BorshType::Struct(fields))
 }
 
-/// Whether a type has a total ordering compatible with Rust's `Ord` and can be
-/// used as a hash collection key/element in canonical Borsh encoding.
-fn supports_hash_collection_ord(ty: &BorshType) -> bool {
+/// Whether a type has a total ordering compatible with Rust's `Ord` and can
+/// therefore be used as a hash-collection key/element in canonical Borsh
+/// encoding (where entries must be sorted). Shared by the type parser (which
+/// rejects ill-formed `hashset`/`hashmap` descriptors) and the encoder.
+pub(crate) fn supports_total_order(ty: &BorshType) -> bool {
     match ty {
         BorshType::U8
         | BorshType::U16
@@ -268,16 +285,12 @@ fn supports_hash_collection_ord(ty: &BorshType) -> bool {
         | BorshType::Pubkey
         | BorshType::Unit => true,
         BorshType::Vec(inner) | BorshType::Option(inner) | BorshType::Array(inner, _) => {
-            supports_hash_collection_ord(inner)
+            supports_total_order(inner)
         }
-        BorshType::Tuple(types) | BorshType::Enum(types) => {
-            types.iter().all(supports_hash_collection_ord)
-        }
-        BorshType::Result(ok, err) => {
-            supports_hash_collection_ord(ok) && supports_hash_collection_ord(err)
-        }
+        BorshType::Tuple(types) | BorshType::Enum(types) => types.iter().all(supports_total_order),
+        BorshType::Result(ok, err) => supports_total_order(ok) && supports_total_order(err),
         BorshType::Struct(fields) => {
-            fields.iter().all(|(_, field_ty)| supports_hash_collection_ord(field_ty))
+            fields.iter().all(|(_, field_ty)| supports_total_order(field_ty))
         }
         BorshType::HashSet(_) | BorshType::HashMap(_, _) => false,
     }
@@ -369,7 +382,7 @@ fn parse_keyword_type(input: &str, pos: &mut usize) -> Result<BorshType, String>
             let inner = parse_type(input, pos)?;
             skip_whitespace(input, pos);
             expect_char(input, pos, '>', "hashset")?;
-            if !supports_hash_collection_ord(&inner) {
+            if !supports_total_order(&inner) {
                 return Err(format!(
                     "hashset element type must support total ordering, got `{inner}`"
                 ));
@@ -388,7 +401,7 @@ fn parse_keyword_type(input: &str, pos: &mut usize) -> Result<BorshType, String>
             let val_type = parse_type(input, pos)?;
             skip_whitespace(input, pos);
             expect_char(input, pos, '>', "hashmap")?;
-            if !supports_hash_collection_ord(&key_type) {
+            if !supports_total_order(&key_type) {
                 return Err(format!(
                     "hashmap key type must support total ordering, got `{key_type}`"
                 ));

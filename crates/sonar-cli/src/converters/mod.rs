@@ -81,7 +81,23 @@ fn parse_input_with_format(input: &str, format: InputFormat) -> Result<ConvertVa
             Ok(ConvertValue::Lamports(lamports))
         }
         InputFormat::Sol => Ok(ConvertValue::Lamports(parse_sol_to_lamports(input)?)),
-        _ => unreachable!("fixed integer formats handled before match"),
+        // Fixed-width integer formats are dispatched above via `input_fixed_int_spec`
+        // and never reach here. Listed explicitly (rather than `_`) so adding a new
+        // non-integer variant is a compile error instead of a silent panic.
+        InputFormat::U8
+        | InputFormat::U16
+        | InputFormat::U32
+        | InputFormat::U64
+        | InputFormat::U128
+        | InputFormat::U256
+        | InputFormat::I8
+        | InputFormat::I16
+        | InputFormat::I32
+        | InputFormat::I64
+        | InputFormat::I128
+        | InputFormat::I256 => {
+            unreachable!("fixed-width integer formats are dispatched via input_fixed_int_spec")
+        }
     }
 }
 
@@ -165,7 +181,23 @@ fn format_target(
                 .map_err(|_| "signature requires exactly 64 bytes".to_string())?;
             Ok(Signature::from(bytes).to_string())
         }
-        _ => unreachable!("fixed integer formats handled before match"),
+        // Fixed-width integer formats are dispatched above via `output_fixed_int_spec`
+        // and never reach here. Listed explicitly (rather than `_`) so adding a new
+        // non-integer variant is a compile error instead of a silent panic.
+        OutputFormat::U8
+        | OutputFormat::U16
+        | OutputFormat::U32
+        | OutputFormat::U64
+        | OutputFormat::U128
+        | OutputFormat::U256
+        | OutputFormat::I8
+        | OutputFormat::I16
+        | OutputFormat::I32
+        | OutputFormat::I64
+        | OutputFormat::I128
+        | OutputFormat::I256 => {
+            unreachable!("fixed-width integer formats are dispatched via output_fixed_int_spec")
+        }
     }
 }
 

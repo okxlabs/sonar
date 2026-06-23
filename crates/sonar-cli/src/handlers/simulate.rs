@@ -13,7 +13,7 @@ use sonar_sim::internals::{
     apply_ix_account_ops, apply_ix_data_patches, prepare_token_fundings,
 };
 
-use super::common::{
+use super::pipeline_prep::{
     CachePrepareArgs, build_cache_location, resolve_and_derive_cache_key,
     resolve_cache_and_prepare, resolve_from_instructions, warn_unmatched_addresses,
 };
@@ -551,7 +551,7 @@ fn handle_bundle(
 
 #[cfg(test)]
 mod tests {
-    use crate::handlers::common::cache_read_dir;
+    use crate::handlers::pipeline_prep::cache_read_dir;
     use std::path::PathBuf;
 
     #[test]

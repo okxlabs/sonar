@@ -190,7 +190,7 @@ fn load_accounts_and_idls(
         rpc_batch_size,
     ) {
         Ok(loader) => {
-            super::common::run_idl_pipeline(
+            super::pipeline_prep::run_idl_pipeline(
                 &loader,
                 parser_registry,
                 &resolved,
@@ -331,7 +331,7 @@ fn compute_balance_changes(
                 before: *pre,
                 after: *post,
                 change,
-                change_sol: change as f64 / 1_000_000_000.0,
+                change_sol: crate::converters::sol::lamports_to_sol(change),
             })
         })
         .collect();
@@ -399,7 +399,6 @@ fn make_token_change(
 ) -> TokenBalanceChangeSection {
     let change = after as i128 - before as i128;
     let decimals = tb.ui_token_amount.decimals;
-    let divisor = 10f64.powi(decimals as i32);
     TokenBalanceChangeSection {
         owner: match &tb.owner {
             OptionSerializer::Some(s) => s.clone(),
@@ -411,7 +410,7 @@ fn make_token_change(
         after,
         change,
         decimals,
-        ui_change: change as f64 / divisor,
+        ui_change: crate::converters::sol::raw_to_ui_amount(change, decimals),
     }
 }
 

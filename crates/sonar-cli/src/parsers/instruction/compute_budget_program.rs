@@ -1,10 +1,9 @@
 use anyhow::Result;
 use solana_pubkey::Pubkey;
-use sonar_idl::IdlValue;
 
-use super::{InstructionParser, ParsedField, ParsedInstruction};
+use super::fixed_layout::{self, AccountRule, FieldDef, FieldType, InstructionDef};
+use super::{InstructionParser, ParsedInstruction};
 use crate::core::transaction::InstructionSummary;
-use crate::parsers::binary_reader;
 
 const COMPUTE_BUDGET_PROGRAM_ID: &str = "ComputeBudget111111111111111111111111111111";
 const UNUSED_DISCRIMINATOR: u8 = 0;
@@ -15,6 +14,46 @@ const SET_LOADED_ACCOUNTS_DATA_SIZE_LIMIT_DISCRIMINATOR: u8 = 4;
 
 define_parser!(ComputeBudgetProgramParser, COMPUTE_BUDGET_PROGRAM_ID);
 
+/// Every Compute Budget instruction is a single-byte discriminator followed by
+/// a fixed scalar (or nothing), with no accounts — a pure fixed-layout table.
+static COMPUTE_BUDGET: &[InstructionDef] = &[
+    InstructionDef {
+        discriminator: &[UNUSED_DISCRIMINATOR],
+        name: "Unused",
+        fields: &[],
+        account_names: &[],
+        account_rule: AccountRule::Verbatim,
+    },
+    InstructionDef {
+        discriminator: &[REQUEST_HEAP_FRAME_DISCRIMINATOR],
+        name: "RequestHeapFrame",
+        fields: &[FieldDef { name: "bytes", ty: FieldType::U32 }],
+        account_names: &[],
+        account_rule: AccountRule::Verbatim,
+    },
+    InstructionDef {
+        discriminator: &[SET_COMPUTE_UNIT_LIMIT_DISCRIMINATOR],
+        name: "SetComputeUnitLimit",
+        fields: &[FieldDef { name: "units", ty: FieldType::U32 }],
+        account_names: &[],
+        account_rule: AccountRule::Verbatim,
+    },
+    InstructionDef {
+        discriminator: &[SET_COMPUTE_UNIT_PRICE_DISCRIMINATOR],
+        name: "SetComputeUnitPrice",
+        fields: &[FieldDef { name: "micro_lamports", ty: FieldType::U64 }],
+        account_names: &[],
+        account_rule: AccountRule::Verbatim,
+    },
+    InstructionDef {
+        discriminator: &[SET_LOADED_ACCOUNTS_DATA_SIZE_LIMIT_DISCRIMINATOR],
+        name: "SetLoadedAccountsDataSizeLimit",
+        fields: &[FieldDef { name: "bytes", ty: FieldType::U32 }],
+        account_names: &[],
+        account_rule: AccountRule::Verbatim,
+    },
+];
+
 impl InstructionParser for ComputeBudgetProgramParser {
     fn program_id(&self) -> &Pubkey {
         &self.program_id
@@ -24,82 +63,8 @@ impl InstructionParser for ComputeBudgetProgramParser {
         &self,
         instruction: &InstructionSummary,
     ) -> Result<Option<ParsedInstruction>> {
-        if instruction.data.is_empty() {
-            return Ok(None);
-        }
-
-        let instruction_id = instruction.data[0];
-        let data = &instruction.data[1..];
-
-        match instruction_id {
-            UNUSED_DISCRIMINATOR => parse_unused_instruction(data),
-            REQUEST_HEAP_FRAME_DISCRIMINATOR => {
-                parse_u32_instruction("RequestHeapFrame", "bytes", data)
-            }
-            SET_COMPUTE_UNIT_LIMIT_DISCRIMINATOR => {
-                parse_u32_instruction("SetComputeUnitLimit", "units", data)
-            }
-            SET_COMPUTE_UNIT_PRICE_DISCRIMINATOR => {
-                parse_u64_instruction("SetComputeUnitPrice", "micro_lamports", data)
-            }
-            SET_LOADED_ACCOUNTS_DATA_SIZE_LIMIT_DISCRIMINATOR => {
-                parse_u32_instruction("SetLoadedAccountsDataSizeLimit", "bytes", data)
-            }
-            _ => Ok(None),
-        }
+        fixed_layout::parse(COMPUTE_BUDGET, instruction)
     }
-}
-
-fn parse_unused_instruction(data: &[u8]) -> Result<Option<ParsedInstruction>> {
-    if !data.is_empty() {
-        return Ok(None);
-    }
-
-    Ok(Some(ParsedInstruction {
-        name: "Unused".to_string(),
-        fields: vec![].into(),
-        account_names: vec![],
-    }))
-}
-
-fn parse_u32_instruction(
-    name: &str,
-    field_name: &str,
-    data: &[u8],
-) -> Result<Option<ParsedInstruction>> {
-    if data.len() < 4 {
-        return Ok(None);
-    }
-
-    binary_reader::try_parse(data, |reader| {
-        let value = reader.read_u32()?;
-        Ok(ParsedInstruction {
-            name: name.to_string(),
-            fields: vec![ParsedField { name: field_name.into(), value: IdlValue::U32(value) }]
-                .into(),
-            account_names: vec![],
-        })
-    })
-}
-
-fn parse_u64_instruction(
-    name: &str,
-    field_name: &str,
-    data: &[u8],
-) -> Result<Option<ParsedInstruction>> {
-    if data.len() < 8 {
-        return Ok(None);
-    }
-
-    binary_reader::try_parse(data, |reader| {
-        let value = reader.read_u64()?;
-        Ok(ParsedInstruction {
-            name: name.to_string(),
-            fields: vec![ParsedField { name: field_name.into(), value: IdlValue::U64(value) }]
-                .into(),
-            account_names: vec![],
-        })
-    })
 }
 
 #[cfg(test)]

@@ -1,13 +1,13 @@
 pub(crate) mod account;
 pub(crate) mod borsh;
 pub(crate) mod cache;
-pub(crate) mod common;
 pub(crate) mod completions;
 pub(crate) mod config;
 pub(crate) mod convert;
 pub(crate) mod decode;
 pub(crate) mod idl;
 pub(crate) mod pda;
+pub(crate) mod pipeline_prep;
 pub(crate) mod program_elf;
 pub(crate) mod replay;
 pub(crate) mod send;
