@@ -18,21 +18,23 @@ use crate::utils::progress::Progress;
 // Structs
 // ---------------------------------------------------------------------------
 
-pub(crate) struct ResolvedInputTransactions {
-    pub resolved_txs: Vec<transaction::ResolvedTxInput>,
+/// Where the transactions to set up come from. Folds the two input modes
+/// (raw transactions/signatures vs. CLI-synthesized instructions) behind a
+/// single setup entry point.
+pub(crate) enum TxSource {
+    /// Raw positional inputs: base64/base58 transactions or signatures to fetch.
+    /// A single empty input defers to stdin; more than one input is a bundle.
+    Raw(Vec<String>),
+    /// Instruction inputs synthesized into one transaction with the given payer.
+    Instructions { payer: Pubkey, inputs: Vec<transaction::InstructionInput> },
 }
 
-pub(crate) struct PreparedPipelineContext {
-    pub account_loader: AccountLoader,
-    pub resolved_accounts: ResolvedAccounts,
-}
-
-/// Result of resolving transaction inputs and deriving a cache key.
-/// This is the first half of the shared setup pipeline, before any
-/// simulate-specific mutations.
-pub(crate) struct ResolvedWithCacheKey {
-    pub resolved_txs: Vec<transaction::ResolvedTxInput>,
-    pub cache_key: String,
+/// Transaction provenance retained for cache-metadata writing after the heavy
+/// parsed form has been mutated.
+pub(crate) struct TxOrigin {
+    pub original_input: String,
+    pub raw_tx_base64: String,
+    pub resolved_from: String,
 }
 
 /// Common cache and prepare arguments shared by simulate and decode handlers.
@@ -47,12 +49,23 @@ pub(crate) struct CachePrepareArgs<'a> {
     pub rpc_batch_size: usize,
 }
 
-/// Result of resolving cache state and preparing accounts/IDLs.
-/// This is the second half of the shared setup pipeline.
-pub(crate) struct CachePreparedContext {
+/// Everything a command needs after the shared setup pipeline has run: the
+/// post-mutation parsed transactions, their provenance, the loaded accounts,
+/// and the resolved cache state.
+pub(crate) struct PreparedPipeline {
+    pub origins: Vec<TxOrigin>,
+    pub parsed_txs: Vec<transaction::ParsedTransaction>,
+    pub account_loader: AccountLoader,
+    pub resolved_accounts: ResolvedAccounts,
     pub cache_dir: Option<PathBuf>,
     pub offline: bool,
-    pub prepared: PreparedPipelineContext,
+}
+
+/// Account loader plus the accounts it resolved — internal result of
+/// [`prepare_accounts_and_idls`].
+struct PreparedAccounts {
+    account_loader: AccountLoader,
+    resolved_accounts: ResolvedAccounts,
 }
 
 // ---------------------------------------------------------------------------
@@ -76,51 +89,119 @@ pub(crate) fn build_cache_location(cache_dir: &Option<PathBuf>) -> CacheLocation
 }
 
 // ---------------------------------------------------------------------------
-// Transaction input resolution
-// ---------------------------------------------------------------------------
-
-/// Parses transaction inputs into a normalized transaction list.
-///
-/// - bundle mode: parse all positional inputs as transactions/signatures
-/// - single mode: parse first positional input, fallback to stdin when missing
-pub(crate) fn resolve_inputs_to_txs(
-    tx_inputs: Vec<String>,
-    rpc_url: &str,
-    cache_location: Option<CacheLocation>,
-    progress: &Progress,
-    bundle_mode: bool,
-) -> Result<ResolvedInputTransactions> {
-    let resolver = transaction::TxInputResolver::new(rpc_url, cache_location);
-    if bundle_mode {
-        let resolved_txs = resolver.resolve_many(&tx_inputs, Some(progress))?;
-        return Ok(ResolvedInputTransactions { resolved_txs });
-    }
-
-    let tx_single = tx_inputs.into_iter().next();
-    let raw_input = transaction::read_raw_transaction(tx_single)?;
-    let resolved_txs = resolver.resolve_many(&[raw_input], Some(progress))?;
-    Ok(ResolvedInputTransactions { resolved_txs })
-}
-
-// ---------------------------------------------------------------------------
 // Shared setup pipeline
 // ---------------------------------------------------------------------------
 
-/// Resolves transaction inputs and derives a cache key. This is the first phase
-/// of the shared handler setup — call this before any simulate-specific mutations,
-/// then call [`resolve_cache_and_prepare`] after mutations are applied.
-pub(crate) fn resolve_and_derive_cache_key(
-    tx_inputs: Vec<String>,
-    rpc_url: &str,
+/// Run the shared command setup as a single operation: resolve transaction
+/// inputs, derive the cache key, apply a caller-supplied mutation to each parsed
+/// transaction, then resolve cache state and load accounts/IDLs.
+///
+/// The mutation hook is the one stage that genuinely differs between commands:
+/// `simulate` applies instruction account/data patches — which change the set of
+/// accounts to load, so they must run before account resolution — while `decode`
+/// passes a no-op. Threading it as a closure keeps the resolve → mutate → load
+/// ordering an internal detail rather than a contract split across call sites.
+pub(crate) fn resolve_mutate_prepare(
+    source: TxSource,
     resolver_cache_location: Option<CacheLocation>,
+    cache_args: &CachePrepareArgs,
+    parser_registry: &mut ParserRegistry,
     progress: &Progress,
-) -> Result<ResolvedWithCacheKey> {
-    let is_bundle = tx_inputs.len() > 1;
-    let parsed_inputs =
-        resolve_inputs_to_txs(tx_inputs, rpc_url, resolver_cache_location, progress, is_bundle)?;
-    let resolved_txs = parsed_inputs.resolved_txs;
+    mut mutate: impl FnMut(&mut transaction::ParsedTransaction) -> Result<()>,
+) -> Result<PreparedPipeline> {
+    // 1. Resolve inputs into transactions and derive the cache key.
+    let (resolved_txs, cache_key) = resolve_inputs(source, resolver_cache_location, cache_args, progress)?;
 
-    let cache_key = if resolved_txs.len() == 1 {
+    // 2. Separate provenance from the parsed form, then apply the caller's
+    //    mutation. The account set to load depends on the post-mutation
+    //    transactions, so this must happen before preparing accounts.
+    let mut origins = Vec::with_capacity(resolved_txs.len());
+    let mut parsed_txs = Vec::with_capacity(resolved_txs.len());
+    for resolved in resolved_txs {
+        origins.push(TxOrigin {
+            original_input: resolved.original_input,
+            raw_tx_base64: resolved.raw_tx_base64,
+            resolved_from: resolved.source.as_str().to_string(),
+        });
+        parsed_txs.push(resolved.parsed_tx);
+    }
+    for parsed_tx in &mut parsed_txs {
+        mutate(parsed_tx)?;
+    }
+
+    // 3. Resolve cache state and load accounts/IDLs for the final transactions.
+    let (cache_dir, offline) = crate::core::cache::resolve_cache_state(
+        cache_args.cache_enabled,
+        cache_args.cache_dir,
+        cache_args.refresh_cache,
+        &cache_key,
+    );
+    let cache_read_dir_for_load = cache_read_dir(cache_dir.clone(), cache_args.refresh_cache);
+    let prepared = prepare_accounts_and_idls(
+        cache_args.rpc_url,
+        cache_read_dir_for_load,
+        offline,
+        &parsed_txs,
+        parser_registry,
+        cache_args.no_idl_fetch,
+        progress,
+        cache_args.rpc_batch_size,
+    )?;
+
+    Ok(PreparedPipeline {
+        origins,
+        parsed_txs,
+        account_loader: prepared.account_loader,
+        resolved_accounts: prepared.resolved_accounts,
+        cache_dir,
+        offline,
+    })
+}
+
+/// Resolve a [`TxSource`] into concrete transactions and the cache key derived
+/// from them. Raw inputs are fetched/parsed (single input falls back to stdin);
+/// instruction inputs are synthesized into one transaction at the CLI.
+fn resolve_inputs(
+    source: TxSource,
+    resolver_cache_location: Option<CacheLocation>,
+    cache_args: &CachePrepareArgs,
+    progress: &Progress,
+) -> Result<(Vec<transaction::ResolvedTxInput>, String)> {
+    match source {
+        TxSource::Raw(tx_inputs) => {
+            let resolver =
+                transaction::TxInputResolver::new(cache_args.rpc_url, resolver_cache_location);
+            let resolved_txs = if tx_inputs.len() > 1 {
+                resolver.resolve_many(&tx_inputs, Some(progress))?
+            } else {
+                let raw_input = transaction::read_raw_transaction(tx_inputs.into_iter().next())?;
+                resolver.resolve_many(&[raw_input], Some(progress))?
+            };
+            let cache_key = derive_cache_key(&resolved_txs);
+            Ok((resolved_txs, cache_key))
+        }
+        TxSource::Instructions { payer, inputs } => {
+            let source = transaction::TxResolveSource::Instructions;
+            let parsed_tx = transaction::build_transaction_from_instructions(payer, &inputs)
+                .context("Failed to build transaction from instruction inputs")?;
+            let raw_tx_base64 = transaction::encode_transaction_to_base64(&parsed_tx.transaction)?;
+            let cache_key =
+                crate::core::cache::derive_cache_key_single(source.as_str(), &parsed_tx.transaction);
+            let resolved_txs = vec![transaction::ResolvedTxInput {
+                original_input: source.as_str().to_string(),
+                raw_tx_base64,
+                parsed_tx,
+                source,
+            }];
+            Ok((resolved_txs, cache_key))
+        }
+    }
+}
+
+/// Derive a cache key from resolved transactions: single-key for one input,
+/// bundle-key otherwise.
+fn derive_cache_key(resolved_txs: &[transaction::ResolvedTxInput]) -> String {
+    if resolved_txs.len() == 1 {
         crate::core::cache::derive_cache_key_single(
             &resolved_txs[0].original_input,
             &resolved_txs[0].parsed_tx.transaction,
@@ -129,66 +210,7 @@ pub(crate) fn resolve_and_derive_cache_key(
         let inputs: Vec<_> = resolved_txs.iter().map(|tx| tx.original_input.clone()).collect();
         let parsed_txs: Vec<_> = resolved_txs.iter().map(|tx| tx.parsed_tx.clone()).collect();
         crate::core::cache::derive_cache_key_bundle(&inputs, &parsed_txs)
-    };
-
-    Ok(ResolvedWithCacheKey { resolved_txs, cache_key })
-}
-
-/// Build a [`ResolvedWithCacheKey`] from raw instruction inputs synthesized at
-/// the CLI. Mirrors [`resolve_and_derive_cache_key`] but for the instruction
-/// input mode where there is no upstream raw transaction to fetch or parse.
-pub(crate) fn resolve_from_instructions(
-    payer: Pubkey,
-    inputs: Vec<transaction::InstructionInput>,
-) -> Result<ResolvedWithCacheKey> {
-    let source = transaction::TxResolveSource::Instructions;
-    let parsed_tx = transaction::build_transaction_from_instructions(payer, &inputs)
-        .context("Failed to build transaction from instruction inputs")?;
-    let raw_tx_base64 = transaction::encode_transaction_to_base64(&parsed_tx.transaction)?;
-    Ok(ResolvedWithCacheKey {
-        cache_key: crate::core::cache::derive_cache_key_single(
-            source.as_str(),
-            &parsed_tx.transaction,
-        ),
-        resolved_txs: vec![transaction::ResolvedTxInput {
-            original_input: source.as_str().to_string(),
-            raw_tx_base64,
-            parsed_tx,
-            source,
-        }],
-    })
-}
-
-/// Resolves cache state and prepares accounts/IDLs. This is the second phase of
-/// the shared handler setup — called after any simulate-specific mutations have
-/// been applied to the parsed transactions.
-pub(crate) fn resolve_cache_and_prepare(
-    args: &CachePrepareArgs,
-    cache_key: &str,
-    parsed_txs: &[transaction::ParsedTransaction],
-    parser_registry: &mut ParserRegistry,
-    progress: &Progress,
-) -> Result<CachePreparedContext> {
-    let (resolved_cache_dir, offline) = crate::core::cache::resolve_cache_state(
-        args.cache_enabled,
-        args.cache_dir,
-        args.refresh_cache,
-        cache_key,
-    );
-    let cache_read_dir_for_load = cache_read_dir(resolved_cache_dir.clone(), args.refresh_cache);
-
-    let prepared = prepare_accounts_and_idls(
-        args.rpc_url,
-        cache_read_dir_for_load,
-        offline,
-        parsed_txs,
-        parser_registry,
-        args.no_idl_fetch,
-        progress,
-        args.rpc_batch_size,
-    )?;
-
-    Ok(CachePreparedContext { cache_dir: resolved_cache_dir, offline, prepared })
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -301,7 +323,7 @@ pub(crate) fn run_idl_pipeline(
 
 /// Loads accounts for parsed transactions and runs the shared IDL pipeline.
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn prepare_accounts_and_idls(
+fn prepare_accounts_and_idls(
     rpc_url: &str,
     cache_dir: Option<PathBuf>,
     offline: bool,
@@ -310,7 +332,7 @@ pub(crate) fn prepare_accounts_and_idls(
     no_idl_fetch: bool,
     progress: &Progress,
     rpc_batch_size: usize,
-) -> Result<PreparedPipelineContext> {
+) -> Result<PreparedAccounts> {
     let mut account_loader = account_loader::create_loader(
         rpc_url.to_string(),
         cache_dir,
@@ -334,7 +356,7 @@ pub(crate) fn prepare_accounts_and_idls(
         Some(progress),
     );
 
-    Ok(PreparedPipelineContext { account_loader, resolved_accounts })
+    Ok(PreparedAccounts { account_loader, resolved_accounts })
 }
 
 // ---------------------------------------------------------------------------

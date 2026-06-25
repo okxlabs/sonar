@@ -14,8 +14,8 @@ use sonar_sim::internals::{
 };
 
 use super::pipeline_prep::{
-    CachePrepareArgs, build_cache_location, resolve_and_derive_cache_key,
-    resolve_cache_and_prepare, resolve_from_instructions, warn_unmatched_addresses,
+    CachePrepareArgs, TxSource, build_cache_location, resolve_mutate_prepare,
+    warn_unmatched_addresses,
 };
 
 /// Parse every `--ix` value into `InstructionInput`s, in CLI order. Each value
@@ -214,7 +214,7 @@ pub(crate) fn handle(args: SimulateArgs, json: bool) -> Result<()> {
         log_opts: output::LogDisplayOptions { raw_log },
     };
 
-    let resolved = match mode {
+    let source = match mode {
         SimulateMode::Bundle(txs) => {
             let sim_opts = SimulationOptions {
                 execution: ExecutionOptions {
@@ -248,25 +248,12 @@ pub(crate) fn handle(args: SimulateArgs, json: bool) -> Result<()> {
                 &progress,
             );
         }
-        SimulateMode::Single(tx) => {
-            resolve_and_derive_cache_key(tx, &rpc_url, resolver_cache_location, &progress)?
-        }
+        SimulateMode::Single(tx) => TxSource::Raw(tx),
         SimulateMode::Instructions { payer, instructions } => {
             let inputs = load_instruction_args(&instructions)?;
-            resolve_from_instructions(payer, inputs)?
+            TxSource::Instructions { payer, inputs }
         }
     };
-    let resolved_input = resolved
-        .resolved_txs
-        .into_iter()
-        .next()
-        .expect("single input resolve should produce one transaction");
-    let raw_input = resolved_input.original_input.clone();
-    let cached_raw_tx = resolved_input.raw_tx_base64.clone();
-    let resolved_from = resolved_input.source.as_str().to_string();
-    let mut parsed_tx = resolved_input.parsed_tx;
-
-    apply_ix_mutations(&mut parsed_tx, &ix_account_ops, &ix_data_patches)?;
 
     let cache_args = CachePrepareArgs {
         rpc_url: &rpc_url,
@@ -276,16 +263,28 @@ pub(crate) fn handle(args: SimulateArgs, json: bool) -> Result<()> {
         no_idl_fetch,
         rpc_batch_size,
     };
-    let cached = resolve_cache_and_prepare(
+    let mut prepared = resolve_mutate_prepare(
+        source,
+        resolver_cache_location,
         &cache_args,
-        &resolved.cache_key,
-        std::slice::from_ref(&parsed_tx),
         &mut parser_registry,
         &progress,
+        |parsed_tx| apply_ix_mutations(parsed_tx, &ix_account_ops, &ix_data_patches),
     )?;
-    let tx_cache_dir = cached.cache_dir;
-    let offline = cached.offline;
-    let mut prepared = cached.prepared;
+
+    let mut parsed_tx = prepared
+        .parsed_txs
+        .pop()
+        .expect("single input resolve should produce one transaction");
+    let origin = prepared
+        .origins
+        .pop()
+        .expect("single input resolve should produce one origin");
+    let raw_input = origin.original_input;
+    let cached_raw_tx = origin.raw_tx_base64;
+    let resolved_from = origin.resolved_from;
+    let tx_cache_dir = prepared.cache_dir.take();
+    let offline = prepared.offline;
 
     warn_unmatched_addresses(
         &account_overrides,
@@ -400,16 +399,6 @@ fn handle_bundle(
 ) -> Result<()> {
     log::info!("Bundle simulation mode: {} transactions", tx_inputs.len());
 
-    let resolved =
-        resolve_and_derive_cache_key(tx_inputs, rpc_url, resolver_cache_location, progress)?;
-    let resolved_txs = resolved.resolved_txs;
-    let mut parsed_txs: Vec<_> = resolved_txs.iter().map(|tx| tx.parsed_tx.clone()).collect();
-    log::info!("Successfully parsed {} transactions", parsed_txs.len());
-
-    for parsed_tx in &mut parsed_txs {
-        apply_ix_mutations(parsed_tx, &ix_account_ops, &ix_data_patches)?;
-    }
-
     let cache_args = CachePrepareArgs {
         rpc_url,
         cache_enabled: cache,
@@ -418,16 +407,20 @@ fn handle_bundle(
         no_idl_fetch,
         rpc_batch_size,
     };
-    let cached = resolve_cache_and_prepare(
+    let mut prepared = resolve_mutate_prepare(
+        TxSource::Raw(tx_inputs),
+        resolver_cache_location,
         &cache_args,
-        &resolved.cache_key,
-        &parsed_txs,
         parser_registry,
         progress,
+        |parsed_tx| apply_ix_mutations(parsed_tx, &ix_account_ops, &ix_data_patches),
     )?;
-    let bundle_cache_dir = cached.cache_dir;
-    let offline = cached.offline;
-    let mut prepared = cached.prepared;
+    log::info!("Successfully parsed {} transactions", prepared.parsed_txs.len());
+
+    let bundle_cache_dir = prepared.cache_dir.take();
+    let offline = prepared.offline;
+    let origins = std::mem::take(&mut prepared.origins);
+    let parsed_txs = std::mem::take(&mut prepared.parsed_txs);
 
     let parsed_tx_refs: Vec<_> = parsed_txs.iter().collect();
     warn_unmatched_addresses(
@@ -470,12 +463,12 @@ fn handle_bundle(
                     created_at: chrono::Utc::now().to_rfc3339(),
                     sonar_version: env!("CARGO_PKG_VERSION").to_string(),
                     cache_type: "bundle".to_string(),
-                    transactions: resolved_txs
+                    transactions: origins
                         .iter()
-                        .map(|tx| crate::core::cache::CacheTransaction {
-                            input: tx.original_input.clone(),
-                            raw_tx: tx.raw_tx_base64.clone(),
-                            resolved_from: tx.source.as_str().to_string(),
+                        .map(|origin| crate::core::cache::CacheTransaction {
+                            input: origin.original_input.clone(),
+                            raw_tx: origin.raw_tx_base64.clone(),
+                            resolved_from: origin.resolved_from.clone(),
                         })
                         .collect(),
                     rpc_url: rpc_url.to_string(),
