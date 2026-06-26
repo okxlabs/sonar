@@ -21,7 +21,7 @@ pub struct PdaArgs {
     /// Seed types with aliases in parentheses:
     ///   string (str) · pubkey (pk) · bool · u8 · u16 · u32 · u64 · u128
     ///   i8 · i16 · i32 · i64 · i128 · bytes (hex)
-    #[arg(value_name = "SEED", num_args = 1.., required = true)]
+    #[arg(value_name = "SEED", num_args = 1.., required = true, verbatim_doc_comment)]
     pub seeds: Vec<String>,
 }
 

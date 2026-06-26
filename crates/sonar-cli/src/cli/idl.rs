@@ -6,7 +6,6 @@ use clap::{Args, Subcommand};
 
 use super::RpcArgs;
 
-/// Manage Anchor IDLs: fetch, sync, and derive IDL account address.
 #[derive(Args, Debug)]
 #[command(after_help = "\
 EXAMPLES:
@@ -24,16 +23,13 @@ pub struct IdlArgs {
 pub enum IdlSubcommands {
     /// Fetch Anchor IDLs from on-chain program accounts
     ///
-    /// Use when you have the program ID and want the latest on-chain IDL.
     /// Writes one `<PUBKEY>.json` per program to --output-dir (default: cwd).
     Fetch(IdlFetchArgs),
-    /// Sync IDLs using a directory or one `<PUBKEY>.json` file as source
+    /// Sync IDLs from a directory or a single `<PUBKEY>.json` file
     ///
-    /// Inverse of fetch: re-uploads local IDL files to the IDL account on chain.
+    /// Inverse of fetch: uploads local IDLs to their on-chain IDL account.
     Sync(IdlSyncArgs),
-    /// Calculate Anchor IDL account address for a program
-    ///
-    /// Pure derivation — no RPC call. Equivalent to the Anchor IDL seed convention.
+    /// Derive a program's Anchor IDL account address (no RPC call)
     Address(IdlAddressArgs),
 }
 
