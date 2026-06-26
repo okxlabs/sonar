@@ -1,13 +1,16 @@
+use std::collections::HashMap;
 use std::fmt;
 
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use bs58::decode::Error as Base58Error;
 use serde::Serialize;
+use solana_instruction::Instruction;
 use solana_message::MessageHeader;
 use solana_message::VersionedMessage;
 use solana_message::compiled_instruction::CompiledInstruction;
 use solana_pubkey::Pubkey;
+use solana_signature::Signature;
 use solana_transaction::versioned::{TransactionVersion, VersionedTransaction};
 
 use crate::error::{Result, SonarSimError};
@@ -185,6 +188,304 @@ pub fn build_lookup_locations(plan: &[AddressLookupPlan]) -> Vec<LookupLocation>
     }
 
     locations
+}
+
+/// Apply a list of whole-instruction mutations (insert / remove) to a
+/// transaction in-place.
+///
+/// Returns the updated `MessageAccountPlan` reflecting any keys added to the
+/// message's static `account_keys` table.
+///
+/// Operations apply in the order given; indices and positions are interpreted
+/// against the instruction list at the time each op runs. To express
+/// positions relative to the pre-mutation list, list ops in descending
+/// position order.
+///
+/// Intended to run *before* account-level ([`apply_ix_account_ops`]) and data
+/// ([`apply_ix_data_patches`]) mutations, so those can target the
+/// post-restructure instruction list.
+///
+/// `Remove` does not garbage-collect account keys (matching account-level
+/// `Remove`). `Insert` merges the new instruction's accounts into the message
+/// with **union** privileges: an existing key is never demoted, only promoted,
+/// so the inserted instruction cannot weaken privileges an existing
+/// instruction already requires. New non-signer accounts are appended (writable
+/// before the read-only section), and new signer accounts are inserted into the
+/// signer section with a placeholder signature. An account already present as
+/// a non-signer cannot be promoted to signer.
+///
+/// **Limitation (v0 messages with ALTs):** like [`apply_ix_account_ops`],
+/// duplicate detection only covers static account keys.
+pub fn apply_instruction_ops(
+    tx: &mut VersionedTransaction,
+    ops: &[crate::types::InstructionOp],
+) -> Result<MessageAccountPlan> {
+    for op in ops {
+        let count = tx.message.instructions().len();
+        match op {
+            crate::types::InstructionOp::Remove { index } => {
+                if *index >= count {
+                    return Err(SonarSimError::Validation {
+                        reason: format!(
+                            "Instruction index {index} is out of range \
+                             (transaction has {count} instructions)"
+                        ),
+                    });
+                }
+                tx.message.instructions_mut().remove(*index);
+            }
+            crate::types::InstructionOp::Insert { position, instruction } => {
+                if *position > count {
+                    return Err(SonarSimError::Validation {
+                        reason: format!(
+                            "Insert position {position} is out of range for the \
+                             instruction list (has {count} instructions; valid insert \
+                             positions are 0..={count})"
+                        ),
+                    });
+                }
+                let compiled = compile_instruction(tx, instruction)?;
+                tx.message.instructions_mut().insert(*position, compiled);
+            }
+        }
+    }
+
+    Ok(MessageAccountPlan::from_transaction(tx))
+}
+
+/// Compile a decoded [`Instruction`] into a [`CompiledInstruction`] against
+/// the transaction's current message, inserting any missing account keys
+/// (including new signers) and returning the resolved program/account indices.
+///
+/// All keys are inserted/ensured *before* resolving indices, so the returned
+/// indices are stable regardless of the order in which keys get added.
+fn compile_instruction(
+    tx: &mut VersionedTransaction,
+    instruction: &Instruction,
+) -> Result<CompiledInstruction> {
+    // Phase 1: merge every referenced key into the message with **union**
+    // privileges — an existing key is never demoted, only promoted — so the
+    // inserted instruction cannot weaken privileges an existing instruction
+    // already requires (Solana message privileges are global across all
+    // instructions). Programs are always read-only non-signers.
+    //
+    // Aggregate the signer/writable requirements PER PUBKEY before mutating,
+    // because Solana unions duplicate account privileges within an
+    // instruction regardless of meta order. Without aggregation, a pubkey
+    // listed first as a non-signer and later as a signer would be inserted as
+    // a non-signer by the first meta and then rejected ("unsupported
+    // promotion") by the second. `order` preserves first-seen order purely
+    // for deterministic placement; actual position is governed by privilege
+    // region.
+    let mut order: Vec<Pubkey> = Vec::new();
+    let mut requirements: HashMap<Pubkey, (bool, bool)> = HashMap::new();
+    // Program first as an implicit read-only non-signer meta; any explicit
+    // account-list occurrence of the same key unions on top of it.
+    if requirements.insert(instruction.program_id, (false, false)).is_none() {
+        order.push(instruction.program_id);
+    }
+    for account in &instruction.accounts {
+        match requirements.get_mut(&account.pubkey) {
+            Some((want_signer, want_writable)) => {
+                *want_signer |= account.is_signer;
+                *want_writable |= account.is_writable;
+            }
+            None => {
+                requirements.insert(account.pubkey, (account.is_signer, account.is_writable));
+                order.push(account.pubkey);
+            }
+        }
+    }
+    for pubkey in &order {
+        let (want_signer, want_writable) = requirements[pubkey];
+        merge_or_insert_account_key(tx, pubkey, want_signer, want_writable)?;
+    }
+
+    // Phase 2: re-resolve every index by pubkey lookup so the result is
+    // unaffected by any index shifting that the insertions performed above.
+    let keys = tx.message.account_keys();
+    let program_id_index =
+        keys.iter().position(|k| *k == instruction.program_id).ok_or_else(|| {
+            SonarSimError::Validation {
+                reason: "Internal error: program key missing after insert".into(),
+            }
+        })?;
+    let accounts = instruction
+        .accounts
+        .iter()
+        .map(|account| {
+            keys.iter().position(|k| *k == account.pubkey).map(|i| i as u8).ok_or_else(|| {
+                SonarSimError::Validation {
+                    reason: "Internal error: account key missing after insert".into(),
+                }
+            })
+        })
+        .collect::<Result<Vec<u8>>>()?;
+
+    Ok(CompiledInstruction {
+        program_id_index: program_id_index as u8,
+        accounts,
+        data: instruction.data.clone(),
+    })
+}
+
+/// Merge an account reference into the message applying **union** privileges.
+///
+/// Solana message privileges (signer / writable) are global across all
+/// instructions: an account is a signer if *any* instruction needs it as one,
+/// and writable if *any* instruction needs it writable. Consequently an
+/// existing key is **never demoted** — only promoted — when a new instruction
+/// references it. This is the correctness rule used while compiling an inserted
+/// instruction, so it cannot silently strip write access that an existing
+/// instruction already requires.
+///
+/// `want_signer` / `want_writable` express only what *this* reference needs;
+/// the resulting privileges are the union with whatever the key already has.
+///
+/// Returns the key's resulting index (which may change if a promotion swaps it
+/// to a different position).
+fn merge_or_insert_account_key(
+    tx: &mut VersionedTransaction,
+    pubkey: &Pubkey,
+    want_signer: bool,
+    want_writable: bool,
+) -> Result<usize> {
+    let message = &mut tx.message;
+    let Some(pos) = message.account_keys().iter().position(|k| *k == *pubkey) else {
+        // Absent: insert with the exact privileges this reference needs.
+        return if want_signer {
+            insert_signer_account_key(tx, pubkey, want_writable)
+        } else {
+            find_or_insert_account_key(&mut tx.message, pubkey, want_writable)
+        };
+    };
+
+    let num_sigs = message.header().num_required_signatures as usize;
+    let cur_signer = pos < num_sigs;
+    // Union of signer-ness: promoting a non-signer to a signer is unsupported
+    // (it requires rebuilding the header and signature layout).
+    if want_signer && !cur_signer {
+        let key = message.static_account_keys()[pos];
+        return Err(SonarSimError::Validation {
+            reason: format!(
+                "Cannot declare account {key} as a signer for the inserted instruction: \
+                 it already appears in the message as a non-signer account. Promoting a \
+                 non-signer to a signer is not supported."
+            ),
+        });
+    }
+
+    // Union of writability: never demote. Only promote readonly -> writable.
+    let cur_writable = account_is_writable(message, pos);
+    if cur_writable || !want_writable {
+        // Already writable, or this reference doesn't need writable: keep the
+        // current (possibly stronger) privileges untouched.
+        return Ok(pos);
+    }
+    promote_to_writable(tx, pos, cur_signer)
+}
+
+/// Whether the key at `pos` is writable under the current message header.
+///
+/// Signers are writable in `[0, num_required_signatures -
+/// num_readonly_signed_accounts)`; non-signers are writable before the
+/// readonly-unsigned region.
+fn account_is_writable(message: &VersionedMessage, pos: usize) -> bool {
+    let header = message.header();
+    let num_sigs = header.num_required_signatures as usize;
+    let num_readonly_signed = header.num_readonly_signed_accounts as usize;
+    if pos < num_sigs {
+        pos < num_sigs - num_readonly_signed
+    } else {
+        let total = message.static_account_keys().len();
+        let readonly_unsigned = header.num_readonly_unsigned_accounts as usize;
+        pos < total - readonly_unsigned
+    }
+}
+
+/// Promote an existing readonly key at `pos` to writable, relocating it into
+/// the writable region and shrinking the corresponding readonly header count.
+/// Signer and non-signer promotions are handled symmetrically. Returns the
+/// key's new position after the swap.
+///
+/// Caller invariant: `pos` currently holds a readonly key (signer or
+/// non-signer), so the relevant readonly header count is non-zero.
+fn promote_to_writable(tx: &mut VersionedTransaction, pos: usize, signer: bool) -> Result<usize> {
+    if signer {
+        // Promote readonly-signer -> writable-signer: swap with the first
+        // readonly signer (the writable/readonly signer boundary) and shrink
+        // the readonly-signed region by one. Both positions are signers, so
+        // the signature slots must move with their keys — use
+        // [`swap_signer_positions`] to preserve the VersionedTransaction
+        // invariant that signatures line up with signer keys.
+        let (num_sigs, num_readonly_signed) = {
+            let header = tx.message.header();
+            (header.num_required_signatures as usize, header.num_readonly_signed_accounts as usize)
+        };
+        debug_assert!(
+            num_readonly_signed > 0,
+            "readonly-signer promotion requires a non-empty readonly-signed region"
+        );
+        let boundary = num_sigs - num_readonly_signed;
+        swap_signer_positions(tx, pos, boundary);
+        tx.message.header_mut().num_readonly_signed_accounts -= 1;
+        Ok(boundary)
+    } else {
+        // Promote readonly non-signer -> writable non-signer: swap with the
+        // first readonly non-signer and shrink the readonly-unsigned region.
+        let message = &mut tx.message;
+        let total = message.static_account_keys().len();
+        let readonly_unsigned = message.header().num_readonly_unsigned_accounts as usize;
+        debug_assert!(
+            readonly_unsigned > 0,
+            "readonly non-signer promotion requires a non-empty readonly-unsigned region"
+        );
+        let readonly_start = total - readonly_unsigned;
+        swap_account_positions(message, pos, readonly_start);
+        message.header_mut().num_readonly_unsigned_accounts -= 1;
+        Ok(readonly_start)
+    }
+}
+
+/// Insert a brand-new signer account into the message's signer section.
+///
+/// The caller MUST ensure `pubkey` is not already present — the present-key
+/// union case is handled by [`merge_or_insert_account_key`]. The key is
+/// inserted into the signer section (writable signers before readonly
+/// signers), all existing instruction indices at or past the insertion point
+/// are shifted by +1, the header's signer counts are bumped, and a placeholder
+/// signature is appended at the matching signer slot so existing signatures
+/// keep aligning with their signers.
+fn insert_signer_account_key(
+    tx: &mut VersionedTransaction,
+    pubkey: &Pubkey,
+    writable: bool,
+) -> Result<usize> {
+    let message = &mut tx.message;
+    let total = message.account_keys().len();
+    if total >= u8::MAX as usize {
+        return Err(SonarSimError::Validation {
+            reason: "Cannot add signer account key: would exceed u8 index limit".into(),
+        });
+    }
+
+    let num_sigs = message.header().num_required_signatures as usize;
+    let num_readonly_signed = message.header().num_readonly_signed_accounts as usize;
+    // Writable signers precede readonly signers within the signer section.
+    let insert_pos = if writable { num_sigs - num_readonly_signed } else { num_sigs };
+
+    message.account_keys_mut().insert(insert_pos, *pubkey);
+    shift_indices(message.instructions_mut(), insert_pos)?;
+    message.header_mut().num_required_signatures += 1;
+    if !writable {
+        message.header_mut().num_readonly_signed_accounts += 1;
+    }
+    // Keep `signatures` length in sync with `num_required_signatures`, inserting
+    // a placeholder at the same slot so existing signatures still align with
+    // their signers. Simulation does not cryptographically verify these unless
+    // the caller opts in, so a default signature is sufficient.
+    tx.signatures.insert(insert_pos, Signature::default());
+    Ok(insert_pos)
 }
 
 /// Apply a list of instruction-account mutations to a transaction in-place.
@@ -419,6 +720,12 @@ fn ensure_account_writability(
 }
 
 /// Swap two positions in the account_keys and update all instruction references.
+///
+/// Only safe for positions outside the signer region (`>=
+/// num_required_signatures`): swapping signer keys without also swapping their
+/// signature slots would violate the [`VersionedTransaction`] invariant that
+/// `signatures[i]` belongs to the signer at `account_keys[i]`. Use
+/// [`swap_signer_positions`] when either position is a signer.
 fn swap_account_positions(message: &mut VersionedMessage, a: usize, b: usize) {
     if a == b {
         return;
@@ -426,6 +733,27 @@ fn swap_account_positions(message: &mut VersionedMessage, a: usize, b: usize) {
     let (a_u8, b_u8) = (a as u8, b as u8);
     message.account_keys_mut().swap(a, b);
     remap_indices(message.instructions_mut(), a_u8, b_u8);
+}
+
+/// Swap two signer positions, keeping `signatures` aligned with their signer
+/// keys.
+///
+/// [`VersionedTransaction`] requires `signatures[i]` to be the signature for
+/// the signer at `account_keys[i]` (for `i < num_required_signatures`). When
+/// two signer keys are swapped in `account_keys`, their signature slots must
+/// be swapped in lockstep, or downstream signature verification would
+/// associate each signature with the wrong signer. Both `a` and `b` must be
+/// in the signer region.
+fn swap_signer_positions(tx: &mut VersionedTransaction, a: usize, b: usize) {
+    if a == b {
+        return;
+    }
+    debug_assert!(
+        a < tx.signatures.len() && b < tx.signatures.len(),
+        "swap_signer_positions indices must be within the signer region"
+    );
+    swap_account_positions(&mut tx.message, a, b);
+    tx.signatures.swap(a, b);
 }
 
 /// Swap all instruction references between indices `a` and `b`.
@@ -1190,5 +1518,536 @@ mod tests {
         assert!(!locations[1].writable);
         assert_eq!(locations[2].table_index, 21);
         assert!(!locations[2].writable);
+    }
+
+    // ── apply_instruction_ops: remove ──
+
+    #[test]
+    fn apply_instruction_remove_drops_instruction() {
+        let (mut tx, _payer) = sample_transaction();
+        // Start with one instruction; remove it.
+        assert_eq!(tx.message.instructions().len(), 1);
+        apply_instruction_ops(&mut tx, &[crate::types::InstructionOp::Remove { index: 0 }])
+            .unwrap();
+        assert!(tx.message.instructions().is_empty());
+    }
+
+    #[test]
+    fn apply_instruction_remove_shifts_subsequent_indices() {
+        // Build a 2-instruction transaction so we can observe index shifting.
+        let payer = Keypair::new();
+        let recipient = Pubkey::new_unique();
+        let blockhash = Hash::new_unique();
+        let ix1 = system_instruction::transfer(&payer.pubkey(), &recipient, 1);
+        let ix2 = system_instruction::transfer(&payer.pubkey(), &recipient, 2);
+        let message = Message::new(&[ix1, ix2], Some(&payer.pubkey()));
+        let transaction = Transaction::new(&[&payer], message, blockhash);
+        let mut tx = VersionedTransaction::from(transaction);
+        assert_eq!(tx.message.instructions().len(), 2);
+
+        // Remove instruction 0; the second instruction becomes the first.
+        apply_instruction_ops(&mut tx, &[crate::types::InstructionOp::Remove { index: 0 }])
+            .unwrap();
+        assert_eq!(tx.message.instructions().len(), 1);
+        // The surviving instruction carries ix2's data (amount = 2 lamports,
+        // encoded as little-endian u64 at the start of the data after the
+        // 4-byte transfer discriminator).
+        let data = &tx.message.instructions()[0].data;
+        let amount = u64::from_le_bytes(data[4..12].try_into().unwrap());
+        assert_eq!(amount, 2);
+    }
+
+    #[test]
+    fn apply_instruction_remove_rejects_out_of_range() {
+        let (mut tx, _payer) = sample_transaction();
+        let err =
+            apply_instruction_ops(&mut tx, &[crate::types::InstructionOp::Remove { index: 5 }])
+                .unwrap_err();
+        assert!(err.to_string().contains("out of range"));
+    }
+
+    // ── apply_instruction_ops: insert ──
+
+    fn memo_instruction(payer: Pubkey, text: &str) -> Instruction {
+        // Memo program: no accounts, data is the raw UTF-8 text. Add the payer
+        // as a writable signer so we exercise the signer-insert path.
+        Instruction {
+            program_id: solana_pubkey::pubkey!("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr"),
+            accounts: vec![solana_instruction::AccountMeta::new(payer, true)],
+            data: text.as_bytes().to_vec(),
+        }
+    }
+
+    #[test]
+    fn apply_instruction_insert_appends_with_existing_keys() {
+        let (mut tx, payer) = sample_transaction();
+        // Insert a transfer that reuses the payer (existing signer) and the
+        // existing system program — no new keys should be added.
+        let recipient = tx.message.static_account_keys()[1];
+        let system_program = tx.message.static_account_keys()[2];
+        let ix = Instruction {
+            program_id: system_program,
+            accounts: vec![
+                solana_instruction::AccountMeta::new(payer, true),
+                solana_instruction::AccountMeta::new(recipient, false),
+            ],
+            data: vec![2, 0, 0, 0, 99, 0, 0, 0, 0, 0, 0, 0],
+        };
+        let count = tx.message.instructions().len();
+        apply_instruction_ops(
+            &mut tx,
+            &[crate::types::InstructionOp::Insert { position: count, instruction: ix }],
+        )
+        .unwrap();
+
+        assert_eq!(tx.message.instructions().len(), count + 1);
+        // No new keys: account table unchanged.
+        assert_eq!(tx.message.static_account_keys().len(), 3);
+        let inserted = &tx.message.instructions()[count];
+        assert_eq!(inserted.program_id_index, 2);
+        assert_eq!(inserted.accounts, vec![0, 1]);
+    }
+
+    #[test]
+    fn apply_instruction_insert_new_non_signer_keys() {
+        let (mut tx, payer) = sample_transaction();
+        let new_program = Pubkey::new_unique();
+        let new_writable = Pubkey::new_unique();
+        let new_readonly = Pubkey::new_unique();
+        let ix = Instruction {
+            program_id: new_program,
+            accounts: vec![
+                solana_instruction::AccountMeta::new(payer, true),
+                solana_instruction::AccountMeta::new(new_writable, false),
+                solana_instruction::AccountMeta::new_readonly(new_readonly, false),
+            ],
+            data: vec![0xab],
+        };
+        apply_instruction_ops(
+            &mut tx,
+            &[crate::types::InstructionOp::Insert { position: 0, instruction: ix }],
+        )
+        .unwrap();
+
+        // Original: [payer(ws,0), recipient(wu,1), system_program(ru,2)]
+        // Adds: new_program(readonly unsigned, appended), new_writable (wu,
+        //   inserted before readonly section), new_readonly (readonly unsigned).
+        // Final static layout:
+        //   [payer(0), recipient(1), new_writable(2), system_program(3),
+        //    new_program(4), new_readonly(5)]
+        let keys = tx.message.static_account_keys();
+        assert_eq!(keys.len(), 6);
+        assert_eq!(keys[2], new_writable);
+        assert_eq!(keys[4], new_program);
+        assert_eq!(keys[5], new_readonly);
+        let ix0 = &tx.message.instructions()[0];
+        assert_eq!(ix0.program_id_index, 4);
+        assert_eq!(ix0.accounts, vec![0, 2, 5]);
+        // num_readonly_unsigned grew by 3 (system_program + new_program + new_readonly
+        // all readonly unsigned): originally 1, now 3.
+        assert_eq!(tx.message.header().num_readonly_unsigned_accounts, 3);
+    }
+
+    #[test]
+    fn apply_instruction_insert_new_signer_bumps_header_and_signature() {
+        let (mut tx, _payer) = sample_transaction();
+        // Original header: num_required_signatures=1, readonly_signed=0.
+        let new_signer = Pubkey::new_unique();
+        let ix = Instruction {
+            program_id: tx.message.static_account_keys()[2], // system program
+            accounts: vec![solana_instruction::AccountMeta::new(new_signer, true)],
+            data: vec![],
+        };
+        assert_eq!(tx.signatures.len(), 1);
+        apply_instruction_ops(
+            &mut tx,
+            &[crate::types::InstructionOp::Insert { position: 0, instruction: ix }],
+        )
+        .unwrap();
+
+        // New signer inserted into the writable-signer region (before any
+        // readonly signers); num_required_signatures bumps to 2.
+        assert_eq!(tx.message.header().num_required_signatures, 2);
+        assert_eq!(tx.message.header().num_readonly_signed_accounts, 0);
+        assert_eq!(tx.signatures.len(), 2);
+        // The new signer lands at index 1 (after the existing writable payer at 0).
+        assert_eq!(tx.message.static_account_keys()[1], new_signer);
+        let ix0 = &tx.message.instructions()[0];
+        assert_eq!(ix0.accounts, vec![1]);
+    }
+
+    #[test]
+    fn apply_instruction_insert_readonly_signer_appended_to_signer_section() {
+        let (mut tx, _payer) = sample_transaction();
+        let new_signer = Pubkey::new_unique();
+        let system_program = tx.message.static_account_keys()[2];
+        let ix = Instruction {
+            program_id: system_program,
+            accounts: vec![solana_instruction::AccountMeta::new_readonly(new_signer, true)],
+            data: vec![],
+        };
+        apply_instruction_ops(
+            &mut tx,
+            &[crate::types::InstructionOp::Insert { position: 0, instruction: ix }],
+        )
+        .unwrap();
+
+        // Read-only signer sits at the end of the signer section (index 1),
+        // so readonly_signed bumps to 1 while num_required_signatures bumps to 2.
+        assert_eq!(tx.message.header().num_required_signatures, 2);
+        assert_eq!(tx.message.header().num_readonly_signed_accounts, 1);
+        assert_eq!(tx.message.static_account_keys()[1], new_signer);
+        assert_eq!(tx.signatures.len(), 2);
+        let ix0 = &tx.message.instructions()[0];
+        assert_eq!(ix0.accounts, vec![1]);
+    }
+
+    #[test]
+    fn apply_instruction_insert_rejects_promoting_non_signer_to_signer() {
+        let (mut tx, _payer) = sample_transaction();
+        // recipient is a writable non-signer at index 1; try to insert an ix
+        // that declares it as a signer.
+        let recipient = tx.message.static_account_keys()[1];
+        let system_program = tx.message.static_account_keys()[2];
+        let ix = Instruction {
+            program_id: system_program,
+            accounts: vec![solana_instruction::AccountMeta::new(recipient, true)],
+            data: vec![],
+        };
+        let err = apply_instruction_ops(
+            &mut tx,
+            &[crate::types::InstructionOp::Insert { position: 0, instruction: ix }],
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("non-signer"), "got: {err}");
+    }
+
+    #[test]
+    fn apply_instruction_insert_rejects_out_of_range_position() {
+        let (mut tx, _payer) = sample_transaction();
+        let count = tx.message.instructions().len();
+        let program = tx.message.static_account_keys()[2];
+        let ix = Instruction { program_id: program, accounts: vec![], data: vec![] };
+        let err = apply_instruction_ops(
+            &mut tx,
+            &[crate::types::InstructionOp::Insert { position: count + 1, instruction: ix }],
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("out of range"));
+    }
+
+    // ── apply_instruction_ops: union privileges (never demote, only promote) ──
+
+    /// Builds a tx whose message header has both a writable signer and a
+    /// readonly signer, returning the two signer keys plus the (readonly)
+    /// system program key. Layout: [writable_signer(ws), readonly_signer(rs),
+    /// system_program(ru)].
+    fn sample_transaction_with_readonly_signer() -> (VersionedTransaction, Pubkey, Pubkey) {
+        let writable_signer = Keypair::new();
+        let readonly_signer = Keypair::new();
+        let blockhash = Hash::new_unique();
+        // A harmless instruction to system program listing both signers so the
+        // message header reflects their roles. Empty data keeps it inert.
+        let ix = Instruction {
+            program_id: solana_sdk_ids::system_program::id(),
+            accounts: vec![
+                solana_instruction::AccountMeta::new(writable_signer.pubkey(), true),
+                solana_instruction::AccountMeta::new_readonly(readonly_signer.pubkey(), true),
+                solana_instruction::AccountMeta::new_readonly(
+                    solana_sdk_ids::system_program::id(),
+                    false,
+                ),
+            ],
+            data: vec![],
+        };
+        let message = Message::new(&[ix], Some(&writable_signer.pubkey()));
+        let transaction =
+            Transaction::new(&[&writable_signer, &readonly_signer], message, blockhash);
+        (
+            VersionedTransaction::from(transaction),
+            writable_signer.pubkey(),
+            readonly_signer.pubkey(),
+        )
+    }
+
+    /// Like [`sample_transaction_with_readonly_signer`] but with **two** readonly
+    /// signers, so layout is:
+    /// `[writable_signer(ws,0), readonly_signer_a(rs,1), readonly_signer_b(rs,2),
+    /// system_program(ru,3)]`. The second readonly signer (index 2) is NOT at the
+    /// writable/readonly-signer boundary (index 1), which is the exact shape that
+    /// makes a signer-promotion swap non-trivial and can misalign signatures.
+    fn sample_transaction_with_two_readonly_signers() -> (VersionedTransaction, Pubkey, Pubkey) {
+        let writable_signer = Keypair::new();
+        let readonly_signer_a = Keypair::new();
+        let readonly_signer_b = Keypair::new();
+        let blockhash = Hash::new_unique();
+        let ix = Instruction {
+            program_id: solana_sdk_ids::system_program::id(),
+            accounts: vec![
+                solana_instruction::AccountMeta::new(writable_signer.pubkey(), true),
+                solana_instruction::AccountMeta::new_readonly(readonly_signer_a.pubkey(), true),
+                solana_instruction::AccountMeta::new_readonly(readonly_signer_b.pubkey(), true),
+                solana_instruction::AccountMeta::new_readonly(
+                    solana_sdk_ids::system_program::id(),
+                    false,
+                ),
+            ],
+            data: vec![],
+        };
+        let message = Message::new(&[ix], Some(&writable_signer.pubkey()));
+        let transaction = Transaction::new(
+            &[&writable_signer, &readonly_signer_a, &readonly_signer_b],
+            message,
+            blockhash,
+        );
+        (
+            VersionedTransaction::from(transaction),
+            readonly_signer_a.pubkey(),
+            readonly_signer_b.pubkey(),
+        )
+    }
+
+    #[test]
+    fn apply_instruction_insert_does_not_demote_writable_non_signer() {
+        let (mut tx, _payer) = sample_transaction();
+        // sample tx: [payer(ws,0), recipient(wu,1), system_program(ru,2)].
+        // The original transfer needs `recipient` writable. Insert an
+        // instruction that references `recipient` as read-only: union rules
+        // must keep it writable so the existing instruction keeps working.
+        let recipient = tx.message.static_account_keys()[1];
+        let system_program = tx.message.static_account_keys()[2];
+        let ix = Instruction {
+            program_id: system_program,
+            accounts: vec![solana_instruction::AccountMeta::new_readonly(recipient, false)],
+            data: vec![],
+        };
+        let readonly_unsigned_before = tx.message.header().num_readonly_unsigned_accounts;
+        apply_instruction_ops(
+            &mut tx,
+            &[crate::types::InstructionOp::Insert { position: 0, instruction: ix }],
+        )
+        .unwrap();
+
+        // No new keys added, no writability header change.
+        assert_eq!(tx.message.static_account_keys().len(), 3);
+        assert_eq!(tx.message.header().num_readonly_unsigned_accounts, readonly_unsigned_before);
+        let recipient_pos =
+            tx.message.static_account_keys().iter().position(|k| *k == recipient).unwrap();
+        assert!(account_is_writable(&tx.message, recipient_pos));
+    }
+
+    #[test]
+    fn apply_instruction_insert_does_not_demote_writable_signer() {
+        let (mut tx, payer) = sample_transaction();
+        // payer is a writable signer. Insert an instruction referencing it as a
+        // readonly signer: before the fix this errored ("signer writability is
+        // fixed"); union rules must keep it writable with no error.
+        let system_program = tx.message.static_account_keys()[2];
+        let ix = Instruction {
+            program_id: system_program,
+            accounts: vec![solana_instruction::AccountMeta::new_readonly(payer, true)],
+            data: vec![],
+        };
+        apply_instruction_ops(
+            &mut tx,
+            &[crate::types::InstructionOp::Insert { position: 0, instruction: ix }],
+        )
+        .expect("referencing a writable signer as readonly-signer must not error");
+
+        let payer_pos = tx.message.static_account_keys().iter().position(|k| *k == payer).unwrap();
+        assert!(account_is_writable(&tx.message, payer_pos));
+        // Still a single signer; not promoted/demoted.
+        assert_eq!(tx.message.header().num_required_signatures, 1);
+        assert_eq!(tx.message.header().num_readonly_signed_accounts, 0);
+    }
+
+    #[test]
+    fn apply_instruction_insert_promotes_readonly_non_signer_to_writable() {
+        let (mut tx, _payer) = sample_transaction();
+        // system_program is readonly unsigned (index 2). Insert an instruction
+        // referencing it as writable: union must promote it.
+        let system_program = tx.message.static_account_keys()[2];
+        let ix = Instruction {
+            program_id: system_program,
+            accounts: vec![solana_instruction::AccountMeta::new(system_program, false)],
+            data: vec![],
+        };
+        assert_eq!(tx.message.header().num_readonly_unsigned_accounts, 1);
+        apply_instruction_ops(
+            &mut tx,
+            &[crate::types::InstructionOp::Insert { position: 0, instruction: ix }],
+        )
+        .unwrap();
+
+        let pos =
+            tx.message.static_account_keys().iter().position(|k| *k == system_program).unwrap();
+        assert!(account_is_writable(&tx.message, pos));
+        assert_eq!(tx.message.header().num_readonly_unsigned_accounts, 0);
+    }
+
+    #[test]
+    fn apply_instruction_insert_promotes_readonly_signer_to_writable_signer() {
+        let (mut tx, _writable_signer, readonly_signer) = sample_transaction_with_readonly_signer();
+        // Layout: [writable_signer(ws,0), readonly_signer(rs,1), system_program(ru,2)].
+        assert_eq!(tx.message.header().num_readonly_signed_accounts, 1);
+        let system_program = tx.message.static_account_keys()[2];
+        let ix = Instruction {
+            program_id: system_program,
+            accounts: vec![solana_instruction::AccountMeta::new(readonly_signer, true)],
+            data: vec![],
+        };
+        apply_instruction_ops(
+            &mut tx,
+            &[crate::types::InstructionOp::Insert { position: 0, instruction: ix }],
+        )
+        .expect("promoting a readonly signer to writable-signer must succeed");
+
+        let pos =
+            tx.message.static_account_keys().iter().position(|k| *k == readonly_signer).unwrap();
+        assert!(account_is_writable(&tx.message, pos), "readonly signer should now be writable");
+        // The readonly-signed region shrank to zero.
+        assert_eq!(tx.message.header().num_readonly_signed_accounts, 0);
+        assert_eq!(tx.message.header().num_required_signatures, 2);
+    }
+
+    #[test]
+    fn apply_instruction_insert_signer_promotion_keeps_signatures_aligned() {
+        // Regression: promoting a readonly signer that is NOT at the
+        // writable/readonly-signer boundary performs a non-trivial key swap.
+        // Swapping keys without also swapping the matching signature slots
+        // breaks the VersionedTransaction invariant that `signatures[i]`
+        // belongs to the signer at `account_keys[i]`.
+        let (mut tx, _rs_a, rs_b) = sample_transaction_with_two_readonly_signers();
+        // Layout: [ws(0), rs_a(1), rs_b(2), system_program(3,ru)].
+        // Promoting rs_b (pos 2): boundary = num_sigs(3) - readonly_signed(2)
+        // = 1, so swap(2, 1) is non-trivial — the case where a key-only swap
+        // would misalign signatures.
+        assert_eq!(tx.message.header().num_required_signatures, 3);
+        assert_eq!(tx.message.header().num_readonly_signed_accounts, 2);
+
+        // Record each signer's original signature by key.
+        let orig: Vec<(Pubkey, Signature)> = (0..tx.message.header().num_required_signatures
+            as usize)
+            .map(|i| (tx.message.static_account_keys()[i], tx.signatures[i]))
+            .collect();
+
+        let system_program = tx.message.static_account_keys()[3];
+        let ix = Instruction {
+            program_id: system_program,
+            accounts: vec![solana_instruction::AccountMeta::new(rs_b, true)],
+            data: vec![],
+        };
+        apply_instruction_ops(
+            &mut tx,
+            &[crate::types::InstructionOp::Insert { position: 0, instruction: ix }],
+        )
+        .expect("promoting a readonly signer to writable-signer must succeed");
+
+        // After promotion, each signer key must still carry its ORIGINAL
+        // signature (they just moved position together).
+        assert_eq!(tx.message.header().num_required_signatures, 3);
+        for i in 0..tx.message.header().num_required_signatures as usize {
+            let key = tx.message.static_account_keys()[i];
+            let sig = tx.signatures[i];
+            let expected = orig
+                .iter()
+                .find(|(k, _)| *k == key)
+                .map(|(_, s)| *s)
+                .expect("signer key should have a recorded signature");
+            assert_eq!(
+                sig, expected,
+                "signature at position {i} (key {key}) is misaligned after signer promotion"
+            );
+        }
+
+        // rs_b is now writable and landed at the writable/readonly boundary (pos 1).
+        let pos = tx.message.static_account_keys().iter().position(|k| *k == rs_b).unwrap();
+        assert_eq!(pos, 1);
+        assert!(account_is_writable(&tx.message, pos));
+        assert_eq!(tx.message.header().num_readonly_signed_accounts, 1);
+    }
+
+    #[test]
+    fn apply_instruction_insert_keeps_signer_when_referenced_as_non_signer() {
+        // Union: an existing signer referenced as a non-signer stays a signer
+        // (never demoted), and a non-signer meta never adds signer privilege.
+        let (mut tx, payer) = sample_transaction();
+        let system_program = tx.message.static_account_keys()[2];
+        // Reference payer as a writable non-signer.
+        let ix = Instruction {
+            program_id: system_program,
+            accounts: vec![solana_instruction::AccountMeta::new(payer, false)],
+            data: vec![],
+        };
+        apply_instruction_ops(
+            &mut tx,
+            &[crate::types::InstructionOp::Insert { position: 0, instruction: ix }],
+        )
+        .unwrap();
+        assert_eq!(tx.message.header().num_required_signatures, 1);
+        let payer_pos = tx.message.static_account_keys().iter().position(|k| *k == payer).unwrap();
+        assert!(account_is_writable(&tx.message, payer_pos));
+    }
+
+    #[test]
+    fn apply_instruction_insert_unions_duplicate_metas_regardless_of_order() {
+        // Solana unions duplicate account privileges within an instruction
+        // regardless of meta order. An account listed first as a non-signer and
+        // later as a signer must end up a signer; without per-pubkey
+        // aggregation, the first meta inserts it as a non-signer and the
+        // second rejects the promotion as unsupported.
+        let (mut tx, _payer) = sample_transaction();
+        let dup = Pubkey::new_unique();
+        let system_program = tx.message.static_account_keys()[2];
+        // Same pubkey twice: readonly non-signer FIRST, then writable signer.
+        let ix = Instruction {
+            program_id: system_program,
+            accounts: vec![
+                solana_instruction::AccountMeta::new_readonly(dup, false),
+                solana_instruction::AccountMeta::new(dup, true),
+            ],
+            data: vec![],
+        };
+        apply_instruction_ops(
+            &mut tx,
+            &[crate::types::InstructionOp::Insert { position: 0, instruction: ix }],
+        )
+        .expect("duplicate metas must be unioned, not rejected by meta order");
+
+        let pos = tx.message.static_account_keys().iter().position(|k| *k == dup).unwrap();
+        // Union: signer AND writable.
+        assert!(pos < tx.message.header().num_required_signatures as usize, "must be a signer");
+        assert!(account_is_writable(&tx.message, pos), "must be writable");
+        // One new key, one new signature.
+        assert_eq!(tx.message.header().num_required_signatures, 2);
+        assert_eq!(tx.signatures.len(), 2);
+        // The compiled instruction references the single unioned index for both
+        // metas.
+        let compiled = &tx.message.instructions()[0];
+        assert_eq!(compiled.accounts.len(), 2);
+        assert_eq!(compiled.accounts[0], compiled.accounts[1]);
+    }
+
+    #[test]
+    fn apply_instruction_ops_runs_in_order() {
+        // Insert two instructions (positions 0 and 1), then remove index 0.
+        let (mut tx, payer) = sample_transaction();
+        let first = memo_instruction(payer, "first");
+        let second = memo_instruction(payer, "second");
+
+        apply_instruction_ops(
+            &mut tx,
+            &[
+                crate::types::InstructionOp::Insert { position: 0, instruction: first },
+                crate::types::InstructionOp::Insert { position: 1, instruction: second },
+                crate::types::InstructionOp::Remove { index: 0 },
+            ],
+        )
+        .unwrap();
+
+        // After inserting two at the front then removing the first, only the
+        // "second" memo survives at index 0.
+        assert_eq!(tx.message.instructions().len(), 2);
+        assert_eq!(tx.message.instructions()[0].data, b"second");
     }
 }

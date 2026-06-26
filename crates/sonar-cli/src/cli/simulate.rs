@@ -23,6 +23,8 @@ EXAMPLES:
   sonar simulate <TX1> <TX2>                    Bundle (atomic multi-tx)
   sonar simulate --payer <PUBKEY> --ix <DSL>    Instruction input
   sonar simulate <TX> --fund-sol ALICE=1sol     Fund account before sim
+  sonar simulate <TX> --remove-ix 2              Drop a whole instruction
+  sonar simulate <TX> --insert-ix 1='program=..' Insert a whole instruction
   sonar simulate <TX> --override PROG=prog.so   Override on-chain program")]
 pub struct SimulateArgs {
     #[command(flatten, next_help_heading = HELP_HEADING_INPUT_RPC)]
@@ -139,6 +141,42 @@ pub struct SimulateArgs {
         value_parser = clap::builder::NonEmptyStringValueParser::new()
     )]
     pub ix_account_removes: Vec<String>,
+    /// Remove a whole instruction from the transaction before simulation.
+    /// Format: <IX> (1-based instruction index)
+    /// Subsequent instructions shift left by one.
+    /// Example: --remove-ix 2
+    /// Ordering: whole-instruction ops run before account/data mutations;
+    /// see --insert-ix.
+    #[arg(
+        long = "remove-ix",
+        help_heading = HELP_HEADING_STATE_PREPARATION,
+        value_name = "INDEX",
+        num_args = 1..,
+        value_parser = clap::builder::NonEmptyStringValueParser::new()
+    )]
+    pub ix_removes: Vec<String>,
+    /// Insert a whole instruction into the transaction at a 1-based position.
+    /// Format: <POS>=<SPEC> (1-based; the new instruction becomes POS-th).
+    /// POS=1 prepends; POS = current_count + 1 appends.
+    /// <SPEC> reuses the --ix grammar: DSL, JSON object/array, or @file.
+    /// When SPEC is a JSON array of N instructions, they occupy POS..POS+N-1.
+    /// Example: --insert-ix 1="program=Memo.. data=0x.."
+    /// Example: --insert-ix 2=@extra.json
+    /// Ordering: whole-instruction ops (all --insert-ix, then all --remove-ix)
+    /// run BEFORE account-level ops (--patch-ix-account etc.) and data patches
+    /// (--patch-ix-data), so the latter target the post-restructure list.
+    /// Within --insert-ix, CLI argument order is preserved; positions are
+    /// interpreted at apply time, so list ops in descending position order to
+    /// express positions relative to the pre-mutation list.
+    #[arg(
+        long = "insert-ix",
+        help_heading = HELP_HEADING_STATE_PREPARATION,
+        value_name = "INSERT",
+        verbatim_doc_comment,
+        num_args = 1,
+        value_parser = clap::builder::NonEmptyStringValueParser::new()
+    )]
+    pub ix_inserts: Vec<String>,
     /// Patch bytes in an instruction's data field.
     /// Format: <IX>=<OFFSET>:<HEX> (1-based; HEX may start with 0x)
     /// Example: --patch-ix-data 1=8:0xdeadbeef
@@ -241,8 +279,8 @@ pub struct TransactionInputArgs {
 }
 
 pub use sonar_sim::internals::{
-    AccountDataPatch, AccountOverride, InstructionAccountOp, InstructionDataPatch, SolFunding,
-    TokenAmount, TokenFunding,
+    AccountDataPatch, AccountOverride, InstructionAccountOp, InstructionDataPatch, InstructionOp,
+    SolFunding, TokenAmount, TokenFunding,
 };
 
 /// Parse the `<NEW_PUBKEY>[:<flags>]` value of an instruction-account op using
@@ -446,6 +484,50 @@ pub fn parse_ix_account_remove(raw: &str) -> Result<InstructionAccountOp, String
         return Err("Remove must be in <IX>.<POSITION> format (no `=<value>`)".to_string());
     }
     Ok(InstructionAccountOp::Remove { instruction_index, account_position })
+}
+
+/// Parse `--remove-ix` (`<IX>`, 1-based) into an [`InstructionOp::Remove`].
+/// Rejects a trailing `=<value>` since removals take no payload.
+pub fn parse_ix_remove(raw: &str) -> Result<InstructionOp, String> {
+    if let Some((_, _)) = raw.split_once('=') {
+        return Err(
+            "--remove-ix must be a single 1-based index (e.g. `2`), no `=<value>`".to_string()
+        );
+    }
+    let ix_1based: usize = raw
+        .trim()
+        .parse()
+        .map_err(|err| format!("Failed to parse --remove-ix index `{raw}`: {err}"))?;
+    if ix_1based == 0 {
+        return Err("--remove-ix index is 1-based and must be >= 1".to_string());
+    }
+    Ok(InstructionOp::Remove { index: ix_1based - 1 })
+}
+
+/// Parse `--insert-ix` (`<POS>=<SPEC>`, 1-based position) into the 0-based
+/// insertion position plus the raw instruction spec.
+///
+/// The spec (DSL / JSON / `@file`) is decoded later by the handler, which
+/// already owns the `--ix` parsing machinery. A JSON array spec yields several
+/// consecutive inserts starting at the returned position.
+pub fn parse_ix_insert(raw: &str) -> Result<(usize, String), String> {
+    let (pos_str, spec) = raw.split_once('=').ok_or_else(|| {
+        "--insert-ix must be in <POS>=<SPEC> format (1-based position; SPEC reuses the --ix grammar)"
+            .to_string()
+    })?;
+    let pos_1based: usize = pos_str
+        .trim()
+        .parse()
+        .map_err(|err| format!("Failed to parse --insert-ix position `{pos_str}`: {err}"))?;
+    if pos_1based == 0 {
+        return Err("--insert-ix position is 1-based and must be >= 1".to_string());
+    }
+    let spec = spec.trim_start();
+    if spec.is_empty() {
+        return Err("--insert-ix <SPEC> is empty after `=`; provide a DSL, JSON, or @file value"
+            .to_string());
+    }
+    Ok((pos_1based - 1, spec.to_string()))
 }
 
 pub fn parse_ix_data_patch(raw: &str) -> Result<InstructionDataPatch, String> {
@@ -1466,6 +1548,110 @@ mod tests {
             panic!("expected simulate subcommand");
         };
         assert_eq!(args.ix_account_removes.len(), 2);
+    }
+
+    #[test]
+    fn parse_ix_remove_basic() {
+        let parsed = parse_ix_remove("2").unwrap();
+        assert!(matches!(parsed, InstructionOp::Remove { index: 1 }));
+    }
+
+    #[test]
+    fn parse_ix_remove_rejects_zero_index() {
+        let err = parse_ix_remove("0").unwrap_err();
+        assert!(err.contains("1-based"));
+    }
+
+    #[test]
+    fn parse_ix_remove_rejects_value_suffix() {
+        let err = parse_ix_remove("2=foo").unwrap_err();
+        assert!(err.contains("no `=<value>`"));
+    }
+
+    #[test]
+    fn parse_ix_remove_rejects_non_numeric() {
+        let err = parse_ix_remove("abc").unwrap_err();
+        assert!(err.contains("Failed to parse"));
+    }
+
+    #[test]
+    fn simulate_accepts_remove_ix_flag() {
+        let cli = Cli::try_parse_from([
+            "sonar",
+            "simulate",
+            "1111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+            "--remove-ix",
+            "2",
+            "--remove-ix",
+            "1",
+        ])
+        .expect("should parse --remove-ix");
+
+        let Some(Commands::Simulate(args)) = cli.command else {
+            panic!("expected simulate subcommand");
+        };
+        assert_eq!(args.ix_removes.len(), 2);
+    }
+
+    #[test]
+    fn parse_ix_insert_basic() {
+        let (pos, spec) =
+            parse_ix_insert("1=program=MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr").unwrap();
+        assert_eq!(pos, 0);
+        assert_eq!(spec, "program=MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr");
+    }
+
+    #[test]
+    fn parse_ix_insert_preserves_at_file_spec() {
+        let (pos, spec) = parse_ix_insert("3=@ix.json").unwrap();
+        assert_eq!(pos, 2);
+        assert_eq!(spec, "@ix.json");
+    }
+
+    #[test]
+    fn parse_ix_insert_preserves_json_spec() {
+        let (pos, spec) =
+            parse_ix_insert("2={\"program\":\"TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA\"}")
+                .unwrap();
+        assert_eq!(pos, 1);
+        assert!(spec.starts_with('{'));
+    }
+
+    #[test]
+    fn parse_ix_insert_rejects_zero_position() {
+        let err = parse_ix_insert("0=program=x").unwrap_err();
+        assert!(err.contains("1-based"));
+    }
+
+    #[test]
+    fn parse_ix_insert_rejects_missing_equals() {
+        let err = parse_ix_insert("1program").unwrap_err();
+        assert!(err.contains("<POS>=<SPEC>"));
+    }
+
+    #[test]
+    fn parse_ix_insert_rejects_empty_spec() {
+        let err = parse_ix_insert("1=").unwrap_err();
+        assert!(err.contains("empty"));
+    }
+
+    #[test]
+    fn simulate_accepts_insert_ix_flag() {
+        let cli = Cli::try_parse_from([
+            "sonar",
+            "simulate",
+            "1111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+            "--insert-ix",
+            "1=program=MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr",
+            "--insert-ix",
+            "2=@extra.json",
+        ])
+        .expect("should parse --insert-ix");
+
+        let Some(Commands::Simulate(args)) = cli.command else {
+            panic!("expected simulate subcommand");
+        };
+        assert_eq!(args.ix_inserts.len(), 2);
     }
 
     #[test]

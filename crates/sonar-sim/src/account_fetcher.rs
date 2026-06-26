@@ -382,7 +382,7 @@ mod tests {
                     return Ok(HashMap::new());
                 }
                 let mut found = HashMap::new();
-                if pubkeys.iter().any(|k| *k == self.key) {
+                if pubkeys.contains(&self.key) {
                     found.insert(self.key, self.account.clone());
                 }
                 Ok(found)
