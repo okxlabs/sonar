@@ -2,7 +2,6 @@
 
 use clap::{Args, Subcommand};
 
-/// View or modify the resolved config file (`SONAR_CONFIG` or the default path).
 #[derive(Args, Debug)]
 #[command(after_help = "\
 EXAMPLES:
@@ -17,11 +16,11 @@ pub struct ConfigArgs {
 
 #[derive(Subcommand, Debug)]
 pub enum ConfigSubcommands {
-    /// List all supported config keys and current values
+    /// List config keys and current values
     List,
-    /// Get a single config value by key
+    /// Get a config value by key
     Get(ConfigGetArgs),
-    /// Set a config value using KEY=VALUE or KEY VALUE
+    /// Set a config value (KEY=VALUE or KEY VALUE)
     Set(ConfigSetArgs),
 }
 

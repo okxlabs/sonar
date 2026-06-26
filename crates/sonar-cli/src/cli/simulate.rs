@@ -29,22 +29,18 @@ pub struct SimulateArgs {
     pub transaction: TransactionInputArgs,
     #[command(flatten, next_help_heading = HELP_HEADING_INPUT_RPC)]
     pub rpc: RpcArgs,
-    /// Fee payer for instruction input mode.
-    /// Optional: omitting it uses a deterministic placeholder pubkey
-    /// (`sha256("sonar-payer")`) auto-funded with 1 SOL for the simulation.
+    /// Fee payer for --ix mode. Optional: defaults to a deterministic placeholder
+    /// (`sha256("sonar-payer")`) auto-funded with 1 SOL.
     #[arg(long = "payer", help_heading = HELP_HEADING_INPUT_RPC, value_name = "PUBKEY")]
     pub payer: Option<String>,
-    /// Synthesize a transaction from raw instructions and simulate it (conflicts with TX).
-    ///
-    /// Repeat --ix for multiple instructions in one atomic transaction. Each
-    /// value's format is auto-detected:
+    /// Synthesize and simulate a transaction from raw instructions (conflicts with TX).
+    /// Repeat --ix per instruction; all run atomically. Format auto-detected:
     ///   DSL    program=<PUBKEY> [accounts=<PUBKEY>[:sw],...] [data=0x..] [encoding=..]
     ///   JSON   starts with `{` or `[`, e.g. {"program":"<PUBKEY>","data":"0x.."}
-    ///   @path  read from a file holding JSON or DSL (~ expands, @/dev/stdin pipes)
+    ///   @path  file holding JSON or DSL (~ expands, @/dev/stdin pipes)
     ///
-    /// Account flags: `s`=signer, `w`=writable; no suffix = read-only non-signer.
-    /// JSON accounts take pubkey + is_signer/isSigner + is_writable/isWritable.
-    /// data: hex by default (leading 0x optional); set encoding=base64|base58 otherwise.
+    /// Accounts: `s`=signer, `w`=writable, none=read-only. JSON uses is_signer/isSigner,
+    /// is_writable/isWritable. data: hex (0x optional) unless encoding=base64|base58.
     #[arg(
         long = "ix",
         alias = "instruction",
@@ -65,8 +61,8 @@ pub struct SimulateArgs {
         value_parser = clap::builder::NonEmptyStringValueParser::new()
     )]
     pub instructions: Vec<String>,
-    /// Override an on-chain program or account with a local file.
-    /// Format: <PUBKEY>=<PATH> (.so/.elf for programs, .json for accounts)
+    /// Override an on-chain program/account with a local file.
+    /// Format: <PUBKEY>=<PATH> (.so/.elf = program, .json = account)
     #[arg(
         short = 'O',
         short_alias = 'R',
@@ -78,7 +74,7 @@ pub struct SimulateArgs {
         value_parser = clap::builder::NonEmptyStringValueParser::new()
     )]
     pub overrides: Vec<String>,
-    /// Fund a system account with SOL. Format: <PUBKEY>=<LAMPORTS> or <PUBKEY>=<AMOUNT>sol
+    /// Fund a system account. Format: <PUBKEY>=<LAMPORTS> or <PUBKEY>=<AMOUNT>sol
     #[arg(
         short = 'f',
         long = "fund-sol",
@@ -89,22 +85,20 @@ pub struct SimulateArgs {
     )]
     pub fundings: Vec<String>,
     /// Fund a token account.
-    /// Format: <ACCOUNT>=<AMOUNT>, <ACCOUNT>:<MINT>=<AMOUNT>,
-    /// or <ACCOUNT>:<MINT>:<OWNER>=<AMOUNT> (mint/owner auto-detected if account exists on-chain).
-    /// Owner is required when creating a new account that doesn't exist on-chain.
-    /// Integer amounts are treated as raw token units; decimal amounts (e.g. 1.5) are
-    /// converted using the mint's decimals (e.g. 1.5 with 6 decimals -> 1500000).
+    /// Format: <ACCOUNT>[:<MINT>[:<OWNER>]]=<AMOUNT>
+    /// MINT/OWNER auto-detected if the account exists on-chain; OWNER required to create one.
+    /// Integer = raw units; decimal (e.g. 1.5) scales by mint decimals (1.5 @ 6 -> 1500000).
     #[arg(
         long = "fund-token",
         help_heading = HELP_HEADING_STATE_PREPARATION,
         value_name = "FUNDING",
+        verbatim_doc_comment,
         num_args = 1..,
         value_parser = clap::builder::NonEmptyStringValueParser::new()
     )]
     pub token_fundings: Vec<String>,
-    /// Patch an account pubkey within a specific instruction.
-    /// Format: <IX>.<ACCOUNT>=<NEW_PUBKEY>[:w] (1-based indices)
-    /// Append :w for writable; omit the suffix for read-only (the default).
+    /// Replace an account pubkey in an instruction.
+    /// Format: <IX>.<ACCOUNT>=<NEW_PUBKEY>[:w] (1-based; :w=writable, else read-only)
     /// Example: --patch-ix-account 1.3=So11111111111111111111111111111111111111112:w
     /// Ordering: see --insert-ix-account.
     #[arg(
@@ -112,70 +106,66 @@ pub struct SimulateArgs {
         long = "patch-ix-account",
         help_heading = HELP_HEADING_STATE_PREPARATION,
         value_name = "PATCH",
+        verbatim_doc_comment,
         num_args = 1..,
         value_parser = clap::builder::NonEmptyStringValueParser::new()
     )]
     pub ix_account_patches: Vec<String>,
-    /// Insert an account at a specific position within an instruction's account list.
-    /// Format: <IX>.<POSITION>=<PUBKEY>[:w] (1-based indices)
-    /// Existing accounts at and after POSITION shift right by one.
-    /// To insert at the end, pass POSITION = current_count + 1.
-    /// Append :w for writable; omit the suffix for read-only (the default).
+    /// Insert an account at a position in an instruction's account list.
+    /// Format: <IX>.<POSITION>=<PUBKEY>[:w] (1-based; :w=writable, else read-only)
+    /// Accounts at/after POSITION shift right; use count+1 to append.
     /// Example: --insert-ix-account 1.3=So11111111111111111111111111111111111111112:w
-    /// Ordering: instruction-account ops apply in flag order — all --patch-ix-account
-    /// first, then --insert-ix-account, then --remove-ix-account; within each flag,
-    /// CLI argument order is preserved. Positions are interpreted at apply time, so
-    /// to express positions relative to the pre-mutation list, list ops in
-    /// descending position order.
+    /// Ordering: account ops apply as patch -> insert -> remove, CLI order within each.
+    /// Positions resolve at apply time; list descending to target the pre-mutation list.
     #[arg(
         long = "insert-ix-account",
         help_heading = HELP_HEADING_STATE_PREPARATION,
         value_name = "INSERT",
+        verbatim_doc_comment,
         num_args = 1..,
         value_parser = clap::builder::NonEmptyStringValueParser::new()
     )]
     pub ix_account_inserts: Vec<String>,
-    /// Remove an account at a specific position from an instruction's account list.
-    /// Format: <IX>.<POSITION> (1-based indices)
-    /// Subsequent accounts in the same instruction shift left by one.
+    /// Remove an account at a position from an instruction's account list.
+    /// Format: <IX>.<POSITION> (1-based; later accounts shift left)
     /// Example: --remove-ix-account 1.3
     /// Ordering: see --insert-ix-account.
     #[arg(
         long = "remove-ix-account",
         help_heading = HELP_HEADING_STATE_PREPARATION,
         value_name = "REMOVE",
+        verbatim_doc_comment,
         num_args = 1..,
         value_parser = clap::builder::NonEmptyStringValueParser::new()
     )]
     pub ix_account_removes: Vec<String>,
-    /// Patch bytes in an instruction's data field before simulation.
-    /// Format: <IX>=<OFFSET>:<HEX_DATA> (1-based instruction index)
-    /// HEX_DATA may optionally start with 0x.
+    /// Patch bytes in an instruction's data field.
+    /// Format: <IX>=<OFFSET>:<HEX> (1-based; HEX may start with 0x)
     /// Example: --patch-ix-data 1=8:0xdeadbeef
     #[arg(
         short = 'P',
         long = "patch-ix-data",
         help_heading = HELP_HEADING_STATE_PREPARATION,
         value_name = "PATCH",
+        verbatim_doc_comment,
         num_args = 1..,
         value_parser = clap::builder::NonEmptyStringValueParser::new()
     )]
     pub ix_data_patches: Vec<String>,
-    /// Patch bytes in an account data field before simulation.
-    /// Format: <PUBKEY>=<OFFSET>:<HEX_DATA>
-    /// HEX_DATA may optionally start with 0x.
+    /// Patch bytes in an account's data field.
+    /// Format: <PUBKEY>=<OFFSET>:<HEX> (HEX may start with 0x)
     /// Example: --patch-account-data So11111111111111111111111111111111111111112=16:0xdeadbeef
     #[arg(
         short = 'p',
         long = "patch-account-data",
         help_heading = HELP_HEADING_STATE_PREPARATION,
         value_name = "PATCH",
+        verbatim_doc_comment,
         num_args = 1..,
         value_parser = clap::builder::NonEmptyStringValueParser::new()
     )]
     pub data_patches: Vec<String>,
-    /// Close an account so it does not exist during simulation.
-    /// Takes one or more account pubkeys.
+    /// Close accounts so they don't exist during simulation (one or more pubkeys).
     #[arg(
         long = "close-account",
         help_heading = HELP_HEADING_STATE_PREPARATION,
@@ -184,20 +174,16 @@ pub struct SimulateArgs {
         value_parser = clap::builder::NonEmptyStringValueParser::new()
     )]
     pub account_closures: Vec<String>,
-    /// Enable account caching: load from cache on repeat runs, save to cache on first run.
-    /// Cache is stored per-transaction under ~/.sonar/cache/<KEY>/
+    /// Cache fetched accounts per-transaction (~/.sonar/cache/<KEY>/); reused on repeat runs.
     #[arg(short = 'c', long, help_heading = HELP_HEADING_STATE_PREPARATION, env = "SONAR_CACHE")]
     pub cache: bool,
-    /// Override the cache root directory (default: ~/.sonar/cache).
-    /// Implies --cache.
+    /// Cache root directory (default: ~/.sonar/cache). Implies --cache.
     #[arg(short = 'D', long, help_heading = HELP_HEADING_STATE_PREPARATION, value_name = "DIR")]
     pub cache_dir: Option<PathBuf>,
-    /// Force re-fetch all accounts from RPC, overwriting existing cache.
-    /// Implies --cache.
+    /// Re-fetch all accounts from RPC, overwriting the cache. Implies --cache.
     #[arg(short = 'r', long, help_heading = HELP_HEADING_STATE_PREPARATION)]
     pub refresh_cache: bool,
-    /// Override the Clock sysvar's unix_timestamp for simulation.
-    /// Supports Unix timestamp (e.g. 1700000000) or RFC3339 (e.g. 2024-01-01T00:00:00Z).
+    /// Override the Clock sysvar timestamp: Unix seconds (1700000000) or RFC3339 (2024-01-01T00:00:00Z).
     #[arg(
         short = 't',
         long = "timestamp",
@@ -209,11 +195,10 @@ pub struct SimulateArgs {
     /// Override the simulation slot
     #[arg(short = 's', long = "slot", help_heading = HELP_HEADING_SIMULATION_CONTROLS, value_name = "SLOT")]
     pub slot: Option<u64>,
-    /// Verify transaction signatures during simulation
+    /// Verify transaction signatures
     #[arg(long = "check-sig", help_heading = HELP_HEADING_SIMULATION_CONTROLS, env = "SONAR_VERIFY_SIGNATURES")]
     pub verify_signatures: bool,
-    /// Directory containing Anchor IDL JSON files (matched by `<PROGRAM_ID>.json`
-    /// filename or the `address` field declared inside each file)
+    /// Directory of Anchor IDL JSON files (matched by `<PROGRAM_ID>.json` filename or their `address` field)
     #[arg(
         long = "idl-dir",
         help_heading = HELP_HEADING_SIMULATION_CONTROLS,
@@ -228,16 +213,16 @@ pub struct SimulateArgs {
         env = "SONAR_NO_IDL_FETCH"
     )]
     pub no_idl_fetch: bool,
-    /// Always print raw instruction data, even when parser succeeds
+    /// Print raw instruction data even when parsing succeeds
     #[arg(long = "raw-ix-data", help_heading = HELP_HEADING_OUTPUT_DEBUG, env = "SONAR_RAW_IX_DATA")]
     pub ix_data: bool,
     /// Print raw program logs instead of structured execution trace
     #[arg(short = 'l', long = "raw-log", help_heading = HELP_HEADING_OUTPUT_DEBUG, env = "SONAR_RAW_LOG")]
     pub raw_log: bool,
-    /// Show detailed instruction information (accounts, parsed fields, inner instructions)
+    /// Show instruction detail: accounts, parsed fields, inner instructions
     #[arg(short = 'd', long = "show-ix-detail", help_heading = HELP_HEADING_OUTPUT_DEBUG, env = "SONAR_SHOW_IX_DETAIL")]
     pub show_ix_detail: bool,
-    /// Show SOL and token balance changes after simulation
+    /// Show SOL and token balance changes
     #[arg(
         short = 'b',
         long = "show-balance-change",
@@ -249,9 +234,8 @@ pub struct SimulateArgs {
 
 #[derive(Args, Debug, Clone)]
 pub struct TransactionInputArgs {
-    /// Raw transaction (Base58/Base64) or transaction signature.
-    /// Omit to read from stdin (when stdin is not a TTY).
-    /// Pass multiple TX values to simulate a bundle (atomic multi-transaction).
+    /// Raw transaction (Base58/Base64) or signature. Omit to read from stdin (non-TTY).
+    /// Pass multiple for a bundle (atomic multi-transaction).
     #[arg(value_name = "TX", required = false)]
     pub tx: Vec<String>,
 }
