@@ -5,9 +5,7 @@ use crate::output;
 use crate::parsers::instruction::ParserRegistry;
 use crate::utils::progress::Progress;
 
-use super::pipeline_prep::{
-    CachePrepareArgs, resolve_and_derive_cache_key, resolve_cache_and_prepare,
-};
+use super::pipeline_prep::{CachePrepareArgs, TxSource, resolve_mutate_prepare};
 
 pub(crate) fn handle(args: DecodeArgs, json: bool) -> Result<()> {
     let idl_dir = args.idl_dir.clone();
@@ -33,11 +31,6 @@ pub(crate) fn handle(args: DecodeArgs, json: bool) -> Result<()> {
     };
     let TransactionInputArgs { tx } = transaction;
 
-    let resolved = resolve_and_derive_cache_key(tx, &rpc_url, resolver_cache_location, &progress)?;
-    let is_bundle = resolved.resolved_txs.len() > 1;
-    let parsed_txs: Vec<_> =
-        resolved.resolved_txs.into_iter().map(|entry| entry.parsed_tx).collect();
-
     let cache_args = CachePrepareArgs {
         rpc_url: &rpc_url,
         cache_enabled: !no_cache,
@@ -46,29 +39,30 @@ pub(crate) fn handle(args: DecodeArgs, json: bool) -> Result<()> {
         no_idl_fetch,
         rpc_batch_size,
     };
-    let cached = resolve_cache_and_prepare(
+    // Decode does not mutate the transaction, so the mutation hook is a no-op.
+    let prepared = resolve_mutate_prepare(
+        TxSource::Raw(tx),
+        resolver_cache_location,
         &cache_args,
-        &resolved.cache_key,
-        &parsed_txs,
         &mut parser_registry,
         &progress,
+        |_| Ok(()),
     )?;
+    let parsed_txs = prepared.parsed_txs;
+    let resolved_accounts = prepared.resolved_accounts;
+    let is_bundle = parsed_txs.len() > 1;
 
     progress.finish();
 
     if is_bundle {
         log::info!("Bundle decode mode: {} transactions", parsed_txs.len());
         if json {
-            output::render_decode_bundle_json(
-                &parsed_txs,
-                &cached.prepared.resolved_accounts,
-                &mut parser_registry,
-            )?;
+            output::render_decode_bundle_json(&parsed_txs, &resolved_accounts, &mut parser_registry)?;
         } else {
             for (i, parsed_tx) in parsed_txs.iter().enumerate() {
                 output::render_transaction_only(
                     parsed_tx,
-                    &cached.prepared.resolved_accounts,
+                    &resolved_accounts,
                     &mut parser_registry,
                     false,
                     ix_data,
@@ -79,7 +73,7 @@ pub(crate) fn handle(args: DecodeArgs, json: bool) -> Result<()> {
     } else {
         output::render_transaction_only(
             &parsed_txs[0],
-            &cached.prepared.resolved_accounts,
+            &resolved_accounts,
             &mut parser_registry,
             json,
             ix_data,
