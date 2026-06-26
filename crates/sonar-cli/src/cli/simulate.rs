@@ -141,33 +141,25 @@ pub struct SimulateArgs {
         value_parser = clap::builder::NonEmptyStringValueParser::new()
     )]
     pub ix_account_removes: Vec<String>,
-    /// Remove a whole instruction from the transaction before simulation.
+    /// Drop a whole instruction; later instructions shift left.
     /// Format: <IX> (1-based instruction index)
-    /// Subsequent instructions shift left by one.
     /// Example: --remove-ix 2
-    /// Ordering: whole-instruction ops run before account/data mutations;
-    /// see --insert-ix.
+    /// Ordering: whole-instruction ops run before account/data mutations.
     #[arg(
         long = "remove-ix",
         help_heading = HELP_HEADING_STATE_PREPARATION,
         value_name = "INDEX",
+        verbatim_doc_comment,
         num_args = 1..,
         value_parser = clap::builder::NonEmptyStringValueParser::new()
     )]
     pub ix_removes: Vec<String>,
-    /// Insert a whole instruction into the transaction at a 1-based position.
-    /// Format: <POS>=<SPEC> (1-based; the new instruction becomes POS-th).
-    /// POS=1 prepends; POS = current_count + 1 appends.
-    /// <SPEC> reuses the --ix grammar: DSL, JSON object/array, or @file.
-    /// When SPEC is a JSON array of N instructions, they occupy POS..POS+N-1.
-    /// Example: --insert-ix 1="program=Memo.. data=0x.."
+    /// Insert a whole instruction at a 1-based position (POS=1 prepends; count+1 appends).
+    /// Format: <POS>=<SPEC>; SPEC uses --ix grammar (DSL, JSON object/array, or @file).
+    /// A JSON array of N instructions occupies POS..POS+N-1.
     /// Example: --insert-ix 2=@extra.json
-    /// Ordering: whole-instruction ops (all --insert-ix, then all --remove-ix)
-    /// run BEFORE account-level ops (--patch-ix-account etc.) and data patches
-    /// (--patch-ix-data), so the latter target the post-restructure list.
-    /// Within --insert-ix, CLI argument order is preserved; positions are
-    /// interpreted at apply time, so list ops in descending position order to
-    /// express positions relative to the pre-mutation list.
+    /// Ordering: --insert-ix then --remove-ix run before account/data mutations;
+    /// list in descending position to target the pre-mutation list.
     #[arg(
         long = "insert-ix",
         help_heading = HELP_HEADING_STATE_PREPARATION,
