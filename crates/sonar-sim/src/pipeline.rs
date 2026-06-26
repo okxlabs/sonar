@@ -9,8 +9,10 @@
 //! rather than runtime errors. Single-transaction and bundle pipelines are
 //! likewise separate types, so `execute`/`execute_bundle` can't be mismatched.
 
+use std::collections::HashSet;
 use std::sync::Arc;
 
+use solana_pubkey::Pubkey;
 use solana_transaction::versioned::VersionedTransaction;
 
 use crate::account_loader::AccountLoader;
@@ -25,7 +27,8 @@ use crate::mutations::Mutations;
 use crate::result::SimulationResult;
 use crate::rpc_provider::RpcAccountProvider;
 use crate::transaction::{
-    ParsedTransaction, apply_ix_account_ops, apply_ix_data_patches, parse_raw_transaction,
+    MessageAccountPlan, ParsedTransaction, apply_instruction_ops, apply_ix_account_ops,
+    apply_ix_data_patches, parse_raw_transaction,
 };
 use crate::types::{AccountSource, FetchObserver, FetchPolicy, ResolvedAccounts, RpcDecision};
 
@@ -34,7 +37,7 @@ use crate::types::{AccountSource, FetchObserver, FetchPolicy, ResolvedAccounts, 
 struct OfflinePolicy;
 
 impl FetchPolicy for OfflinePolicy {
-    fn decide_rpc(&self, _unresolved: &[solana_pubkey::Pubkey]) -> RpcDecision {
+    fn decide_rpc(&self, _unresolved: &[Pubkey]) -> RpcDecision {
         RpcDecision::Deny
     }
 }
@@ -117,8 +120,14 @@ impl PipelineConfig {
 }
 
 /// Apply transaction-level mutations (instruction patches) to a transaction.
+///
+/// Whole-instruction ops (insert / remove) run first so account-level and
+/// data mutations target the post-restructure instruction list.
 fn apply_tx_mutations(tx: &mut VersionedTransaction, mutations: &Mutations) -> Result<()> {
     let tx_m = &mutations.transaction;
+    if !tx_m.instruction_ops.is_empty() {
+        apply_instruction_ops(tx, &tx_m.instruction_ops)?;
+    }
     if !tx_m.ix_account_ops.is_empty() {
         apply_ix_account_ops(tx, &tx_m.ix_account_ops)?;
     }
@@ -126,6 +135,48 @@ fn apply_tx_mutations(tx: &mut VersionedTransaction, mutations: &Mutations) -> R
         apply_ix_data_patches(tx, &tx_m.ix_data_patches)?;
     }
     Ok(())
+}
+
+/// Fetch any accounts that transaction-level mutations (e.g. an inserted
+/// instruction) introduced beyond those resolved by `load_accounts`.
+///
+/// `load_accounts` runs against the pre-mutation transaction(s); mutations
+/// are applied later (in [`LoadedPipeline::execute`] /
+/// [`LoadedBundlePipeline::execute_bundle`]). Without this step, accounts an
+/// inserted instruction references would never be fetched or
+/// dependency-resolved, leaving execution to run against missing state. The
+/// new keys (and their auto-discovered dependencies) are merged into
+/// `resolved` via the loader's [`AccountAppender`](crate::types::AccountAppender)
+/// implementation.
+fn load_introduced_accounts(
+    txs: &[&VersionedTransaction],
+    loader: &mut AccountLoader,
+    resolved: &mut ResolvedAccounts,
+) -> Result<()> {
+    let missing = collect_introduced_keys(txs, resolved);
+    if missing.is_empty() {
+        return Ok(());
+    }
+    use crate::types::AccountAppender;
+    loader.append_accounts(resolved, &missing)
+}
+
+/// Static account keys referenced by `txs` that are absent from `resolved`.
+/// Deduplicated; order is first-seen.
+fn collect_introduced_keys(
+    txs: &[&VersionedTransaction],
+    resolved: &ResolvedAccounts,
+) -> Vec<Pubkey> {
+    let mut missing = Vec::new();
+    let mut seen = HashSet::new();
+    for tx in txs {
+        for key in MessageAccountPlan::from_transaction(tx).static_accounts {
+            if !resolved.accounts.contains_key(&key) && seen.insert(key) {
+                missing.push(key);
+            }
+        }
+    }
+    missing
 }
 
 /// Prepare a ready-to-run [`SimulationRunner`] from resolved accounts and
@@ -317,10 +368,21 @@ impl LoadedPipeline {
     /// Execute the transaction simulation.
     pub fn execute(self) -> Result<SimulationResult> {
         let mutations = self.mutations.unwrap_or_default();
+        let has_tx_mutations = !mutations.transaction.is_empty();
         let mut tx = self.parsed.transaction;
         apply_tx_mutations(&mut tx, &mutations)?;
 
-        let mut runner = build_runner(&self.config, self.loader, self.resolved, mutations)?;
+        // `load_accounts` ran against the pre-mutation transaction, so accounts
+        // a mutation introduced (e.g. an inserted instruction's program) are
+        // not yet resolved. Fetch them now so execution runs with complete
+        // state. See [`load_introduced_accounts`].
+        let mut loader = self.loader;
+        let mut resolved = self.resolved;
+        if has_tx_mutations {
+            load_introduced_accounts(&[&tx], &mut loader, &mut resolved)?;
+        }
+
+        let mut runner = build_runner(&self.config, loader, resolved, mutations)?;
         let exec_result = runner.execute(&tx)?;
         Ok(SimulationResult::from_execution(exec_result))
     }
@@ -356,6 +418,7 @@ impl LoadedBundlePipeline {
     /// to detect transactions that were never attempted due to a prior failure.
     pub fn execute_bundle(self) -> Result<BundleResult<Result<SimulationResult>>> {
         let mutations = self.mutations.unwrap_or_default();
+        let has_tx_mutations = !mutations.transaction.is_empty();
 
         let mut txs: Vec<VersionedTransaction> = Vec::with_capacity(self.parsed.len());
         for parsed in &self.parsed {
@@ -364,7 +427,16 @@ impl LoadedBundlePipeline {
             txs.push(tx);
         }
 
-        let mut runner = build_runner(&self.config, self.loader, self.resolved, mutations)?;
+        // Fetch accounts the mutations introduced across the whole bundle; see
+        // [`load_introduced_accounts`].
+        let mut loader = self.loader;
+        let mut resolved = self.resolved;
+        if has_tx_mutations {
+            let tx_refs: Vec<&VersionedTransaction> = txs.iter().collect();
+            load_introduced_accounts(&tx_refs, &mut loader, &mut resolved)?;
+        }
+
+        let mut runner = build_runner(&self.config, loader, resolved, mutations)?;
 
         let tx_refs: Vec<&VersionedTransaction> = txs.iter().collect();
         let bundle = runner.execute_bundle(&tx_refs);
@@ -418,5 +490,118 @@ mod tests {
         let br_full = crate::executor::BundleResult::new(vec![Ok::<_, String>(())], 1);
         assert_eq!(br_full.skipped_count(), 0);
         assert!(br_full.is_complete());
+    }
+
+    #[test]
+    fn execute_fetches_accounts_introduced_by_inserted_instruction() {
+        // `load_accounts` runs against the pre-mutation transaction, so accounts
+        // an inserted instruction references would never be loaded without an
+        // explicit append-fetch step during execute(). Verify the inserted keys
+        // are requested from the provider.
+        use std::sync::Mutex;
+
+        use solana_account::AccountSharedData;
+
+        use crate::rpc_provider::RpcAccountProvider;
+
+        struct RecordingProvider {
+            requested: Arc<Mutex<Vec<Pubkey>>>,
+        }
+        impl RpcAccountProvider for RecordingProvider {
+            fn get_multiple_accounts(
+                &self,
+                pubkeys: &[Pubkey],
+            ) -> Result<Vec<Option<AccountSharedData>>> {
+                self.requested.lock().unwrap().extend_from_slice(pubkeys);
+                Ok(vec![None; pubkeys.len()])
+            }
+        }
+
+        let requested = Arc::new(Mutex::new(Vec::new()));
+        let provider = Arc::new(RecordingProvider { requested: requested.clone() });
+
+        // Two brand-new keys absent from the original transfer transaction.
+        let inserted_program = Pubkey::new_unique();
+        let inserted_account = Pubkey::new_unique();
+        let insert_ix = solana_instruction::Instruction {
+            program_id: inserted_program,
+            accounts: vec![solana_instruction::AccountMeta::new_readonly(inserted_account, false)],
+            data: vec![],
+        };
+        let mutations = Mutations::builder()
+            .add_instruction_op(crate::types::InstructionOp::Insert {
+                position: 0,
+                instruction: insert_ix,
+            })
+            .build();
+
+        let pipeline = Pipeline::with_provider(provider)
+            .parse(TEST_TX_BASE64)
+            .unwrap()
+            .load_accounts()
+            .unwrap()
+            .with_mutations(mutations);
+
+        // execute() fails at simulation (inserted program is not executable),
+        // but the append-fetch of introduced keys happens before that point.
+        let _ = pipeline.execute();
+
+        let requested = requested.lock().unwrap();
+        assert!(
+            requested.contains(&inserted_program),
+            "inserted instruction's program must be fetched after mutation; got: {:?}",
+            *requested
+        );
+        assert!(
+            requested.contains(&inserted_account),
+            "inserted instruction's account must be fetched after mutation; got: {:?}",
+            *requested
+        );
+    }
+
+    #[test]
+    fn execute_without_mutations_does_not_refetch_accounts() {
+        // When no transaction mutations are present, execute() must not perform
+        // any extra fetches (the append-fetch step is skipped entirely).
+        use std::sync::Mutex;
+
+        use solana_account::AccountSharedData;
+
+        use crate::rpc_provider::RpcAccountProvider;
+
+        struct CountingProvider {
+            requested: Arc<Mutex<Vec<Pubkey>>>,
+        }
+        impl RpcAccountProvider for CountingProvider {
+            fn get_multiple_accounts(
+                &self,
+                pubkeys: &[Pubkey],
+            ) -> Result<Vec<Option<AccountSharedData>>> {
+                self.requested.lock().unwrap().extend_from_slice(pubkeys);
+                Ok(vec![None; pubkeys.len()])
+            }
+        }
+
+        let requested = Arc::new(Mutex::new(Vec::new()));
+        let provider = Arc::new(CountingProvider { requested: requested.clone() });
+
+        // No mutations: load_accounts fetches the original keys; execute()
+        // should not append-fetch anything.
+        let pipeline = Pipeline::with_provider(provider)
+            .parse(TEST_TX_BASE64)
+            .unwrap()
+            .load_accounts()
+            .unwrap();
+        let load_keys = requested.lock().unwrap().clone();
+        assert!(!load_keys.is_empty());
+        let _ = pipeline.execute();
+        let after = requested.lock().unwrap().clone();
+        assert_eq!(
+            after.len(),
+            load_keys.len(),
+            "execute() without mutations must not fetch any extra accounts; load fetched {:?}, after execute got {:?}",
+            load_keys,
+            after
+        );
     }
 }

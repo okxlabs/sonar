@@ -110,7 +110,8 @@ pub(crate) fn resolve_mutate_prepare(
     mut mutate: impl FnMut(&mut transaction::ParsedTransaction) -> Result<()>,
 ) -> Result<PreparedPipeline> {
     // 1. Resolve inputs into transactions and derive the cache key.
-    let (resolved_txs, cache_key) = resolve_inputs(source, resolver_cache_location, cache_args, progress)?;
+    let (resolved_txs, cache_key) =
+        resolve_inputs(source, resolver_cache_location, cache_args, progress)?;
 
     // 2. Separate provenance from the parsed form, then apply the caller's
     //    mutation. The account set to load depends on the post-mutation
@@ -185,8 +186,10 @@ fn resolve_inputs(
             let parsed_tx = transaction::build_transaction_from_instructions(payer, &inputs)
                 .context("Failed to build transaction from instruction inputs")?;
             let raw_tx_base64 = transaction::encode_transaction_to_base64(&parsed_tx.transaction)?;
-            let cache_key =
-                crate::core::cache::derive_cache_key_single(source.as_str(), &parsed_tx.transaction);
+            let cache_key = crate::core::cache::derive_cache_key_single(
+                source.as_str(),
+                &parsed_tx.transaction,
+            );
             let resolved_txs = vec![transaction::ResolvedTxInput {
                 original_input: source.as_str().to_string(),
                 raw_tx_base64,

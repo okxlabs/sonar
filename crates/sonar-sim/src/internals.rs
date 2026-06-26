@@ -12,8 +12,8 @@
 
 pub use crate::transaction::{
     AddressLookupPlan, LookupLocation, MessageAccountPlan, ParsedTransaction,
-    RawTransactionEncoding, apply_ix_account_ops, apply_ix_data_patches, build_lookup_locations,
-    parse_raw_transaction,
+    RawTransactionEncoding, apply_instruction_ops, apply_ix_account_ops, apply_ix_data_patches,
+    build_lookup_locations, parse_raw_transaction,
 };
 
 // ── Account loading ──
@@ -24,7 +24,7 @@ pub use crate::account_loader::AccountLoader;
 // ── Account types ──
 
 pub use crate::types::{
-    AccountDataPatch, AccountOverride, InstructionAccountOp, InstructionDataPatch,
+    AccountDataPatch, AccountOverride, InstructionAccountOp, InstructionDataPatch, InstructionOp,
     ResolvedAccounts, ResolvedLookup,
 };
 

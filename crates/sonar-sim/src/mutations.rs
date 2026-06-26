@@ -5,13 +5,14 @@
 use solana_pubkey::Pubkey;
 
 use crate::types::{
-    AccountDataPatch, AccountOverride, InstructionAccountOp, InstructionDataPatch, SolFunding,
-    TokenFunding,
+    AccountDataPatch, AccountOverride, InstructionAccountOp, InstructionDataPatch, InstructionOp,
+    SolFunding, TokenFunding,
 };
 
 /// Instruction-level mutations applied to the raw transaction before simulation.
 #[derive(Debug, Clone, Default)]
 pub struct TransactionMutations {
+    pub(crate) instruction_ops: Vec<InstructionOp>,
     pub(crate) ix_account_ops: Vec<InstructionAccountOp>,
     pub(crate) ix_data_patches: Vec<InstructionDataPatch>,
 }
@@ -51,7 +52,9 @@ impl Mutations {
 
 impl TransactionMutations {
     pub fn is_empty(&self) -> bool {
-        self.ix_account_ops.is_empty() && self.ix_data_patches.is_empty()
+        self.instruction_ops.is_empty()
+            && self.ix_account_ops.is_empty()
+            && self.ix_data_patches.is_empty()
     }
 }
 
@@ -94,6 +97,14 @@ impl MutationsBuilder {
 
     pub fn patch_account_data(mut self, patch: AccountDataPatch) -> Self {
         self.inner.state.account_data_patches.push(patch);
+        self
+    }
+
+    /// Append a whole-instruction mutation (insert / remove). Operations apply
+    /// in the order added; intended to run before account/data mutations so
+    /// that later phases target the post-restructure instruction list.
+    pub fn add_instruction_op(mut self, op: InstructionOp) -> Self {
+        self.inner.transaction.instruction_ops.push(op);
         self
     }
 
@@ -178,6 +189,29 @@ mod tests {
         assert_eq!(m.transaction.ix_account_ops.len(), 2);
         assert_eq!(m.transaction.ix_account_ops[0].account_position(), 3);
         assert_eq!(m.transaction.ix_account_ops[1].account_position(), 1);
+    }
+
+    #[test]
+    fn builder_add_instruction_op_remove() {
+        let m = Mutations::builder().add_instruction_op(InstructionOp::Remove { index: 2 }).build();
+        assert_eq!(m.transaction.instruction_ops.len(), 1);
+        assert_eq!(m.transaction.instruction_ops[0].position(), None);
+        assert!(!m.is_empty());
+    }
+
+    #[test]
+    fn builder_instruction_ops_independent_from_account_ops() {
+        let m = Mutations::builder()
+            .add_instruction_op(InstructionOp::Remove { index: 0 })
+            .add_ix_account_op(InstructionAccountOp::Patch {
+                instruction_index: 0,
+                account_position: 0,
+                new_pubkey: Pubkey::new_unique(),
+                writable: true,
+            })
+            .build();
+        assert_eq!(m.transaction.instruction_ops.len(), 1);
+        assert_eq!(m.transaction.ix_account_ops.len(), 1);
     }
 
     #[test]

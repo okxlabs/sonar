@@ -4159,6 +4159,7 @@ dependencies = [
  "solana-address-lookup-table-interface",
  "solana-clock",
  "solana-hash 3.1.0",
+ "solana-instruction",
  "solana-keypair",
  "solana-loader-v3-interface",
  "solana-message",
