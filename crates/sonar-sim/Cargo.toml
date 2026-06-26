@@ -22,6 +22,7 @@ serde_json.workspace = true
 ureq.workspace = true
 solana-clock.workspace = true
 solana-hash.workspace = true
+solana-instruction.workspace = true
 solana-loader-v3-interface.workspace = true
 solana-message.workspace = true
 solana-native-token.workspace = true

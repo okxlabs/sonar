@@ -217,6 +217,110 @@ fn simulate_ix_accepts_mixed_dsl_and_json_in_one_invocation() {
     );
 }
 
+/// Build a signed 2-instruction transaction (two system transfers) and return
+/// its base64 encoding, for exercising whole-instruction restructuring flags.
+fn two_instruction_transfer_tx_b64() -> String {
+    use base64::Engine;
+    use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
+    use solana_hash::Hash;
+    use solana_keypair::Keypair;
+    use solana_message::Message;
+    use solana_pubkey::Pubkey;
+    use solana_signer::Signer;
+    use solana_system_interface::instruction as system_instruction;
+    use solana_transaction::Transaction;
+    use solana_transaction::versioned::VersionedTransaction;
+
+    let payer = Keypair::new();
+    let recipient1 = Pubkey::new_unique();
+    let recipient2 = Pubkey::new_unique();
+    let blockhash = Hash::new_unique();
+    let ix1 = system_instruction::transfer(&payer.pubkey(), &recipient1, 1);
+    let ix2 = system_instruction::transfer(&payer.pubkey(), &recipient2, 2);
+    let message = Message::new(&[ix1, ix2], Some(&payer.pubkey()));
+    let tx = Transaction::new(&[&payer], message, blockhash);
+    let bytes = bincode::serialize(&VersionedTransaction::from(tx)).expect("serialize tx");
+    BASE64_STANDARD.encode(bytes)
+}
+
+#[test]
+fn simulate_remove_ix_valid_index_reaches_execution() {
+    // A valid --remove-ix restructures the message and proceeds to account
+    // loading, so the only failure is the unreachable RPC — not a mutation error.
+    let tx = two_instruction_transfer_tx_b64();
+    let mut cmd = cargo_bin_cmd!("sonar");
+    cmd.arg("simulate")
+        .arg(&tx)
+        .arg("--rpc-url")
+        .arg("http://127.0.0.1:1")
+        .arg("--remove-ix")
+        .arg("1");
+    let assert = cmd.assert().failure();
+    let output = assert.get_output();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains("out of range") && !stderr.contains("Failed to apply instruction ops"),
+        "valid --remove-ix should not fail at mutation, got: {stderr}"
+    );
+}
+
+#[test]
+fn simulate_remove_ix_out_of_range_fails_at_mutation() {
+    let tx = two_instruction_transfer_tx_b64();
+    let mut cmd = cargo_bin_cmd!("sonar");
+    cmd.arg("simulate")
+        .arg(&tx)
+        .arg("--rpc-url")
+        .arg("http://127.0.0.1:1")
+        .arg("--remove-ix")
+        .arg("9");
+    let assert = cmd.assert().failure();
+    let output = assert.get_output();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("out of range"),
+        "out-of-range --remove-ix should fail at mutation, got: {stderr}"
+    );
+}
+
+#[test]
+fn simulate_insert_ix_valid_spec_reaches_execution() {
+    let tx = two_instruction_transfer_tx_b64();
+    let mut cmd = cargo_bin_cmd!("sonar");
+    cmd.arg("simulate")
+        .arg(&tx)
+        .arg("--rpc-url")
+        .arg("http://127.0.0.1:1")
+        .arg("--insert-ix")
+        .arg("1=program=MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr data=0x6869");
+    let assert = cmd.assert().failure();
+    let output = assert.get_output();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains("Failed to apply instruction ops") && !stderr.contains("<POS>=<SPEC>"),
+        "valid --insert-ix should not fail at mutation/parse, got: {stderr}"
+    );
+}
+
+#[test]
+fn simulate_insert_ix_out_of_range_position_fails_at_mutation() {
+    let tx = two_instruction_transfer_tx_b64();
+    let mut cmd = cargo_bin_cmd!("sonar");
+    cmd.arg("simulate")
+        .arg(&tx)
+        .arg("--rpc-url")
+        .arg("http://127.0.0.1:1")
+        .arg("--insert-ix")
+        .arg("99=program=MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr data=0x6869");
+    let assert = cmd.assert().failure();
+    let output = assert.get_output();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("out of range"),
+        "out-of-range --insert-ix position should fail at mutation, got: {stderr}"
+    );
+}
+
 #[test]
 fn decode_omitted_tx_empty_stdin_fails_with_actionable_message() {
     let mut cmd = cargo_bin_cmd!("sonar");

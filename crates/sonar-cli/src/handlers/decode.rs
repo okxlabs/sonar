@@ -57,7 +57,11 @@ pub(crate) fn handle(args: DecodeArgs, json: bool) -> Result<()> {
     if is_bundle {
         log::info!("Bundle decode mode: {} transactions", parsed_txs.len());
         if json {
-            output::render_decode_bundle_json(&parsed_txs, &resolved_accounts, &mut parser_registry)?;
+            output::render_decode_bundle_json(
+                &parsed_txs,
+                &resolved_accounts,
+                &mut parser_registry,
+            )?;
         } else {
             for (i, parsed_tx) in parsed_txs.iter().enumerate() {
                 output::render_transaction_only(

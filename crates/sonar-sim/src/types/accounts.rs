@@ -75,6 +75,45 @@ impl InstructionAccountOp {
     }
 }
 
+/// A whole-instruction mutation: insert a new instruction, or remove an
+/// existing one.
+///
+/// Operations apply in the order they appear in the mutation list. Indices and
+/// positions are 0-based at this layer; CLI surfaces convert from 1-based.
+///
+/// Whole-instruction ops are intended to run as a restructuring phase
+/// *before* account-level ([`InstructionAccountOp`]) and data
+/// ([`InstructionDataPatch`]) mutations, so that the latter can target the
+/// post-restructure instruction list.
+#[derive(Clone, Debug)]
+pub enum InstructionOp {
+    /// Remove the instruction at `index`. Subsequent instructions shift left
+    /// by one. Does not garbage-collect account keys from the message —
+    /// unreferenced keys remain loadable (matching account-level `Remove`).
+    Remove { index: usize },
+    /// Insert `instruction` at `position` (0-based). Existing instructions at
+    /// and after `position` shift right by one. `position` may equal the
+    /// current instruction count to append.
+    ///
+    /// The instruction's accounts are merged into the message's account table.
+    /// New non-signer accounts are appended (writable keys before the
+    /// read-only section; read-only keys at the end) and new signer accounts
+    /// are inserted into the signer section with a placeholder signature.
+    /// An account that already appears as a non-signer cannot be promoted to
+    /// signer in the same op.
+    Insert { position: usize, instruction: solana_instruction::Instruction },
+}
+
+impl InstructionOp {
+    /// Returns the insertion position for `Insert`, or `None` for `Remove`.
+    pub fn position(&self) -> Option<usize> {
+        match self {
+            Self::Insert { position, .. } => Some(*position),
+            Self::Remove { .. } => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct ResolvedAccounts {
     pub accounts: HashMap<Pubkey, AccountSharedData>,
