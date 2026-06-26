@@ -184,6 +184,48 @@ sonar simulate <TX> --rpc-url <RPC_URL> \
 # pre-mutation list, list ops in descending position order — e.g. above we
 # remove position 4 before position 2 so both refer to the original numbering.
 
+#### Whole-instruction insert / remove
+
+```bash
+# Remove a whole instruction (1-based index). Subsequent instructions shift
+# left by one. The account_keys table is left intact (unreferenced keys remain
+# loadable, mirroring --remove-ix-account).
+sonar simulate <TX> --rpc-url <RPC_URL> --remove-ix 2
+
+# Insert a whole instruction at a 1-based position. POS=1 prepends;
+# POS = current_count + 1 appends. The new instruction becomes the POS-th.
+# <SPEC> reuses the --ix grammar: DSL, JSON object/array, or @file.
+sonar simulate <TX> --rpc-url <RPC_URL> \
+  --insert-ix 1='program=MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr data=0x6869'
+
+# A JSON array spec expands to consecutive positions starting at POS:
+sonar simulate <TX> --rpc-url <RPC_URL> \
+  --insert-ix 2=@extra_instructions.json
+
+# Signer accounts are supported: new signers are inserted into the message's
+# signer section (with a placeholder signature), and the header's signer counts
+# are bumped accordingly. An account already present as a non-signer cannot be
+# promoted to signer in the same op.
+#
+# Privilege semantics: Solana message privileges are the union across all
+# instructions, so referencing an existing account never weakens it. A key that
+# is already writable stays writable even if this instruction lists it
+# read-only, and a key already a signer stays a signer. Inserted references can
+# only PROMOTE an existing key (e.g. readonly -> writable); they never demote
+# it, so existing instructions keep the privileges they need.
+
+# Accounts the inserted instruction introduces that weren't in the original
+# transaction are fetched/dependency-resolved automatically before simulation.
+
+# Ordering note for whole-instruction ops:
+# They run as a restructuring phase BEFORE account-level ops (--patch-ix-account
+# etc.) and data patches (--patch-ix-data), so the latter target the
+# post-restructure list. Within the phase, all --insert-ix apply first (in CLI
+# order) then all --remove-ix. Positions are interpreted at apply time; to
+# express positions relative to the pre-mutation list, list ops in descending
+# position order.
+```
+
 # Patch instruction data before simulation
 # Format: <IX>=<OFFSET>:<HEX_DATA> with a 1-based instruction index
 # HEX_DATA may optionally start with 0x

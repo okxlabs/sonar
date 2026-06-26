@@ -536,6 +536,7 @@ mod tests {
     use solana_hash::Hash;
     use solana_keypair::Keypair;
     use solana_message::Message;
+    use solana_rent::Rent;
     use solana_signer::Signer;
     use solana_system_interface::instruction as system_instruction;
     use solana_transaction::Transaction;
@@ -550,6 +551,15 @@ mod tests {
         let message = Message::new(&[instruction], Some(&payer.pubkey()));
         let transaction = Transaction::new(&[payer], message, blockhash);
         VersionedTransaction::from(transaction)
+    }
+
+    /// Lamports required to make a freshly-created 0-byte account rent-exempt.
+    ///
+    /// LiteSVM (matching mainnet) rejects transactions that leave a new account
+    /// below the rent-exempt threshold, so test transfers funding brand-new
+    /// recipients must transfer at least this much.
+    fn rent_exempt_amount() -> u64 {
+        Rent::default().minimum_balance(0)
     }
 
     fn shared_system_account(lamports: u64) -> AccountSharedData {
@@ -568,8 +578,9 @@ mod tests {
         let recipient1 = Pubkey::new_unique();
         let recipient2 = Pubkey::new_unique();
 
-        let tx1 = create_transfer_transaction(&payer, &recipient1, 1000);
-        let tx2 = create_transfer_transaction(&payer, &recipient2, 2000);
+        let amount = rent_exempt_amount();
+        let tx1 = create_transfer_transaction(&payer, &recipient1, amount);
+        let tx2 = create_transfer_transaction(&payer, &recipient2, amount);
 
         let tx_refs: Vec<&VersionedTransaction> = vec![&tx1, &tx2];
 
@@ -624,8 +635,9 @@ mod tests {
         let payer = Keypair::new();
         let recipient = Pubkey::new_unique();
 
-        let tx1 = create_transfer_transaction(&payer, &recipient, 1_000);
-        let tx2 = create_transfer_transaction(&payer, &recipient, 2_000);
+        let amount = rent_exempt_amount();
+        let tx1 = create_transfer_transaction(&payer, &recipient, amount);
+        let tx2 = create_transfer_transaction(&payer, &recipient, amount);
 
         let tx_refs: Vec<&VersionedTransaction> = vec![&tx1, &tx2];
 
@@ -655,7 +667,8 @@ mod tests {
         let payer = Keypair::new();
         let recipient = Pubkey::new_unique();
 
-        let tx = create_transfer_transaction(&payer, &recipient, 1_000);
+        let amount = rent_exempt_amount();
+        let tx = create_transfer_transaction(&payer, &recipient, amount);
 
         let mut accounts = HashMap::new();
         accounts.insert(payer.pubkey(), shared_system_account(10_000_000_000));
@@ -676,7 +689,8 @@ mod tests {
         let payer = Keypair::new();
         let recipient = Pubkey::new_unique();
 
-        let tx = create_transfer_transaction(&payer, &recipient, 1_000);
+        let amount = rent_exempt_amount();
+        let tx = create_transfer_transaction(&payer, &recipient, amount);
 
         let accounts = HashMap::new();
         let resolved = ResolvedAccounts { accounts, lookups: vec![] };
@@ -719,7 +733,8 @@ mod tests {
     fn prepared_simulation_into_runner_executes() {
         let payer = Keypair::new();
         let recipient = Pubkey::new_unique();
-        let tx = create_transfer_transaction(&payer, &recipient, 1_000);
+        let amount = rent_exempt_amount();
+        let tx = create_transfer_transaction(&payer, &recipient, amount);
 
         let mut accounts = HashMap::new();
         accounts.insert(payer.pubkey(), shared_system_account(10_000_000_000));

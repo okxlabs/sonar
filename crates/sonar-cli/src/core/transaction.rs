@@ -92,6 +92,25 @@ pub struct InstructionInput {
     pub data: Vec<u8>,
 }
 
+impl InstructionInput {
+    /// Convert this parsed instruction into a `solana_instruction::Instruction`,
+    /// mapping the `is_writable`/`is_signer` flags onto `AccountMeta`.
+    pub fn to_instruction(&self) -> Instruction {
+        let accounts = self
+            .accounts
+            .iter()
+            .map(|account| {
+                if account.is_writable {
+                    AccountMeta::new(account.pubkey, account.is_signer)
+                } else {
+                    AccountMeta::new_readonly(account.pubkey, account.is_signer)
+                }
+            })
+            .collect();
+        Instruction { program_id: self.program, accounts, data: self.data.clone() }
+    }
+}
+
 /// Encoding for an instruction's `data` field. Defaults to hex; set it
 /// explicitly (the JSON `encoding` field or the DSL `encoding=` field) to
 /// decode base64 or base58 instead. Base58 matches how Solana RPC encodes
@@ -387,23 +406,7 @@ pub fn build_transaction_from_instructions(
         anyhow::bail!("Instruction input must contain at least one instruction");
     }
 
-    let instructions: Vec<_> = inputs
-        .iter()
-        .map(|input| {
-            let accounts = input
-                .accounts
-                .iter()
-                .map(|account| {
-                    if account.is_writable {
-                        AccountMeta::new(account.pubkey, account.is_signer)
-                    } else {
-                        AccountMeta::new_readonly(account.pubkey, account.is_signer)
-                    }
-                })
-                .collect();
-            Instruction { program_id: input.program, accounts, data: input.data.clone() }
-        })
-        .collect();
+    let instructions: Vec<_> = inputs.iter().map(InstructionInput::to_instruction).collect();
 
     let message = Message::new(&instructions, Some(&payer));
     let signature_count = message.header.num_required_signatures as usize;

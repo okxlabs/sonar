@@ -10,7 +10,7 @@ use crate::utils::progress::Progress;
 use crate::{core::account_file, core::transaction, output};
 use sonar_sim::internals::{
     ExecutionOptions, PreparedSimulation, SimulationOptions, StateMutationOptions,
-    apply_ix_account_ops, apply_ix_data_patches, prepare_token_fundings,
+    apply_instruction_ops, apply_ix_account_ops, apply_ix_data_patches, prepare_token_fundings,
 };
 
 use super::pipeline_prep::{
@@ -113,13 +113,23 @@ fn parse_cli_args<T>(args: Vec<String>, parser: fn(&str) -> Result<T, String>) -
     args.iter().map(|raw| parser(raw).map_err(anyhow::Error::msg)).collect()
 }
 
-/// Apply instruction-level mutations (account patches, data patches) and rebuild
-/// the transaction summary so the renderer sees the updated state.
+/// Apply instruction-level mutations (whole-ix insert/remove, account
+/// patches, data patches) and rebuild the transaction summary so the renderer
+/// sees the updated state.
+///
+/// Apply order: whole-instruction ops first (they restructure the instruction
+/// list), then account-level ops, then data patches — so the latter target the
+/// post-restructure list.
 fn apply_ix_mutations(
     parsed_tx: &mut transaction::ParsedTransaction,
+    instruction_ops: &[sonar_sim::internals::InstructionOp],
     ix_account_ops: &[sonar_sim::internals::InstructionAccountOp],
     ix_data_patches: &[sonar_sim::internals::InstructionDataPatch],
 ) -> Result<()> {
+    if !instruction_ops.is_empty() {
+        parsed_tx.account_plan = apply_instruction_ops(&mut parsed_tx.transaction, instruction_ops)
+            .context("Failed to apply instruction ops")?;
+    }
     if !ix_account_ops.is_empty() {
         parsed_tx.account_plan = apply_ix_account_ops(&mut parsed_tx.transaction, ix_account_ops)
             .context("Failed to apply instruction account ops")?;
@@ -128,7 +138,7 @@ fn apply_ix_mutations(
         apply_ix_data_patches(&mut parsed_tx.transaction, ix_data_patches)
             .context("Failed to apply instruction data patches")?;
     }
-    if !ix_account_ops.is_empty() || !ix_data_patches.is_empty() {
+    if !instruction_ops.is_empty() || !ix_account_ops.is_empty() || !ix_data_patches.is_empty() {
         parsed_tx.summary = transaction::TransactionSummary::from_transaction(
             &parsed_tx.transaction,
             &parsed_tx.account_plan,
@@ -166,6 +176,8 @@ pub(crate) fn handle(args: SimulateArgs, json: bool) -> Result<()> {
         no_idl_fetch,
         ix_account_inserts: ix_account_insert_args,
         ix_account_removes: ix_account_remove_args,
+        ix_removes: ix_remove_args,
+        ix_inserts: ix_insert_args,
     } = args;
     // --cache-dir or --refresh-cache imply --cache
     let cache = cache || cache_dir.is_some() || refresh_cache;
@@ -203,6 +215,22 @@ pub(crate) fn handle(args: SimulateArgs, json: bool) -> Result<()> {
     ix_account_ops.extend(parse_cli_args(ix_account_insert_args, cli::parse_ix_account_insert)?);
     ix_account_ops.extend(parse_cli_args(ix_account_remove_args, cli::parse_ix_account_remove)?);
     let ix_data_patches = parse_cli_args(ix_data_patch_args, cli::parse_ix_data_patch)?;
+    // Whole-instruction ops: --insert-ix first (in CLI order; a JSON array
+    // spec expands to consecutive positions starting at the given position),
+    // then --remove-ix. These run before account/data mutations so the latter
+    // target the post-restructure instruction list.
+    let mut instruction_ops: Vec<sonar_sim::internals::InstructionOp> = Vec::new();
+    for raw in &ix_insert_args {
+        let (position, spec) = cli::parse_ix_insert(raw).map_err(anyhow::Error::msg)?;
+        let inputs = load_instruction_arg(&spec)?;
+        for (offset, input) in inputs.into_iter().enumerate() {
+            instruction_ops.push(sonar_sim::internals::InstructionOp::Insert {
+                position: position + offset,
+                instruction: input.to_instruction(),
+            });
+        }
+    }
+    instruction_ops.extend(parse_cli_args(ix_remove_args, cli::parse_ix_remove)?);
 
     // Build rendering options once; shared across all code paths.
     let render_opts = output::RenderOptions {
@@ -235,6 +263,7 @@ pub(crate) fn handle(args: SimulateArgs, json: bool) -> Result<()> {
                 &rpc_url,
                 resolver_cache_location,
                 token_funding_requests,
+                instruction_ops,
                 ix_account_ops,
                 ix_data_patches,
                 sim_opts,
@@ -269,17 +298,14 @@ pub(crate) fn handle(args: SimulateArgs, json: bool) -> Result<()> {
         &cache_args,
         &mut parser_registry,
         &progress,
-        |parsed_tx| apply_ix_mutations(parsed_tx, &ix_account_ops, &ix_data_patches),
+        |parsed_tx| {
+            apply_ix_mutations(parsed_tx, &instruction_ops, &ix_account_ops, &ix_data_patches)
+        },
     )?;
 
-    let mut parsed_tx = prepared
-        .parsed_txs
-        .pop()
-        .expect("single input resolve should produce one transaction");
-    let origin = prepared
-        .origins
-        .pop()
-        .expect("single input resolve should produce one origin");
+    let mut parsed_tx =
+        prepared.parsed_txs.pop().expect("single input resolve should produce one transaction");
+    let origin = prepared.origins.pop().expect("single input resolve should produce one origin");
     let raw_input = origin.original_input;
     let cached_raw_tx = origin.raw_tx_base64;
     let resolved_from = origin.resolved_from;
@@ -385,6 +411,7 @@ fn handle_bundle(
     rpc_url: &str,
     resolver_cache_location: Option<crate::core::cache::CacheLocation>,
     token_funding_requests: Vec<cli::TokenFunding>,
+    instruction_ops: Vec<sonar_sim::internals::InstructionOp>,
     ix_account_ops: Vec<sonar_sim::internals::InstructionAccountOp>,
     ix_data_patches: Vec<sonar_sim::internals::InstructionDataPatch>,
     mut sim_opts: SimulationOptions,
@@ -413,7 +440,9 @@ fn handle_bundle(
         &cache_args,
         parser_registry,
         progress,
-        |parsed_tx| apply_ix_mutations(parsed_tx, &ix_account_ops, &ix_data_patches),
+        |parsed_tx| {
+            apply_ix_mutations(parsed_tx, &instruction_ops, &ix_account_ops, &ix_data_patches)
+        },
     )?;
     log::info!("Successfully parsed {} transactions", prepared.parsed_txs.len());
 
