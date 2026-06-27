@@ -48,6 +48,7 @@ flate2.workspace = true
 indicatif.workspace = true
 num-bigint.workspace = true
 spl-pod.workspace = true
+solana-zk-sdk.workspace = true
 spl-token-metadata-interface.workspace = true
 spl-token-group-interface.workspace = true
 toml.workspace = true
