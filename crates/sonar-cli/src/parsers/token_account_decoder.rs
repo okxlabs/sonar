@@ -10,6 +10,9 @@ use spl_token::solana_program::program_pack::Pack;
 use spl_token::state::{Account as LegacyTokenAccount, Mint as LegacyMint};
 use spl_token_2022::extension::{
     BaseStateWithExtensions, ExtensionType, StateWithExtensions,
+    confidential_mint_burn::ConfidentialMintBurn,
+    confidential_transfer::{ConfidentialTransferAccount, ConfidentialTransferMint},
+    confidential_transfer_fee::{ConfidentialTransferFeeAmount, ConfidentialTransferFeeConfig},
     cpi_guard::CpiGuard,
     default_account_state::DefaultAccountState,
     group_member_pointer::GroupMemberPointer,
@@ -362,10 +365,35 @@ fn parse_mint_extensions(
             }),
             // Marker extensions (no data)
             ExtensionType::NonTransferable => marker_extension("NonTransferable"),
-            // Unsupported complex extensions
-            ExtensionType::ConfidentialTransferMint
-            | ExtensionType::ConfidentialTransferFeeConfig
-            | ExtensionType::ConfidentialMintBurn => null_extension(&format!("{:?}", ext_type)),
+            ExtensionType::ConfidentialTransferMint => {
+                ext_json!(state, "ConfidentialTransferMint", ConfidentialTransferMint, |c| {
+                    json!({
+                        "authority": pod_option_pubkey_to_string(&c.authority),
+                        "auto_approve_new_accounts": bool::from(c.auto_approve_new_accounts),
+                        "auditor_elgamal_pubkey": pod_option_elgamal_to_string(&c.auditor_elgamal_pubkey)
+                    })
+                })
+            }
+            ExtensionType::ConfidentialTransferFeeConfig => {
+                ext_json!(state, "ConfidentialTransferFeeConfig", ConfidentialTransferFeeConfig, |c| {
+                    json!({
+                        "authority": pod_option_pubkey_to_string(&c.authority),
+                        "withdraw_withheld_authority_elgamal_pubkey": c.withdraw_withheld_authority_elgamal_pubkey.to_string(),
+                        "harvest_to_mint_enabled": bool::from(c.harvest_to_mint_enabled),
+                        "withheld_amount": c.withheld_amount.to_string()
+                    })
+                })
+            }
+            ExtensionType::ConfidentialMintBurn => {
+                ext_json!(state, "ConfidentialMintBurn", ConfidentialMintBurn, |c| {
+                    json!({
+                        "confidential_supply": c.confidential_supply.to_string(),
+                        "decryptable_supply": c.decryptable_supply.to_string(),
+                        "supply_elgamal_pubkey": c.supply_elgamal_pubkey.to_string(),
+                        "pending_burn": c.pending_burn.to_string()
+                    })
+                })
+            }
             // Unknown extensions
             _ => null_extension(&format!("{:?}", ext_type)),
         })
@@ -396,9 +424,29 @@ fn parse_account_extensions(
             ExtensionType::ImmutableOwner => marker_extension("ImmutableOwner"),
             ExtensionType::NonTransferableAccount => marker_extension("NonTransferableAccount"),
             ExtensionType::PausableAccount => marker_extension("PausableAccount"),
-            // Unsupported complex extensions
-            ExtensionType::ConfidentialTransferAccount
-            | ExtensionType::ConfidentialTransferFeeAmount => null_extension(&format!("{:?}", ext_type)),
+            ExtensionType::ConfidentialTransferAccount => {
+                ext_json!(state, "ConfidentialTransferAccount", ConfidentialTransferAccount, |a| {
+                    json!({
+                        "approved": bool::from(a.approved),
+                        "elgamal_pubkey": a.elgamal_pubkey.to_string(),
+                        "pending_balance_lo": a.pending_balance_lo.to_string(),
+                        "pending_balance_hi": a.pending_balance_hi.to_string(),
+                        "available_balance": a.available_balance.to_string(),
+                        "decryptable_available_balance": a.decryptable_available_balance.to_string(),
+                        "allow_confidential_credits": bool::from(a.allow_confidential_credits),
+                        "allow_non_confidential_credits": bool::from(a.allow_non_confidential_credits),
+                        "pending_balance_credit_counter": u64::from(a.pending_balance_credit_counter).to_string(),
+                        "maximum_pending_balance_credit_counter": u64::from(a.maximum_pending_balance_credit_counter).to_string(),
+                        "expected_pending_balance_credit_counter": u64::from(a.expected_pending_balance_credit_counter).to_string(),
+                        "actual_pending_balance_credit_counter": u64::from(a.actual_pending_balance_credit_counter).to_string()
+                    })
+                })
+            }
+            ExtensionType::ConfidentialTransferFeeAmount => {
+                ext_json!(state, "ConfidentialTransferFeeAmount", ConfidentialTransferFeeAmount, |a| {
+                    json!({ "withheld_amount": a.withheld_amount.to_string() })
+                })
+            }
             // Unknown extensions
             _ => null_extension(&format!("{:?}", ext_type)),
         })
@@ -456,6 +504,20 @@ fn pod_option_pubkey_to_string(opt: &spl_pod::optional_keys::OptionalNonZeroPubk
     // If all bytes are zero, it represents None
     let pk: solana_pubkey::Pubkey = opt.0;
     if pk == solana_pubkey::Pubkey::default() { Value::Null } else { Value::String(pk.to_string()) }
+}
+
+/// Render an `OptionalNonZeroElGamalPubkey` as a base64 string, or null when
+/// unset (all-zero, which encodes `None`).
+fn pod_option_elgamal_to_string(
+    opt: &spl_pod::optional_keys::OptionalNonZeroElGamalPubkey,
+) -> Value {
+    // The `From<OptionalNonZeroElGamalPubkey> for Option<PodElGamalPubkey>` impl
+    // maps the all-zero sentinel to `None`; `PodElGamalPubkey` Displays as base64.
+    let maybe: Option<solana_zk_sdk::encryption::pod::elgamal::PodElGamalPubkey> = (*opt).into();
+    match maybe {
+        Some(pk) => Value::String(pk.to_string()),
+        None => Value::Null,
+    }
 }
 
 #[cfg(test)]
@@ -656,5 +718,197 @@ mod tests {
         assert_eq!(json["data"]["token_owner"], token_owner.to_string());
         assert_eq!(json["data"]["amount"], "750000");
         assert_eq!(json["data"]["state"], "Initialized");
+    }
+
+    #[test]
+    fn test_decode_token2022_mint_confidential_transfer() {
+        use solana_pubkey::Pubkey as SolanaPubkey;
+        use spl_pod::optional_keys::OptionalNonZeroPubkey;
+        use spl_token_2022::extension::{BaseStateWithExtensionsMut, StateWithExtensionsMut};
+
+        let ct_authority = SolanaPubkey::new_unique();
+
+        // Build a Token-2022 mint that carries a ConfidentialTransferMint extension.
+        let account_size = ExtensionType::try_calculate_account_len::<Token2022Mint>(&[
+            ExtensionType::ConfidentialTransferMint,
+        ])
+        .unwrap();
+        let mut data = vec![0u8; account_size];
+        let mut state =
+            StateWithExtensionsMut::<Token2022Mint>::unpack_uninitialized(&mut data).unwrap();
+
+        let ext = state.init_extension::<ConfidentialTransferMint>(true).unwrap();
+        ext.authority = OptionalNonZeroPubkey::try_from(Some(ct_authority)).unwrap();
+        ext.auto_approve_new_accounts = true.into();
+        // auditor_elgamal_pubkey left at its all-zero default (encodes None).
+
+        state.base = Token2022Mint {
+            mint_authority: COption::None,
+            supply: 0,
+            decimals: 6,
+            is_initialized: true,
+            freeze_authority: COption::None,
+        };
+        state.pack_base();
+        state.init_account_type().unwrap();
+
+        let account = solana_account::Account {
+            lamports: 5_000_000,
+            data,
+            owner: token2022_program_id(),
+            executable: false,
+            rent_epoch: 0,
+        };
+
+        let json = decode_spl_token_account(&account).unwrap();
+        let ext = json["data"]["extensions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|e| e["type"] == "ConfidentialTransferMint")
+            .expect("ConfidentialTransferMint extension should be decoded");
+
+        assert_eq!(ext["data"]["authority"], ct_authority.to_string());
+        assert_eq!(ext["data"]["auto_approve_new_accounts"], true);
+        assert!(ext["data"]["auditor_elgamal_pubkey"].is_null());
+    }
+
+    #[test]
+    fn test_decode_token2022_mint_confidential_fee_and_mint_burn() {
+        use solana_pubkey::Pubkey as SolanaPubkey;
+        use spl_pod::optional_keys::OptionalNonZeroPubkey;
+        use spl_token_2022::extension::{BaseStateWithExtensionsMut, StateWithExtensionsMut};
+
+        let fee_authority = SolanaPubkey::new_unique();
+
+        let account_size = ExtensionType::try_calculate_account_len::<Token2022Mint>(&[
+            ExtensionType::ConfidentialTransferFeeConfig,
+            ExtensionType::ConfidentialMintBurn,
+        ])
+        .unwrap();
+        let mut data = vec![0u8; account_size];
+        let mut state =
+            StateWithExtensionsMut::<Token2022Mint>::unpack_uninitialized(&mut data).unwrap();
+
+        let fee = state
+            .init_extension::<ConfidentialTransferFeeConfig>(true)
+            .unwrap();
+        fee.authority = OptionalNonZeroPubkey::try_from(Some(fee_authority)).unwrap();
+        fee.harvest_to_mint_enabled = true.into();
+
+        state.init_extension::<ConfidentialMintBurn>(true).unwrap();
+
+        state.base = Token2022Mint {
+            mint_authority: COption::None,
+            supply: 0,
+            decimals: 9,
+            is_initialized: true,
+            freeze_authority: COption::None,
+        };
+        state.pack_base();
+        state.init_account_type().unwrap();
+
+        let account = solana_account::Account {
+            lamports: 5_000_000,
+            data,
+            owner: token2022_program_id(),
+            executable: false,
+            rent_epoch: 0,
+        };
+
+        let json = decode_spl_token_account(&account).unwrap();
+        let exts = json["data"]["extensions"].as_array().unwrap();
+
+        let fee = exts
+            .iter()
+            .find(|e| e["type"] == "ConfidentialTransferFeeConfig")
+            .expect("ConfidentialTransferFeeConfig should be decoded");
+        assert_eq!(fee["data"]["authority"], fee_authority.to_string());
+        assert_eq!(fee["data"]["harvest_to_mint_enabled"], true);
+        // Ciphertext fields render as base64 strings (all-zero default here).
+        assert!(fee["data"]["withdraw_withheld_authority_elgamal_pubkey"].is_string());
+        assert!(fee["data"]["withheld_amount"].is_string());
+
+        let burn = exts
+            .iter()
+            .find(|e| e["type"] == "ConfidentialMintBurn")
+            .expect("ConfidentialMintBurn should be decoded");
+        assert!(burn["data"]["confidential_supply"].is_string());
+        assert!(burn["data"]["decryptable_supply"].is_string());
+        assert!(burn["data"]["supply_elgamal_pubkey"].is_string());
+        assert!(burn["data"]["pending_burn"].is_string());
+    }
+
+    #[test]
+    fn test_decode_token2022_account_confidential_transfer() {
+        use spl_token_2022::extension::{BaseStateWithExtensionsMut, StateWithExtensionsMut};
+
+        let mint = ProgramPubkey::new_unique();
+        let token_owner = ProgramPubkey::new_unique();
+
+        let account_size = ExtensionType::try_calculate_account_len::<Token2022Account>(&[
+            ExtensionType::ConfidentialTransferAccount,
+            ExtensionType::ConfidentialTransferFeeAmount,
+        ])
+        .unwrap();
+        let mut data = vec![0u8; account_size];
+        let mut state =
+            StateWithExtensionsMut::<Token2022Account>::unpack_uninitialized(&mut data).unwrap();
+
+        let ct = state
+            .init_extension::<ConfidentialTransferAccount>(true)
+            .unwrap();
+        ct.approved = true.into();
+        ct.allow_confidential_credits = true.into();
+        ct.allow_non_confidential_credits = false.into();
+        ct.pending_balance_credit_counter = 3u64.into();
+        ct.maximum_pending_balance_credit_counter = 65_536u64.into();
+
+        state
+            .init_extension::<ConfidentialTransferFeeAmount>(true)
+            .unwrap();
+
+        state.base = Token2022Account {
+            mint,
+            owner: token_owner,
+            amount: 0,
+            delegate: COption::None,
+            state: Token2022AccountState::Initialized,
+            is_native: COption::None,
+            delegated_amount: 0,
+            close_authority: COption::None,
+        };
+        state.pack_base();
+        state.init_account_type().unwrap();
+
+        let account = solana_account::Account {
+            lamports: 6_000_000,
+            data,
+            owner: token2022_program_id(),
+            executable: false,
+            rent_epoch: 0,
+        };
+
+        let json = decode_spl_token_account(&account).unwrap();
+        let exts = json["data"]["extensions"].as_array().unwrap();
+
+        let ct = exts
+            .iter()
+            .find(|e| e["type"] == "ConfidentialTransferAccount")
+            .expect("ConfidentialTransferAccount should be decoded");
+        assert_eq!(ct["data"]["approved"], true);
+        assert_eq!(ct["data"]["allow_confidential_credits"], true);
+        assert_eq!(ct["data"]["allow_non_confidential_credits"], false);
+        assert_eq!(ct["data"]["pending_balance_credit_counter"], "3");
+        assert_eq!(ct["data"]["maximum_pending_balance_credit_counter"], "65536");
+        assert!(ct["data"]["elgamal_pubkey"].is_string());
+        assert!(ct["data"]["available_balance"].is_string());
+        assert!(ct["data"]["decryptable_available_balance"].is_string());
+
+        let fee = exts
+            .iter()
+            .find(|e| e["type"] == "ConfidentialTransferFeeAmount")
+            .expect("ConfidentialTransferFeeAmount should be decoded");
+        assert!(fee["data"]["withheld_amount"].is_string());
     }
 }

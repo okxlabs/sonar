@@ -4116,6 +4116,7 @@ dependencies = [
  "solana-sysvar-id",
  "solana-transaction",
  "solana-transaction-status-client-types",
+ "solana-zk-sdk",
  "sonar-idl",
  "sonar-sim",
  "spl-pod",
