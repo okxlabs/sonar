@@ -9,7 +9,6 @@
 //! rather than runtime errors. Single-transaction and bundle pipelines are
 //! likewise separate types, so `execute`/`execute_bundle` can't be mismatched.
 
-use std::collections::HashSet;
 use std::sync::Arc;
 
 use solana_pubkey::Pubkey;
@@ -19,18 +18,20 @@ use crate::account_loader::AccountLoader;
 use crate::error::{Result, SonarSimError};
 use crate::executor::BundleResult;
 use crate::executor::{
-    ExecutionOptions, PreparedSimulation, SignatureVerification, SimulationOptions,
-    SimulationRunner, StateMutationOptions,
+    ExecutionOptions, ExecutionResult, PreparedSimulation, SignatureVerification,
+    SimulationOptions, SimulationRunner, StateMutationOptions,
 };
 use crate::funding::prepare_token_fundings;
-use crate::mutations::Mutations;
+use crate::mutations::{Mutations, StateMutations};
 use crate::result::SimulationResult;
 use crate::rpc_provider::RpcAccountProvider;
 use crate::transaction::{
     MessageAccountPlan, ParsedTransaction, apply_instruction_ops, apply_ix_account_ops,
     apply_ix_data_patches, parse_raw_transaction,
 };
-use crate::types::{AccountSource, FetchObserver, FetchPolicy, ResolvedAccounts, RpcDecision};
+use crate::types::{
+    AccountSource, FetchObserver, FetchPolicy, PreparedTokenFunding, ResolvedAccounts, RpcDecision,
+};
 
 // ── Internal offline policy ──
 
@@ -52,6 +53,10 @@ struct PipelineConfig {
     // RPC config
     rpc_url: Option<String>,
     provider: Option<Arc<dyn RpcAccountProvider>>,
+    /// Caller-supplied, fully-configured loader. Takes precedence over the
+    /// `rpc_url`/`provider`/`source`/`observer`/`offline` settings, which exist
+    /// for callers that want the pipeline to assemble the loader itself.
+    loader: Option<AccountLoader>,
     source: Option<Arc<dyn AccountSource>>,
     observer: Option<Arc<dyn FetchObserver>>,
     offline: bool,
@@ -63,8 +68,14 @@ struct PipelineConfig {
 }
 
 impl PipelineConfig {
-    /// Build a configured [`AccountLoader`] from the provider/RPC settings.
-    fn build_loader(&self) -> Result<AccountLoader> {
+    /// Build (or take) a configured [`AccountLoader`]. A loader supplied via
+    /// [`Pipeline::with_loader`] is used as-is; otherwise one is assembled from
+    /// the provider/RPC/source/observer/offline settings.
+    fn build_loader(&mut self) -> Result<AccountLoader> {
+        if let Some(loader) = self.loader.take() {
+            return Ok(loader);
+        }
+
         let mut loader = if let Some(provider) = self.provider.clone() {
             AccountLoader::with_provider(provider)
         } else {
@@ -85,24 +96,16 @@ impl PipelineConfig {
         Ok(loader)
     }
 
-    /// Build [`SimulationOptions`] from config and user-facing [`Mutations`].
-    ///
-    /// Handles token funding preparation and maps `Mutations` fields into the
-    /// executor's [`StateMutationOptions`].
+    /// Map config + user-facing [`Mutations`] and the already-prepared token
+    /// fundings into the executor's [`SimulationOptions`]. Token fundings are
+    /// prepared earlier (in [`LoadedPipeline::prepare`]) so the prepared stage
+    /// can expose them to callers before execution.
     fn build_sim_options(
         &self,
-        mutations: Mutations,
-        loader: &mut AccountLoader,
-        resolved: &ResolvedAccounts,
-    ) -> Result<SimulationOptions> {
-        let state = mutations.state;
-        let prepared_fundings = if !state.token_fundings.is_empty() {
-            prepare_token_fundings(loader, resolved, &state.token_fundings)?
-        } else {
-            vec![]
-        };
-
-        Ok(SimulationOptions {
+        state: StateMutations,
+        prepared_fundings: Vec<PreparedTokenFunding>,
+    ) -> SimulationOptions {
+        SimulationOptions {
             execution: ExecutionOptions {
                 signature_verification: SignatureVerification::from(self.verify_signatures),
                 slot: self.slot,
@@ -115,8 +118,21 @@ impl PipelineConfig {
                 token_fundings: prepared_fundings,
                 account_data_patches: state.account_data_patches,
             },
-        })
+        }
     }
+}
+
+/// Prepare token fundings (resolving mints/decimals via `loader`) for the
+/// requested state mutations. Returns the empty vec when none were requested.
+fn prepare_fundings(
+    loader: &mut AccountLoader,
+    resolved: &ResolvedAccounts,
+    state: &StateMutations,
+) -> Result<Vec<PreparedTokenFunding>> {
+    if state.token_fundings.is_empty() {
+        return Ok(vec![]);
+    }
+    prepare_token_fundings(loader, resolved, &state.token_fundings)
 }
 
 /// Apply transaction-level mutations (instruction patches) to a transaction.
@@ -137,57 +153,16 @@ fn apply_tx_mutations(tx: &mut VersionedTransaction, mutations: &Mutations) -> R
     Ok(())
 }
 
-/// Fetch any accounts that transaction-level mutations (e.g. an inserted
-/// instruction) introduced beyond those resolved by `load_accounts`.
-///
-/// `load_accounts` runs against the pre-mutation transaction(s); mutations
-/// are applied later (in [`LoadedPipeline::execute`] /
-/// [`LoadedBundlePipeline::execute_bundle`]). Without this step, accounts an
-/// inserted instruction references would never be fetched or
-/// dependency-resolved, leaving execution to run against missing state. The
-/// new keys (and their auto-discovered dependencies) are merged into
-/// `resolved` via the loader's [`AccountAppender`](crate::types::AccountAppender)
-/// implementation.
-fn load_introduced_accounts(
-    txs: &[&VersionedTransaction],
-    loader: &mut AccountLoader,
-    resolved: &mut ResolvedAccounts,
-) -> Result<()> {
-    let missing = collect_introduced_keys(txs, resolved);
-    if missing.is_empty() {
-        return Ok(());
-    }
-    use crate::types::AccountAppender;
-    loader.append_accounts(resolved, &missing)
-}
-
-/// Static account keys referenced by `txs` that are absent from `resolved`.
-/// Deduplicated; order is first-seen.
-fn collect_introduced_keys(
-    txs: &[&VersionedTransaction],
-    resolved: &ResolvedAccounts,
-) -> Vec<Pubkey> {
-    let mut missing = Vec::new();
-    let mut seen = HashSet::new();
-    for tx in txs {
-        for key in MessageAccountPlan::from_transaction(tx).static_accounts {
-            if !resolved.accounts.contains_key(&key) && seen.insert(key) {
-                missing.push(key);
-            }
-        }
-    }
-    missing
-}
-
-/// Prepare a ready-to-run [`SimulationRunner`] from resolved accounts and
-/// mutations. Shared by single and bundle execution.
+/// Prepare a ready-to-run [`SimulationRunner`] from resolved accounts, the state
+/// mutations, and the already-prepared token fundings. Shared by single and
+/// bundle execution.
 fn build_runner(
     config: &PipelineConfig,
-    mut loader: AccountLoader,
     resolved: ResolvedAccounts,
-    mutations: Mutations,
+    state: StateMutations,
+    prepared_fundings: Vec<PreparedTokenFunding>,
 ) -> Result<SimulationRunner> {
-    let sim_opts = config.build_sim_options(mutations, &mut loader, &resolved)?;
+    let sim_opts = config.build_sim_options(state, prepared_fundings);
     let prepared = PreparedSimulation::prepare(resolved, sim_opts)?;
     Ok(prepared.into_runner())
 }
@@ -202,8 +177,8 @@ fn build_runner(
 /// ```ignore
 /// let result = Pipeline::new(rpc_url)
 ///     .parse(raw_tx)?
+///     .with_mutations(mutations)? // optional
 ///     .load_accounts()?
-///     .with_mutations(mutations)
 ///     .execute()?;
 /// ```
 #[derive(Default)]
@@ -232,6 +207,15 @@ impl Pipeline {
     /// Create a pipeline with a custom RPC account provider (useful for testing).
     pub fn with_provider(provider: Arc<dyn RpcAccountProvider>) -> Self {
         Self { config: PipelineConfig { provider: Some(provider), ..Default::default() } }
+    }
+
+    /// Create a pipeline that loads accounts through a caller-supplied
+    /// [`AccountLoader`]. Use this when the loader needs configuration the
+    /// pipeline's own setters don't cover — multiple fetch observers, a custom
+    /// RPC batch size, or a bespoke fetch policy. The loader's provider is later
+    /// reachable via [`PreparedPipeline::provider`] for follow-on fetches.
+    pub fn with_loader(loader: AccountLoader) -> Self {
+        Self { config: PipelineConfig { loader: Some(loader), ..Default::default() } }
     }
 
     // ── Config methods ──
@@ -277,7 +261,7 @@ impl Pipeline {
     /// Parse a single raw transaction (base64 or base58 encoded).
     pub fn parse(self, raw_tx: &str) -> Result<ParsedPipeline> {
         let parsed = parse_raw_transaction(raw_tx)?;
-        Ok(ParsedPipeline { config: self.config, parsed })
+        Ok(ParsedPipeline { config: self.config, parsed, state: StateMutations::default() })
     }
 
     /// Parse multiple raw transactions as a bundle.
@@ -286,16 +270,20 @@ impl Pipeline {
         for raw in raw_txs {
             parsed.push(parse_raw_transaction(raw)?);
         }
-        Ok(ParsedBundlePipeline { config: self.config, parsed })
+        Ok(ParsedBundlePipeline { config: self.config, parsed, state: StateMutations::default() })
     }
 }
 
 // ── Stage 1: parsed (single) ──
 
-/// A parsed single-transaction pipeline. Call `load_accounts` to advance.
+/// A parsed single-transaction pipeline. Optionally apply [`with_mutations`],
+/// then call `load_accounts` to advance.
+///
+/// [`with_mutations`]: ParsedPipeline::with_mutations
 pub struct ParsedPipeline {
     config: PipelineConfig,
     parsed: ParsedTransaction,
+    state: StateMutations,
 }
 
 impl ParsedPipeline {
@@ -304,8 +292,25 @@ impl ParsedPipeline {
         &self.parsed
     }
 
-    /// Fetch all accounts referenced by the parsed transaction.
-    pub fn load_accounts(self) -> Result<LoadedPipeline> {
+    /// Apply mutations. Transaction-level instruction ops are applied to the
+    /// parsed transaction *now* — failing fast on invalid ops, before any
+    /// account loading — and the account plan is recomputed so `load_accounts`
+    /// fetches the post-mutation account set (no separate re-fetch needed).
+    /// State-level mutations (funding, overrides, closures, data patches) are
+    /// retained and applied to the SVM at execution.
+    pub fn with_mutations(mut self, mutations: Mutations) -> Result<Self> {
+        if !mutations.transaction.is_empty() {
+            apply_tx_mutations(&mut self.parsed.transaction, &mutations)?;
+            // The instruction list changed; recompute the now-stale account plan.
+            self.parsed.account_plan =
+                MessageAccountPlan::from_transaction(&self.parsed.transaction);
+        }
+        self.state = mutations.state;
+        Ok(self)
+    }
+
+    /// Fetch all accounts referenced by the (post-mutation) parsed transaction.
+    pub fn load_accounts(mut self) -> Result<LoadedPipeline> {
         let mut loader = self.config.build_loader()?;
         let resolved = loader.load_for_transaction(&self.parsed.transaction)?;
         Ok(LoadedPipeline {
@@ -313,22 +318,40 @@ impl ParsedPipeline {
             parsed: self.parsed,
             loader,
             resolved,
-            mutations: None,
+            state: self.state,
         })
     }
 }
 
 // ── Stage 1: parsed (bundle) ──
 
-/// A parsed bundle pipeline. Call `load_accounts` to advance.
+/// A parsed bundle pipeline. Optionally apply [`with_mutations`], then call
+/// `load_accounts` to advance.
+///
+/// [`with_mutations`]: ParsedBundlePipeline::with_mutations
 pub struct ParsedBundlePipeline {
     config: PipelineConfig,
     parsed: Vec<ParsedTransaction>,
+    state: StateMutations,
 }
 
 impl ParsedBundlePipeline {
-    /// Fetch all accounts referenced by every transaction in the bundle.
-    pub fn load_accounts(self) -> Result<LoadedBundlePipeline> {
+    /// Apply mutations to every transaction in the bundle. See
+    /// [`ParsedPipeline::with_mutations`]; transaction-level ops apply (fail-fast)
+    /// to each transaction before loading, state-level mutations are retained.
+    pub fn with_mutations(mut self, mutations: Mutations) -> Result<Self> {
+        if !mutations.transaction.is_empty() {
+            for tx in &mut self.parsed {
+                apply_tx_mutations(&mut tx.transaction, &mutations)?;
+                tx.account_plan = MessageAccountPlan::from_transaction(&tx.transaction);
+            }
+        }
+        self.state = mutations.state;
+        Ok(self)
+    }
+
+    /// Fetch all accounts referenced by every (post-mutation) transaction.
+    pub fn load_accounts(mut self) -> Result<LoadedBundlePipeline> {
         let mut loader = self.config.build_loader()?;
         let refs: Vec<&VersionedTransaction> = self.parsed.iter().map(|t| &t.transaction).collect();
         let resolved = loader.load_for_transactions(&refs)?;
@@ -337,20 +360,21 @@ impl ParsedBundlePipeline {
             parsed: self.parsed,
             loader,
             resolved,
-            mutations: None,
+            state: self.state,
         })
     }
 }
 
 // ── Stage 2: loaded (single) ──
 
-/// A single-transaction pipeline with accounts loaded; ready to `execute`.
+/// A single-transaction pipeline with accounts loaded; call `prepare` (or
+/// `execute`) to advance. Apply mutations earlier, at [`ParsedPipeline`].
 pub struct LoadedPipeline {
     config: PipelineConfig,
     parsed: ParsedTransaction,
     loader: AccountLoader,
     resolved: ResolvedAccounts,
-    mutations: Option<Mutations>,
+    state: StateMutations,
 }
 
 impl LoadedPipeline {
@@ -359,44 +383,106 @@ impl LoadedPipeline {
         &self.resolved
     }
 
-    /// Set mutations to apply before execution.
-    pub fn with_mutations(mut self, mutations: Mutations) -> Self {
-        self.mutations = Some(mutations);
-        self
+    /// Resolve state mutations that need loaded context (token funding mints),
+    /// advancing to a [`PreparedPipeline`]. Its [`resolved`](PreparedPipeline::resolved)
+    /// set and [`parsed`](PreparedPipeline::parsed) transaction reflect the final
+    /// post-mutation state — the seam for callers that interleave their own work
+    /// (IDL discovery, cache dumping) before execution. `execute` is
+    /// `prepare().execute()` for callers that don't.
+    pub fn prepare(self) -> Result<PreparedPipeline> {
+        let mut loader = self.loader;
+        let prepared_fundings = prepare_fundings(&mut loader, &self.resolved, &self.state)?;
+
+        Ok(PreparedPipeline {
+            config: self.config,
+            parsed: self.parsed,
+            loader,
+            resolved: self.resolved,
+            state: self.state,
+            prepared_fundings,
+        })
     }
 
     /// Execute the transaction simulation.
     pub fn execute(self) -> Result<SimulationResult> {
-        let mutations = self.mutations.unwrap_or_default();
-        let has_tx_mutations = !mutations.transaction.is_empty();
-        let mut tx = self.parsed.transaction;
-        apply_tx_mutations(&mut tx, &mutations)?;
+        self.prepare()?.execute()
+    }
+}
 
-        // `load_accounts` ran against the pre-mutation transaction, so accounts
-        // a mutation introduced (e.g. an inserted instruction's program) are
-        // not yet resolved. Fetch them now so execution runs with complete
-        // state. See [`load_introduced_accounts`].
-        let mut loader = self.loader;
-        let mut resolved = self.resolved;
-        if has_tx_mutations {
-            load_introduced_accounts(&[&tx], &mut loader, &mut resolved)?;
-        }
+// ── Stage 3: prepared (single) ──
 
-        let mut runner = build_runner(&self.config, loader, resolved, mutations)?;
-        let exec_result = runner.execute(&tx)?;
-        Ok(SimulationResult::from_execution(exec_result))
+/// A single-transaction pipeline with mutations applied and all accounts
+/// resolved; ready to `execute`. Callers may inspect the finalized state
+/// (resolved accounts, post-mutation transaction) and use the shared RPC
+/// [`provider`](PreparedPipeline::provider) before executing.
+pub struct PreparedPipeline {
+    config: PipelineConfig,
+    parsed: ParsedTransaction,
+    loader: AccountLoader,
+    resolved: ResolvedAccounts,
+    state: StateMutations,
+    prepared_fundings: Vec<PreparedTokenFunding>,
+}
+
+impl PreparedPipeline {
+    /// Access the resolved accounts (post-mutation, including any accounts an
+    /// inserted instruction introduced).
+    pub fn resolved(&self) -> &ResolvedAccounts {
+        &self.resolved
+    }
+
+    /// Access the parsed transaction with mutations applied and its account plan
+    /// recomputed.
+    pub fn parsed(&self) -> &ParsedTransaction {
+        &self.parsed
+    }
+
+    /// The token fundings prepared for this simulation, with mints and decimals
+    /// resolved. Exposed so callers can render exactly what will be funded.
+    pub fn token_fundings(&self) -> &[PreparedTokenFunding] {
+        &self.prepared_fundings
+    }
+
+    /// The RPC account provider backing the pipeline's loader. Lets callers run
+    /// extra fetches (e.g. fetching on-chain IDL accounts) against the same
+    /// provider — and thus the same in-memory cache — used for account loading.
+    pub fn provider(&self) -> Arc<dyn RpcAccountProvider> {
+        self.loader.provider()
+    }
+
+    /// The RPC batch size configured on the pipeline's loader.
+    pub fn rpc_batch_size(&self) -> usize {
+        self.loader.rpc_batch_size()
+    }
+
+    /// Execute the transaction simulation, returning the high-level
+    /// [`SimulationResult`] (with balance changes computed). Use
+    /// [`execute_to_result`](Self::execute_to_result) when you need the raw
+    /// [`ExecutionResult`] (pre/post account snapshots) instead.
+    pub fn execute(self) -> Result<SimulationResult> {
+        Ok(SimulationResult::from_execution(self.execute_to_result()?))
+    }
+
+    /// Execute the transaction simulation, returning the raw [`ExecutionResult`]
+    /// with pre/post account snapshots — for callers that render or inspect the
+    /// resulting state directly rather than the summarized [`SimulationResult`].
+    pub fn execute_to_result(self) -> Result<ExecutionResult> {
+        let mut runner =
+            build_runner(&self.config, self.resolved, self.state, self.prepared_fundings)?;
+        runner.execute(&self.parsed.transaction)
     }
 }
 
 // ── Stage 2: loaded (bundle) ──
 
-/// A bundle pipeline with accounts loaded; ready to `execute_bundle`.
+/// A bundle pipeline with accounts loaded; call `prepare` (or `execute_bundle`)
+/// to advance. Apply mutations earlier, at [`ParsedBundlePipeline`].
 pub struct LoadedBundlePipeline {
     config: PipelineConfig,
     parsed: Vec<ParsedTransaction>,
     loader: AccountLoader,
     resolved: ResolvedAccounts,
-    mutations: Option<Mutations>,
+    state: StateMutations,
 }
 
 impl LoadedBundlePipeline {
@@ -405,10 +491,20 @@ impl LoadedBundlePipeline {
         &self.resolved
     }
 
-    /// Set mutations to apply before execution.
-    pub fn with_mutations(mut self, mutations: Mutations) -> Self {
-        self.mutations = Some(mutations);
-        self
+    /// Resolve state mutations that need loaded context (token funding mints),
+    /// advancing to a [`PreparedBundlePipeline`]. See [`LoadedPipeline::prepare`].
+    pub fn prepare(self) -> Result<PreparedBundlePipeline> {
+        let mut loader = self.loader;
+        let prepared_fundings = prepare_fundings(&mut loader, &self.resolved, &self.state)?;
+
+        Ok(PreparedBundlePipeline {
+            config: self.config,
+            parsed: self.parsed,
+            loader,
+            resolved: self.resolved,
+            state: self.state,
+            prepared_fundings,
+        })
     }
 
     /// Execute the bundle of transactions sequentially.
@@ -417,38 +513,75 @@ impl LoadedBundlePipeline {
     /// transactions and the total count. Check [`BundleResult::skipped_count`]
     /// to detect transactions that were never attempted due to a prior failure.
     pub fn execute_bundle(self) -> Result<BundleResult<Result<SimulationResult>>> {
-        let mutations = self.mutations.unwrap_or_default();
-        let has_tx_mutations = !mutations.transaction.is_empty();
+        self.prepare()?.execute_bundle()
+    }
+}
 
-        let mut txs: Vec<VersionedTransaction> = Vec::with_capacity(self.parsed.len());
-        for parsed in &self.parsed {
-            let mut tx = parsed.transaction.clone();
-            apply_tx_mutations(&mut tx, &mutations)?;
-            txs.push(tx);
-        }
+// ── Stage 3: prepared (bundle) ──
 
-        // Fetch accounts the mutations introduced across the whole bundle; see
-        // [`load_introduced_accounts`].
-        let mut loader = self.loader;
-        let mut resolved = self.resolved;
-        if has_tx_mutations {
-            let tx_refs: Vec<&VersionedTransaction> = txs.iter().collect();
-            load_introduced_accounts(&tx_refs, &mut loader, &mut resolved)?;
-        }
+/// A bundle pipeline with mutations applied and all accounts resolved; ready to
+/// `execute_bundle`. See [`PreparedPipeline`] for the single-transaction analog.
+pub struct PreparedBundlePipeline {
+    config: PipelineConfig,
+    parsed: Vec<ParsedTransaction>,
+    loader: AccountLoader,
+    resolved: ResolvedAccounts,
+    state: StateMutations,
+    prepared_fundings: Vec<PreparedTokenFunding>,
+}
 
-        let mut runner = build_runner(&self.config, loader, resolved, mutations)?;
+impl PreparedBundlePipeline {
+    /// Access the resolved accounts (post-mutation).
+    pub fn resolved(&self) -> &ResolvedAccounts {
+        &self.resolved
+    }
 
-        let tx_refs: Vec<&VersionedTransaction> = txs.iter().collect();
-        let bundle = runner.execute_bundle(&tx_refs);
+    /// Access the parsed transactions with mutations applied and account plans
+    /// recomputed.
+    pub fn parsed(&self) -> &[ParsedTransaction] {
+        &self.parsed
+    }
 
+    /// The token fundings prepared for this bundle, with mints and decimals
+    /// resolved. See [`PreparedPipeline::token_fundings`].
+    pub fn token_fundings(&self) -> &[PreparedTokenFunding] {
+        &self.prepared_fundings
+    }
+
+    /// The RPC account provider backing the pipeline's loader. See
+    /// [`PreparedPipeline::provider`].
+    pub fn provider(&self) -> Arc<dyn RpcAccountProvider> {
+        self.loader.provider()
+    }
+
+    /// The RPC batch size configured on the pipeline's loader.
+    pub fn rpc_batch_size(&self) -> usize {
+        self.loader.rpc_batch_size()
+    }
+
+    /// Execute the bundle of transactions sequentially, returning a
+    /// [`BundleResult`] of high-level [`SimulationResult`]s. Use
+    /// [`execute_bundle_to_results`](Self::execute_bundle_to_results) for the raw
+    /// [`ExecutionResult`]s.
+    pub fn execute_bundle(self) -> Result<BundleResult<Result<SimulationResult>>> {
+        let bundle = self.execute_bundle_to_results()?;
         let total = bundle.total();
         let mapped = bundle
             .into_executed()
             .into_iter()
             .map(|r| r.map(SimulationResult::from_execution))
             .collect();
-
         Ok(BundleResult::new(mapped, total))
+    }
+
+    /// Execute the bundle of transactions sequentially, returning the raw
+    /// [`ExecutionResult`]s with pre/post account snapshots.
+    pub fn execute_bundle_to_results(self) -> Result<BundleResult<Result<ExecutionResult>>> {
+        let tx_refs: Vec<&VersionedTransaction> =
+            self.parsed.iter().map(|t| &t.transaction).collect();
+        let mut runner =
+            build_runner(&self.config, self.resolved, self.state, self.prepared_fundings)?;
+        Ok(runner.execute_bundle(&tx_refs))
     }
 }
 
@@ -493,11 +626,11 @@ mod tests {
     }
 
     #[test]
-    fn execute_fetches_accounts_introduced_by_inserted_instruction() {
-        // `load_accounts` runs against the pre-mutation transaction, so accounts
-        // an inserted instruction references would never be loaded without an
-        // explicit append-fetch step during execute(). Verify the inserted keys
-        // are requested from the provider.
+    fn load_fetches_accounts_introduced_by_inserted_instruction() {
+        // Transaction mutations apply at the parsed stage (before loading), so
+        // `load_accounts` sees the post-mutation transaction and fetches the
+        // accounts an inserted instruction references. Verify those keys are
+        // requested from the provider.
         use std::sync::Mutex;
 
         use solana_account::AccountSharedData;
@@ -535,16 +668,14 @@ mod tests {
             })
             .build();
 
-        let pipeline = Pipeline::with_provider(provider)
+        // Mutations apply at the parsed stage, so `load_accounts` runs against the
+        // post-mutation transaction and fetches the inserted instruction's keys.
+        let _ = Pipeline::with_provider(provider)
             .parse(TEST_TX_BASE64)
             .unwrap()
-            .load_accounts()
+            .with_mutations(mutations)
             .unwrap()
-            .with_mutations(mutations);
-
-        // execute() fails at simulation (inserted program is not executable),
-        // but the append-fetch of introduced keys happens before that point.
-        let _ = pipeline.execute();
+            .load_accounts();
 
         let requested = requested.lock().unwrap();
         assert!(
@@ -557,6 +688,86 @@ mod tests {
             "inserted instruction's account must be fetched after mutation; got: {:?}",
             *requested
         );
+    }
+
+    /// A fake provider that returns a funded system-owned account for every key
+    /// in the parsed transaction, so the SVM has the state a simple transfer
+    /// needs. Built from the parsed account plan rather than hardcoded pubkeys.
+    fn funded_provider_for(
+        parsed: &ParsedTransaction,
+    ) -> Arc<crate::rpc_provider::FakeAccountProvider> {
+        use std::collections::HashMap;
+
+        use solana_account::{Account, AccountSharedData};
+        use solana_sdk_ids::system_program;
+
+        let mut accounts: HashMap<Pubkey, AccountSharedData> = HashMap::new();
+        for key in &parsed.account_plan.static_accounts {
+            accounts.insert(
+                *key,
+                AccountSharedData::from(Account {
+                    lamports: 10_000_000_000,
+                    data: vec![],
+                    owner: system_program::id(),
+                    executable: false,
+                    rent_epoch: 0,
+                }),
+            );
+        }
+        Arc::new(crate::rpc_provider::FakeAccountProvider::new(accounts))
+    }
+
+    #[test]
+    fn prepare_exposes_complete_state_before_execute() {
+        // The prepared stage is the seam for between-load-and-execute work
+        // (IDL discovery, cache dumping): it must expose the resolved accounts,
+        // the parsed transaction, and the shared provider before `execute` runs.
+        let parsed = Pipeline::new("http://localhost:8899".into()).parse(TEST_TX_BASE64).unwrap();
+        let keys = parsed.parsed().account_plan.static_accounts.clone();
+        let provider = funded_provider_for(parsed.parsed());
+
+        let prepared = Pipeline::with_provider(provider)
+            .parse(TEST_TX_BASE64)
+            .unwrap()
+            .load_accounts()
+            .unwrap()
+            .prepare()
+            .unwrap();
+
+        // The resolved set is inspectable before execution. Builtin programs
+        // (e.g. the system program) are intentionally not fetched, but the
+        // ordinary accounts the transaction touches — like the fee payer — are.
+        let fee_payer = keys[0];
+        assert!(
+            prepared.resolved().accounts.contains_key(&fee_payer),
+            "resolved set should expose the fee payer before execute"
+        );
+        // Parsed transaction and its account plan are available.
+        assert_eq!(prepared.parsed().account_plan.static_accounts, keys);
+        // No token fundings were requested.
+        assert!(prepared.token_fundings().is_empty());
+        // The shared provider is reachable for follow-on fetches.
+        let _ = prepared.provider();
+        let _ = prepared.rpc_batch_size();
+
+        // And it still executes to completion from the prepared stage.
+        let result = prepared.execute().unwrap();
+        assert!(result.success, "transfer should succeed: {:?}", result.error);
+    }
+
+    #[test]
+    fn with_loader_drives_pipeline_through_caller_supplied_loader() {
+        let parsed = Pipeline::new("http://localhost:8899".into()).parse(TEST_TX_BASE64).unwrap();
+        let loader = AccountLoader::with_provider(funded_provider_for(parsed.parsed()));
+
+        let result = Pipeline::with_loader(loader)
+            .parse(TEST_TX_BASE64)
+            .unwrap()
+            .load_accounts()
+            .unwrap()
+            .execute()
+            .unwrap();
+        assert!(result.success, "transfer should succeed: {:?}", result.error);
     }
 
     #[test]

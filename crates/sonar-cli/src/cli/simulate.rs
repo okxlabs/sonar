@@ -270,7 +270,7 @@ pub struct TransactionInputArgs {
     pub tx: Vec<String>,
 }
 
-pub use sonar_sim::internals::{
+pub use sonar_sim::{
     AccountDataPatch, AccountOverride, InstructionAccountOp, InstructionDataPatch, InstructionOp,
     SolFunding, TokenAmount, TokenFunding,
 };

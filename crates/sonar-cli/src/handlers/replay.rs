@@ -11,7 +11,7 @@ use solana_transaction_status_client_types::{
     UiCompiledInstruction, UiInnerInstructions, UiInstruction, UiTransactionEncoding,
     UiTransactionStatusMeta, UiTransactionTokenBalance,
 };
-use sonar_sim::internals::{
+use sonar_sim::{
     ExecutionResult, ExecutionStatus, ResolvedAccounts, ResolvedLookup, ReturnData,
     SimulationMetadata,
 };
@@ -193,7 +193,8 @@ fn load_accounts_and_idls(
     ) {
         Ok(loader) => {
             super::pipeline_prep::run_idl_pipeline(
-                &loader,
+                loader.provider(),
+                loader.rpc_batch_size(),
                 parser_registry,
                 &resolved,
                 no_idl_fetch,

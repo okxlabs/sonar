@@ -274,7 +274,6 @@ pub fn apply_timestamp<B: SvmBackend + ?Sized>(svm: &mut B, ts: i64) -> Result<(
 pub struct PreparedSimulation<B: SvmBackend = LiteSVM> {
     svm: B,
     resolved: ResolvedAccounts,
-    record: StateMutationOptions,
 }
 
 impl PreparedSimulation<LiteSVM> {
@@ -299,7 +298,6 @@ impl<B: SvmBackend> PreparedSimulation<B> {
 
         load_accounts(&mut svm, &resolved)?;
         mutations.apply(&mut svm, &resolved)?;
-        let record = mutations;
 
         if let Some(slot) = execution.slot {
             apply_slot(&mut svm, slot);
@@ -308,20 +306,11 @@ impl<B: SvmBackend> PreparedSimulation<B> {
             apply_timestamp(&mut svm, ts)?;
         }
 
-        Ok(Self { svm, resolved, record })
+        Ok(Self { svm, resolved })
     }
 
     pub fn into_runner(self) -> SimulationRunner<B> {
-        SimulationRunner { svm: self.svm, resolved: self.resolved, record: self.record }
-    }
-
-    pub fn resolved_accounts(&self) -> &ResolvedAccounts {
-        &self.resolved
-    }
-
-    /// Access the pre-simulation mutation record.
-    pub fn mutations(&self) -> &StateMutationOptions {
-        &self.record
+        SimulationRunner { svm: self.svm, resolved: self.resolved }
     }
 }
 
@@ -370,7 +359,6 @@ impl<T> BundleResult<T> {
 pub struct SimulationRunner<B: SvmBackend = LiteSVM> {
     svm: B,
     resolved: ResolvedAccounts,
-    record: StateMutationOptions,
 }
 
 impl<B: SvmBackend> SimulationRunner<B> {
@@ -458,15 +446,6 @@ impl<B: SvmBackend> SimulationRunner<B> {
         }
 
         BundleResult::new(results, txs.len())
-    }
-
-    pub fn resolved_accounts(&self) -> &ResolvedAccounts {
-        &self.resolved
-    }
-
-    /// Access the pre-simulation mutation record.
-    pub fn mutations(&self) -> &StateMutationOptions {
-        &self.record
     }
 }
 
