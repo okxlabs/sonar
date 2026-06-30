@@ -9,7 +9,7 @@ use solana_sdk_ids::bpf_loader_upgradeable;
 
 use crate::core::idl_dir;
 use crate::core::transaction::InstructionSummary;
-use sonar_sim::internals::ResolvedAccounts;
+use sonar_sim::ResolvedAccounts;
 
 use super::types::ParsedInstruction;
 use super::{
@@ -211,7 +211,7 @@ mod tests {
     use solana_account::{Account, AccountSharedData};
     use solana_pubkey::Pubkey;
     use solana_sdk_ids::{bpf_loader_upgradeable, system_program};
-    use sonar_sim::internals::ResolvedAccounts;
+    use sonar_sim::ResolvedAccounts;
     use std::collections::HashMap;
     use std::path::PathBuf;
 

@@ -1,20 +1,16 @@
 use std::borrow::Cow;
-use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail};
 use solana_pubkey::Pubkey;
+use sonar_sim::{Mutations, PreparedTokenFunding, ResolvedAccounts};
 
 use crate::cli::{self, SimulateArgs, TransactionInputArgs};
 use crate::parsers::instruction::ParserRegistry;
 use crate::utils::progress::Progress;
 use crate::{core::account_file, core::transaction, output};
-use sonar_sim::internals::{
-    ExecutionOptions, PreparedSimulation, SimulationOptions, StateMutationOptions,
-    apply_instruction_ops, apply_ix_account_ops, apply_ix_data_patches, prepare_token_fundings,
-};
 
 use super::pipeline_prep::{
-    CachePrepareArgs, TxSource, build_cache_location, resolve_mutate_prepare,
+    CachePrepareArgs, ExecParams, TxSource, build_cache_location, prepare_bundle, prepare_single,
     warn_unmatched_addresses,
 };
 
@@ -113,39 +109,52 @@ fn parse_cli_args<T>(args: Vec<String>, parser: fn(&str) -> Result<T, String>) -
     args.iter().map(|raw| parser(raw).map_err(anyhow::Error::msg)).collect()
 }
 
-/// Apply instruction-level mutations (whole-ix insert/remove, account
-/// patches, data patches) and rebuild the transaction summary so the renderer
-/// sees the updated state.
-///
-/// Apply order: whole-instruction ops first (they restructure the instruction
-/// list), then account-level ops, then data patches — so the latter target the
-/// post-restructure list.
-fn apply_ix_mutations(
-    parsed_tx: &mut transaction::ParsedTransaction,
-    instruction_ops: &[sonar_sim::internals::InstructionOp],
-    ix_account_ops: &[sonar_sim::internals::InstructionAccountOp],
-    ix_data_patches: &[sonar_sim::internals::InstructionDataPatch],
-) -> Result<()> {
-    if !instruction_ops.is_empty() {
-        parsed_tx.account_plan = apply_instruction_ops(&mut parsed_tx.transaction, instruction_ops)
-            .context("Failed to apply instruction ops")?;
+/// The user-requested mutations, kept in their CLI form. The same value both
+/// builds the simulation [`Mutations`] (via [`to_mutations`](Self::to_mutations))
+/// and supplies the state-level requests the renderer needs (unmatched-address
+/// warnings and the applied-mutations context), so it outlives `to_mutations`.
+struct MutationInputs {
+    account_overrides: Vec<cli::AccountOverride>,
+    account_closures: Vec<Pubkey>,
+    sol_fundings: Vec<cli::SolFunding>,
+    token_funding_requests: Vec<cli::TokenFunding>,
+    account_data_patches: Vec<cli::AccountDataPatch>,
+    instruction_ops: Vec<sonar_sim::InstructionOp>,
+    ix_account_ops: Vec<sonar_sim::InstructionAccountOp>,
+    ix_data_patches: Vec<sonar_sim::InstructionDataPatch>,
+}
+
+impl MutationInputs {
+    /// Build the simulation [`Mutations`], leaving `self` intact so its
+    /// state-level requests can still drive the render context.
+    fn to_mutations(&self) -> Mutations {
+        let mut builder = Mutations::builder();
+        for over in &self.account_overrides {
+            builder = builder.add_override(over.clone());
+        }
+        for closure in &self.account_closures {
+            builder = builder.close_account(*closure);
+        }
+        for funding in &self.sol_fundings {
+            builder = builder.fund_sol(funding.clone());
+        }
+        for funding in &self.token_funding_requests {
+            builder = builder.fund_token(funding.clone());
+        }
+        for patch in &self.account_data_patches {
+            builder = builder.patch_account_data(patch.clone());
+        }
+        for op in &self.instruction_ops {
+            builder = builder.add_instruction_op(op.clone());
+        }
+        for op in &self.ix_account_ops {
+            builder = builder.add_ix_account_op(op.clone());
+        }
+        for patch in &self.ix_data_patches {
+            builder = builder.patch_ix_data(patch.clone());
+        }
+        builder.build()
     }
-    if !ix_account_ops.is_empty() {
-        parsed_tx.account_plan = apply_ix_account_ops(&mut parsed_tx.transaction, ix_account_ops)
-            .context("Failed to apply instruction account ops")?;
-    }
-    if !ix_data_patches.is_empty() {
-        apply_ix_data_patches(&mut parsed_tx.transaction, ix_data_patches)
-            .context("Failed to apply instruction data patches")?;
-    }
-    if !instruction_ops.is_empty() || !ix_account_ops.is_empty() || !ix_data_patches.is_empty() {
-        parsed_tx.summary = transaction::TransactionSummary::from_transaction(
-            &parsed_tx.transaction,
-            &parsed_tx.account_plan,
-            Vec::new(),
-        );
-    }
-    Ok(())
 }
 
 pub(crate) fn handle(args: SimulateArgs, json: bool) -> Result<()> {
@@ -210,7 +219,7 @@ pub(crate) fn handle(args: SimulateArgs, json: bool) -> Result<()> {
     // CLI flags surface three families separately for ergonomics, but all feed
     // into one ordered op list. Concatenate in flag-listed order: patches,
     // inserts, removes. Within each family, CLI argument order is preserved.
-    let mut ix_account_ops: Vec<sonar_sim::internals::InstructionAccountOp> =
+    let mut ix_account_ops: Vec<sonar_sim::InstructionAccountOp> =
         parse_cli_args(ix_account_patch_args, cli::parse_ix_account_patch)?;
     ix_account_ops.extend(parse_cli_args(ix_account_insert_args, cli::parse_ix_account_insert)?);
     ix_account_ops.extend(parse_cli_args(ix_account_remove_args, cli::parse_ix_account_remove)?);
@@ -219,18 +228,29 @@ pub(crate) fn handle(args: SimulateArgs, json: bool) -> Result<()> {
     // spec expands to consecutive positions starting at the given position),
     // then --remove-ix. These run before account/data mutations so the latter
     // target the post-restructure instruction list.
-    let mut instruction_ops: Vec<sonar_sim::internals::InstructionOp> = Vec::new();
+    let mut instruction_ops: Vec<sonar_sim::InstructionOp> = Vec::new();
     for raw in &ix_insert_args {
         let (position, spec) = cli::parse_ix_insert(raw).map_err(anyhow::Error::msg)?;
         let inputs = load_instruction_arg(&spec)?;
         for (offset, input) in inputs.into_iter().enumerate() {
-            instruction_ops.push(sonar_sim::internals::InstructionOp::Insert {
+            instruction_ops.push(sonar_sim::InstructionOp::Insert {
                 position: position + offset,
                 instruction: input.to_instruction(),
             });
         }
     }
     instruction_ops.extend(parse_cli_args(ix_remove_args, cli::parse_ix_remove)?);
+
+    let mutation_inputs = MutationInputs {
+        account_overrides,
+        account_closures,
+        sol_fundings,
+        token_funding_requests,
+        account_data_patches,
+        instruction_ops,
+        ix_account_ops,
+        ix_data_patches,
+    };
 
     // Build rendering options once; shared across all code paths.
     let render_opts = output::RenderOptions {
@@ -242,38 +262,27 @@ pub(crate) fn handle(args: SimulateArgs, json: bool) -> Result<()> {
         log_opts: output::LogDisplayOptions { raw_log },
     };
 
+    let exec = ExecParams { verify_signatures, slot, timestamp };
+    let cache_args = CachePrepareArgs {
+        rpc_url: &rpc_url,
+        cache_enabled: cache,
+        cache_dir: &cache_dir,
+        refresh_cache,
+        no_idl_fetch,
+        rpc_batch_size,
+    };
+
     let source = match mode {
         SimulateMode::Bundle(txs) => {
-            let sim_opts = SimulationOptions {
-                execution: ExecutionOptions {
-                    signature_verification: verify_signatures.into(),
-                    slot,
-                    timestamp,
-                },
-                mutations: StateMutationOptions {
-                    account_closures,
-                    account_overrides,
-                    sol_fundings,
-                    account_data_patches,
-                    ..Default::default()
-                },
-            };
             return handle_bundle(
-                txs,
-                &rpc_url,
+                TxSource::Raw(txs),
                 resolver_cache_location,
-                token_funding_requests,
-                instruction_ops,
-                ix_account_ops,
-                ix_data_patches,
-                sim_opts,
+                exec,
+                mutation_inputs,
+                &cache_args,
+                &rpc_url,
                 &render_opts,
                 &mut parser_registry,
-                cache,
-                cache_dir,
-                refresh_cache,
-                no_idl_fetch,
-                rpc_batch_size,
                 &progress,
             );
         }
@@ -284,57 +293,39 @@ pub(crate) fn handle(args: SimulateArgs, json: bool) -> Result<()> {
         }
     };
 
-    let cache_args = CachePrepareArgs {
-        rpc_url: &rpc_url,
-        cache_enabled: cache,
-        cache_dir: &cache_dir,
-        refresh_cache,
-        no_idl_fetch,
-        rpc_batch_size,
-    };
-    let mut prepared = resolve_mutate_prepare(
+    let mutations = mutation_inputs.to_mutations();
+    let (prepared, meta) = prepare_single(
         source,
         resolver_cache_location,
         &cache_args,
+        exec,
+        mutations,
         &mut parser_registry,
         &progress,
-        |parsed_tx| {
-            apply_ix_mutations(parsed_tx, &instruction_ops, &ix_account_ops, &ix_data_patches)
-        },
     )?;
 
-    let mut parsed_tx =
-        prepared.parsed_txs.pop().expect("single input resolve should produce one transaction");
-    let origin = prepared.origins.pop().expect("single input resolve should produce one origin");
-    let raw_input = origin.original_input;
-    let cached_raw_tx = origin.raw_tx_base64;
-    let resolved_from = origin.resolved_from;
-    let tx_cache_dir = prepared.cache_dir.take();
-    let offline = prepared.offline;
+    // Reconstruct the CLI-side parsed transaction (with display summary) from the
+    // pipeline's post-mutation transaction.
+    let mut parsed_tx = transaction::ParsedTransaction::from_sim(prepared.parsed());
 
     warn_unmatched_addresses(
-        &account_overrides,
-        &sol_fundings,
-        &token_funding_requests,
-        &account_closures,
+        &mutation_inputs.account_overrides,
+        &mutation_inputs.sol_fundings,
+        &mutation_inputs.token_funding_requests,
+        &mutation_inputs.account_closures,
         &[&parsed_tx],
-        &prepared.resolved_accounts,
+        prepared.resolved(),
     );
 
-    let prepared_token_fundings = if token_funding_requests.is_empty() {
-        Vec::new()
-    } else {
-        prepare_token_fundings(
-            &mut prepared.account_loader,
-            &prepared.resolved_accounts,
-            &token_funding_requests,
-        )?
-    };
+    // Capture everything the renderer needs before `execute` consumes the stage.
+    let prepared_token_fundings: Vec<PreparedTokenFunding> = prepared.token_fundings().to_vec();
+    let resolved_for_render: ResolvedAccounts = prepared.resolved().clone();
 
-    if !offline {
-        if let Some(ref dir) = tx_cache_dir {
+    if !meta.offline {
+        if let Some(ref dir) = meta.cache_dir {
+            let origin = &meta.origins[0];
             account_file::dump_accounts_to_dir(
-                &prepared.resolved_accounts,
+                prepared.resolved(),
                 &parsed_tx.account_plan.static_accounts,
                 dir,
             )
@@ -346,36 +337,19 @@ pub(crate) fn handle(args: SimulateArgs, json: bool) -> Result<()> {
                     sonar_version: env!("CARGO_PKG_VERSION").to_string(),
                     cache_type: "single".to_string(),
                     transactions: vec![crate::core::cache::CacheTransaction {
-                        input: raw_input.clone(),
-                        raw_tx: cached_raw_tx,
-                        resolved_from,
+                        input: origin.original_input.clone(),
+                        raw_tx: origin.raw_tx_base64.clone(),
+                        resolved_from: origin.resolved_from.clone(),
                     }],
                     rpc_url: rpc_url.clone(),
-                    account_count: prepared.resolved_accounts.accounts.len(),
+                    account_count: prepared.resolved().accounts.len(),
                 },
             )
             .context("Failed to write cache metadata")?;
         }
     }
 
-    let sim_opts = SimulationOptions {
-        execution: ExecutionOptions {
-            signature_verification: verify_signatures.into(),
-            slot,
-            timestamp,
-        },
-        mutations: StateMutationOptions {
-            account_closures,
-            account_overrides,
-            sol_fundings,
-            token_fundings: prepared_token_fundings,
-            account_data_patches,
-        },
-    };
-    let mut runner =
-        PreparedSimulation::prepare(prepared.resolved_accounts, sim_opts)?.into_runner();
-
-    let simulation = runner.execute(&parsed_tx.transaction)?;
+    let simulation = prepared.execute_to_result()?;
 
     // Update transaction summary with inner instructions from simulation
     parsed_tx.summary = transaction::TransactionSummary::from_transaction(
@@ -385,15 +359,14 @@ pub(crate) fn handle(args: SimulateArgs, json: bool) -> Result<()> {
     );
 
     progress.finish();
-    let mutations = runner.mutations();
     let ctx = output::SimulationContext {
-        account_closures: &mutations.account_closures,
-        account_overrides: &mutations.account_overrides,
-        fundings: &mutations.sol_fundings,
-        token_fundings: &mutations.token_fundings,
+        account_closures: &mutation_inputs.account_closures,
+        account_overrides: &mutation_inputs.account_overrides,
+        fundings: &mutation_inputs.sol_fundings,
+        token_fundings: &prepared_token_fundings,
     };
     output::render_simulation(output::SimulationRender {
-        resolved: runner.resolved_accounts(),
+        resolved: &resolved_for_render,
         registry: &mut parser_registry,
         opts: &render_opts,
         kind: output::SimulationKind::Single { parsed: &parsed_tx, simulation: &simulation, ctx },
@@ -405,92 +378,63 @@ pub(crate) fn handle(args: SimulateArgs, json: bool) -> Result<()> {
 /// Handle bundle simulation (multiple transactions executed sequentially).
 #[allow(clippy::too_many_arguments)]
 fn handle_bundle(
-    tx_inputs: Vec<String>,
-    rpc_url: &str,
+    source: TxSource,
     resolver_cache_location: Option<crate::core::cache::CacheLocation>,
-    token_funding_requests: Vec<cli::TokenFunding>,
-    instruction_ops: Vec<sonar_sim::internals::InstructionOp>,
-    ix_account_ops: Vec<sonar_sim::internals::InstructionAccountOp>,
-    ix_data_patches: Vec<sonar_sim::internals::InstructionDataPatch>,
-    mut sim_opts: SimulationOptions,
+    exec: ExecParams,
+    mutation_inputs: MutationInputs,
+    cache_args: &CachePrepareArgs,
+    rpc_url: &str,
     render_opts: &output::RenderOptions,
     parser_registry: &mut ParserRegistry,
-    cache: bool,
-    cache_dir: Option<PathBuf>,
-    refresh_cache: bool,
-    no_idl_fetch: bool,
-    rpc_batch_size: usize,
     progress: &Progress,
 ) -> Result<()> {
-    log::info!("Bundle simulation mode: {} transactions", tx_inputs.len());
-
-    let cache_args = CachePrepareArgs {
-        rpc_url,
-        cache_enabled: cache,
-        cache_dir: &cache_dir,
-        refresh_cache,
-        no_idl_fetch,
-        rpc_batch_size,
-    };
-    let mut prepared = resolve_mutate_prepare(
-        TxSource::Raw(tx_inputs),
+    let mutations = mutation_inputs.to_mutations();
+    let (prepared, meta) = prepare_bundle(
+        source,
         resolver_cache_location,
-        &cache_args,
+        cache_args,
+        exec,
+        mutations,
         parser_registry,
         progress,
-        |parsed_tx| {
-            apply_ix_mutations(parsed_tx, &instruction_ops, &ix_account_ops, &ix_data_patches)
-        },
     )?;
-    log::info!("Successfully parsed {} transactions", prepared.parsed_txs.len());
+    log::info!("Bundle simulation mode: {} transactions", prepared.parsed().len());
 
-    let bundle_cache_dir = prepared.cache_dir.take();
-    let offline = prepared.offline;
-    let origins = std::mem::take(&mut prepared.origins);
-    let parsed_txs = std::mem::take(&mut prepared.parsed_txs);
+    // Reconstruct CLI-side parsed transactions (with display summaries).
+    let parsed_txs: Vec<transaction::ParsedTransaction> =
+        prepared.parsed().iter().map(transaction::ParsedTransaction::from_sim).collect();
 
     let parsed_tx_refs: Vec<_> = parsed_txs.iter().collect();
     warn_unmatched_addresses(
-        &sim_opts.mutations.account_overrides,
-        &sim_opts.mutations.sol_fundings,
-        &token_funding_requests,
-        &sim_opts.mutations.account_closures,
+        &mutation_inputs.account_overrides,
+        &mutation_inputs.sol_fundings,
+        &mutation_inputs.token_funding_requests,
+        &mutation_inputs.account_closures,
         &parsed_tx_refs,
-        &prepared.resolved_accounts,
+        prepared.resolved(),
     );
 
-    // Prepare token fundings
-    let prepared_token_fundings = if token_funding_requests.is_empty() {
-        Vec::new()
-    } else {
-        prepare_token_fundings(
-            &mut prepared.account_loader,
-            &prepared.resolved_accounts,
-            &token_funding_requests,
-        )?
-    };
-    sim_opts.mutations.token_fundings = prepared_token_fundings;
+    // Capture everything the renderer needs before `execute` consumes the stage.
+    let prepared_token_fundings: Vec<PreparedTokenFunding> = prepared.token_fundings().to_vec();
+    let resolved_for_render: ResolvedAccounts = prepared.resolved().clone();
 
-    if !offline {
-        if let Some(ref dir) = bundle_cache_dir {
+    if !meta.offline {
+        if let Some(ref dir) = meta.cache_dir {
             let required_accounts: std::collections::HashSet<_> = parsed_txs
                 .iter()
                 .flat_map(|tx| tx.account_plan.static_accounts.iter().copied())
                 .collect();
             let required_accounts: Vec<_> = required_accounts.into_iter().collect();
-            account_file::dump_accounts_to_dir(
-                &prepared.resolved_accounts,
-                &required_accounts,
-                dir,
-            )
-            .context("Failed to write account cache")?;
+            account_file::dump_accounts_to_dir(prepared.resolved(), &required_accounts, dir)
+                .context("Failed to write account cache")?;
             crate::core::cache::write_meta_json(
                 dir,
                 &crate::core::cache::CacheMeta {
                     created_at: chrono::Utc::now().to_rfc3339(),
                     sonar_version: env!("CARGO_PKG_VERSION").to_string(),
                     cache_type: "bundle".to_string(),
-                    transactions: origins
+                    transactions: meta
+                        .origins
                         .iter()
                         .map(|origin| crate::core::cache::CacheTransaction {
                             input: origin.original_input.clone(),
@@ -499,7 +443,7 @@ fn handle_bundle(
                         })
                         .collect(),
                     rpc_url: rpc_url.to_string(),
-                    account_count: prepared.resolved_accounts.accounts.len(),
+                    account_count: prepared.resolved().accounts.len(),
                 },
             )
             .context("Failed to write cache metadata")?;
@@ -508,11 +452,7 @@ fn handle_bundle(
 
     // Execute bundle simulation
     let total_tx_count = parsed_txs.len();
-    let mut runner =
-        PreparedSimulation::prepare(prepared.resolved_accounts, sim_opts)?.into_runner();
-
-    let tx_refs: Vec<_> = parsed_txs.iter().map(|p| &p.transaction).collect();
-    let bundle_results = runner.execute_bundle(&tx_refs);
+    let bundle_results = prepared.execute_bundle_to_results()?;
     if bundle_results.skipped_count() > 0 {
         log::warn!(
             "Bundle: {}/{} transactions skipped due to prior failure",
@@ -531,12 +471,11 @@ fn handle_bundle(
         })
         .collect::<Result<Vec<_>>>()?;
 
-    // Update transaction summaries with inner instructions from simulation
-    // Note: simulations may be shorter than parsed_txs due to fail-fast behavior
-    let executed_count = simulations.len();
+    // Update transaction summaries with inner instructions from simulation.
+    // Note: simulations may be shorter than parsed_txs due to fail-fast behavior,
+    // so zip naturally drops the un-executed tail.
     let updated_txs: Vec<_> = parsed_txs
         .into_iter()
-        .take(executed_count)
         .zip(simulations.iter())
         .map(|(mut parsed_tx, simulation)| {
             parsed_tx.summary = transaction::TransactionSummary::from_transaction(
@@ -549,15 +488,14 @@ fn handle_bundle(
         .collect();
 
     progress.finish();
-    let mutations = runner.mutations();
     let ctx = output::SimulationContext {
-        account_closures: &mutations.account_closures,
-        account_overrides: &mutations.account_overrides,
-        fundings: &mutations.sol_fundings,
-        token_fundings: &mutations.token_fundings,
+        account_closures: &mutation_inputs.account_closures,
+        account_overrides: &mutation_inputs.account_overrides,
+        fundings: &mutation_inputs.sol_fundings,
+        token_fundings: &prepared_token_fundings,
     };
     output::render_simulation(output::SimulationRender {
-        resolved: runner.resolved_accounts(),
+        resolved: &resolved_for_render,
         registry: parser_registry,
         opts: render_opts,
         kind: output::SimulationKind::Bundle {
