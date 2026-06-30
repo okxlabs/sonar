@@ -392,14 +392,12 @@ pub(crate) fn handle(args: SimulateArgs, json: bool) -> Result<()> {
         fundings: &mutations.sol_fundings,
         token_fundings: &mutations.token_fundings,
     };
-    output::render(
-        &parsed_tx,
-        runner.resolved_accounts(),
-        &simulation,
-        &ctx,
-        &mut parser_registry,
-        &render_opts,
-    )?;
+    output::render_simulation(output::SimulationRender {
+        resolved: runner.resolved_accounts(),
+        registry: &mut parser_registry,
+        opts: &render_opts,
+        kind: output::SimulationKind::Single { parsed: &parsed_tx, simulation: &simulation, ctx },
+    })?;
 
     Ok(())
 }
@@ -558,15 +556,17 @@ fn handle_bundle(
         fundings: &mutations.sol_fundings,
         token_fundings: &mutations.token_fundings,
     };
-    output::render_bundle(
-        &updated_txs,
-        total_tx_count,
-        runner.resolved_accounts(),
-        &simulations,
-        &ctx,
-        parser_registry,
-        render_opts,
-    )?;
+    output::render_simulation(output::SimulationRender {
+        resolved: runner.resolved_accounts(),
+        registry: parser_registry,
+        opts: render_opts,
+        kind: output::SimulationKind::Bundle {
+            parsed_txs: &updated_txs,
+            total_tx_count,
+            simulations: &simulations,
+            ctx,
+        },
+    })?;
 
     Ok(())
 }

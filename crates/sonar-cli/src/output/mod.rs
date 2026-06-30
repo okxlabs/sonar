@@ -58,48 +58,91 @@ pub struct SimulationContext<'a> {
     pub token_fundings: &'a [PreparedTokenFunding],
 }
 
-pub fn render(
-    parsed: &ParsedTransaction,
-    resolved: &ResolvedAccounts,
-    simulation: &ExecutionResult,
-    ctx: &SimulationContext,
-    parser_registry: &mut ParserRegistry,
-    opts: &RenderOptions,
-) -> Result<()> {
-    let report = Report::from_sources(
-        parsed,
-        resolved,
-        simulation,
-        ctx,
-        parser_registry,
-        opts.verify_signatures,
-        opts.balance_opts,
-    );
-    render_report(&report, resolved, parser_registry, opts)
+// ── Simulation rendering ──
+
+/// Which simulation result to render. Each variant carries exactly the data
+/// its shape needs; [`render_simulation`] owns report construction and the
+/// JSON/text fork for all of them.
+pub enum SimulationKind<'a> {
+    /// A single simulated transaction.
+    Single {
+        parsed: &'a ParsedTransaction,
+        simulation: &'a ExecutionResult,
+        ctx: SimulationContext<'a>,
+    },
+    /// A replayed transaction whose balance changes were computed from RPC
+    /// metadata rather than from simulation.
+    Replay {
+        parsed: &'a ParsedTransaction,
+        simulation: &'a ExecutionResult,
+        sol_balance_changes: Vec<SolBalanceChangeSection>,
+        token_balance_changes: Vec<TokenBalanceChangeSection>,
+    },
+    /// A bundle of transactions executed sequentially.
+    Bundle {
+        parsed_txs: &'a [ParsedTransaction],
+        /// Total transactions in the bundle, including any skipped after a
+        /// prior failure (may exceed `simulations.len()`).
+        total_tx_count: usize,
+        simulations: &'a [ExecutionResult],
+        ctx: SimulationContext<'a>,
+    },
 }
 
-/// Render a replay report with pre-computed balance changes from RPC metadata.
-pub fn render_replay(
-    parsed: &ParsedTransaction,
-    resolved: &ResolvedAccounts,
-    simulation: &ExecutionResult,
-    parser_registry: &mut ParserRegistry,
-    opts: &RenderOptions,
-    sol_balance_changes: Vec<SolBalanceChangeSection>,
-    token_balance_changes: Vec<TokenBalanceChangeSection>,
-) -> Result<()> {
-    let report = Report::from_replay(
-        parsed,
-        resolved,
-        simulation,
-        parser_registry,
-        sol_balance_changes,
-        token_balance_changes,
-    );
-    render_report(&report, resolved, parser_registry, opts)
+/// Grouped inputs for [`render_simulation`].
+pub struct SimulationRender<'a> {
+    pub resolved: &'a ResolvedAccounts,
+    pub registry: &'a mut ParserRegistry,
+    pub opts: &'a RenderOptions,
+    pub kind: SimulationKind<'a>,
 }
 
-fn render_report(
+/// Render a simulation result — single, replay, or bundle — to stdout. Builds
+/// the intermediate report and dispatches to the JSON or text writer based on
+/// [`RenderOptions::json`].
+pub fn render_simulation(req: SimulationRender) -> Result<()> {
+    let SimulationRender { resolved, registry, opts, kind } = req;
+    match kind {
+        SimulationKind::Single { parsed, simulation, ctx } => {
+            let report = Report::from_sources(
+                parsed,
+                resolved,
+                simulation,
+                &ctx,
+                registry,
+                opts.verify_signatures,
+                opts.balance_opts,
+            );
+            emit_report(&report, resolved, registry, opts)
+        }
+        SimulationKind::Replay { parsed, simulation, sol_balance_changes, token_balance_changes } => {
+            let report = Report::from_replay(
+                parsed,
+                resolved,
+                simulation,
+                registry,
+                sol_balance_changes,
+                token_balance_changes,
+            );
+            emit_report(&report, resolved, registry, opts)
+        }
+        SimulationKind::Bundle { parsed_txs, total_tx_count, simulations, ctx } => {
+            let report = BundleReport::from_sources(
+                parsed_txs,
+                resolved,
+                simulations,
+                &ctx,
+                registry,
+                opts.verify_signatures,
+                opts.balance_opts,
+            );
+            emit_bundle(&report, total_tx_count, resolved, opts)
+        }
+    }
+}
+
+/// JSON/text fork for a single-transaction report (simulate and replay).
+fn emit_report(
     report: &Report,
     resolved: &ResolvedAccounts,
     parser_registry: &mut ParserRegistry,
@@ -121,77 +164,19 @@ fn render_report(
     }
 }
 
-pub fn render_transaction_only(
-    parsed: &ParsedTransaction,
-    resolved: &ResolvedAccounts,
-    parser_registry: &mut ParserRegistry,
-    json: bool,
-    show_ix_data: bool,
-    bundle_info: Option<(usize, usize)>,
-) -> Result<()> {
-    let resolver = LookupResolver::new(resolved.lookup_details());
-    let transaction =
-        TransactionSection::from_sources(parsed, resolved, &resolver, parser_registry, false);
-    if json {
-        let json = serde_json::to_string_pretty(&transaction)?;
-        println!("{json}");
-        Ok(())
-    } else {
-        let mut stdout = std::io::stdout().lock();
-        text::render_transaction_section_text(
-            &transaction,
-            resolved,
-            parser_registry,
-            show_ix_data,
-            bundle_info,
-            &mut stdout,
-        )
-    }
-}
-
-/// Render multiple decoded transactions as a single JSON array `[{...}, {...}]`.
-/// Used for bundle decode with `--json`; output is a valid JSON document parseable by jq.
-pub fn render_decode_bundle_json(
-    parsed_txs: &[ParsedTransaction],
-    resolved: &ResolvedAccounts,
-    parser_registry: &mut ParserRegistry,
-) -> Result<()> {
-    let resolver = LookupResolver::new(resolved.lookup_details());
-    let sections: Vec<TransactionSection> = parsed_txs
-        .iter()
-        .map(|parsed| {
-            TransactionSection::from_sources(parsed, resolved, &resolver, parser_registry, false)
-        })
-        .collect();
-    json::render_json_array(&sections)
-}
-
-/// Render multiple transaction simulation results (bundle simulation).
-pub fn render_bundle(
-    parsed_txs: &[ParsedTransaction],
+/// JSON/text fork for a bundle report.
+fn emit_bundle(
+    report: &BundleReport,
     total_tx_count: usize,
     resolved: &ResolvedAccounts,
-    simulations: &[ExecutionResult],
-    ctx: &SimulationContext,
-    parser_registry: &mut ParserRegistry,
     opts: &RenderOptions,
 ) -> Result<()> {
-    let bundle_report = BundleReport::from_sources(
-        parsed_txs,
-        resolved,
-        simulations,
-        ctx,
-        parser_registry,
-        opts.verify_signatures,
-        opts.balance_opts,
-    );
-
     if opts.json {
-        json::render_bundle_json(&bundle_report)
+        json::render_bundle_json(report)
     } else {
         let mut stdout = std::io::stdout().lock();
         text::render_bundle_text(
-            &bundle_report,
+            report,
             total_tx_count,
             resolved,
             opts.show_ix_data,
@@ -199,5 +184,59 @@ pub fn render_bundle(
             opts.log_opts,
             &mut stdout,
         )
+    }
+}
+
+// ── Decode rendering ──
+
+/// Grouped inputs for [`render_decode`].
+pub struct DecodeRender<'a> {
+    pub parsed_txs: &'a [ParsedTransaction],
+    pub resolved: &'a ResolvedAccounts,
+    pub registry: &'a mut ParserRegistry,
+    pub show_ix_data: bool,
+    pub json: bool,
+}
+
+/// Render decoded transactions (no execution) to stdout. Handles a single
+/// transaction or a bundle, JSON or text, behind one entry point: JSON renders
+/// a lone transaction as an object and a bundle as an array (`[{...}, {...}]`,
+/// parseable by jq); text renders each transaction in turn, tagging bundle
+/// members with their position.
+pub fn render_decode(req: DecodeRender) -> Result<()> {
+    let DecodeRender { parsed_txs, resolved, registry, show_ix_data, json } = req;
+    let resolver = LookupResolver::new(resolved.lookup_details());
+    let sections: Vec<TransactionSection> = parsed_txs
+        .iter()
+        .map(|parsed| {
+            TransactionSection::from_sources(parsed, resolved, &resolver, registry, false)
+        })
+        .collect();
+
+    if json {
+        match sections.as_slice() {
+            [single] => {
+                let json = serde_json::to_string_pretty(single)?;
+                println!("{json}");
+                Ok(())
+            }
+            _ => json::render_json_array(&sections),
+        }
+    } else {
+        let total = sections.len();
+        let is_bundle = total > 1;
+        let mut stdout = std::io::stdout().lock();
+        for (i, section) in sections.iter().enumerate() {
+            let bundle_info = is_bundle.then_some((i + 1, total));
+            text::render_transaction_section_text(
+                section,
+                resolved,
+                registry,
+                show_ix_data,
+                bundle_info,
+                &mut stdout,
+            )?;
+        }
+        Ok(())
     }
 }

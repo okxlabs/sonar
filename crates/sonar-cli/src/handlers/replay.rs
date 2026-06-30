@@ -107,15 +107,17 @@ pub(crate) fn handle(args: ReplayArgs, json: bool) -> Result<()> {
         log_opts: LogDisplayOptions { raw_log: args.raw_log },
     };
 
-    output::render_replay(
-        &parsed_tx,
-        &resolved_accounts,
-        &execution_result,
-        &mut parser_registry,
-        &render_opts,
-        sol_changes,
-        token_changes,
-    )?;
+    output::render_simulation(output::SimulationRender {
+        resolved: &resolved_accounts,
+        registry: &mut parser_registry,
+        opts: &render_opts,
+        kind: output::SimulationKind::Replay {
+            parsed: &parsed_tx,
+            simulation: &execution_result,
+            sol_balance_changes: sol_changes,
+            token_balance_changes: token_changes,
+        },
+    })?;
 
     Ok(())
 }
