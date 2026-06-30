@@ -2,11 +2,12 @@
 //! and unmatched-address validation used by `decode`, `simulate`, and others.
 
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use solana_account::ReadableAccount;
 use solana_pubkey::Pubkey;
-use sonar_sim::internals::{AccountLoader, ResolvedAccounts};
+use sonar_sim::{Mutations, Pipeline, ResolvedAccounts, RpcAccountProvider};
 
 use crate::cli;
 use crate::core::cache::CacheLocation;
@@ -49,23 +50,35 @@ pub(crate) struct CachePrepareArgs<'a> {
     pub rpc_batch_size: usize,
 }
 
-/// Everything a command needs after the shared setup pipeline has run: the
-/// post-mutation parsed transactions, their provenance, the loaded accounts,
-/// and the resolved cache state.
-pub(crate) struct PreparedPipeline {
+/// Provenance and cache state retained alongside a prepared simulation
+/// [`Pipeline`](sonar_sim::Pipeline) stage. The prepared stage itself carries
+/// the resolved accounts and post-mutation transactions.
+pub(crate) struct PipelineMeta {
     pub origins: Vec<TxOrigin>,
-    pub parsed_txs: Vec<transaction::ParsedTransaction>,
-    pub account_loader: AccountLoader,
-    pub resolved_accounts: ResolvedAccounts,
     pub cache_dir: Option<PathBuf>,
     pub offline: bool,
 }
 
-/// Account loader plus the accounts it resolved — internal result of
-/// [`prepare_accounts_and_idls`].
-struct PreparedAccounts {
-    account_loader: AccountLoader,
-    resolved_accounts: ResolvedAccounts,
+/// Execution settings threaded into the simulation pipeline.
+#[derive(Default, Clone, Copy)]
+pub(crate) struct ExecParams {
+    pub verify_signatures: bool,
+    pub slot: Option<u64>,
+    pub timestamp: Option<i64>,
+}
+
+impl ExecParams {
+    /// Apply these settings to a freshly-created [`Pipeline`].
+    fn configure(self, mut pipeline: Pipeline) -> Pipeline {
+        pipeline = pipeline.verify_signatures(self.verify_signatures);
+        if let Some(slot) = self.slot {
+            pipeline = pipeline.slot(slot);
+        }
+        if let Some(ts) = self.timestamp {
+            pipeline = pipeline.timestamp(ts);
+        }
+        pipeline
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -92,45 +105,16 @@ pub(crate) fn build_cache_location(cache_dir: &Option<PathBuf>) -> CacheLocation
 // Shared setup pipeline
 // ---------------------------------------------------------------------------
 
-/// Run the shared command setup as a single operation: resolve transaction
-/// inputs, derive the cache key, apply a caller-supplied mutation to each parsed
-/// transaction, then resolve cache state and load accounts/IDLs.
-///
-/// The mutation hook is the one stage that genuinely differs between commands:
-/// `simulate` applies instruction account/data patches — which change the set of
-/// accounts to load, so they must run before account resolution — while `decode`
-/// passes a no-op. Threading it as a closure keeps the resolve → mutate → load
-/// ordering an internal detail rather than a contract split across call sites.
-pub(crate) fn resolve_mutate_prepare(
+/// Resolve transaction inputs and cache state, then build the CLI's configured
+/// [`AccountLoader`]. Shared first half of [`prepare_single`] / [`prepare_bundle`].
+fn resolve_and_loader(
     source: TxSource,
     resolver_cache_location: Option<CacheLocation>,
     cache_args: &CachePrepareArgs,
-    parser_registry: &mut ParserRegistry,
     progress: &Progress,
-    mut mutate: impl FnMut(&mut transaction::ParsedTransaction) -> Result<()>,
-) -> Result<PreparedPipeline> {
-    // 1. Resolve inputs into transactions and derive the cache key.
+) -> Result<(Vec<transaction::ResolvedTxInput>, Option<PathBuf>, bool, sonar_sim::AccountLoader)> {
     let (resolved_txs, cache_key) =
         resolve_inputs(source, resolver_cache_location, cache_args, progress)?;
-
-    // 2. Separate provenance from the parsed form, then apply the caller's
-    //    mutation. The account set to load depends on the post-mutation
-    //    transactions, so this must happen before preparing accounts.
-    let mut origins = Vec::with_capacity(resolved_txs.len());
-    let mut parsed_txs = Vec::with_capacity(resolved_txs.len());
-    for resolved in resolved_txs {
-        origins.push(TxOrigin {
-            original_input: resolved.original_input,
-            raw_tx_base64: resolved.raw_tx_base64,
-            resolved_from: resolved.source.as_str().to_string(),
-        });
-        parsed_txs.push(resolved.parsed_tx);
-    }
-    for parsed_tx in &mut parsed_txs {
-        mutate(parsed_tx)?;
-    }
-
-    // 3. Resolve cache state and load accounts/IDLs for the final transactions.
     let (cache_dir, offline) = crate::core::cache::resolve_cache_state(
         cache_args.cache_enabled,
         cache_args.cache_dir,
@@ -138,25 +122,97 @@ pub(crate) fn resolve_mutate_prepare(
         &cache_key,
     );
     let cache_read_dir_for_load = cache_read_dir(cache_dir.clone(), cache_args.refresh_cache);
-    let prepared = prepare_accounts_and_idls(
-        cache_args.rpc_url,
+    let loader = account_loader::create_loader(
+        cache_args.rpc_url.to_string(),
         cache_read_dir_for_load,
         offline,
-        &parsed_txs,
-        parser_registry,
-        cache_args.no_idl_fetch,
-        progress,
+        Some(progress.clone()),
         cache_args.rpc_batch_size,
     )?;
+    Ok((resolved_txs, cache_dir, offline, loader))
+}
 
-    Ok(PreparedPipeline {
-        origins,
-        parsed_txs,
-        account_loader: prepared.account_loader,
-        resolved_accounts: prepared.resolved_accounts,
-        cache_dir,
+fn into_origin(resolved: &transaction::ResolvedTxInput) -> TxOrigin {
+    TxOrigin {
+        original_input: resolved.original_input.clone(),
+        raw_tx_base64: resolved.raw_tx_base64.clone(),
+        resolved_from: resolved.source.as_str().to_string(),
+    }
+}
+
+/// Drive the simulation [`Pipeline`] for a single transaction: resolve input,
+/// build the loader, parse → load → apply `mutations` → prepare, then run the
+/// shared IDL stage against the prepared state. The returned prepared stage lets
+/// the caller inspect/cache the resolved accounts and `execute` when ready.
+pub(crate) fn prepare_single(
+    source: TxSource,
+    resolver_cache_location: Option<CacheLocation>,
+    cache_args: &CachePrepareArgs,
+    exec: ExecParams,
+    mutations: Mutations,
+    parser_registry: &mut ParserRegistry,
+    progress: &Progress,
+) -> Result<(sonar_sim::PreparedPipeline, PipelineMeta)> {
+    let (resolved_txs, cache_dir, offline, loader) =
+        resolve_and_loader(source, resolver_cache_location, cache_args, progress)?;
+    let resolved = resolved_txs.into_iter().next().context("expected one resolved transaction")?;
+    let origin = into_origin(&resolved);
+
+    let prepared = exec
+        .configure(Pipeline::with_loader(loader))
+        .parse(&resolved.raw_tx_base64)?
+        .with_mutations(mutations)?
+        .load_accounts()?
+        .prepare()?;
+
+    run_idl_pipeline(
+        prepared.provider(),
+        prepared.rpc_batch_size(),
+        parser_registry,
+        prepared.resolved(),
+        cache_args.no_idl_fetch,
         offline,
-    })
+        Some(progress),
+    );
+
+    Ok((prepared, PipelineMeta { origins: vec![origin], cache_dir, offline }))
+}
+
+/// Drive the simulation [`Pipeline`] for a bundle of transactions. See
+/// [`prepare_single`]; uses `parse_bundle` / the bundle prepared stage.
+pub(crate) fn prepare_bundle(
+    source: TxSource,
+    resolver_cache_location: Option<CacheLocation>,
+    cache_args: &CachePrepareArgs,
+    exec: ExecParams,
+    mutations: Mutations,
+    parser_registry: &mut ParserRegistry,
+    progress: &Progress,
+) -> Result<(sonar_sim::PreparedBundlePipeline, PipelineMeta)> {
+    let (resolved_txs, cache_dir, offline, loader) =
+        resolve_and_loader(source, resolver_cache_location, cache_args, progress)?;
+    let origins: Vec<TxOrigin> = resolved_txs.iter().map(into_origin).collect();
+    let raw: Vec<String> = resolved_txs.into_iter().map(|r| r.raw_tx_base64).collect();
+    let raw_refs: Vec<&str> = raw.iter().map(String::as_str).collect();
+
+    let prepared = exec
+        .configure(Pipeline::with_loader(loader))
+        .parse_bundle(&raw_refs)?
+        .with_mutations(mutations)?
+        .load_accounts()?
+        .prepare()?;
+
+    run_idl_pipeline(
+        prepared.provider(),
+        prepared.rpc_batch_size(),
+        parser_registry,
+        prepared.resolved(),
+        cache_args.no_idl_fetch,
+        offline,
+        Some(progress),
+    );
+
+    Ok((prepared, PipelineMeta { origins, cache_dir, offline }))
 }
 
 /// Resolve a [`TxSource`] into concrete transactions and the cache key derived
@@ -287,9 +343,13 @@ pub(crate) fn auto_fetch_missing_idls(
     Ok(fetched)
 }
 
-/// Runs the shared IDL stage for a resolved account set.
+/// Runs the shared IDL stage for a resolved account set: auto-fetch missing
+/// upgradeable-program IDLs (online only) using `provider`, then lazy-load
+/// parsers from disk. Takes the RPC provider directly so it can run against a
+/// prepared [`Pipeline`] stage's shared provider.
 pub(crate) fn run_idl_pipeline(
-    account_loader: &AccountLoader,
+    provider: Arc<dyn RpcAccountProvider>,
+    rpc_batch_size: usize,
     parser_registry: &mut ParserRegistry,
     resolved_accounts: &ResolvedAccounts,
     no_idl_fetch: bool,
@@ -303,7 +363,8 @@ pub(crate) fn run_idl_pipeline(
     }
 
     if !no_idl_fetch && !offline {
-        let idl_fetcher = account_loader::create_idl_fetcher(account_loader, progress.cloned());
+        let idl_fetcher = idl_fetcher::IdlFetcher::with_provider(provider, progress.cloned())
+            .with_rpc_batch_size(rpc_batch_size);
         match auto_fetch_missing_idls(
             &idl_fetcher,
             parser_registry,
@@ -322,44 +383,6 @@ pub(crate) fn run_idl_pipeline(
         Ok(_) => {}
         Err(err) => log::warn!("Failed to load IDL parsers: {:?}", err),
     }
-}
-
-/// Loads accounts for parsed transactions and runs the shared IDL pipeline.
-#[allow(clippy::too_many_arguments)]
-fn prepare_accounts_and_idls(
-    rpc_url: &str,
-    cache_dir: Option<PathBuf>,
-    offline: bool,
-    parsed_txs: &[transaction::ParsedTransaction],
-    parser_registry: &mut ParserRegistry,
-    no_idl_fetch: bool,
-    progress: &Progress,
-    rpc_batch_size: usize,
-) -> Result<PreparedAccounts> {
-    let mut account_loader = account_loader::create_loader(
-        rpc_url.to_string(),
-        cache_dir,
-        offline,
-        Some(progress.clone()),
-        rpc_batch_size,
-    )?;
-    let resolved_accounts = if parsed_txs.len() == 1 {
-        account_loader.load_for_transaction(&parsed_txs[0].transaction)?
-    } else {
-        let tx_refs: Vec<_> = parsed_txs.iter().map(|parsed| &parsed.transaction).collect();
-        account_loader.load_for_transactions(&tx_refs)?
-    };
-
-    run_idl_pipeline(
-        &account_loader,
-        parser_registry,
-        &resolved_accounts,
-        no_idl_fetch,
-        offline,
-        Some(progress),
-    );
-
-    Ok(PreparedAccounts { account_loader, resolved_accounts })
 }
 
 // ---------------------------------------------------------------------------
@@ -483,7 +506,7 @@ mod tests {
     use solana_account::{Account, AccountSharedData};
     use solana_pubkey::Pubkey;
     use solana_sdk_ids::system_program;
-    use sonar_sim::internals::ResolvedAccounts;
+    use sonar_sim::ResolvedAccounts;
     use std::cell::RefCell;
     use std::collections::{HashMap, HashSet};
     use std::sync::Once;

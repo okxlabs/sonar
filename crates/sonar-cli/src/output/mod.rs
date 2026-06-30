@@ -17,7 +17,7 @@ use anyhow::Result;
 use solana_pubkey::Pubkey;
 
 use crate::{core::transaction::ParsedTransaction, parsers::instruction::ParserRegistry};
-use sonar_sim::internals::{
+use sonar_sim::{
     AccountOverride, ExecutionResult, PreparedTokenFunding, ResolvedAccounts, SolFunding,
 };
 
@@ -115,7 +115,12 @@ pub fn render_simulation(req: SimulationRender) -> Result<()> {
             );
             emit_report(&report, resolved, registry, opts)
         }
-        SimulationKind::Replay { parsed, simulation, sol_balance_changes, token_balance_changes } => {
+        SimulationKind::Replay {
+            parsed,
+            simulation,
+            sol_balance_changes,
+            token_balance_changes,
+        } => {
             let report = Report::from_replay(
                 parsed,
                 resolved,

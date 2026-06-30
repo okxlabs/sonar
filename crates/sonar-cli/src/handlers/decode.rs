@@ -1,11 +1,13 @@
 use anyhow::Result;
+use sonar_sim::Mutations;
 
 use crate::cli::{DecodeArgs, TransactionInputArgs};
+use crate::core::transaction;
 use crate::output;
 use crate::parsers::instruction::ParserRegistry;
 use crate::utils::progress::Progress;
 
-use super::pipeline_prep::{CachePrepareArgs, TxSource, resolve_mutate_prepare};
+use super::pipeline_prep::{CachePrepareArgs, ExecParams, TxSource, prepare_bundle};
 
 pub(crate) fn handle(args: DecodeArgs, json: bool) -> Result<()> {
     let idl_dir = args.idl_dir.clone();
@@ -39,28 +41,31 @@ pub(crate) fn handle(args: DecodeArgs, json: bool) -> Result<()> {
         no_idl_fetch,
         rpc_batch_size,
     };
-    // Decode does not mutate the transaction, so the mutation hook is a no-op.
-    let prepared = resolve_mutate_prepare(
+    // Decode neither mutates the transaction nor executes it: drive the pipeline
+    // with no mutations and read the resolved accounts / parsed transactions from
+    // the prepared stage. The bundle pipeline handles one or many uniformly.
+    let (prepared, _meta) = prepare_bundle(
         TxSource::Raw(tx),
         resolver_cache_location,
         &cache_args,
+        ExecParams::default(),
+        Mutations::default(),
         &mut parser_registry,
         &progress,
-        |_| Ok(()),
     )?;
-    let parsed_txs = prepared.parsed_txs;
-    let resolved_accounts = prepared.resolved_accounts;
-    let is_bundle = parsed_txs.len() > 1;
 
     progress.finish();
 
-    if is_bundle {
+    let parsed_txs: Vec<transaction::ParsedTransaction> =
+        prepared.parsed().iter().map(transaction::ParsedTransaction::from_sim).collect();
+
+    if parsed_txs.len() > 1 {
         log::info!("Bundle decode mode: {} transactions", parsed_txs.len());
     }
 
     output::render_decode(output::DecodeRender {
         parsed_txs: &parsed_txs,
-        resolved: &resolved_accounts,
+        resolved: prepared.resolved(),
         registry: &mut parser_registry,
         show_ix_data: ix_data,
         json,

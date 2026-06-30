@@ -12,7 +12,7 @@ use crate::core::transaction::{AccountReferenceSummary, AccountSourceSummary, Pa
 use crate::parsers::instruction::{
     ParsedInstruction, ParserRegistry, anchor_idl::is_anchor_cpi_event,
 };
-use sonar_sim::internals::{
+use sonar_sim::{
     AccountOverride, ExecutionResult, ExecutionStatus, ResolvedAccounts, ResolvedLookup,
     SimulationMetadata, compute_sol_changes, compute_token_changes, extract_mint_decimals_combined,
 };

@@ -1,5 +1,5 @@
-pub(crate) use sonar_sim::internals::build_lookup_locations;
-pub use sonar_sim::internals::{LookupLocation, MessageAccountPlan, RawTransactionEncoding};
+pub(crate) use sonar_sim::build_lookup_locations;
+pub use sonar_sim::{LookupLocation, MessageAccountPlan, RawTransactionEncoding};
 
 use crate::core::rpc_client::{GetTransactionConfig, RpcClient};
 use anyhow::{Context, Result, anyhow};
@@ -41,6 +41,12 @@ impl ParsedTransaction {
         let account_plan = MessageAccountPlan::from_transaction(&transaction);
         let summary = TransactionSummary::from_transaction(&transaction, &account_plan, Vec::new());
         Self { encoding, version, transaction, summary, account_plan }
+    }
+
+    /// Build the CLI parsed form (with display summary) from a `sonar-sim`
+    /// parsed transaction produced by a pipeline stage.
+    pub fn from_sim(parsed: &sonar_sim::ParsedTransaction) -> Self {
+        Self::from_versioned(parsed.transaction.clone(), parsed.encoding)
     }
 }
 
@@ -450,7 +456,7 @@ pub fn fetch_transaction_from_rpc(
 // ---------------------------------------------------------------------------
 
 pub fn parse_raw_transaction(raw: &str) -> Result<ParsedTransaction> {
-    let sim_parsed = sonar_sim::internals::parse_raw_transaction(raw)?;
+    let sim_parsed = sonar_sim::parse_raw_transaction(raw)?;
     Ok(ParsedTransaction::from_versioned(sim_parsed.transaction, sim_parsed.encoding))
 }
 

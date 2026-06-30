@@ -7,7 +7,7 @@ use solana_account::{AccountSharedData, ReadableAccount};
 use solana_pubkey::Pubkey;
 
 use crate::utils::progress::Progress;
-use sonar_sim::internals::{DEFAULT_RPC_BATCH_SIZE, RpcAccountProvider, SolanaRpcProvider};
+use sonar_sim::{DEFAULT_RPC_BATCH_SIZE, RpcAccountProvider, SolanaRpcProvider};
 
 type PendingIdlEntry = (usize, Pubkey, Pubkey);
 type IdlFetchResultSlot = Option<Result<Option<String>>>;
@@ -305,8 +305,8 @@ mod tests {
     use solana_pubkey::Pubkey;
 
     use super::{IdlFetcher, get_idl_address, parse_idl_account_data};
-    use sonar_sim::internals::DEFAULT_RPC_BATCH_SIZE;
-    use sonar_sim::internals::FakeAccountProvider;
+    use sonar_sim::DEFAULT_RPC_BATCH_SIZE;
+    use sonar_sim::FakeAccountProvider;
 
     fn dummy_fetcher() -> IdlFetcher {
         IdlFetcher::with_provider(Arc::new(FakeAccountProvider::empty()), None)

@@ -13,7 +13,7 @@ use crate::parsers::{
     instruction::{ParsedInstructionFields, ParserRegistry},
     log_parser::{LogEntry, LogEntryWithDepth, parse_logs_by_instruction},
 };
-use sonar_sim::internals::ResolvedAccounts;
+use sonar_sim::ResolvedAccounts;
 
 use super::LogDisplayOptions;
 use super::fmt::{format_with_commas, truncate_display, truncate_sig};
