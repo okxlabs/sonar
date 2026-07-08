@@ -277,6 +277,9 @@ fn decode_clock_sysvar(
 }
 
 /// Decode a Rent sysvar account.
+// The deprecated fields are the sysvar's on-chain layout; this decoder
+// reports stored values, so the replacement computation APIs don't apply.
+#[allow(deprecated)]
 fn decode_rent_sysvar(
     account_pubkey: &Pubkey,
     account: &solana_account::Account,
