@@ -12,6 +12,12 @@ pub enum SonarSimError {
     #[error("RPC error: {reason}")]
     Rpc { reason: String },
 
+    /// The endpoint does not implement the Historical Accounts RPC method.
+    #[error(
+        "RPC endpoint does not support --at-slot. Use a Helius RPC endpoint with Historical Accounts support."
+    )]
+    HistoricalRpcUnsupported,
+
     /// Account not present in expected store (SVM, cache, resolved set).
     #[error("Account not found: {pubkey}")]
     AccountNotFound { pubkey: Pubkey },
@@ -53,6 +59,16 @@ pub enum SonarSimError {
     /// Unexpected internal failures.
     #[error("Internal error: {reason}")]
     Internal { reason: String },
+}
+
+impl SonarSimError {
+    /// Keep actionable endpoint errors concise while adding context to other failures.
+    pub(crate) fn with_context(self, wrap: impl FnOnce(Self) -> Self) -> Self {
+        match self {
+            Self::HistoricalRpcUnsupported => self,
+            error => wrap(error),
+        }
+    }
 }
 
 impl From<bincode::Error> for SonarSimError {

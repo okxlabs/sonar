@@ -43,14 +43,34 @@ pub(crate) fn handle(args: IdlArgs, json: bool) -> Result<()> {
 
 fn handle_fetch(args: IdlFetchArgs, json: bool) -> Result<()> {
     let program_ids = parse_program_ids(&args.programs)?;
-    let output_dir = resolve_output_dir(args.output_dir, None);
-    fetch_and_write_idls(program_ids, args.rpc.rpc_url, args.rpc.rpc_batch_size, output_dir, json)
+    let explicit_output = args.output_dir.is_some();
+    let mut output_dir = resolve_output_dir(args.output_dir, None);
+    if !explicit_output {
+        if let Some(slot) = args.historical_slot {
+            output_dir = output_dir.join("historical").join(slot.to_string());
+        }
+    }
+    fetch_and_write_idls(
+        program_ids,
+        args.rpc.rpc_url,
+        args.rpc.rpc_batch_size,
+        output_dir,
+        json,
+        args.historical_slot,
+    )
 }
 
 fn handle_sync(args: IdlSyncArgs, json: bool) -> Result<()> {
     let (program_ids, default_output_dir) = collect_program_ids_from_sync_path(&args.path)?;
     let output_dir = resolve_output_dir(args.output_dir, default_output_dir.as_deref());
-    fetch_and_write_idls(program_ids, args.rpc.rpc_url, args.rpc.rpc_batch_size, output_dir, json)
+    fetch_and_write_idls(
+        program_ids,
+        args.rpc.rpc_url,
+        args.rpc.rpc_batch_size,
+        output_dir,
+        json,
+        None,
+    )
 }
 
 fn handle_address(args: IdlAddressArgs, json: bool) -> Result<()> {
@@ -90,13 +110,15 @@ fn fetch_and_write_idls(
     rpc_batch_size: usize,
     output_dir: PathBuf,
     json: bool,
+    historical_slot: Option<u64>,
 ) -> Result<()> {
     fs::create_dir_all(&output_dir)
         .with_context(|| format!("Failed to create output directory: {}", output_dir.display()))?;
 
     let progress = Progress::new();
-    let fetcher = idl_fetcher::IdlFetcher::new(rpc_url, Some(progress.clone()))?
-        .with_rpc_batch_size(rpc_batch_size);
+    let fetcher =
+        idl_fetcher::IdlFetcher::new_at_slot(rpc_url, Some(progress.clone()), historical_slot)?
+            .with_rpc_batch_size(rpc_batch_size);
     let results = fetcher.fetch_idls(&program_ids);
     progress.finish();
 
@@ -146,7 +168,11 @@ fn fetch_and_write_idls(
                         status: IdlFetchStatus::Error,
                     });
                 }
-                log::error!("IDL fetch error for {}: {:#}", program_id, e);
+                log::error!(
+                    "IDL fetch error for {}: {}",
+                    program_id,
+                    crate::utils::format_error(e)
+                );
                 errors.push(program_id);
             }
         }

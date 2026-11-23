@@ -67,8 +67,8 @@ impl CliProgressObserver {
 impl sonar_sim::FetchObserver for CliProgressObserver {
     fn on_event(&self, event: &sonar_sim::FetchEvent) {
         if let sonar_sim::FetchEvent::RpcProgress { pubkey, current, total } = event {
-            self.progress
-                .set_message(format!("loading account {} ({}/{})", pubkey, current, total));
+            log::debug!("Loaded account {pubkey} ({current}/{total})");
+            self.progress.set_message(format!("loading account {pubkey} ({current}/{total})"));
         }
     }
 }

@@ -3,6 +3,36 @@ pub mod progress;
 
 use std::io::{IsTerminal, Read};
 
+/// Display endpoint capability failures without account-loading context.
+pub fn format_error(error: &anyhow::Error) -> String {
+    if let Some(sonar_sim::SonarSimError::HistoricalRpcUnsupported) =
+        error.downcast_ref::<sonar_sim::SonarSimError>()
+    {
+        sonar_sim::SonarSimError::HistoricalRpcUnsupported.to_string()
+    } else {
+        format!("{error:#}")
+    }
+}
+
+#[cfg(test)]
+mod error_tests {
+    use super::format_error;
+    use sonar_sim::SonarSimError;
+
+    #[test]
+    fn historical_capability_error_hides_outer_account_context() {
+        let error = anyhow::Error::from(SonarSimError::HistoricalRpcUnsupported)
+            .context("Failed to fetch account: example");
+        assert_eq!(format_error(&error), SonarSimError::HistoricalRpcUnsupported.to_string());
+    }
+
+    #[test]
+    fn other_errors_keep_their_context() {
+        let error = anyhow::anyhow!("Access denied").context("Failed to fetch account: example");
+        assert_eq!(format_error(&error), "Failed to fetch account: example: Access denied");
+    }
+}
+
 /// Read CLI input from a positional argument or stdin.
 ///
 /// Returns the trimmed, non-empty input string, or an error describing what

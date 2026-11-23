@@ -19,15 +19,19 @@ pub struct IdlFetcher {
 }
 
 impl IdlFetcher {
-    pub fn new(rpc_url: String, progress: Option<Progress>) -> Result<Self> {
+    pub fn new_at_slot(
+        rpc_url: String,
+        progress: Option<Progress>,
+        historical_slot: Option<u64>,
+    ) -> Result<Self> {
         if rpc_url.is_empty() {
             return Err(anyhow!("RPC URL cannot be empty"));
         }
-        Ok(Self {
-            provider: Arc::new(SolanaRpcProvider::new(rpc_url)),
-            progress,
-            rpc_batch_size: DEFAULT_RPC_BATCH_SIZE,
-        })
+        let mut provider = SolanaRpcProvider::new(rpc_url);
+        if let Some(slot) = historical_slot {
+            provider = provider.with_historical_slot(slot);
+        }
+        Ok(Self { provider: Arc::new(provider), progress, rpc_batch_size: DEFAULT_RPC_BATCH_SIZE })
     }
 
     pub fn with_provider(
@@ -77,7 +81,7 @@ impl IdlFetcher {
                 .iter()
                 .map(|chunk| {
                     let addrs: Vec<Pubkey> = chunk.iter().map(|(_, _, idl)| *idl).collect();
-                    self.provider.get_multiple_accounts(&addrs).map_err(|e| anyhow!("{e}"))
+                    self.provider.get_multiple_accounts(&addrs).map_err(anyhow::Error::from)
                 })
                 .collect()
         } else {
@@ -88,7 +92,7 @@ impl IdlFetcher {
                         let provider = Arc::clone(&self.provider);
                         let addrs: Vec<Pubkey> = chunk.iter().map(|(_, _, idl)| *idl).collect();
                         s.spawn(move || {
-                            provider.get_multiple_accounts(&addrs).map_err(|e| anyhow!("{e}"))
+                            provider.get_multiple_accounts(&addrs).map_err(anyhow::Error::from)
                         })
                     })
                     .collect();
@@ -214,8 +218,15 @@ fn process_idl_chunk(
         }
         Err(e) => {
             for &(idx, _, idl_addr) in chunk {
-                results[idx] =
-                    Some(Err(anyhow!("Failed to fetch IDL account {}: {}", idl_addr, e)));
+                let error = if matches!(
+                    e.downcast_ref::<sonar_sim::SonarSimError>(),
+                    Some(sonar_sim::SonarSimError::HistoricalRpcUnsupported)
+                ) {
+                    sonar_sim::SonarSimError::HistoricalRpcUnsupported.into()
+                } else {
+                    anyhow!("Failed to fetch IDL account {}: {}", idl_addr, e)
+                };
+                results[idx] = Some(Err(error));
             }
         }
     }

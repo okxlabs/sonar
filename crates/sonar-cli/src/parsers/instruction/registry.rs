@@ -31,9 +31,22 @@ pub struct ParserRegistry {
 impl ParserRegistry {
     /// Creates a new parser registry with default parsers
     pub fn new(idl_directory: Option<std::path::PathBuf>) -> Self {
+        Self::new_at_slot(idl_directory, None)
+    }
+
+    /// Keep default historical IDLs separate from current IDLs. An explicit
+    /// local directory remains a user-supplied override.
+    pub fn new_at_slot(idl_directory: Option<PathBuf>, historical_slot: Option<u64>) -> Self {
         let mut registry = Self {
             parsers: HashMap::new(),
-            idl_directory: idl_directory.or_else(default_idl_cache_dir),
+            idl_directory: idl_directory.or_else(|| {
+                default_idl_cache_dir().map(|dir| {
+                    historical_slot.map_or_else(
+                        || dir.clone(),
+                        |slot| dir.join("historical").join(slot.to_string()),
+                    )
+                })
+            }),
             idl_address_index: OnceCell::new(),
         };
 
@@ -217,6 +230,16 @@ mod tests {
 
     use crate::core::transaction::{AccountReferenceSummary, AccountSourceSummary};
     use sonar_idl::IdlValue;
+
+    #[test]
+    fn historical_idl_cache_is_separate_unless_explicitly_overridden() {
+        let registry = ParserRegistry::new_at_slot(None, Some(100));
+        let expected = default_idl_cache_dir().map(|dir| dir.join("historical").join("100"));
+        assert_eq!(registry.idl_directory(), expected.as_deref());
+        let explicit = PathBuf::from("/local/idl-overrides");
+        let registry = ParserRegistry::new_at_slot(Some(explicit.clone()), Some(100));
+        assert_eq!(registry.idl_directory(), Some(explicit.as_path()));
+    }
 
     #[test]
     fn test_token2022_parser_registration() {

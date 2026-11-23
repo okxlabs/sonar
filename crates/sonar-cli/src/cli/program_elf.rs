@@ -14,6 +14,10 @@ pub struct ProgramDataArgs {
     #[command(flatten)]
     pub rpc: RpcArgs,
 
+    /// Read account state at the end of this slot (Helius RPC required)
+    #[arg(long = "at-slot", value_name = "SLOT")]
+    pub historical_slot: Option<u64>,
+
     /// Verify the program data matches the expected SHA256 hash (hex string)
     #[arg(long, value_name = "HASH")]
     pub verify_sha256: Option<String>,

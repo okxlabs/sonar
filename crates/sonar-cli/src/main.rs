@@ -25,7 +25,7 @@ fn main() {
     if let Err(err) = run() {
         // Use alternate Display format ({:#}) for user-friendly single-line error chain
         // instead of Debug format ({:?}) which outputs the full anyhow backtrace
-        errln!("Error: {err:#}");
+        errln!("Error: {}", utils::format_error(&err));
         std::process::exit(1);
     }
 }
@@ -132,6 +132,7 @@ fn run() -> Result<()> {
 ///   debug/trace include the module target for developers.
 fn init_logger() {
     env_logger::Builder::new()
+        .target(env_logger::Target::Pipe(Box::new(utils::progress::ProgressWriter)))
         .filter_level(log::LevelFilter::Warn)
         .parse_default_env()
         .format(|buf, record| {

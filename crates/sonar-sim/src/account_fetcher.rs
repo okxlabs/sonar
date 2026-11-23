@@ -1,6 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
-    sync::Arc,
+    sync::{Arc, Mutex},
 };
 
 use log::{debug, trace};
@@ -178,31 +178,57 @@ impl AccountFetcher {
 
         // Fetch all batches in parallel when multiple chunks are needed.
         // Single-batch case avoids thread overhead.
-        let batch_results: Vec<Result<Vec<Option<AccountSharedData>>>> = if chunks.len() <= 1 {
-            chunks.iter().map(|&chunk| self.provider.get_multiple_accounts(chunk)).collect()
-        } else {
-            let provider = &self.provider;
-            std::thread::scope(|s| {
-                let handles: Vec<_> = chunks
+        let batch_results: Vec<Result<Vec<Option<AccountSharedData>>>> = {
+            // Batches can finish in parallel. Serialize notifications so the
+            // displayed count always increases, while RPC calls remain parallel.
+            let completed = Mutex::new(0usize);
+            let on_account = |pubkey: &Pubkey| {
+                let mut current = completed.lock().unwrap();
+                *current += 1;
+                self.notify(FetchEvent::RpcProgress {
+                    pubkey: *pubkey,
+                    current: *current,
+                    total: total_count,
+                });
+            };
+            if chunks.len() <= 1 {
+                chunks
                     .iter()
                     .map(|&chunk| {
-                        let provider = Arc::clone(provider);
-                        s.spawn(move || provider.get_multiple_accounts(chunk))
+                        self.provider.get_multiple_accounts_with_progress(chunk, &on_account)
                     })
-                    .collect();
-                handles.into_iter().map(|h| h.join().expect("RPC batch thread panicked")).collect()
-            })
+                    .collect()
+            } else {
+                let provider = &self.provider;
+                std::thread::scope(|s| {
+                    let handles: Vec<_> = chunks
+                        .iter()
+                        .map(|&chunk| {
+                            let provider = Arc::clone(provider);
+                            let on_account = &on_account;
+                            s.spawn(move || {
+                                provider.get_multiple_accounts_with_progress(chunk, on_account)
+                            })
+                        })
+                        .collect();
+                    handles
+                        .into_iter()
+                        .map(|h| h.join().expect("RPC batch thread panicked"))
+                        .collect()
+                })
+            }
         };
 
         // Process results and update caches
-        let mut requested_count = 0usize;
         let mut fetched_count = 0usize;
         for (&chunk, result) in chunks.iter().zip(batch_results) {
-            let response = result.map_err(|e| SonarSimError::Rpc {
-                reason: format!(
-                    "getMultipleAccounts call failed, account list: [{}]: {e}",
-                    format_pubkeys(chunk)
-                ),
+            let response = result.map_err(|e| {
+                e.with_context(|e| SonarSimError::Rpc {
+                    reason: format!(
+                        "getMultipleAccounts call failed, account list: [{}]: {e}",
+                        format_pubkeys(chunk)
+                    ),
+                })
             })?;
 
             if response.len() != chunk.len() {
@@ -216,12 +242,6 @@ impl AccountFetcher {
             }
 
             for (pubkey, maybe_account) in chunk.iter().zip(response) {
-                requested_count += 1;
-                self.notify(FetchEvent::RpcProgress {
-                    pubkey: *pubkey,
-                    current: requested_count,
-                    total: total_count,
-                });
                 if let Some(account) = maybe_account {
                     destination.insert(*pubkey, account.clone());
                     self.cache.insert(*pubkey, account);
@@ -531,6 +551,66 @@ mod tests {
         assert!(matches!(
             recorded.last(),
             Some(FetchEvent::RpcFinished { requested: 2, fetched: 2, missing: 0 })
+        ));
+    }
+
+    #[test]
+    fn fetcher_progress_is_live_and_not_repeated_after_fetch() {
+        struct RecordingObserver {
+            events: Arc<Mutex<Vec<FetchEvent>>>,
+        }
+        impl FetchObserver for RecordingObserver {
+            fn on_event(&self, event: &FetchEvent) {
+                self.events.lock().unwrap().push(event.clone());
+            }
+        }
+        struct ProgressProvider {
+            events: Arc<Mutex<Vec<FetchEvent>>>,
+        }
+        impl RpcAccountProvider for ProgressProvider {
+            fn get_multiple_accounts(
+                &self,
+                _: &[Pubkey],
+            ) -> Result<Vec<Option<AccountSharedData>>> {
+                panic!("fetcher should use the progress-aware method");
+            }
+            fn get_multiple_accounts_with_progress(
+                &self,
+                pubkeys: &[Pubkey],
+                on_account: &(dyn Fn(&Pubkey) + Sync),
+            ) -> Result<Vec<Option<AccountSharedData>>> {
+                for key in pubkeys {
+                    on_account(key);
+                    // The fetch observer must see progress before this call returns.
+                    assert!(self.events.lock().unwrap().iter().any(|event| {
+                        matches!(event, FetchEvent::RpcProgress { pubkey, .. } if pubkey == key)
+                    }));
+                }
+                Ok(vec![None; pubkeys.len()])
+            }
+        }
+        let keys: Vec<_> = (0..5).map(|_| Pubkey::new_unique()).collect();
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let mut fetcher =
+            AccountFetcher::with_provider(Arc::new(ProgressProvider { events: events.clone() }))
+                .with_observer(Arc::new(RecordingObserver { events: events.clone() }))
+                .with_rpc_batch_size(2);
+        fetcher.fetch_accounts(&keys, &mut HashMap::new()).unwrap();
+        let events = events.lock().unwrap();
+        let counts: Vec<_> = events
+            .iter()
+            .filter_map(|event| match event {
+                FetchEvent::RpcProgress { current, total, .. } => {
+                    assert_eq!(*total, keys.len());
+                    Some(*current)
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(counts, vec![1, 2, 3, 4, 5]);
+        assert!(matches!(
+            events.last(),
+            Some(FetchEvent::RpcFinished { requested: 5, fetched: 0, missing: 5 })
         ));
     }
 

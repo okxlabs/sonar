@@ -19,6 +19,41 @@ sonar account <PUBKEY> --rpc-url <RPC_URL> --idl-dir /path/to/idls
 
 Decoded types: BPF upgradeable, Address Lookup Table, SPL Token/Token-2022, Anchor IDL; optional Metaplex metadata enrichment.
 
+## Historical Account Queries
+
+Use `--at-slot <SLOT>` with a Helius RPC endpoint that supports Historical Accounts:
+
+```bash
+sonar account <PUBKEY> --at-slot 469732029 --rpc-url <HELIUS_RPC_URL>
+sonar account <PUBKEY> --at-slot 469732029 --rpc-url <HELIUS_RPC_URL> --raw
+sonar program-elf <PROGRAM_ID> --at-slot 469732029 --rpc-url <HELIUS_RPC_URL> -o old.so
+sonar idl fetch <PROGRAM_ID> --at-slot 469732029 --rpc-url <HELIUS_RPC_URL> -o ./old-idls
+```
+
+- Queries return account state at the **end of the slot**.
+- Historical reads use `clamp(logical cores × 2, 4, 16)` concurrent requests
+  and at most 80 requests/second, shared across historical providers and batches
+  in one process. Fallback and retry requests count toward the same limits.
+  `RUST_LOG=debug` shows the selected concurrency.
+- `account` requires a pubkey in historical mode; file/stdin input is rejected.
+  Metadata and on-chain IDL requests use the same slot. Explicit local IDLs
+  remain user overrides.
+- `program-elf` reads both Program and ProgramData at the selected slot.
+  Direct ProgramData/Buffer input and hash verification also support this option.
+- `idl fetch` reads the historical on-chain IDL, not a historical off-chain IDL.
+  A missing account remains not found; no current IDL is substituted.
+  Without `-o`, output goes under `historical/<SLOT>/` within the normal
+  output directory, so current IDLs are not overwritten.
+- An endpoint that does not implement Historical Accounts returns a concise
+  error explaining that `--at-slot` needs a Helius endpoint with this feature.
+  This does not trigger current-state fallback.
+- When the API explicitly reports that account history is not tracked,
+  Sonar reads current state and warns. Other RPC failures remain errors.
+  A historical `null` is not replaced with current state.
+- Unlike simulation, account inspection does not construct Clock or use VM
+  SlotHashes defaults: unsupported Sysvars use current-state fallback.
+- `idl sync`, `idl address`, `replay`, and `send` do not accept this option.
+
 ## PDA
 
 Derive a Program Derived Address from seeds:

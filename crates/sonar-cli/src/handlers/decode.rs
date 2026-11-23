@@ -11,7 +11,7 @@ use super::pipeline_prep::{CachePrepareArgs, ExecParams, TxSource, prepare_bundl
 
 pub(crate) fn handle(args: DecodeArgs, json: bool) -> Result<()> {
     let idl_dir = args.idl_dir.clone();
-    let mut parser_registry = ParserRegistry::new(idl_dir);
+    let mut parser_registry = ParserRegistry::new_at_slot(idl_dir, args.historical_slot);
     let progress = Progress::new();
 
     let DecodeArgs {
@@ -23,6 +23,7 @@ pub(crate) fn handle(args: DecodeArgs, json: bool) -> Result<()> {
         no_cache,
         cache_dir,
         refresh_cache,
+        historical_slot,
     } = args;
     let rpc_batch_size = rpc.rpc_batch_size;
     let rpc_url = rpc.rpc_url;
@@ -35,7 +36,7 @@ pub(crate) fn handle(args: DecodeArgs, json: bool) -> Result<()> {
 
     let cache_args = CachePrepareArgs {
         rpc_url: &rpc_url,
-        cache_enabled: !no_cache,
+        cache_enabled: !no_cache && historical_slot.is_none(),
         cache_dir: &cache_dir,
         refresh_cache,
         no_idl_fetch,
@@ -48,7 +49,7 @@ pub(crate) fn handle(args: DecodeArgs, json: bool) -> Result<()> {
         TxSource::Raw(tx),
         resolver_cache_location,
         &cache_args,
-        ExecParams::default(),
+        ExecParams { historical_slot, ..ExecParams::default() },
         Mutations::default(),
         &mut parser_registry,
         &progress,

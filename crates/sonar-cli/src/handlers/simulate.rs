@@ -177,6 +177,7 @@ pub(crate) fn handle(args: SimulateArgs, json: bool) -> Result<()> {
         show_ix_detail,
         timestamp,
         slot,
+        historical_slot,
         data_patches: data_patch_args,
         account_closures: account_closure_args,
         cache,
@@ -193,7 +194,7 @@ pub(crate) fn handle(args: SimulateArgs, json: bool) -> Result<()> {
     let rpc_batch_size = rpc.rpc_batch_size;
     let rpc_url = rpc.rpc_url;
     let resolver_cache_location = Some(build_cache_location(&cache_dir));
-    let mut parser_registry = ParserRegistry::new(idl_dir);
+    let mut parser_registry = ParserRegistry::new_at_slot(idl_dir, historical_slot);
     log::debug!("Created parser registry with lazy IDL loading support");
 
     let TransactionInputArgs { tx } = transaction;
@@ -262,7 +263,7 @@ pub(crate) fn handle(args: SimulateArgs, json: bool) -> Result<()> {
         log_opts: output::LogDisplayOptions { raw_log },
     };
 
-    let exec = ExecParams { verify_signatures, slot, timestamp };
+    let exec = ExecParams { verify_signatures, slot, historical_slot, timestamp };
     let cache_args = CachePrepareArgs {
         rpc_url: &rpc_url,
         cache_enabled: cache,

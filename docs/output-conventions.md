@@ -16,6 +16,16 @@
 
 When `--json` is used, **stdout always contains a single valid JSON document** (object or array). Diagnostics remain on stderr so that `jq` pipelines work without filtering. Note: `program-elf` and `completions` do not support `--json`.
 
+## Progress
+
+Progress is shown only when stderr is a terminal. Account loading displays
+`loading account <PUBKEY> (18/49)`; historical reads update after each resolved
+account, including missing accounts. The count restarts for each account-loading
+stage.
+
+Diagnostics clear the progress line before printing, then restore the progress
+display. Redirected stderr contains diagnostics only, with no spinner output.
+
 ## Diagnostic Levels
 
 Sonar routes all diagnostics through the `log` crate (backend: `env_logger`).

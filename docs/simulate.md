@@ -31,6 +31,53 @@ sonar simulate <TX> --rpc-url <RPC_URL> -b -d
 sonar simulate <TX> --rpc-url <RPC_URL> --json
 ```
 
+### Historical Slot Simulation
+
+Use a Helius RPC endpoint that supports `getHistoricalAccountInfo`:
+
+```bash
+sonar simulate <TX_OR_SIGNATURE> --at-slot 460000000 \
+  --rpc-url <HELIUS_RPC_URL> -b
+```
+
+Sonar loads accounts at the **end of the specified slot**, then executes locally
+with the VM clock set to that slot. The same historical provider loads address
+lookup tables, program data, mints, and accounts required by funding mutations.
+Raw transactions, signatures, instruction inputs, and bundles are supported.
+A bundle starts from one historical snapshot and executes in sequence.
+
+- `--slot` still changes only the VM clock; it does not load historical accounts.
+- `--at-slot` cannot be combined with `--slot`, `--cache`,
+  `--cache-dir`, or `--refresh-cache`. Historical accounts are not written to
+  the current-state account cache.
+- If Helius explicitly reports `account history is not tracked` (for example,
+  for Vote accounts), Sonar fetches the account's current state and warns with
+  its address. This mixes historical and current state and can change results.
+  A historical `null` is kept as missing; it does not trigger fallback.
+  Other RPC errors, or failure to fetch the current state, stop preparation.
+- Helius does not track Sysvar history. Sonar constructs Clock from
+  `getBlockTime` and `getEpochSchedule`; unavailable block times cause an error.
+  `--timestamp` can override the constructed clock timestamp.
+- Historical SlotHashes is not reconstructed. Sonar warns and uses LiteSVM
+  defaults. Transactions that depend on historical slot hashes can differ.
+  Other explicitly requested sysvars whose history is not tracked use current
+  state with the same warning.
+- Account/program overrides and funding options still apply after loading.
+- Historical accounts load concurrently. The limit is twice the detected logical
+  core count, with a minimum of 4 and a maximum of 16 (4 if detection fails).
+  All historical providers and batches in one process share this concurrency
+  limit and an 80 requests/second limit. Retries, current-state fallback, and
+  Clock helper requests use the same limits. Ordinary current-state queries
+  are unchanged. Use `RUST_LOG=debug` to see the selected concurrency.
+  Separate Sonar processes do not share these limits; the RPC proxy or a shared
+  API key can have additional limits.
+- Available history and access depend on the Helius endpoint and plan.
+
+This is a historical account-state simulation, not an exact replay of a
+transaction's original position. It starts after all transactions in the chosen
+slot. LiteSVM uses its bundled runtime and built-in programs, not the historical
+validator version or feature set.
+
 ### Transaction Formats
 
 `legacy`, `v0`, and `v1` (SIMD-0385) transactions are all accepted in Base58 or
@@ -307,6 +354,25 @@ cat ./transaction.txt | sonar decode --rpc-url <RPC_URL>
 # Always print raw instruction data, even when parser succeeds
 sonar decode <TX> --rpc-url <RPC_URL> --raw-ix-data
 ```
+
+### Historical Decode
+
+```bash
+sonar decode <TX_OR_SIGNATURE> --at-slot 469732029 --rpc-url <HELIUS_RPC_URL>
+```
+
+Historical decode loads ALT, Mint, program, and on-chain IDL accounts at the
+end of the selected slot. It does not execute the transaction. Bundles and
+stdin transaction input are supported.
+
+Account caching is disabled automatically; `--cache-dir` and `--refresh-cache`
+cannot be combined with this option. Cached raw transaction bytes may still
+be reused because the transaction itself does not change with the selected slot.
+Historical simulation and decode keep default IDLs in
+`~/.sonar/idls/historical/<SLOT>/`, separate from current IDLs. An explicit
+`--idl-dir` (including environment/config settings) remains a local override.
+
+The historical query limitations and fallback warnings described above also apply.
 
 ### Decode Cache Controls
 

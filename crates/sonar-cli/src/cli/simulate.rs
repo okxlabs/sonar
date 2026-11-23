@@ -225,6 +225,14 @@ pub struct SimulateArgs {
     /// Override the simulation slot
     #[arg(short = 's', long = "slot", help_heading = HELP_HEADING_SIMULATION_CONTROLS, value_name = "SLOT")]
     pub slot: Option<u64>,
+    /// Load historical accounts at the end of this slot and simulate there (Helius RPC required)
+    #[arg(
+        long = "at-slot",
+        help_heading = HELP_HEADING_SIMULATION_CONTROLS,
+        value_name = "SLOT",
+        conflicts_with_all = ["slot", "cache", "cache_dir", "refresh_cache"]
+    )]
+    pub historical_slot: Option<u64>,
     /// Verify transaction signatures
     #[arg(long = "check-sig", help_heading = HELP_HEADING_SIMULATION_CONTROLS, env = "SONAR_VERIFY_SIGNATURES")]
     pub verify_signatures: bool,
@@ -582,6 +590,23 @@ mod tests {
     use crate::cli::{Cli, Commands};
     use clap::Parser;
     use std::sync::Mutex;
+
+    #[test]
+    fn historical_slot_cli_parses_and_rejects_incompatible_flags() {
+        let parsed = Cli::try_parse_from(["sonar", "simulate", "TX", "--at-slot", "100"]).unwrap();
+        let Some(Commands::Simulate(args)) = parsed.command else { panic!("expected simulate") };
+        assert_eq!(args.historical_slot, Some(100));
+        for extra in [
+            vec!["--slot", "200"],
+            vec!["--cache"],
+            vec!["--cache-dir", "/tmp/sonar-history"],
+            vec!["--refresh-cache"],
+        ] {
+            let mut args = vec!["sonar", "simulate", "TX", "--at-slot", "100"];
+            args.extend(extra);
+            assert!(Cli::try_parse_from(args).is_err());
+        }
+    }
 
     static ENV_LOCK: Mutex<()> = Mutex::new(());
 
