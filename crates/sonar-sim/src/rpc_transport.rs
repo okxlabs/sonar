@@ -22,13 +22,18 @@ const DEFAULT_RETRY_DELAY: Duration = Duration::from_secs(2);
 pub struct RpcTransport {
     agent: ureq::Agent,
     rpc_url: String,
+    historical_limits: bool,
 }
 
 impl RpcTransport {
     pub fn new(rpc_url: impl Into<String>) -> Self {
         let agent =
             ureq::Agent::config_builder().timeout_global(Some(RPC_TIMEOUT)).build().new_agent();
-        Self { rpc_url: rpc_url.into(), agent }
+        Self { rpc_url: rpc_url.into(), agent, historical_limits: false }
+    }
+
+    pub(crate) fn enable_historical_limits(&mut self) {
+        self.historical_limits = true;
     }
 
     /// Send a JSON-RPC request with automatic retry on transient HTTP errors.
@@ -46,6 +51,9 @@ impl RpcTransport {
 
         let mut last_err = None;
         for attempt in 0..=MAX_RETRIES {
+            // Include retries and current-state fallback in the same process-wide
+            // limits. Hold the permit until the response body has been read.
+            let permit = self.historical_limits.then(crate::historical_rpc::acquire);
             match self.agent.post(&self.rpc_url).send_json(&body) {
                 Ok(mut response) => {
                     let rpc: JsonRpcResponse<T> = response
@@ -58,6 +66,10 @@ impl RpcTransport {
                         })?;
 
                     if let Some(err) = rpc.error {
+                        if method == "getHistoricalAccountInfo" && err.code == -32601 {
+                            log::debug!("Historical Accounts RPC unavailable: {err}");
+                            return Err(SonarSimError::HistoricalRpcUnsupported);
+                        }
                         return Err(SonarSimError::Rpc { reason: err.to_string() });
                     }
                     return rpc
@@ -75,6 +87,7 @@ impl RpcTransport {
                         attempt + 1,
                         MAX_RETRIES,
                     );
+                    drop(permit);
                     thread::sleep(delay);
                     last_err = Some(SonarSimError::Rpc { reason: format!("HTTP {status_code}") });
                 }

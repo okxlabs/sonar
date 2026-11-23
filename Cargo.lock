@@ -4421,7 +4421,7 @@ dependencies = [
 
 [[package]]
 name = "sonar"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "anyhow",
  "assert_cmd",
@@ -4508,6 +4508,7 @@ dependencies = [
  "solana-account",
  "solana-address-lookup-table-interface",
  "solana-clock",
+ "solana-epoch-schedule",
  "solana-hash 4.5.0",
  "solana-instruction",
  "solana-keypair",

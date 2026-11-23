@@ -38,6 +38,9 @@ pub struct IdlFetchArgs {
     /// Program IDs to fetch IDLs for
     #[arg(value_name = "PUBKEY", required = true)]
     pub programs: Vec<String>,
+    /// Fetch on-chain IDLs at the end of this slot (Helius RPC required)
+    #[arg(long = "at-slot", value_name = "SLOT")]
+    pub historical_slot: Option<u64>,
     #[command(flatten)]
     pub rpc: RpcArgs,
     /// Output directory for IDL files

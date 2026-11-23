@@ -23,6 +23,13 @@ use crate::{
 };
 
 pub(crate) fn handle(args: AccountArgs, json: bool) -> Result<()> {
+    if args.historical_slot.is_some() {
+        anyhow::ensure!(
+            args.account.as_deref().is_some_and(|input| Pubkey::from_str(input).is_ok()),
+            "--at-slot requires an account pubkey, not a file or stdin"
+        );
+    }
+    let client = RpcClient::new_at_slot(&args.rpc.rpc_url, args.historical_slot);
     let (pubkey_str, account_pubkey, account) = match &args.account {
         Some(input) if input == "-" => load_account_json(std::io::stdin().lock())?,
         Some(input) => {
@@ -34,7 +41,6 @@ pub(crate) fn handle(args: AccountArgs, json: bool) -> Result<()> {
             } else {
                 let pk = Pubkey::from_str(input)
                     .with_context(|| format!("Invalid account pubkey: {input}"))?;
-                let client = RpcClient::new(&args.rpc.rpc_url);
                 let acct = client
                     .get_account(&pk)
                     .with_context(|| format!("Failed to fetch account: {pk}"))?;
@@ -57,8 +63,6 @@ pub(crate) fn handle(args: AccountArgs, json: bool) -> Result<()> {
         print_raw_account_data(&account);
         return Ok(());
     }
-
-    let client = RpcClient::new(&args.rpc.rpc_url);
 
     let (mut output, account_type, metadata_output) =
         decode_account_output(&args, &client, &account_pubkey, &account, json)?;
@@ -197,7 +201,12 @@ fn decode_account_output(
     // IDL decode + fallback — depends on args and has complex fallback paths.
     let owner = account.owner;
     let idl_json = try_load_idl_from_dir(&args.idl_dir, &owner).or_else(|| {
-        let fetcher = idl_fetcher::IdlFetcher::new(args.rpc.rpc_url.clone(), None).ok()?;
+        let fetcher = idl_fetcher::IdlFetcher::new_at_slot(
+            args.rpc.rpc_url.clone(),
+            None,
+            args.historical_slot,
+        )
+        .ok()?;
         fetcher.fetch_idl(&owner).ok().flatten()
     });
 

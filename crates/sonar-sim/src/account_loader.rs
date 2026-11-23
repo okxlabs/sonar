@@ -103,12 +103,12 @@ impl AccountLoader {
         let mut accounts = HashMap::with_capacity(initial.len());
 
         self.fetcher.fetch_accounts(&initial, &mut accounts).map_err(|e| {
-            SonarSimError::AccountData {
+            e.with_context(|e| SonarSimError::AccountData {
                 pubkey: None,
                 reason: format!(
                     "Failed to fetch initial accounts (static + sysvars + lookups): {e}"
                 ),
-            }
+            })
         })?;
         self.resolve_all_dependencies(&mut accounts)?;
 
@@ -116,13 +116,13 @@ impl AccountLoader {
 
         if !lookup_pubkeys.is_empty() {
             self.fetcher.fetch_accounts(&lookup_pubkeys, &mut accounts).map_err(|e| {
-                SonarSimError::AccountData {
+                e.with_context(|e| SonarSimError::AccountData {
                     pubkey: None,
                     reason: format!(
                         "Failed to load accounts from address lookup tables: [{}]: {e}",
                         format_pubkeys(&lookup_pubkeys)
                     ),
-                }
+                })
             })?;
             self.resolve_all_dependencies(&mut accounts)?;
         }
@@ -165,13 +165,13 @@ impl AccountLoader {
             return Ok(());
         }
         self.fetcher.fetch_accounts(pubkeys, &mut resolved.accounts).map_err(|e| {
-            SonarSimError::AccountData {
+            e.with_context(|e| SonarSimError::AccountData {
                 pubkey: None,
                 reason: format!(
                     "Failed to fetch appended accounts: [{}]: {e}",
                     format_pubkeys(pubkeys)
                 ),
-            }
+            })
         })?;
         self.resolve_all_dependencies(&mut resolved.accounts)?;
         Ok(())
@@ -218,13 +218,13 @@ impl AccountLoader {
             }
 
             self.fetcher.fetch_accounts(&newly_attemptable, accounts).map_err(|e| {
-                SonarSimError::AccountData {
+                e.with_context(|e| SonarSimError::AccountData {
                     pubkey: None,
                     reason: format!(
                         "Failed to fetch dependency accounts: [{}]: {e}",
                         format_pubkeys(&newly_attemptable)
                     ),
-                }
+                })
             })?;
         }
 
@@ -237,13 +237,13 @@ impl AccountLoader {
         accounts: &mut HashMap<Pubkey, AccountSharedData>,
     ) -> Result<ResolvedLookup> {
         self.fetcher.fetch_accounts(&[plan.account_key], accounts).map_err(|e| {
-            SonarSimError::LookupTable {
+            e.with_context(|e| SonarSimError::LookupTable {
                 table: Some(plan.account_key),
                 reason: format!(
                     "Failed to fetch address lookup table account `{}`: {e}",
                     plan.account_key
                 ),
-            }
+            })
         })?;
 
         let table_account =
@@ -368,6 +368,25 @@ mod tests {
     use crate::test_utils::{create_transfer_tx, make_token_account_shared, system_account};
     use solana_keypair::Keypair;
     use solana_signer::Signer;
+
+    #[test]
+    fn unsupported_historical_rpc_passes_through_loading_context() {
+        struct UnsupportedProvider;
+        impl RpcAccountProvider for UnsupportedProvider {
+            fn get_multiple_accounts(
+                &self,
+                _: &[Pubkey],
+            ) -> Result<Vec<Option<AccountSharedData>>> {
+                Err(SonarSimError::HistoricalRpcUnsupported)
+            }
+        }
+        let tx = create_transfer_tx(&Keypair::new(), &Pubkey::new_unique(), 1);
+        let mut loader = AccountLoader::with_provider(Arc::new(UnsupportedProvider));
+        assert!(matches!(
+            loader.load_for_transaction(&tx),
+            Err(SonarSimError::HistoricalRpcUnsupported)
+        ));
+    }
 
     #[test]
     fn loader_returns_accounts_from_provider() {

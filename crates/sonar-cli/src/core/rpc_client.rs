@@ -14,10 +14,12 @@ use solana_transaction_status_client_types::{
 
 use sonar_sim::internals::RpcTransport;
 use sonar_sim::internals::rpc_json::{RpcAccountInfo, RpcResultValue};
+use sonar_sim::{RpcAccountProvider, SolanaRpcProvider};
 
 /// Lightweight Solana JSON-RPC client backed by [`RpcTransport`].
 pub struct RpcClient {
     transport: RpcTransport,
+    historical_provider: Option<SolanaRpcProvider>,
 }
 
 #[derive(Deserialize)]
@@ -66,7 +68,14 @@ pub struct RpcTransactionResponse {
 
 impl RpcClient {
     pub fn new(rpc_url: impl Into<String>) -> Self {
-        Self { transport: RpcTransport::new(rpc_url) }
+        Self::new_at_slot(rpc_url, None)
+    }
+
+    pub fn new_at_slot(rpc_url: impl Into<String>, historical_slot: Option<u64>) -> Self {
+        let rpc_url = rpc_url.into();
+        let historical_provider = historical_slot
+            .map(|slot| SolanaRpcProvider::new(rpc_url.clone()).with_historical_slot(slot));
+        Self { transport: RpcTransport::new(rpc_url), historical_provider }
     }
 
     /// Convenience wrapper that converts [`sonar_sim::SonarSimError`] → [`anyhow::Error`].
@@ -79,6 +88,14 @@ impl RpcClient {
     }
 
     pub fn get_account(&self, pubkey: &Pubkey) -> Result<Account> {
+        if self.historical_provider.is_some() {
+            return self
+                .get_multiple_accounts(&[*pubkey])?
+                .into_iter()
+                .next()
+                .flatten()
+                .ok_or_else(|| anyhow!("AccountNotFound: {pubkey}"));
+        }
         let result: RpcResultValue<Option<RpcAccountInfo>> = self.call(
             "getAccountInfo",
             serde_json::json!([pubkey.to_string(), {"encoding": "base64"}]),
@@ -91,6 +108,13 @@ impl RpcClient {
     }
 
     pub fn get_multiple_accounts(&self, pubkeys: &[Pubkey]) -> Result<Vec<Option<Account>>> {
+        if let Some(provider) = &self.historical_provider {
+            return Ok(provider
+                .get_multiple_accounts(pubkeys)?
+                .into_iter()
+                .map(|account| account.map(Account::from))
+                .collect());
+        }
         let keys: Vec<String> = pubkeys.iter().map(|k| k.to_string()).collect();
         let result: RpcResultValue<Vec<Option<RpcAccountInfo>>> =
             self.call("getMultipleAccounts", serde_json::json!([keys, {"encoding": "base64"}]))?;
@@ -106,6 +130,10 @@ impl RpcClient {
         pubkey: &Pubkey,
         commitment: CommitmentConfig,
     ) -> Result<RpcResponse<Option<Account>>> {
+        if self.historical_provider.is_some() {
+            let value = self.get_multiple_accounts(&[*pubkey])?.into_iter().next().flatten();
+            return Ok(RpcResponse { value });
+        }
         let result: RpcResultValue<Option<RpcAccountInfo>> = self.call(
             "getAccountInfo",
             serde_json::json!([

@@ -16,6 +16,10 @@ pub struct AccountArgs {
     #[command(flatten)]
     pub rpc: RpcArgs,
 
+    /// Read account state at the end of this slot (Helius RPC required)
+    #[arg(long = "at-slot", value_name = "SLOT")]
+    pub historical_slot: Option<u64>,
+
     /// Local IDL directory. IDL files are matched by filename
     /// (`<PROGRAM_ID>.json`) or by the `address` field declared inside them, so
     /// arbitrarily-named files work too. Falls back to fetching from chain if

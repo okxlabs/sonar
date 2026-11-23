@@ -64,6 +64,7 @@ pub(crate) struct PipelineMeta {
 pub(crate) struct ExecParams {
     pub verify_signatures: bool,
     pub slot: Option<u64>,
+    pub historical_slot: Option<u64>,
     pub timestamp: Option<i64>,
 }
 
@@ -71,7 +72,7 @@ impl ExecParams {
     /// Apply these settings to a freshly-created [`Pipeline`].
     fn configure(self, mut pipeline: Pipeline) -> Pipeline {
         pipeline = pipeline.verify_signatures(self.verify_signatures);
-        if let Some(slot) = self.slot {
+        if let Some(slot) = self.historical_slot.or(self.slot) {
             pipeline = pipeline.slot(slot);
         }
         if let Some(ts) = self.timestamp {
@@ -112,7 +113,12 @@ fn resolve_and_loader(
     resolver_cache_location: Option<CacheLocation>,
     cache_args: &CachePrepareArgs,
     progress: &Progress,
+    historical_slot: Option<u64>,
 ) -> Result<(Vec<transaction::ResolvedTxInput>, Option<PathBuf>, bool, sonar_sim::AccountLoader)> {
+    anyhow::ensure!(
+        historical_slot.is_none() || !cache_args.cache_enabled,
+        "--at-slot cannot be used with account caching"
+    );
     let (resolved_txs, cache_key) =
         resolve_inputs(source, resolver_cache_location, cache_args, progress)?;
     let (cache_dir, offline) = crate::core::cache::resolve_cache_state(
@@ -122,13 +128,27 @@ fn resolve_and_loader(
         &cache_key,
     );
     let cache_read_dir_for_load = cache_read_dir(cache_dir.clone(), cache_args.refresh_cache);
-    let loader = account_loader::create_loader(
-        cache_args.rpc_url.to_string(),
-        cache_read_dir_for_load,
-        offline,
-        Some(progress.clone()),
-        cache_args.rpc_batch_size,
-    )?;
+    let loader = if let Some(slot) = historical_slot {
+        anyhow::ensure!(
+            !cache_args.rpc_url.is_empty(),
+            "Historical simulation requires an RPC URL"
+        );
+        sonar_sim::AccountLoader::with_provider(Arc::new(
+            sonar_sim::SolanaRpcProvider::new(cache_args.rpc_url.to_string())
+                .with_historical_slot(slot)
+                .with_simulation_sysvars(),
+        ))
+        .with_rpc_batch_size(cache_args.rpc_batch_size)
+        .with_observer(Arc::new(account_loader::CliProgressObserver::new(progress.clone())))
+    } else {
+        account_loader::create_loader(
+            cache_args.rpc_url.to_string(),
+            cache_read_dir_for_load,
+            offline,
+            Some(progress.clone()),
+            cache_args.rpc_batch_size,
+        )?
+    };
     Ok((resolved_txs, cache_dir, offline, loader))
 }
 
@@ -153,8 +173,13 @@ pub(crate) fn prepare_single(
     parser_registry: &mut ParserRegistry,
     progress: &Progress,
 ) -> Result<(sonar_sim::PreparedPipeline, PipelineMeta)> {
-    let (resolved_txs, cache_dir, offline, loader) =
-        resolve_and_loader(source, resolver_cache_location, cache_args, progress)?;
+    let (resolved_txs, cache_dir, offline, loader) = resolve_and_loader(
+        source,
+        resolver_cache_location,
+        cache_args,
+        progress,
+        exec.historical_slot,
+    )?;
     let resolved = resolved_txs.into_iter().next().context("expected one resolved transaction")?;
     let origin = into_origin(&resolved);
 
@@ -189,8 +214,13 @@ pub(crate) fn prepare_bundle(
     parser_registry: &mut ParserRegistry,
     progress: &Progress,
 ) -> Result<(sonar_sim::PreparedBundlePipeline, PipelineMeta)> {
-    let (resolved_txs, cache_dir, offline, loader) =
-        resolve_and_loader(source, resolver_cache_location, cache_args, progress)?;
+    let (resolved_txs, cache_dir, offline, loader) = resolve_and_loader(
+        source,
+        resolver_cache_location,
+        cache_args,
+        progress,
+        exec.historical_slot,
+    )?;
     let origins: Vec<TxOrigin> = resolved_txs.iter().map(into_origin).collect();
     let raw: Vec<String> = resolved_txs.into_iter().map(|r| r.raw_tx_base64).collect();
     let raw_refs: Vec<&str> = raw.iter().map(String::as_str).collect();

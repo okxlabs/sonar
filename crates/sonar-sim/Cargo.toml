@@ -22,6 +22,7 @@ solana-address-lookup-table-interface.workspace = true
 serde_json.workspace = true
 ureq.workspace = true
 solana-clock.workspace = true
+solana-epoch-schedule = { workspace = true, features = ["serde"] }
 solana-hash.workspace = true
 solana-instruction.workspace = true
 solana-loader-v3-interface.workspace = true

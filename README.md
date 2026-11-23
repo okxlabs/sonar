@@ -24,6 +24,9 @@ cargo build --release
 # Simulate a transaction locally
 sonar simulate <BASE58_OR_BASE64_TX> --rpc-url https://api.mainnet-beta.solana.com
 
+# Simulate from historical end-of-slot accounts (Helius RPC required)
+sonar simulate <TX> --at-slot 460000000 --rpc-url <HELIUS_RPC_URL>
+
 # Or fetch by signature (auto-detected)
 sonar simulate <SIGNATURE> --rpc-url https://api.mainnet-beta.solana.com
 
@@ -34,6 +37,13 @@ sonar simulate --payer <PUBKEY> \
 # Decode an account
 sonar account <PUBKEY> --rpc-url https://api.mainnet-beta.solana.com
 ```
+
+`--at-slot <SLOT>` supports `simulate`, `decode`, `account`, `program-elf`,
+and `idl fetch` with a Helius RPC endpoint. Accounts whose history is not tracked
+use current state with a warning. See [limitations](docs/simulate.md#historical-slot-simulation)
+and [historical inspection](docs/commands.md#historical-account-queries).
+Historical reads use 4–16 concurrent requests based on logical core count,
+with an 80 requests/second limit shared within the process.
 
 ## Command reference
 

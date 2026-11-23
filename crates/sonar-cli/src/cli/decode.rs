@@ -13,6 +13,9 @@ pub struct DecodeArgs {
     pub transaction: TransactionInputArgs,
     #[command(flatten)]
     pub rpc: RpcArgs,
+    /// Decode using end-of-slot accounts; disables account caching (Helius RPC required)
+    #[arg(long = "at-slot", value_name = "SLOT", conflicts_with_all = ["cache_dir", "refresh_cache"])]
+    pub historical_slot: Option<u64>,
     /// Always print raw instruction data, even when parser succeeds
     #[arg(long = "raw-ix-data", env = "SONAR_RAW_IX_DATA")]
     pub ix_data: bool,

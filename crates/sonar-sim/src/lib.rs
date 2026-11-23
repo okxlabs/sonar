@@ -14,6 +14,7 @@ pub(crate) mod account_loader;
 pub(crate) mod balance_changes;
 pub(crate) mod executor;
 pub(crate) mod funding;
+mod historical_rpc;
 pub(crate) mod known_programs;
 pub mod mutations;
 pub(crate) mod pipeline;

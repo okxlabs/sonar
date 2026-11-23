@@ -25,7 +25,7 @@ pub(crate) fn handle(args: ProgramDataArgs) -> Result<()> {
     let address = Pubkey::from_str(&args.address)
         .with_context(|| format!("Invalid address: {}", args.address))?;
 
-    let client = RpcClient::new(&args.rpc.rpc_url);
+    let client = RpcClient::new_at_slot(&args.rpc.rpc_url, args.historical_slot);
     let input_account = client
         .get_account(&address)
         .with_context(|| format!("Failed to fetch account: {address}"))?;
