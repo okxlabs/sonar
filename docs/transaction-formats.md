@@ -69,6 +69,10 @@ Signatures ([u8; 64] x num_required_signatures, no length prefix)
   Sonar rebuilds the v1 view afterwards, so reported size and config stay
   consistent with what was executed. As for every format, mutating invalidates
   signatures.
+- **Building.** `write-buffer` builds, signs, and sends its own v1
+  transactions, setting the compute unit limit and loaded accounts data size
+  limit explicitly and packing several loader `Write` instructions into each one
+  (see [Write Buffer](commands.md#write-buffer)).
 - **Bundles.** v1 and legacy/v0 transactions can be mixed in one bundle. When any
   transaction in a batch is v1, the VM cannot verify the v1 signature, so Sonar
   performs every signature check for that batch instead.

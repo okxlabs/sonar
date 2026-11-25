@@ -115,6 +115,7 @@ fn run() -> Result<()> {
         Commands::Pda(args) => handlers::pda::handle(args, json)?,
         Commands::ProgramData(args) => handlers::program_elf::handle(args)?,
         Commands::Send(args) => handlers::send::handle(args, json)?,
+        Commands::WriteBuffer(args) => handlers::write_buffer::handle(args, json)?,
         Commands::Config(args) => handlers::config::handle(args, json)?,
         Commands::Completions(args) => {
             handlers::completions::handle(args);

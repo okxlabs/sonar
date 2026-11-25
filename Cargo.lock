@@ -4437,6 +4437,7 @@ dependencies = [
  "hex",
  "indicatif",
  "insta",
+ "litesvm",
  "log",
  "num-bigint 0.4.6",
  "serde",

@@ -12,3 +12,4 @@ pub(crate) mod program_elf;
 pub(crate) mod replay;
 pub(crate) mod send;
 pub(crate) mod simulate;
+pub(crate) mod write_buffer;
