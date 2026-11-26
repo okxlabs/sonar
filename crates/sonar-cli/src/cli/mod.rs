@@ -12,6 +12,7 @@ mod program_elf;
 mod replay;
 mod send;
 mod simulate;
+mod write_buffer;
 
 // Re-export all public types from submodules
 pub use account::*;
@@ -26,6 +27,7 @@ pub use program_elf::*;
 pub use replay::*;
 pub use send::*;
 pub use simulate::*;
+pub use write_buffer::*;
 
 use clap::{Args, Parser, Subcommand};
 
@@ -103,6 +105,11 @@ pub enum Commands {
     /// Broadcasts to RPC and mutates on-chain state; the transaction must already be signed (sonar does not sign).
     #[command(next_line_help = true)]
     Send(SendArgs),
+    /// Write a program ELF into a buffer account using v1 transactions
+    ///
+    /// Like `solana program write-buffer`, but every transaction uses the v1 format (SIMD-0385). Its 4096-byte limit (legacy: 1232) carries three full-size Write instructions per transaction, so a program needs about a quarter of the transactions.
+    #[command(name = "write-buffer", next_line_help = true)]
+    WriteBuffer(WriteBufferArgs),
     /// Generate shell completion scripts
     #[command(next_line_help = true)]
     Completions(CompletionsArgs),

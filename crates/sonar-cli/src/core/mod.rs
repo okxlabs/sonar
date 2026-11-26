@@ -6,3 +6,4 @@ pub mod idl_dir;
 pub mod idl_fetcher;
 pub mod rpc_client;
 pub mod transaction;
+pub mod v1_sender;

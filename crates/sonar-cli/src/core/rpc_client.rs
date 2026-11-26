@@ -6,6 +6,7 @@ use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use serde::Deserialize;
 use solana_account::Account;
 use solana_commitment_config::{CommitmentConfig, CommitmentLevel};
+use solana_hash::Hash;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_transaction_status_client_types::{
@@ -31,10 +32,24 @@ pub struct RpcResponse<T> {
 // Config types (minimal replacements for solana-rpc-client-api)
 // ---------------------------------------------------------------------------
 
-#[derive(Default)]
+#[derive(Default, Clone, Copy)]
 pub struct SendTransactionConfig {
     pub skip_preflight: bool,
     pub preflight_commitment: Option<CommitmentConfig>,
+}
+
+/// `getLatestBlockhash` result.
+#[derive(Debug, Clone, Copy)]
+pub struct LatestBlockhash {
+    pub blockhash: Hash,
+    pub last_valid_block_height: u64,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RpcLatestBlockhash {
+    blockhash: String,
+    last_valid_block_height: u64,
 }
 
 pub struct GetTransactionConfig {
@@ -169,6 +184,36 @@ impl RpcClient {
         let tx_base64 = BASE64_STANDARD.encode(tx_bytes);
         let sig_str: String = self.call("sendTransaction", serde_json::json!([tx_base64, opts]))?;
         Signature::from_str(&sig_str).map_err(|e| anyhow!("Invalid signature: {e}"))
+    }
+
+    /// Latest blockhash and the last block height at which it is still valid.
+    pub fn get_latest_blockhash(&self, commitment: CommitmentConfig) -> Result<LatestBlockhash> {
+        let result: RpcResultValue<RpcLatestBlockhash> = self.call(
+            "getLatestBlockhash",
+            serde_json::json!([{"commitment": commitment_str(commitment)}]),
+        )?;
+        let blockhash = Hash::from_str(&result.value.blockhash)
+            .map_err(|e| anyhow!("Invalid blockhash from RPC: {e}"))?;
+        Ok(LatestBlockhash {
+            blockhash,
+            last_valid_block_height: result.value.last_valid_block_height,
+        })
+    }
+
+    pub fn get_block_height(&self, commitment: CommitmentConfig) -> Result<u64> {
+        self.call("getBlockHeight", serde_json::json!([{"commitment": commitment_str(commitment)}]))
+    }
+
+    pub fn get_minimum_balance_for_rent_exemption(&self, data_len: usize) -> Result<u64> {
+        self.call("getMinimumBalanceForRentExemption", serde_json::json!([data_len]))
+    }
+
+    pub fn get_balance(&self, pubkey: &Pubkey, commitment: CommitmentConfig) -> Result<u64> {
+        let result: RpcResultValue<u64> = self.call(
+            "getBalance",
+            serde_json::json!([pubkey.to_string(), {"commitment": commitment_str(commitment)}]),
+        )?;
+        Ok(result.value)
     }
 
     pub fn get_signature_statuses(

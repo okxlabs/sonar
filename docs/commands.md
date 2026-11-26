@@ -1,4 +1,4 @@
-# Account, PDA, Program ELF, IDL, Send
+# Account, PDA, Program ELF, IDL, Send, Write Buffer
 
 ## Account
 
@@ -132,3 +132,61 @@ sonar send <SIGNED_TX> --rpc-url <RPC_URL> --wait
 # Wait with custom commitment/timeout
 sonar send <SIGNED_TX> --rpc-url <RPC_URL> --wait --wait-commitment finalized --wait-timeout-secs 60
 ```
+
+## Write Buffer
+
+Upload a program ELF into a BPF Loader Upgradeable buffer account, ready for a
+later deploy or upgrade. Behaves like `solana program write-buffer`, but every
+transaction uses the [v1 format](transaction-formats.md#v1-simd-0385) (SIMD-0385).
+
+```bash
+# Create a buffer (fresh keypair) and write the program; prints `Buffer: <ADDRESS>`
+sonar write-buffer target/deploy/my_program.so --rpc-url https://api.devnet.solana.com
+
+# Choose the buffer keypair and a separate buffer authority
+sonar write-buffer program.so --buffer buffer-keypair.json --buffer-authority authority.json
+
+# Resume an interrupted write: only chunks that differ on-chain are rewritten
+sonar write-buffer program.so --buffer <BUFFER_ADDRESS>
+
+# Reserve room for a larger future program, and pay a priority fee
+sonar write-buffer program.so --max-len 400000 --priority-fee 10000
+```
+
+Why v1 is faster: a v1 transaction may be 4096 bytes instead of legacy's 1232.
+The loader still caps each instruction's data at 1232 bytes, so one `Write`
+carries at most 1216 program bytes in either format, but a v1 transaction holds
+three full `Write` instructions (about 3.6 KB) where a legacy transaction holds
+one (about 1 KB). A program therefore needs roughly a quarter of the
+transactions, which are sent in parallel and confirmed together.
+
+| Option | Default | Meaning |
+|--------|---------|---------|
+| `-k, --keypair` | `~/.config/solana/id.json` (`SONAR_KEYPAIR`) | Default signer: fee payer and buffer authority unless overridden |
+| `--fee-payer` | `--keypair` | Fee payer keypair file |
+| `--buffer` | new keypair | Buffer keypair file, or the address of an existing buffer to resume |
+| `--buffer-authority` | `--keypair` | Buffer authority keypair file |
+| `--max-len` | program size | Program data capacity of a new buffer |
+| `--priority-fee` | none | Total priority fee per transaction, in lamports (v1 header field) |
+| `--with-compute-unit-price` | none | Compute unit price in micro-lamports, converted to the v1 total priority fee |
+| `--compute-unit-limit` | `10000` | Compute unit limit per transaction (each `Write` costs 2,370) |
+| `--max-sign-attempts` | `5` | Times unconfirmed transactions are re-signed after their blockhash expires |
+| `--skip-fee-check` | off | Send even if the fee payer balance looks too low |
+
+Notes:
+
+- The buffer is created and initialized first; writes start only once that
+  transaction is confirmed. An existing buffer must be owned by the loader, have
+  the given authority, and be large enough for the program; its rent is topped up
+  if it fell below the rent-exempt minimum.
+- If a run fails part-way, the error names the buffer address; rerun with
+  `--buffer <ADDRESS>` and the authority to finish (the buffer keypair is not
+  needed once the account exists).
+- v1 header fields default to their minimum, so every transaction sets the
+  compute unit limit and a loaded accounts data size limit sized to the buffer.
+- The RPC node must accept v1 transactions (SIMD-0385 active on the cluster).
+- The file must start with the ELF magic; full SBF verification is left to the
+  deploy step, which the loader performs on-chain.
+- `--json` prints `buffer`, `buffer_authority`, `program_len`, `max_len`,
+  `created`, `chunk_size`, `write_instructions`, `write_transactions`, and
+  `skipped_chunks`.

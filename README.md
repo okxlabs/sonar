@@ -7,7 +7,7 @@ A CLI for local Solana transaction simulation (LiteSVM) plus developer utilities
 - Override programs/accounts, fund SOL or tokens, patch data
 - Store accounts once, replay without hitting RPC
 - Serialize/deserialize Borsh with a type descriptor DSL
-- Decode, convert, derive PDAs, inspect accounts, pull program ELF, send transactions
+- Decode, convert, derive PDAs, inspect accounts, pull program ELF, send transactions, write program buffers
 
 ## Installation
 
@@ -56,6 +56,7 @@ with an 80 requests/second limit shared within the process.
 | `program-elf` | Raw ELF bytes from upgradeable program/buffer accounts |
 | `idl` | Fetch/sync Anchor IDLs or derive an IDL account address |
 | `send` | Submit a signed transaction to the network |
+| `write-buffer` | Upload a program ELF into a buffer account with v1 transactions (like `solana program write-buffer`) |
 | `borsh` | Serialize JSON to Borsh bytes or deserialize Borsh bytes to JSON |
 | `convert` | Format conversion |
 | `pda` | Derive a PDA from seeds |
@@ -67,7 +68,7 @@ with an 80 requests/second limit shared within the process.
 
 - [Simulate & Decode](docs/simulate.md): full usage, overrides, funding, patching, cache
 - [Transaction Formats](docs/transaction-formats.md): legacy / v0 / v1 parsing, v1 wire format and config
-- [Account, PDA, Program ELF, IDL, Send](docs/commands.md): per-command reference
+- [Account, PDA, Program ELF, IDL, Send, Write Buffer](docs/commands.md): per-command reference
 - [Borsh](docs/borsh.md): serialization/deserialization with type descriptor DSL
 - [Convert](docs/convert.md): format conversion reference
 - [Configuration](docs/configuration.md): config file, cache, completions
