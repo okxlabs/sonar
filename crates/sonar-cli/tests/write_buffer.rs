@@ -275,6 +275,21 @@ fn writes_the_whole_program_into_a_new_buffer_with_v1_transactions() {
     assert_eq!(report["buffer"], buffer.pubkey().to_string());
     assert_eq!(report["buffer_authority"], fixture.payer.pubkey().to_string());
     assert_eq!(report["created"], true);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(stderr.lines().next().unwrap(), format!("Buffer: {}", buffer.pubkey()));
+    assert!(stderr.contains("Fetching buffer account"), "{stderr}");
+    assert!(stderr.contains("Creating buffer: sending 1 transaction(s)"), "{stderr}");
+    assert!(stderr.contains("Writing buffer: sending 3 transaction(s)"), "{stderr}");
+    for sent in 1..=3 {
+        assert!(
+            stderr.contains(&format!("Writing buffer: submitted {sent}/3 transaction(s)")),
+            "{stderr}"
+        );
+    }
+    assert!(stderr.contains("Writing buffer: 3/3 transactions confirmed (100%)"), "{stderr}");
+    assert!(!stderr.contains('\u{1b}'), "non-terminal progress must not use ANSI escapes");
+
+    assert!(report["elapsed_secs"].as_f64().unwrap() > 0.0);
     assert_eq!(report["program_len"], 10_000);
     assert_eq!(report["chunk_size"], CHUNK_SIZE);
     assert_eq!(report["write_instructions"], 10_000usize.div_ceil(CHUNK_SIZE));
@@ -326,12 +341,25 @@ fn resumes_an_existing_buffer_rewriting_only_changed_chunks() {
     let authority = Keypair::new();
     let authority_file = fixture.keypair_file("authority.json", &authority);
 
-    // Text output prints the buffer address on stdout; a fresh keypair is generated.
+    // The buffer address is printed once on stderr before upload; stdout has elapsed time.
     let output = fixture.run(&["--buffer-authority", authority_file.to_str().unwrap()]);
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    let address: Pubkey = stderr
+        .lines()
+        .next()
+        .unwrap()
+        .strip_prefix("Buffer: ")
+        .expect("Buffer: line")
+        .parse()
+        .unwrap();
+    assert_eq!(stderr.lines().filter(|line| line.starts_with("Buffer: ")).count(), 1);
     let stdout = String::from_utf8(output.stdout).unwrap();
-    let address: Pubkey =
-        stdout.trim().strip_prefix("Buffer: ").expect("Buffer: line").parse().unwrap();
+    assert!(!stdout.contains("Buffer:"));
+    let mut lines = stdout.lines();
+    let elapsed = lines.next().unwrap().strip_prefix("Elapsed: ").expect("Elapsed: line");
+    assert!(elapsed.strip_suffix('s').unwrap().parse::<f64>().unwrap() > 0.0);
+    assert!(lines.next().is_none());
     assert_eq!(buffer_authority(&fixture.buffer(&address)), Some(authority.pubkey()));
     fixture.sent();
 
@@ -393,6 +421,8 @@ fn refuses_to_create_a_buffer_from_an_address_or_without_funds() {
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("insufficient funds"), "{stderr}");
+    let address = stderr.lines().next().unwrap().strip_prefix("Buffer: ").unwrap();
+    assert!(address.parse::<Pubkey>().is_ok(), "{stderr}");
     assert!(fixture.sent().is_empty());
 }
 

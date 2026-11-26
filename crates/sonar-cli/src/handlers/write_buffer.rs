@@ -22,6 +22,7 @@
 
 use std::path::Path;
 use std::str::FromStr;
+use std::time::Instant;
 
 use anyhow::{Context, Result, anyhow, bail};
 use serde::Serialize;
@@ -77,6 +78,7 @@ struct WriteBufferOutput {
     write_instructions: usize,
     write_transactions: usize,
     skipped_chunks: usize,
+    elapsed_secs: f64,
 }
 
 /// The `--buffer` argument: a keypair can create the buffer, an address can
@@ -106,6 +108,7 @@ impl BufferTarget {
 }
 
 pub(crate) fn handle(args: WriteBufferArgs, json: bool) -> Result<()> {
+    let started = Instant::now();
     let program = read_program(&args.program)?;
     let program_len = program.len();
     let max_len = args.max_len.unwrap_or(program_len);
@@ -136,10 +139,13 @@ pub(crate) fn handle(args: WriteBufferArgs, json: bool) -> Result<()> {
         .expect("default signer is loaded when --buffer-authority is absent");
     let buffer = BufferTarget::resolve(args.buffer.as_deref())?;
     let buffer_address = buffer.pubkey();
+    // Keep the address available even if account preparation or upload is interrupted.
+    // Print before the progress UI starts so the line is not cleared with the spinner.
+    errln!("Buffer: {buffer_address}");
 
     let client = RpcClient::new(&args.rpc.rpc_url);
     let commitment = CommitmentConfig::confirmed();
-    let progress = Progress::new();
+    let progress = Progress::with_stderr_fallback();
     progress.set_message(format!("Fetching buffer account {buffer_address}..."));
 
     let existing = client
@@ -262,6 +268,7 @@ pub(crate) fn handle(args: WriteBufferArgs, json: bool) -> Result<()> {
                  to resume (chunks already written are skipped)"
             )
         })?;
+    let elapsed_secs = started.elapsed().as_secs_f64();
     progress.finish();
 
     if json {
@@ -275,19 +282,10 @@ pub(crate) fn handle(args: WriteBufferArgs, json: bool) -> Result<()> {
             write_instructions: write_instruction_count,
             write_transactions: writes.len(),
             skipped_chunks,
+            elapsed_secs,
         })?;
     } else {
-        outln!("Buffer: {buffer_address}");
-        errln!(
-            "Wrote {program_len} bytes with {write_instruction_count} write(s) of up to \
-             {chunk_size} bytes in {} v1 transaction(s){}",
-            writes.len(),
-            if skipped_chunks > 0 {
-                format!(" ({skipped_chunks} chunk(s) already up to date)")
-            } else {
-                String::new()
-            }
-        );
+        outln!("Elapsed: {elapsed_secs:.2}s");
     }
     Ok(())
 }
