@@ -7,6 +7,7 @@
 //! blockhash, up to a bounded number of sign attempts. A transaction that lands
 //! with an error aborts the batch.
 
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, anyhow, bail};
@@ -125,6 +126,11 @@ pub fn send_and_confirm(
         if pending.is_empty() {
             break;
         }
+        progress.set_message(format!(
+            "{label}: preparing {} transaction(s) (attempt {attempt}/{})",
+            pending.len(),
+            options.max_sign_attempts
+        ));
         let latest = client
             .get_latest_blockhash(options.commitment)
             .context("Failed to fetch latest blockhash")?;
@@ -158,8 +164,13 @@ pub fn send_and_confirm(
             signed.len(),
             options.max_sign_attempts
         ));
-        let send_errors =
-            send_all(client, &signed, send_config(options.skip_preflight, options.commitment));
+        let send_errors = send_all(
+            client,
+            &signed,
+            send_config(options.skip_preflight, options.commitment),
+            progress,
+            label,
+        );
         if send_errors.len() == signed.len() {
             // Nothing was accepted: the node is rejecting the transactions
             // themselves, and waiting for the blockhash to expire cannot help.
@@ -200,7 +211,10 @@ pub fn send_and_confirm(
                 }
             }
             unconfirmed = still_pending;
-            progress.set_message(format!("{label}: {confirmed}/{total} transactions confirmed"));
+            progress.set_message(format!(
+                "{label}: {confirmed}/{total} transactions confirmed ({}%)",
+                confirmed * 100 / total
+            ));
             if unconfirmed.is_empty() {
                 break;
             }
@@ -216,9 +230,19 @@ pub fn send_and_confirm(
                 break;
             }
             if last_send.elapsed() >= RESEND_INTERVAL {
+                progress.set_message(format!(
+                    "{label}: resending {} unconfirmed transaction(s)",
+                    unconfirmed.len()
+                ));
                 let resend: Vec<SignedTransaction> =
                     unconfirmed.iter().map(|tx| (*tx).clone()).collect();
-                for err in send_all(client, &resend, send_config(true, options.commitment)) {
+                for err in send_all(
+                    client,
+                    &resend,
+                    send_config(true, options.commitment),
+                    progress,
+                    label,
+                ) {
                     log::debug!("Resend failed: {err:#}");
                 }
                 last_send = Instant::now();
@@ -260,11 +284,15 @@ fn send_all(
     client: &RpcClient,
     transactions: &[SignedTransaction],
     config: SendTransactionConfig,
+    progress: &Progress,
+    label: &str,
 ) -> Vec<anyhow::Error> {
     if transactions.is_empty() {
         return Vec::new();
     }
     let per_worker = transactions.len().div_ceil(SEND_CONCURRENCY);
+    let completed = Mutex::new((0usize, 0usize));
+    let completed = &completed;
     std::thread::scope(|scope| {
         let workers: Vec<_> = transactions
             .chunks(per_worker)
@@ -273,10 +301,19 @@ fn send_all(
                     chunk
                         .iter()
                         .filter_map(|tx| {
-                            client
+                            let result = client
                                 .send_transaction_with_config(&tx.wire, config)
-                                .with_context(|| format!("transaction {}", tx.signature))
-                                .err()
+                                .with_context(|| format!("transaction {}", tx.signature));
+                            let mut counts = completed.lock().unwrap();
+                            counts.0 += 1;
+                            counts.1 += usize::from(result.is_ok());
+                            progress.set_message(format!(
+                                "{label}: submitted {}/{} transaction(s), {} accepted by RPC",
+                                counts.0,
+                                transactions.len(),
+                                counts.1
+                            ));
+                            result.err()
                         })
                         .collect::<Vec<_>>()
                 })

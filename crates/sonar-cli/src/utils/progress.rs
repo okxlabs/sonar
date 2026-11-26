@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 use std::io::{self, IsTerminal, Write};
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock, Mutex};
 use std::time::Duration;
 
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
@@ -29,6 +29,7 @@ impl Write for ProgressWriter {
 #[derive(Clone)]
 pub struct Progress {
     bar: ProgressBar,
+    plain_message: Option<Arc<Mutex<Option<String>>>>,
 }
 
 impl Progress {
@@ -45,11 +46,28 @@ impl Progress {
             ProgressBar::hidden()
         };
 
-        Self { bar }
+        Self { bar, plain_message: None }
+    }
+
+    /// Keep progress visible in logs and pipes, without terminal control codes.
+    pub fn with_stderr_fallback() -> Self {
+        let mut progress = Self::new();
+        if progress.bar.is_hidden() {
+            progress.plain_message = Some(Arc::new(Mutex::new(None)));
+        }
+        progress
     }
 
     pub fn set_message(&self, msg: impl Into<Cow<'static, str>>) {
-        self.bar.set_message(msg.into());
+        let msg = msg.into();
+        if let Some(previous) = &self.plain_message {
+            let mut previous = previous.lock().unwrap();
+            if previous.as_deref() != Some(msg.as_ref()) {
+                let _ = writeln!(ProgressWriter, "{msg}");
+                *previous = Some(msg.to_string());
+            }
+        }
+        self.bar.set_message(msg);
         // Force an immediate redraw so short-lived stages are still visible.
         self.bar.tick();
     }

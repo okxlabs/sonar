@@ -64,6 +64,12 @@ with an 80 requests/second limit shared within the process.
 | `cache` | List, clean, or inspect cached account data |
 | `completions` | Generate shell completion scripts |
 
+`write-buffer` prints the buffer address on stderr before any RPC request or transaction,
+then reports upload stages and confirmed transaction counts.
+Progress remains visible in pipes and logs. The final result includes elapsed time
+from the start of command processing through transaction confirmation (`Elapsed: 12.34s`).
+`--json` keeps stdout as JSON only and includes `elapsed_secs`.
+
 ## Documentation
 
 - [Simulate & Decode](docs/simulate.md): full usage, overrides, funding, patching, cache

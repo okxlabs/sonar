@@ -189,4 +189,4 @@ Notes:
   deploy step, which the loader performs on-chain.
 - `--json` prints `buffer`, `buffer_authority`, `program_len`, `max_len`,
   `created`, `chunk_size`, `write_instructions`, `write_transactions`, and
-  `skipped_chunks`.
+  `skipped_chunks`, and `elapsed_secs`.
